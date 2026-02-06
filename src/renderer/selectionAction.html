@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="SciPen Studio - Selection Action Window" />
+    <title>划词助手</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      /* 透明背景 */
+      html, body {
+        margin: 0;
+        padding: 0;
+        background-color: transparent;
+        overflow: hidden;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      }
+      /* 防止拖拽时选中文本 */
+      body {
+        user-select: none;
+        -webkit-user-select: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="selection-action-root"></div>
+    <script type="module" src="./src/windows/SelectionActionEntry.tsx"></script>
+  </body>
+</html>

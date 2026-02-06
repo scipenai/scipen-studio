@@ -1,0 +1,22 @@
+# Source files
+src/
+tests/
+*.md
+!README.md
+
+# Config files
+tsconfig.json
+.gitignore
+.npmignore
+
+# Git
+.git/
+.github/
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+*.log
+

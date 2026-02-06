@@ -1,0 +1,105 @@
+﻿# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+dist-electron/
+release/
+out/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.local
+
+# TypeScript
+*.tsbuildinfo
+
+# Test
+coverage/
+.vitest/
+
+# Cache
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+.turbo/
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# LaTeX auxiliary files
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.out
+*.toc
+*.synctex.gz
+*.synctex(busy)
+
+# Knowledge base (local storage)
+KnowledgeBase/
+
+# Electron builder
+*.blockmap
+*.asar
+*.unpacked/
+
+# LSP binaries (downloaded at runtime via scripts)
+resources/bin/texlab
+resources/bin/texlab.exe
+resources/bin/tinymist
+resources/bin/tinymist.exe
+resources/bin/*.dll
+!resources/bin/README.md
+
+# CLI tools build outputs
+cli_tools/*/dist/
+cli_tools/*/node_modules/
+cli_tools/*/*.tsbuildinfo
+cli_tools/*/pnpm-lock.yaml
+
+# Package archives
+*.tgz
+
+# AI/Dev tools
+.claude/
+.cursorrules
+
+# Playwright test artifacts
+playwright-report/
+test-results/
+
+# Temporary diff files
+temp_*.txt

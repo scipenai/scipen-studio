@@ -1,0 +1,60 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "typescript", "import"],
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2024": true
+  },
+  "globals": {
+    "NodeJS": "readonly"
+  },
+  "rules": {
+    "no-unused-vars": "warn",
+    "no-console": ["warn", { "allow": ["warn", "error", "info", "debug", "log"] }],
+    "no-control-regex": "off",
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "no-var": "error",
+    "prefer-const": "error",
+    "no-empty": ["error", { "allowEmptyCatch": true }],
+    "no-debugger": "error",
+    "no-duplicate-imports": "off",
+
+    "react/jsx-key": "error",
+    "react/no-array-index-key": "warn",
+    "react/jsx-no-duplicate-props": "error",
+    "react/jsx-no-undef": "error",
+    "react/no-children-prop": "error",
+    "react/no-danger-with-children": "error",
+    "react/no-direct-mutation-state": "error",
+    "react/exhaustive-deps": "warn",
+
+    "typescript/no-explicit-any": "warn",
+    "typescript/no-non-null-assertion": "off",
+    "typescript/no-unused-vars": "warn",
+    "typescript/no-this-alias": "off",
+
+    "import/no-duplicates": "off"
+  },
+  "settings": {
+    "react": {
+      "version": "19.0"
+    }
+  },
+  "ignorePatterns": [
+    "node_modules",
+    "out",
+    "dist",
+    "release",
+    "cli_tools",
+    "scripts",
+    "tests",
+    "src/main/workers",
+    "src/renderer/src/workers",
+    "*.d.ts",
+    "*.js",
+    "*.cjs",
+    "*.mjs"
+  ]
+}
+

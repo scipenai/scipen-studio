@@ -1,0 +1,106 @@
+// @see - https://www.electron.build/configuration/configuration
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.scipen.studio",
+  "icon": "resources/icon.png",
+  "asar": true,
+  "asarUnpack": [
+    "node_modules/better-sqlite3/**/*",
+    "node_modules/@napi-rs/canvas/**/*",
+    "node_modules/pdfjs-dist/**/*",
+    "node_modules/bindings/**/*",
+    "node_modules/file-uri-to-path/**/*"
+  ],
+  "productName": "SciPen Studio",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "out",
+    "node_modules/better-sqlite3/**/*",
+    "node_modules/@napi-rs/canvas/**/*",
+    "node_modules/pdfjs-dist/**/*",
+    "node_modules/bindings/**/*",
+    "node_modules/file-uri-to-path/**/*"
+  ],
+  "extraResources": [
+    // 应用图标
+    {
+      "from": "resources/icon.png",
+      "to": "icon.png"
+    },
+    {
+      "from": "node_modules/better-sqlite3/build",
+      "to": "better-sqlite3/build",
+      "filter": ["**/*"]
+    },
+    // LSP 二进制文件 (tinymist, texlab)
+    // 用户需要将对应平台的二进制文件放到 resources/bin/ 目录
+    {
+      "from": "resources/bin",
+      "to": "bin",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "cli_tools/scipen_pdf2tex/dist",
+      "to": "cli/scipen-pdf2tex",
+      "filter": ["**/*.js", "**/*.json"]
+    },
+    {
+      "from": "cli_tools/scipen-reviewer/dist",
+      "to": "cli/scipen-reviewer",
+      "filter": ["**/*.js", "**/*.json", "**/templates/**/*.typ", "**/*.wasm", "**/*.mjs", "**/vendor/**/*"]
+    },
+    {
+      "from": "cli_tools/scipen-beamer/dist",
+      "to": "cli/scipen-beamer",
+      "filter": ["**/*.js", "**/*.json", "**/*.wasm", "**/*.mjs", "**/vendor/**/*"]
+    }
+  ],
+  "mac": {
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "artifactName": "${productName}-Mac-${version}-${arch}.${ext}",
+    "category": "public.app-category.productivity",
+    "identity": null
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64"]
+      }
+    ],
+    "artifactName": "${productName}-Windows-${version}.${ext}",
+    "signAndEditExecutable": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "deleteAppDataOnUninstall": false,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+  },
+  "linux": {
+    "target": [
+      "AppImage",
+      "deb"
+    ],
+    "artifactName": "${productName}-Linux-${version}.${ext}",
+    "category": "Office"
+  }
+}
+

@@ -1,0 +1,40 @@
+{
+  "name": "scipen-pdf2tex",
+  "version": "0.0.1",
+  "description": "Convert PDF to LaTeX using VLM (Vision Language Models)",
+  "main": "dist/index.js",
+  "bin": {
+    "scipen-pdf2tex": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "keywords": [
+    "pdf",
+    "latex",
+    "converter",
+    "cli",
+    "vlm",
+    "vision"
+  ],
+  "author": "SciPen Team",
+  "license": "MIT",
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.80",
+    "axios": "^1.6.2",
+    "chalk": "^4.1.2",
+    "commander": "^11.1.0",
+    "js-yaml": "^4.1.0",
+    "ora": "^5.4.1",
+    "pdfjs-dist": "^4.0.379"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.10.5",
+    "esbuild": "^0.27.2",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

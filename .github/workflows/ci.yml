@@ -1,0 +1,232 @@
+# SciPen Studio - CI/CD Pipeline
+#
+# This workflow runs on every push and pull request to ensure code quality.
+# It includes:
+# - Multi-platform testing (Ubuntu, Windows, macOS)
+# - Linting and type checking
+# - Unit tests
+# - Build verification
+#
+# Best Practices:
+# - Uses npm for dependency management
+# - Caches dependencies to speed up builds
+# - Matrix strategy for cross-platform testing
+# - Fail-fast disabled to see all platform results
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# Cancel in-progress runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Skip CLI tool builds in CI (they require separate pnpm workspaces)
+  SKIP_CLI_BUILD: 'true'
+  # Skip LSP download in CI (not needed for unit tests)
+  SKIP_LSP_DOWNLOAD: 'true'
+
+jobs:
+  # ============ Quality Gate ============
+  quality:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (OxLint)
+        run: npm run lint:check
+
+      - name: Format Check (Biome)
+        run: npm run format:check
+
+      - name: Type Check (TypeScript)
+        run: npm run typecheck:all
+
+  # ============ Unit Tests ============
+  test:
+    name: Test (${{ matrix.os }})
+    needs: quality
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Native modules (better-sqlite3, hnswlib-node) require rebuild
+      - name: Rebuild native modules
+        run: npm run rebuild:native
+        continue-on-error: true
+
+      - name: Run Unit Tests
+        run: npm run test:run
+        env:
+          # Prevent Electron from opening windows
+          DISPLAY: ':99'
+
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest'
+        uses: codecov/codecov-action@v4
+        with:
+          fail_ci_if_error: false
+        continue-on-error: true
+
+  # ============ Build Check ============
+  build:
+    name: Build (${{ matrix.os }})
+    needs: quality
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Skip native rebuild on build check (it's just checking compilation)
+      - name: Build Workers
+        run: npm run build:workers
+
+      - name: Build Application (electron-vite)
+        run: npx electron-vite build
+        env:
+          # Increase Node.js memory limit for large builds (especially on macOS ARM64)
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
+      - name: Verify build output
+        shell: bash
+        run: |
+          echo "Checking build output..."
+          ls -la out/ || dir out
+          if [ -d "out/main" ] && [ -d "out/renderer" ] && [ -d "out/preload" ]; then
+            echo "✓ Build output verified"
+          else
+            echo "✗ Build output incomplete"
+            exit 1
+          fi
+
+  # ============ E2E Tests (Optional - requires Playwright) ============
+  e2e:
+    name: E2E Tests
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    # Only run E2E on main branch or when explicitly requested
+    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'run-e2e')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild native modules
+        run: npm run rebuild:native
+        continue-on-error: true
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Install system dependencies for Electron
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
+
+      - name: Build Application
+        run: |
+          npm run build:workers
+          npx electron-vite build
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
+      - name: Package Application for E2E
+        run: npx electron-builder --linux --dir
+        env:
+          # Skip code signing for CI
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Run E2E Tests
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" npm run test:e2e
+        env:
+          SCIPEN_E2E_TEST: 'true'
+          SCIPEN_ALLOW_MULTIPLE_INSTANCES: 'true'
+
+      - name: Upload Playwright Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  # ============ Summary ============
+  ci-complete:
+    name: CI Complete
+    needs: [quality, test, build]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Check results
+        run: |
+          echo "Quality: ${{ needs.quality.result }}"
+          echo "Test: ${{ needs.test.result }}"
+          echo "Build: ${{ needs.build.result }}"
+          
+          if [ "${{ needs.quality.result }}" != "success" ] || \
+             [ "${{ needs.test.result }}" != "success" ] || \
+             [ "${{ needs.build.result }}" != "success" ]; then
+            echo "❌ CI failed"
+            exit 1
+          fi
+          
+          echo "✅ All CI checks passed!"

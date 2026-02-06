@@ -1,0 +1,704 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+ * SciPen Studio - "Academic Zinc" Design System v3
+ * 学术锌灰设计系统 - 专为科研论文写作打造
+ * 
+ * 设计理念：
+ * - 纯粹的中性灰色调 (Zinc)，去除蓝色倾向，更加专业沉稳
+ * - 柔和青色 (Teal) 作为主强调色，兼具学术感和现代感
+ * - 紫色 (Violet) 用于 AI 功能，与主色调形成差异化
+ * - 降低饱和度，适合长时间论文写作
+ * - 精简阴影和边框，减少视觉噪音
+ * ============================================================ */
+
+@layer base {
+:root {
+    /* ===== 基础色盘 (Zinc - 纯中性灰) ===== */
+    --zinc-50: #fafafa;
+    --zinc-100: #f4f4f5;
+    --zinc-200: #e4e4e7;
+    --zinc-300: #d4d4d8;
+    --zinc-400: #a1a1aa;
+    --zinc-500: #71717a;
+    --zinc-600: #52525b;
+    --zinc-700: #3f3f46;
+    --zinc-800: #27272a;
+    --zinc-900: #18181b;
+    --zinc-950: #09090b;
+
+    /* ===== 强调色 (柔和版) ===== */
+    --teal-400: #2dd4bf;
+    --teal-500: #14b8a6;
+    --teal-600: #0d9488;
+    --violet-500: #8b5cf6;
+    --violet-600: #7c3aed;
+    --emerald-500: #10b981;
+    --amber-500: #f59e0b;
+    --rose-500: #f43f5e;
+
+    /* ===== Shadcn/UI Style Variables (Dark Mode Default) ===== */
+    --background: 240 10% 3.9%;      /* zinc-950 */
+    --foreground: 0 0% 98%;          /* zinc-50 */
+
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 240 5% 15%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 173 58% 39%;          /* teal-500 */
+    --primary-foreground: 0 0% 98%;
+
+    --secondary: 240 5% 15%;         /* zinc-800 */
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 240 5% 15%;             /* zinc-800 */
+    --muted-foreground: 240 5% 65%;  /* zinc-400 */
+
+    --accent: 240 5% 15%;            /* zinc-800 */
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 5% 17%;            /* zinc-800 */
+    --input: 240 5% 17%;
+    --ring: 173 58% 39%;             /* teal-500 */
+
+    --radius: 0.5rem;
+
+    /* ===== Legacy CSS Variables (Backward Compatibility) ===== */
+    /* 背景层次 - 从深到浅 (Zinc 系) */
+    --color-bg-void: #09090b;        /* zinc-950 - 最深背景 */
+    --color-bg-primary: #18181b;     /* zinc-900 - 主背景 */
+    --color-bg-secondary: #27272a;   /* zinc-800 - 次级背景 */
+    --color-bg-tertiary: #3f3f46;    /* zinc-700 - 三级背景 */
+    --color-bg-elevated: #27272a;    /* zinc-800 - 浮层 */
+    --color-bg-hover: #3f3f46;       /* zinc-700 - 悬停态 */
+
+    /* 边框系统 (中性灰) */
+    --color-border-subtle: rgba(161, 161, 170, 0.08);  /* zinc-400/8 */
+    --color-border: rgba(161, 161, 170, 0.12);         /* zinc-400/12 */
+    --color-border-strong: rgba(161, 161, 170, 0.2);   /* zinc-400/20 */
+
+    /* 文字层次 */
+    --color-text-primary: #fafafa;   /* zinc-50 */
+    --color-text-secondary: #a1a1aa; /* zinc-400 */
+    --color-text-muted: #71717a;     /* zinc-500 */
+    --color-text-disabled: #52525b;  /* zinc-600 */
+
+    /* 强调色 (Teal - 更柔和的青色) */
+    --color-accent: #14b8a6;         /* teal-500 */
+    --color-accent-dim: #0d9488;     /* teal-600 */
+    --color-accent-bright: #2dd4bf;  /* teal-400 */
+    --color-accent-muted: rgba(20, 184, 166, 0.12);
+
+    /* 语义色 */
+    --color-success: #10b981;        /* emerald-500 */
+    --color-success-muted: rgba(16, 185, 129, 0.12);
+    --color-warning: #f59e0b;        /* amber-500 */
+    --color-warning-muted: rgba(245, 158, 11, 0.12);
+    --color-error: #f43f5e;          /* rose-500 */
+    --color-error-muted: rgba(244, 63, 94, 0.12);
+    --color-info: #8b5cf6;           /* violet-500 */
+    --color-info-muted: rgba(139, 92, 246, 0.12);
+
+    /* 渐变系统 (更柔和) */
+    --gradient-accent: linear-gradient(135deg, #14b8a6 0%, #8b5cf6 100%);
+    --gradient-warm: linear-gradient(135deg, #f59e0b 0%, #f43f5e 100%);
+    --gradient-cool: linear-gradient(135deg, #14b8a6 0%, #8b5cf6 100%);
+
+    /* 阴影系统 (降低强度) */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.35);
+    --shadow-glow: 0 0 20px rgba(20, 184, 166, 0.1);
+
+    /* 遮罩层 */
+    --color-backdrop: rgba(9, 9, 11, 0.85);  /* zinc-950/85 */
+
+    /* Welcome Screen 专用变量 - 深色模式 */
+    --welcome-card-bg: rgba(24, 24, 27, 0.75);
+    --welcome-card-border: rgba(20, 184, 166, 0.12);
+    --welcome-tip-bg: linear-gradient(135deg, rgba(20, 184, 166, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%);
+    --welcome-tip-border: rgba(20, 184, 166, 0.2);
+    --welcome-glow-primary: rgba(20, 184, 166, 0.18);
+    --welcome-glow-secondary: rgba(139, 92, 246, 0.14);
+    --welcome-glow-tertiary: rgba(16, 185, 129, 0.1);
+    --welcome-grid-color: rgba(20, 184, 166, 0.15);
+
+    /* 编辑器变量 */
+    --editor-background: var(--color-bg-secondary);
+    --editor-foreground: var(--color-text-primary);
+    --editorCursor-foreground: var(--color-accent);
+    --editorLineNumber-foreground: var(--color-text-muted);
+
+    /* 侧边栏变量 */
+    --activityBar-background: var(--color-bg-void);
+    --sideBar-background: var(--color-bg-primary);
+
+    /* 滚动条变量 (中性灰) */
+    --scrollbarSlider-background: rgba(161, 161, 170, 0.15);
+    --scrollbarSlider-hoverBackground: rgba(161, 161, 170, 0.25);
+    --scrollbarSlider-activeBackground: rgba(161, 161, 170, 0.4);
+  }
+
+  /* ===== Light Mode (Sepia Eye-Care - 护眼暖黄色调) ===== */
+  .light-theme {
+    --background: 45 30% 96%;        /* 暖米色 */
+    --foreground: 30 10% 15%;        /* 深棕褐色 */
+
+    --card: 45 25% 98%;
+    --card-foreground: 30 10% 15%;
+
+    --popover: 45 25% 98%;
+    --popover-foreground: 30 10% 15%;
+
+    --primary: 173 58% 39%;          /* teal-500 */
+    --primary-foreground: 45 30% 96%;
+
+    --secondary: 40 20% 94%;         /* 浅米色 */
+    --secondary-foreground: 30 15% 20%;
+
+    --muted: 40 20% 94%;
+    --muted-foreground: 30 10% 45%;
+
+    --accent: 40 20% 94%;
+    --accent-foreground: 30 15% 20%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 45 30% 96%;
+
+    --border: 35 15% 88%;            /* 暖边框 */
+    --input: 35 15% 88%;
+    --ring: 173 58% 39%;             /* teal-500 */
+
+    /* Legacy Variables (Light Mode - Sepia 护眼色系) */
+    --color-bg-void: #fdfbf7;        /* 象牙白 */
+    --color-bg-primary: #faf8f3;     /* 米白色 */
+    --color-bg-secondary: #f5f2eb;   /* 浅米色 */
+    --color-bg-tertiary: #ebe7dc;    /* 淡卡其色 */
+    --color-bg-elevated: #fffefa;    /* 纯净暖白 */
+    --color-bg-hover: #ebe7dc;       /* 淡卡其色 */
+
+    --color-border-subtle: rgba(139, 119, 91, 0.08);   /* 暖棕色边框 */
+    --color-border: rgba(139, 119, 91, 0.12);
+    --color-border-strong: rgba(139, 119, 91, 0.18);
+
+    --color-text-primary: #2d2a24;   /* 深褐色 - 易读 */
+    --color-text-secondary: #5c564a; /* 中褐色 */
+    --color-text-muted: #7a7365;     /* 浅褐色 */
+    --color-text-disabled: #a09989;  /* 淡褐色 */
+
+    --color-accent: #0d9488;         /* teal-600 - 与深色模式统一 */
+    --color-accent-dim: #0f766e;     /* teal-700 */
+    --color-accent-bright: #14b8a6;  /* teal-500 */
+    --color-accent-muted: rgba(13, 148, 136, 0.1);
+
+    --color-success: #059669;        /* emerald-600 */
+    --color-success-muted: rgba(5, 150, 105, 0.1);
+    --color-warning: #b45309;        /* amber-700 - 在暖色背景上更清晰 */
+    --color-warning-muted: rgba(180, 83, 9, 0.1);
+    --color-error: #b91c1c;          /* red-700 - 在暖色背景上更清晰 */
+    --color-error-muted: rgba(185, 28, 28, 0.1);
+    --color-info: #6d28d9;           /* violet-700 */
+    --color-info-muted: rgba(109, 40, 217, 0.1);
+
+    --gradient-accent: linear-gradient(135deg, #0d9488 0%, #6d28d9 100%);
+
+    --shadow-sm: 0 1px 2px rgba(139, 119, 91, 0.06);
+    --shadow-md: 0 4px 12px rgba(139, 119, 91, 0.08);
+    --shadow-lg: 0 8px 24px rgba(139, 119, 91, 0.1);
+    --shadow-glow: 0 0 20px rgba(13, 148, 136, 0.08);
+
+    /* 遮罩层 */
+    --color-backdrop: rgba(45, 42, 36, 0.75);  /* 暖褐色遮罩 */
+
+    --welcome-card-bg: rgba(255, 255, 255, 0.9);
+    --welcome-card-border: rgba(13, 148, 136, 0.18);
+    --welcome-tip-bg: linear-gradient(135deg, rgba(13, 148, 136, 0.1) 0%, rgba(109, 40, 217, 0.08) 100%);
+    --welcome-tip-border: rgba(13, 148, 136, 0.25);
+    --welcome-glow-primary: rgba(13, 148, 136, 0.15);
+    --welcome-glow-secondary: rgba(109, 40, 217, 0.1);
+    --welcome-glow-tertiary: rgba(5, 150, 105, 0.08);
+    --welcome-grid-color: rgba(13, 148, 136, 0.06);
+
+    --scrollbarSlider-background: rgba(139, 119, 91, 0.15);
+    --scrollbarSlider-hoverBackground: rgba(139, 119, 91, 0.25);
+
+    /* 编辑器专用 - 护眼纸张色 */
+    --editor-background: #faf8f3;
+    --editor-foreground: #2d2a24;
+  }
+
+  /* Base styles */
+  /* Note: Removed global "* { @apply border-border; }" for performance. 
+     Border styles are now applied via component classes (.card, .input, .panel, etc.) */
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+    @apply bg-background text-foreground;
+  font-family: 'Inter', 'SF Pro Display', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+}
+
+/* ===== SciPen Components ===== */
+@layer components {
+  /* ===== Scrollbar ===== */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbarSlider-background);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbarSlider-hoverBackground);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+  /* ===== Selection ===== */
+::selection {
+    background-color: rgba(14, 165, 233, 0.25);
+  color: var(--color-text-primary);
+}
+
+  .light-theme ::selection {
+    background-color: rgba(2, 132, 199, 0.2);
+    color: var(--color-text-primary);
+  }
+
+  /* ===== Focus Styles ===== */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+  /* ===== Buttons ===== */
+  .btn {
+    @apply inline-flex items-center justify-center rounded-lg text-sm font-medium 
+           ring-offset-background transition-colors focus-visible:outline-none 
+           focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 
+           disabled:pointer-events-none disabled:opacity-50 h-9 px-4 py-2 cursor-pointer;
+  }
+
+  .btn-primary {
+    background: var(--gradient-accent);
+    color: white;
+    box-shadow: var(--shadow-md), var(--shadow-glow);
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn-secondary {
+    background: var(--color-bg-elevated);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-border);
+  }
+
+  .btn-secondary:hover {
+    background: var(--color-bg-hover);
+    border-color: var(--color-border-strong);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--color-text-secondary);
+  }
+
+  .btn-ghost:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+  }
+
+  .btn-destructive {
+    background: var(--color-error-muted);
+    color: var(--color-error);
+    border: 1px solid rgba(244, 63, 94, 0.3);
+  }
+
+  .btn-destructive:hover {
+    background: rgba(244, 63, 94, 0.25);
+  }
+
+  /* ===== AI Magic Button (Violet Gradient) ===== */
+  .btn-magic {
+    background: linear-gradient(135deg, var(--violet-500) 0%, var(--violet-600) 100%);
+    color: white;
+    box-shadow: var(--shadow-md), 0 0 20px rgba(139, 92, 246, 0.2);
+  }
+
+  .btn-magic:hover {
+    filter: brightness(1.1);
+  }
+
+  /* ===== Inputs ===== */
+  .input {
+    @apply flex h-9 w-full rounded-lg border px-3 py-2 text-sm 
+           ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium 
+           placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 
+           focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+    background: var(--color-bg-tertiary);
+    border-color: var(--color-border);
+    color: var(--color-text-primary);
+  }
+
+  .input:focus {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--color-accent-muted);
+  }
+
+  .input::placeholder {
+    color: var(--color-text-muted);
+  }
+
+  /* ===== Cards ===== */
+  .card {
+    @apply rounded-xl;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    box-shadow: var(--shadow-md);
+  }
+  
+  .card-interactive {
+    @apply card cursor-pointer transition-all duration-200;
+  }
+  
+  .card-interactive:hover {
+    border-color: var(--color-border-strong);
+    box-shadow: var(--shadow-lg), var(--shadow-glow);
+    transform: translateY(-2px);
+  }
+  
+  /* ===== Badges ===== */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+  
+  .badge-primary {
+    background: var(--color-accent-muted);
+    color: var(--color-accent);
+  }
+  
+  .badge-success {
+    background: var(--color-success-muted);
+    color: var(--color-success);
+  }
+  
+  .badge-warning {
+    background: var(--color-warning-muted);
+    color: var(--color-warning);
+  }
+  
+  .badge-error {
+    background: var(--color-error-muted);
+    color: var(--color-error);
+  }
+  
+  .badge-ai {
+    background: var(--color-info-muted);
+    color: var(--color-info);
+  }
+
+  /* ===== Icon Buttons ===== */
+  .icon-btn {
+    @apply relative flex items-center justify-center p-2 rounded-lg cursor-pointer transition-all duration-200;
+    color: var(--color-text-muted);
+  }
+
+  .icon-btn:hover {
+    color: var(--color-text-primary);
+    background: var(--color-bg-hover);
+  }
+  
+  .icon-btn.active {
+    color: var(--color-accent);
+    background: var(--color-accent-muted);
+  }
+  
+  /* ===== Dividers ===== */
+  .divider {
+    @apply w-full h-px;
+    background: var(--color-border);
+  }
+  
+  .divider-vertical {
+    @apply w-px h-full;
+    background: var(--color-border);
+  }
+
+  /* ===== Panel ===== */
+  .panel {
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border-subtle);
+  }
+}
+
+/* ===== Monaco Editor Customizations ===== */
+.monaco-editor {
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace !important;
+}
+
+.monaco-editor .view-line {
+  /* Enable ligatures for better code readability */
+  font-feature-settings: "liga" on, "calt" on !important;
+  font-variant-ligatures: common-ligatures !important;
+}
+
+.monaco-editor .ghost-text {
+  color: var(--color-text-muted) !important;
+  font-style: italic;
+  opacity: 0.6;
+}
+
+/* ===== Markdown / KaTeX Customizations ===== */
+.markdown-content {
+  @apply prose prose-slate dark:prose-invert max-w-none;
+  color: var(--color-text-primary);
+}
+
+/* 标题样式 - 使用主题感知颜色 */
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  color: var(--color-text-primary);
+}
+
+/* 粗体/强调文字 */
+.markdown-content strong,
+.markdown-content b {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+/* 斜体 */
+.markdown-content em,
+.markdown-content i {
+  color: var(--color-text-secondary);
+}
+
+/* 段落和列表 */
+.markdown-content p,
+.markdown-content li {
+  color: var(--color-text-secondary);
+}
+
+.markdown-content pre {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  @apply rounded-lg p-4;
+}
+
+.markdown-content pre code {
+  color: var(--color-text-primary) !important;
+  background: transparent !important;
+  @apply text-sm font-mono;
+}
+
+.markdown-content code:not(pre code) {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  @apply px-1.5 py-0.5 rounded text-sm;
+}
+
+.markdown-content a {
+  color: var(--color-accent);
+}
+
+.markdown-content a:hover {
+  text-decoration: underline;
+}
+
+/* 引用块 */
+.markdown-content blockquote {
+  color: var(--color-text-muted);
+  border-left-color: var(--color-accent);
+}
+
+/* 表格 */
+.markdown-content th {
+  color: var(--color-text-primary);
+}
+
+.markdown-content td {
+  color: var(--color-text-secondary);
+}
+
+.katex-display {
+  @apply overflow-x-auto py-2;
+}
+
+.katex {
+  color: var(--color-text-primary);
+}
+
+/* ===== PDF Preview ===== */
+.pdf-container {
+  background: #525659;
+}
+
+.pdf-page {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+}
+
+/* ===== Resize Handles ===== */
+.resize-handle {
+  background: transparent;
+  transition: background-color 0.15s;
+}
+
+.resize-handle:hover {
+  background: var(--color-accent-muted);
+}
+
+.resize-handle:active {
+  background: var(--color-accent);
+}
+
+/* ===== Animations ===== */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.animate-slide-down {
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(14, 165, 233, 0.08) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2.5s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px var(--welcome-glow-primary); }
+  50% { box-shadow: 0 0 40px var(--welcome-glow-primary); }
+}
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* ===== Welcome Screen Title Gradient ===== */
+.welcome-title-gradient {
+  background: linear-gradient(135deg, #ffffff 0%, #a5f3fc 50%, #c4b5fd 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.light-theme .welcome-title-gradient {
+  background: linear-gradient(135deg, #0f766e 0%, #0d9488 40%, #6d28d9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ===== Welcome Screen Background Gradients ===== */
+/* 深色模式背景 - 更加沉浸的科技感 */
+.welcome-bg-gradient {
+  background: 
+    radial-gradient(ellipse 100% 80% at 50% -30%, rgba(20, 184, 166, 0.12), transparent 60%),
+    radial-gradient(ellipse 60% 100% at 100% 50%, rgba(139, 92, 246, 0.1), transparent 60%),
+    radial-gradient(ellipse 60% 60% at 0% 100%, rgba(16, 185, 129, 0.08), transparent 50%),
+    radial-gradient(ellipse 50% 50% at 80% 20%, rgba(99, 102, 241, 0.06), transparent 50%);
+}
+
+/* 浅色模式背景 - 柔和清新 */
+.light-theme .welcome-bg-gradient {
+  background: 
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(13, 148, 136, 0.12), transparent),
+    radial-gradient(ellipse 50% 80% at 100% 50%, rgba(109, 40, 217, 0.06), transparent),
+    radial-gradient(ellipse 50% 50% at 0% 100%, rgba(16, 185, 129, 0.06), transparent);
+}
+
+/* Logo 渐变 - 深色模式 */
+.welcome-logo-gradient {
+  background: linear-gradient(135deg, #22d3ee 0%, #6366f1 50%, #8b5cf6 100%);
+  box-shadow: 0 8px 32px rgba(34, 211, 238, 0.3), 0 0 60px rgba(34, 211, 238, 0.15);
+}
+
+/* Logo 渐变 - 浅色模式 */
+.light-theme .welcome-logo-gradient {
+  background: linear-gradient(135deg, #0d9488 0%, #6d28d9 50%, #8b5cf6 100%) !important;
+  box-shadow: 0 8px 32px rgba(13, 148, 136, 0.25), 0 0 60px rgba(13, 148, 136, 0.1) !important;
+}
+
+/* ===== CSS Containment for Performance ===== */
+.editor-pane {
+  contain: layout paint;
+}
+
+.preview-pane,
+.pdf-container {
+  contain: content;
+}
+
+.file-tree,
+.file-explorer {
+  contain: layout style;
+}
+
+.log-panel {
+  contain: content;
+}
+
+.ai-panel {
+  contain: content;
+}
+
+/* ===== Smooth Transitions (Disable for certain elements) ===== */
+input, textarea, [contenteditable], .monaco-editor * {
+  transition: none !important;
+}

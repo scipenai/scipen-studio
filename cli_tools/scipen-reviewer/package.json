@@ -1,0 +1,54 @@
+{
+  "name": "scipen-reviewer",
+  "version": "2.0.0",
+  "description": "Scientific Paper Evaluation System - A Multi-Agent Review Framework",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "scipen": "dist/cli/scipen-cli.js"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "build:tsc": "tsc && shx cp -r src/templates dist/",
+    "start": "pnpm run build && node dist/cli/scipen-cli.js",
+    "dev": "npx tsx src/cli/scipen-cli.ts",
+    "dev:review": "npx tsx src/cli/scipen-cli.ts review"
+  },
+  "keywords": [
+    "scientific-paper",
+    "evaluation",
+    "review",
+    "claude",
+    "ai",
+    "sdk",
+    "agent",
+    "multi-agent",
+    "paper-review"
+  ],
+  "author": "SciPen AI Team",
+  "license": "MIT",
+  "packageManager": "pnpm@10.15.0",
+  "devDependencies": {
+    "@types/node": "^24.5.0",
+    "esbuild": "^0.27.2",
+    "shx": "^0.4.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.69",
+    "handlebars": "^4.7.8"
+  },
+  "peerDependencies": {
+    "nodemailer": "^6.9.0"
+  },
+  "peerDependenciesMeta": {
+    "nodemailer": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,1177 @@
+\documentclass{amsart}
+\usepackage{amsmath,amssymb,amsthm,amscd}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+\usepackage{graphicx,hyperref}
+% Enumerate envoriment
+\usepackage[shortlabels]{enumitem}
+% For undertilde
+\usepackage{accents}
+
+% Paths for image files
+\graphicspath{{./Figures/}}
+
+% Theorem environments
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{assumption}[theorem]{Assumption}
+
+\numberwithin{equation}{section}
+
+\begin{document}
+
+\title[Lecture 5]{Lecture 5: Fast iterative methods for nonlinear and multiphysics coupled problems}
+\author{Jinchao Xu}
+\address{}
+\date{}
+
+\maketitle
+
+% Introduction
+This note extends the multigrid methodology developed thus far to nonlinear problems, which are prevalent in scientific computing and engineering applications.
+We begin by examining general nonlinear problems and their variational formulations, with a particular emphasis on convex variational problems.
+We then develop subspace correction methods for nonlinear problems and present a convergence analysis of PSC for convex variational problems.
+Finally, we introduce the full approximation scheme~(FAS), an inexact local solver that fully localizes subproblems within the subspace correction framework, thereby enhancing computational efficiency.
+
+% Section: Nonlinear problems
+\section{Nonlinear problems}
+\label{Nonlinear:Sec:Nonlinear}
+Let \( V \) be a Banach space. We consider a general nonlinear problem of finding \( u \in V \) such that
+\begin{equation}
+\label{Nonlinear:model}
+A(u) = 0,
+\end{equation}
+where \( A \colon V \to V^* \) is a nonlinear operator from \( V \) to its dual space \( V^* \).
+The problem~\eqref{Nonlinear:model} can be equivalently formulated in variational form: find \( u \in V \) such that
+\begin{equation}
+\label{Nonlinear:model_weak}
+\langle A(u), v \rangle = 0 \quad v \in V,
+\end{equation}
+where \( \langle \cdot, \cdot \rangle \) denotes the duality pairing between \( V^* \) and \( V \), defined by
+\begin{equation*}
+\langle \phi, v \rangle = \phi(v), \quad \phi \in V^*,\ v \in V.
+\end{equation*}
+
+A typical example from PDEs is the following \( p \)-Laplacian problem:
+\begin{equation}
+\label{Nonlinear:p-Laplacian}
+\begin{aligned}
+- \operatorname{div} (|\nabla u|^{p-2} \nabla u) = f \quad &\text{ in } \Omega, \\
+u = 0 \quad &\text{ on } \partial \Omega,
+\end{aligned}
+\end{equation}
+where \( p \in (1, \infty) \).
+To derive a variational formulation of~\eqref{Nonlinear:p-Laplacian}, we take test functions \( v \) from the Sobolev space \( W_0^{1,p}(\Omega) \), which consists of functions in \( W^{1,p}(\Omega) \) that vanish on the boundary.
+Namely, multiplying the equation by \( v \) and integrating over \( \Omega \), we obtain
+\[
+\int_{\Omega}  -\operatorname{div} (|\nabla u|^{p-2} \nabla u) \, v \, dx = \int_{\Omega} f v \, dx.
+\]
+Applying integration by parts and using the boundary condition \( v = 0 \) on \( \partial \Omega \), we arrive at the weak formulation:
+\[
+\int_{\Omega} |\nabla u|^{p-2} \nabla u \cdot \nabla v \, dx = \int_{\Omega} f v \, dx, \quad \text{for all } v \in W_0^{1,p}(\Omega).
+\]
+This can be written abstractly in the form of~\eqref{Nonlinear:model_weak}, with \( V = W_0^{1,p}(\Omega) \) and a nonlinear operator \( A \colon V \to V^* = W^{-1,p'}(\Omega) \) defined by
+\[
+\langle A(u), v \rangle = \int_{\Omega} |\nabla u|^{p-2} \nabla u \cdot \nabla v \, dx - \int_{\Omega} f v \, dx,
+\]
+where \( p' \) denotes the H\"{o}lder conjugate of \( p \), that is, \( 1/p + 1/p' = 1 \), and \( W^{-1,p'}(\Omega) \) is the dual space of \( W_0^{1,p}(\Omega) \).
+
+As another typical example, we consider the following nonlinear Poisson-type problem:
+\begin{equation}
+\label{Nonlinear:nonlinear_Poisson}
+\begin{aligned}
+- \nabla \cdot \big( \alpha(u) \nabla u + \beta(u) \big) + \gamma(u) = f, \quad & \text{in } \Omega, \\
+u = 0, \quad & \text{on } \partial \Omega,
+\end{aligned}
+\end{equation}
+where \( \alpha \), \( \beta \), and \( \gamma \) are smooth functions that satisfy certain conditions ensuring that the problem~\eqref{Nonlinear:nonlinear_Poisson} is well-posed.
+Following a similar argument as in the case of the \( p \)-Laplacian problem, the weak formulation of~\eqref{Nonlinear:nonlinear_Poisson} reads: find \( u \in H_0^1(\Omega) \) such that
+\begin{equation}
+\label{Nonlinear:nonlinear_Poisson_weak}
+a(u, v) = \int_{\Omega} f v \, dx, \quad \text{for all } v \in H_0^1(\Omega),
+\end{equation}
+where
+\begin{equation*}
+a(u, v) = \int_{\Omega} \big( \alpha(u) \nabla u + \beta(u) \big) \cdot \nabla v \, dx + \int_{\Omega} \gamma(u) v \, dx.
+\end{equation*}
+Hence, we see that~\eqref{Nonlinear:nonlinear_Poisson_weak} is an instance of the abstract variational form~\eqref{Nonlinear:model_weak}, with
+\begin{equation*}
+\langle A(u), v \rangle = a(u, v) - \int_{\Omega} f v \, dx.
+\end{equation*}
+
+There are several key differences between nonlinear and linear problems that must be taken into account.
+First, the solution space is generally a Banach space rather than a Hilbert space.
+As a result, we lose the inner product structure and the associated notion of orthogonality that are so useful in the linear case.
+Additionally, we can no longer identify the space \( V \) with its dual \( V^* \); for example, in \( L^p \) spaces, the dual space is \( L^{p'} \), with equality holding only in the Hilbert space case when \( p = p' = 2 \). Furthermore, the properties of the operator \( A \) in the nonlinear setting may exhibit a more ``local'' nature, which poses additional challenges in both analysis and computation.
+
+Two conventional numerical approaches are commonly used to solve such nonlinear problems.
+The first is the Picard iteration, also known as fixed-point iteration.
+In this method, we assume that the nonlinear problem~\eqref{Nonlinear:model} can be rewritten in the form
+\begin{equation*}
+u = R(u),
+\end{equation*}
+for some nonlinear operator \( R \colon V \to V \). 
+The Picard iteration is then defined by the following recursive scheme:
+\begin{equation}
+\label{Nonlinear:Picard}
+u^{k+1} = R(u^k), \quad k \geq 0,
+\end{equation}
+starting from an initial guess \( u^0 \in V \). While the Picard iteration~\eqref{Nonlinear:Picard} is straightforward to implement, it typically converges slowly and may lack robust convergence guarantees, especially for problems with strong nonlinearities.
+
+The second approach is the Newton method, which takes the form
+\begin{equation}
+\label{Nonlinear:Newton}
+u^{k+1} = u^k - A'(u^k)^{-1} A(u^k),
+\end{equation}
+where \( A'(v) \colon V \to V^* \) denotes the Fr\'{e}chet derivative of \( A \) at \( v \in V \). This derivative is defined as the (unique, if it exists) bounded linear operator satisfying
+\begin{equation}
+\label{Nonlinear:Frechet}
+\lim_{\|h\| \to 0} \frac{| A(v + h) - A(v) - \langle A'(v), h \rangle |}{\|h\|} = 0.
+\end{equation}
+Although classical, the Newton method remains one of the most widely used numerical methods for solving nonlinear problems due to its fast local convergence. Specifically, when the initial guess \( u^0 \) is sufficiently close to the solution \( u \), the method exhibits superlinear (often quadratic) convergence. However, each iteration requires assembling and solving a linear system involving the Fr\'{e}chet derivative \( A'(u^k) \), which corresponds to the Jacobian matrix in the discrete setting.
+This step can become computationally expensive, particularly for large-scale problems.
+
+This naturally leads us to ask: Can we design algorithms that are both fast and robust for solving large-scale nonlinear problems?
+Just as multilevel methods have been successfully developed for linear problems, similar strategies can be extended to the nonlinear setting.
+The remainder of this note is devoted to multilevel approaches for nonlinear problems.
+
+% Subsection: Convex variational problems
+\subsection{Convex variational problems}
+An important class of nonlinear problems is convex optimization, which has numerous applications across various fields of science and engineering.
+From the perspective of numerical method design, convex problems are especially attractive because many algorithms exhibit global convergence properties when applied to them.
+In this section, we introduce a model convex variational problem together with several representative examples.
+
+Let \( V \) be a reflexive Banach space. We consider the model problem of minimizing a convex functional $F \colon V \to \overline{\mathbb{R}}$:
+\begin{equation}
+\label{Nonlinear:model_convex}
+\min_{v \in V} F(v).
+\end{equation}
+A simple example is \( F(v) = \|v\|^2 \). The problem~\eqref{Nonlinear:model_convex} is usually referred to as a convex optimization or convex variational problem.
+
+In convex optimization, a weaker notion of differentiability than the Fr\'{e}chet differentiability introduced in~\eqref{Nonlinear:Frechet} is often sufficient. Namely, a functional \( F \colon V \to \mathbb{R} \) is said to be \emph{G\^{a}teaux differentiable} at \( v \in V \) if for all \( w \in V \), the directional derivative
+\[
+\lim_{t \to 0} \frac{F(v + t w) - F(v)}{t}
+\]
+exists. If this limit defines a continuous linear functional \( w \mapsto A w \), we write \( A = F'(v) \).
+
+The following fundamental result connects minimizers with G\^{a}teaux derivatives of convex functionals.
+
+% Proposition: Minimizers of a convex functional
+\begin{proposition}
+\label{Nonlinear:Prop:optimality}
+Let \( F \colon V \to \mathbb{R} \) be a G\^{a}teaux differentiable and convex functional that is  on \( V \). Then, for any \( v \in V \), $F'(v) = 0$ if and only if $v$  is a minimizer of $F$.
+\end{proposition}
+
+Proposition~\ref{Nonlinear:Prop:optimality} implies that the convex optimization problem~\eqref{Nonlinear:model_convex} is a special case of the general nonlinear model problem~\eqref{Nonlinear:model}.
+Indeed, solving~\eqref{Nonlinear:model_convex} is equivalent to finding \( u \in V \) such that
+\[
+F'(u) = 0.
+\]
+
+In the following, we present important examples of convex variational problems:
+
+% Example: Linear problems
+\begin{example}[linear problems]
+Let \( V \) be a Hilbert space, and let \( A \colon V \to V \) be a continuous, symmetric, and coercive linear operator. Consider the quadratic minimization problem
+\[
+\min_{v \in V} \left\{ \frac{1}{2} ( A v, v ) \rangle - ( f, v ) \right\},
+\]
+which is a special case of the convex optimization problem~\eqref{Nonlinear:model_convex}. Since the G\'{a}teaux derivative satisfies
+\[
+F'(v) = A v - f, \quad v \in V,
+\]
+this quadratic problem is equivalent to the linear equation
+\[
+A u = f.
+\]
+\end{example}
+
+% Example: Nonlinear PDEs
+\begin{example}[nonlinear PDEs]
+Some nonlinear PDEs admit equivalent convex variational formulations. For instance, the \( p \)-Laplacian problem~\eqref{Nonlinear:p-Laplacian} corresponds to the convex optimization problem
+\[
+\min_{v \in W_0^{1,p}(\Omega)} \int_{\Omega} \left( \frac{1}{p} |\nabla v|^p - f v \right) \, dx.
+\]
+
+Another example is the Poisson--Boltzmann equation:
+\begin{equation*}
+\begin{aligned}
+    -\Delta u + \sinh u = f \quad &\text{ in } \Omega, \\
+    u = 0 \quad &\text{ on } \partial \Omega.
+\end{aligned}
+\end{equation*}
+This problem admits the convex variational formulation
+\[
+\min_{v \in H_0^1(\Omega)} \int_{\Omega} \left( \frac{1}{2} |\nabla v|^2 + \cosh v - f v \right) \, dx.
+\]
+\end{example}
+
+% Example: Variational inequalities
+\begin{example}[variational inequalities]
+Let \( V = H_0^1(\Omega) \) and let \( K \) be a closed and convex subset of $V$.
+Consider the variational inequality: find \( u \in K \) such that
+\[
+\int_{\Omega} \nabla u \cdot \nabla (v - u) \, dx \geq f(v-u), \quad \forall v \in K,
+\]
+where $f \in H^{-1} (\Omega)$.
+Such problems arise in contact and obstacle problems in mechanics.
+This is equivalent to the constrained optimization problem
+\[
+\min_{v \in K} \left\{ \frac{1}{2} \int_{\Omega} | \nabla v |^2 \,dx  - f(v) \rangle \right\},
+\]
+or equivalently,
+\[
+\min_{v \in V} \left\{ \frac{1}{2} \int_{\Omega} | \nabla v |^2 \,dx  - f(v) + \chi_K(v) \right\},
+\]
+where \(\chi_K \colon V \to \overline{\mathbb{R}}\) is the indicator function of the set \(K\), defined by
+\[
+\chi_K(v) = 
+\begin{cases}
+0 & \text{ if } v \in K, \\
++\infty & \text{ otherwise}.
+\end{cases}
+\]
+\end{example}
+
+% Example: Total variation minimization
+\begin{example}[total variation minimization]
+Total variation minimization is a fundamental model in mathematical image processing.  
+The pioneering Rudin--Osher--Fatemi (model addresses image denoising by solving the following optimization problem:
+\[
+\min_{v \in BV(\Omega)} \left\{ \frac{1}{2} \int_\Omega (v - f)^2 \, dx + \lambda\, TV(v) \right\},
+\]
+where \(\Omega\) is the image domain, typically a bounded rectangle in \(\mathbb{R}^2\), \(f \in L^2(\Omega)\) is the given noisy image, and \(TV(v)\) denotes the total variation of \(v\).
+The solution space \(BV(\Omega)\) is the space of functions of bounded variation; that is, the collection of functions \(v \in L^1(\Omega)\) such that \(TV(v) < \infty\).
+
+Many variants of the Rudin--Osher--Fatemi model have been developed to solve various image processing problems, such as inpainting, segmentation, and deconvolution.
+\end{example}
+
+% Example: Multinomial logistic regression
+\begin{example}[multinomial logistic regression]
+Multinomial logistic regression is a fundamental tool for classification problems in machine learning.  
+Given a labeled dataset \( \{ (x_j, y_j )\}_{j=1}^J \subset \mathbb{R}^d \times [k] \), where each \( x_j \in \mathbb{R}^d \) represents a data point and \( y_j \in [k] \) its corresponding class label, the regression model is formulated as follows:
+\[\min_{\theta} \left[\frac{1}{J}\sum_{i=1}^J \left\{\log\left(\sum_{j=1}^k e^{w_j^T x_i + b_j}\right) - (w_{y_i}^T x_i + b_{y_i})\right\} + \frac{\lambda}{2}\|\theta\|_F^2\right]\]
+where \( \theta = [w_1^t, b_1, \dots, w_k^t, b_k]^t \in \mathbb{R}^{(d+1)k} \) is the parameter vector, and $\alpha$ is a positive regularization hyperparameter.
+\end{example}
+
+% Section: Newton--Krylov--Schwarz and nonlinear preconditioning approaches
+\section{Newton--Krylov--Schwarz and nonlinear preconditioning approaches}
+\label{Nonlinear:Sec:Others}
+In Lecture~2, we discussed the framework of subspace correction methods for solving linear systems.  
+A natural question arises: how can this framework be extended to nonlinear problems of the form~\eqref{Nonlinear:model}?  
+Several approaches have been proposed in this direction.
+
+% Subsection: Newton--Krylov--Scwharz method
+\subsection{Newton--Krylov--Schwarz method}
+One of the most straightforward yet effective approaches is to first linearize the nonlinear problem and then solve the resulting linearized problems using subspace correction methods.  
+This strategy is known as the Newton--Krylov--Schwarz method: the nonlinear problem is linearized using the Newton method; each linearized system is then solved using a Krylov subspace method, such as the preconditioned conjugate gradient method, with a preconditioner constructed within the subspace correction framework, commonly referred to as a Schwarz method.
+
+At each Newton iteration~\eqref{Nonlinear:Newton} applied to the nonlinear problem~\eqref{Nonlinear:model}, one must solve a linear system whose operator is the Fr\'{e}chet derivative \( A'(u^k) \).  
+The conventional subspace correction methods discussed in previous lectures can then be employed to solve this linearized system.
+
+Although this approach is conceptually simple and has been successfully applied to many practical problems, it decouples the nonlinear iteration from the subspace correction mechanism.  
+As a result, the subspace correction does not directly contribute to accelerating the nonlinear convergence.
+
+% Subsection: Nonlinear preconditioning
+\subsection{Nonlinear preconditioning}
+In nonlinear preconditioning, we construct a nonlinear operator \( B \colon V^* \to V \) that serves as an approximate inverse of \( A \), in the sense that \( B \circ A \approx I \).  
+The operator \( B \) is typically constructed using space decomposition and subspace correction techniques.  
+Instead of solving the original nonlinear problem~\eqref{Nonlinear:model}, we consider the ``preconditioned" system
+\begin{equation}
+\label{Nonlinear:nonlinear_preconditioning}
+(B \circ A)(u) = B(0).
+\end{equation}
+Since the preconditioned operator \( B \circ A \) is designed to behave similarly to the identity, applying the Newton method to~\eqref{Nonlinear:nonlinear_preconditioning} often requires only a small number of iterations, sometimes even independent of the difficulty of the original problem, such as strong nonlinearity, heterogeneity, or ill-conditioning.
+
+A pioneering method in this context is the Additive Schwarz Preconditioned Inexact Newton~(ASPIN) method.  
+Since its introduction, various extensions and variants have been developed, including the Multiplicative Schwarz Preconditioned Inexact Newton~(MSPIN) method and the Restricted Additive Schwarz Preconditioned Exact Newton~(RASPEN) method.
+
+Nonlinear preconditioning has been shown to be highly effective for many practical problems in science and engineering.  
+However, due to the complex structure of the preconditioned system, rigorous convergence analysis of these methods remains relatively limited.  
+Further theoretical investigation is therefore needed to fully understand their performance and robustness.
+
+% Section: Subspace correction methods for convex variational problems
+\section{Subspace correction methods for convex variational problems}
+\label{Nonlinear:Sec:Convex}
+For convex variational problems of the form~\eqref{Nonlinear:model_convex}, there exists yet another strategy for extending subspace correction methods to the nonlinear setting.  
+This approach formulates the subspace correction steps directly as optimization problems within the subspaces.  
+By doing so, the optimization structure is preserved throughout the algorithm, and a convergence theory analogous to the linear case can be developed.
+
+In this section, we introduce this optimization-based approach in detail, with a focus on the convergence theory of PSC in this setting.  
+
+In the convex model problem~\eqref{Nonlinear:model_convex}, we assume that the energy functional \( F \) is G\^{a}teaux differentiable and coercive.  
+The coercivity condition means that
+\[
+F(v) \to +\infty \quad \text{as} \quad \|v\| \to \infty.
+\]
+This property ensures that the minimization problem~\eqref{Nonlinear:model_convex} admits a solution \( u \in V \).
+
+We assume that the solution space $V$ of~\eqref{Nonlinear:model_convex} admits a space decomposition of the form
+\begin{equation*}
+\label{Nonlinear:space_decomposition}
+    V = \sum_{j=1}^J V_j,
+\end{equation*}
+where each $V_j$, $j \in [J] = \{ 1, \dots, J \}$, is a closed subspace of $V$.
+By a simple application of the open mapping theorem, we have
+\begin{equation}
+\label{Nonlinear:norm_equivalence}
+\sup_{\| w \| = 1} \inf_{ \sum_{j=1}^J w_j = w } \left( \sum_{j=1}^J \| w_j \|^q \right)^{\frac{1}{q}} < \infty,
+\end{equation}
+for any $q \in [1, \infty)$, where $w$ and $w_j$ are taken from $V$ and $V_j$, respectively.
+
+Since the energy functional $F$ is convex, the following inequality, known as the strengthened convexity condition, holds for some $\tau > 0$:
+\begin{equation}
+\label{Nonlinear:strengthened_convexity}
+(1 - \tau J) F(v) + \tau \sum_{j=1}^J F(v+ w_j) \geq F \left( v + \tau \sum_{j=1}^J w_j \right), \text{ } v \in V, \text{ } w_j \in V_j.
+\end{equation}
+We define the constant $\tau_0 > 0$ as the maximum $\tau$ that satisfies the strengthened convexity condition.
+Namely, 
+\begin{equation}
+\label{Nonlinear:tau_0}
+\tau_0 = \max \left\{ \tau > 0 : \text{The inequality~\eqref{Nonlinear:strengthened_convexity} holds} \right\}.
+\end{equation}
+Given the convexity and coercivity of $F$, it follows that $\tau_0 \in [J^{-1}, 1]$.
+In many applications, better estimates for $\tau_0$, which are sometimes independent of $J$, can be obtained.
+
+Subspace correction methods involve local problems defined in the subspaces $\{ V_j \}_{j=1}^J$.
+For a given $v \in V$, the optimal residual in the subspace $V_j$ that minimizes the energy functional $F$ is determined by a solution of the minimization problem
+\begin{equation}
+\label{Nonlinear:local_exact}
+\min_{w_j \in V_j} F(v + w_j) .
+\end{equation}
+Generalizing~\eqref{Nonlinear:local_exact} to account for scenarios with inexact local problems, it is natural to consider the following general local problem:
+\begin{equation}
+\label{Nonlinear:local_inexact}
+    \min_{w_j \in V_j} F_j (w_j; v),
+\end{equation}
+where $F_j (\cdot ; v) \colon V_j \to \mathbb{R}$ is a G\^{a}teaux differentiable and coercive convex functional for each $v \in V$.
+
+% Example: Exact local problem
+\begin{example}
+\label{Nonlinear:Ex:local_exact}
+In the local problem~\eqref{Nonlinear:local_inexact}, we set
+\begin{equation*}
+F_j (w_j; v) = F( v + w_j), \quad w_j \in V_j,\ v \in V.
+\end{equation*}
+Then~\eqref{Nonlinear:local_inexact} reduces to the exact local problem~\eqref{Nonlinear:local_exact}.
+\end{example}
+
+% Example: Gradient descent
+\begin{example}
+\label{Nonlinear:Ex:local_GD}
+In the local problem~\eqref{Nonlinear:local_inexact}, we set
+\begin{equation*}
+F_j (w_j; v) = F(v) + \langle F'(v), w_j \rangle + \frac{1}{2 \tau} \| w_j \|^2, \quad w_j \in V_j,\ v \in V,
+\end{equation*}
+for some $\tau > 0$.
+Then~\eqref{Nonlinear:local_inexact} becomes a single gradient descent step on $V_j$ with the step size~$\tau$.
+\end{example}
+
+% Example: Newton method
+\begin{example}
+\label{Nonlinear:Ex:local_Newton}
+In the local problem~\eqref{Nonlinear:local_inexact}, we set
+\begin{equation*}
+F_j (w_j; v) = F(v) + \langle F'(v), w_j \rangle + \frac{1}{2} \langle F''(v) w_j, w_j \rangle \quad w_j \in V_j,\ v \in V.
+\end{equation*}
+Then~\eqref{Nonlinear:local_inexact} becomes a single Newton iteration on $V_j$.
+\end{example}
+
+PSC for solving~\eqref{Nonlinear:model_convex}  with the inexact local problem~\eqref{Nonlinear:local_inexact} is presented in Algorithm~\ref{Nonlinear:Alg:PSC}.
+Note that the upper bound $\tau_0$ for the step size $\tau$ was given in~\eqref{Nonlinear:tau_0}.
+
+% Algorithm: Parallel subspace correction method
+\begin{algorithm}
+\caption{Parallel subspace correction method}
+\begin{algorithmic}[]
+\label{Nonlinear:Alg:PSC}
+\STATE Given the number of subspaces $N$ and the step size $\tau \in (0, \tau_0]$:
+\STATE Choose $u^{(0)} \in V$.
+\FOR{$n=0,1,2,\dots$}
+    \FOR{$j \in [J]$ \textbf{in parallel}}
+        \STATE $\displaystyle
+            w_j^{(n+1)} \in \operatornamewithlimits{\arg\min}_{w_j \in V_j} F_j (w_j; u^{(n)})
+        $
+    \ENDFOR
+    \STATE $\displaystyle
+    u^{(n+1)} = u^{(n)} + \tau \sum_{j=1}^J w_j^{(n+1)}
+    $
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+Another type of subspace correction method, namely SSC, is presented in Algorithm~\ref{Nonlinear:Alg:SSC}.
+
+% Algorithm: Successive subspace correction method
+\begin{algorithm}
+\caption{Successive subspace correction method}
+\begin{algorithmic}[]
+\label{Nonlinear:Alg:SSC}
+\STATE Choose $u^{(0)} \in V$.
+\FOR{$n=0,1,2,\dots$}
+    \FOR{$j = 1,2, \dots, N$}
+        \STATE $\displaystyle
+            w_j^{(n+1)} \in \operatornamewithlimits{\arg\min}_{w_j \in V_j} F ( w_j; u^{(n + \frac{j-1}{J})} )
+        $
+        \STATE $\displaystyle u^{(n + \frac{j}{J})} = u^{(n + \frac{j-1}{J})} + w_j^{(n+1)}$
+    \ENDFOR
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+To ensure the convergence of PSC, we need several assumptions on the local energy functional $F_j$.
+These assumptions are summarized in Assumption~\ref{Nonlinear:Ass:local}.
+In what follows, we introduce some notation for the sake of convenience:
+\begin{align*}
+d_F (w; v) = F(v + w) - F(v) - \langle F'(v), w \rangle,
+\quad &v, w \in V, \\
+d_j (w_j; v) = F_j (w_j; v) - F_j (0; v) - \langle F_j'(0; v), w_j \rangle, \quad &v \in V, \text{ } w_j \in V_j.
+\end{align*}
+
+% Assumption: Local problems
+\begin{assumption}[local problems]
+\label{Nonlinear:Ass:local}
+For any $j \in [J]$ and $v \in V$, the local energy functional $F_j (\cdot; v) \colon V_j \to \mathbb{R}$ in~\eqref{Nonlinear:local_inexact} satisfies the following:
+\begin{enumerate}[(a)]
+\item (convexity) The functional $F_j (\cdot; v) \colon V_j \to \mathbb{R}$ is G\^{a}teaux differentiable, coercive, and convex.
+
+\item (consistency) We have
+\begin{equation*}
+F_j (0; v) = F(v),
+\end{equation*}
+and
+\begin{equation*}
+\langle F_j' (0; v), w_j \rangle = \langle F'(v), w_j \rangle,
+\quad w_j \in V_j.
+\end{equation*}
+
+\item (stability) For some $\omega \in (0,1] \cup (1, \rho)$, we have
+\begin{equation}
+\label{Nonlinear:omega}
+d_F (w_j; v) \leq \omega d_j (w_j; v),
+\quad w_j \in V_j,
+\end{equation}
+where the constant $\rho$ is defined as
+\begin{equation}
+\label{Nonlinear:rho}
+\rho = \min_{j \in [J]} \inf_{d_j (w_j; v) \neq 0} \frac{\langle d_j' (w_j; v) , w_j \rangle}{d_j (w_j; v)}.
+\end{equation}
+
+\item (smoothness) For some $q > 1$, each $F_j (w_j; v)$ is $v$-locally uniformly $w_j$-locally $q$-weakly smooth around $w_j = 0$, i.e., for any bounded and convex subsets $K \subset V$ and $K_j \subset V_j$ satisfying $0 \in K_j$, we have
+\begin{equation*}
+\sup_{v \in K, w_j \in K_j \setminus \{0 \}} \frac{d_j (w_j; v)}{\| w_j \|^q} < \infty.
+\end{equation*}
+\end{enumerate}
+\end{assumption}
+
+% Lemma: rho
+\begin{lemma}
+\label{Nonlinear:Lem:rho}
+Under Assumption~\ref{Nonlinear:Ass:local}(a, b), the constant $\rho$ defined in~\eqref{Nonlinear:rho} satisfies $\rho \geq 1$.
+\end{lemma}
+\begin{proof}
+Take any $j \in [J]$, $v \in V$, and $w_j \in V_j$.
+By Assumption~\ref{Nonlinear:Ass:local}(b), we have $d_j' (0; v) = 0$.
+Hence, $d_j (\cdot; v)$ attains the minimum at $0$, i.e.,
+\begin{equation*}
+d_j (w_j; v) \geq d_j (0; v) = 0.
+\end{equation*}
+By the convexity of $d_j (\cdot; v)$, we get
+\begin{equation*}
+\langle d_j' (w_j; v), w_j \rangle \geq d_j(w_j; v) \geq 0,
+\end{equation*}
+which implies the desired result.
+\end{proof}
+
+Under Assumption~\ref{Nonlinear:Ass:local}(a, b), one can prove that the constant $\rho$ defined in~\eqref{Nonlinear:rho} is always greater than or equal to $1$.
+Moreover, its value can be explicitly determined in many cases.
+We present some of these examples below.
+
+% Example: rho = 2
+\begin{example}
+\label{Nonlinear:Ex:rho_2}
+Throughout this example, we assume that the solution space $V$ is a Hilbert space equipped with an inner product $\langle \cdot, \cdot \rangle$.
+Suppose that the local energy functional $F_j$ is given by
+\begin{equation*}
+F_j(w_j; v) = F(v) + \langle F'(v), w_j \rangle + \frac{1}{2} \langle A_j w_j, w_j \rangle,
+\quad v\in V, \text{ } w_j \in V_j,
+\end{equation*}
+where $A_j \colon V_j \to V_j$ is a bounded, symmetric, and positive-definite linear operator.
+This formulation corresponds to the cases of general subspace correction methods for linear problems and gradient descent methods for convex problems.
+It is straightforward to verify that Assumption~\ref{Nonlinear:Ass:local}(a, b) holds.
+Moreover, it readily follows that
+\begin{equation*}
+\frac{\langle d_j' (w_j; v) , w_j \rangle}{d_j (w_j; v)} = 2
+\end{equation*}
+for any $v \in V$ and $w_j \in V_j \setminus \{0 \}$.
+Hence, we deduce that $\rho = 2$.
+\end{example}
+
+% Example: rho = p
+\begin{example}
+\label{Nonlinear:Ex:rho_p}
+Suppose that the local energy functional $F_j$ is given by
+\begin{equation*}
+F_j (w_j; v) = F(v) + \langle F'(v), w_j \rangle + \frac{M}{s} \| w_j \|^s,
+\quad v \in V, \text{ } w_j \in V_j, 
+\end{equation*}
+for some $s > 1$ and $M > 0$.
+We readily observe that Assumption~\ref{Nonlinear:Ass:local}(a, b) holds.
+Moreover, it follows that
+\begin{equation*}
+\frac{\langle d_j' (w_j; v) , w_j \rangle}{d_j (w_j; v)} = s
+\end{equation*}
+for any $v \in V$ and $w_j \in V_j \setminus \{0 \}$, which implies $\rho = s$.
+\end{example}
+
+The assumptions on the local problem~\eqref{Nonlinear:local_inexact} summarized in Assumption~\ref{Nonlinear:Ass:local} ensure that solving~\eqref{Nonlinear:local_inexact} contributes effectively to minimizing the energy functional $F$.
+The following lemma establishes a sufficient decrease property for~\eqref{Nonlinear:local_inexact}.
+
+% Lemma: Local sufficient decrease
+\begin{lemma}[local sufficient decrease]
+\label{Nonlinear:Lem:decrease}
+For $j \in [J]$ and $v \in V$, let
+\begin{equation}
+\label{hat_w_j}
+\hat{w}_j \in \operatornamewithlimits{\arg\min}_{w_j \in V_j} F_j (w_j; v).
+\end{equation}
+Under Assumption~\ref{Nonlinear:Ass:local}(a--c), we have
+\begin{equation*}
+F(v) - F(v + \hat{w}_j) \geq \left(1 - \frac{\omega}{\rho} \right) \langle d_j' (\hat{w}_j; v), \hat{w}_j \rangle \geq 0.
+\end{equation*}
+\end{lemma}
+\begin{proof}
+We first observe that Assumption~\ref{Nonlinear:Ass:local}(b) implies that
+\begin{equation}
+\label{Nonlinear:hat_w_j_alt}
+\hat{w}_j \in \arg\min_{w_j \in V_j} \left\{ \langle F'(v), w_j \rangle + d_j (w_j; v) \right\}.
+\end{equation}
+The optimality condition of~\eqref{Nonlinear:hat_w_j_alt} reads as
+\begin{equation}
+\label{Nonlinear:hat_w_j_optimality}
+\langle F'(v), w_j \rangle + \langle d_j' (\hat{w}_j; v), w_j \rangle = 0,
+\quad w_j \in V_j.
+\end{equation}
+Then it follows that
+\begin{equation*}
+\begin{split}
+F(v + \hat{w}_j) &= F(v) + \langle F'(v), \hat{w}_j \rangle + d_F (\hat{w}_j; v) \\
+&\stackrel{\eqref{Nonlinear:omega}}{\leq} F(v) + \langle F'(v), \hat{w}_j \rangle + \omega d_j (\hat{w}_j; v) \\
+&\stackrel{\eqref{Nonlinear:rho}}{\leq} F(v) + \langle F'(v), \hat{w}_j \rangle + \frac{\omega}{\rho} \langle d_j' (\hat{w}_j; v), \hat{w}_j \rangle \\
+&\stackrel{\eqref{Nonlinear:hat_w_j_optimality}}{=} F(v) - \left(1 - \frac{\omega}{\rho} \right) \langle d_j' (\hat{w}_j; v), \hat{w}_j \rangle .
+\end{split}
+\end{equation*}
+Finally, since $\rho \geq 1$ and $\omega \leq \rho$, we have
+\begin{equation*}
+\left( 1 - \frac{\omega}{\rho} \right) \langle d_j' (\hat{w}_j; v), \hat{w}_j \rangle \geq 0,
+\end{equation*}
+which completes the proof.
+\end{proof}
+
+Lemma~\ref{Nonlinear:Lem:ASM} states that PSC for solving~\eqref{Nonlinear:model_convex} can be interpreted as a gradient descent method equipped with respect to a certain nonlinear metric-like function..
+Note that this generalizes a fundamental result on the theory for linear problems, often referred to as the Lions lemma.
+
+% Lemma: Additive Schwarz lemma
+\begin{lemma}[generalized Lions lemma]
+\label{Nonlinear:Lem:ASM}
+Suppose that Assumption~\ref{Nonlinear:Ass:local}(b) holds.\
+For $v \in V$, we have
+\begin{equation}
+\label{Nonlinear:Lem1:ASM}
+\hat{w} := \sum_{j=1}^J \hat{w}_j \in \operatornamewithlimits{\arg\min}_{w \in V} \left\{ \langle F'(v), w \rangle + \inf_{w = \sum_{j=1}^J w_j} \sum_{j=1}^J d_j (w_j; v) \right\},
+\end{equation}
+where $\hat{w}_j$ was given in~\eqref{hat_w_j}.
+Moreover, we have
+\begin{equation}
+\label{Nonlinear:Lem2:ASM}
+\inf_{\hat{w} = \sum_{j=1}^J w_j} \sum_{j=1}^J d_j (w_j; v) = \sum_{j=1}^J d_j (\hat{w}_j; v).
+\end{equation}
+\end{lemma}
+\begin{proof}
+We take any $w \in V$. For any $w_j \in V_j$, $j \in [J]$, with $w = \sum_{j=1}^J w_j$, we get
+\begin{equation}
+\label{Nonlinear:Lem3:ASM}
+\begin{split}
+\langle F'(v), \hat{w} \rangle + d(\hat{w}; v)
+&\leq \sum_{j=1}^J \left( \langle F'(v), \hat{w}_j \rangle + d_j (\hat{w}_j; v) \right) \\
+&\stackrel{\eqref{Nonlinear:hat_w_j_alt}}\leq \sum_{j=1}^J \left( \langle F'(v), w_j \rangle + d_j (w_j; v) \right).
+\end{split}
+\end{equation}
+By minimizing the last line of~\eqref{Nonlinear:Lem3:ASM} over all $(w_j)_{j=1}^J$, we obtain~\eqref{Nonlinear:Lem1:ASM}.
+Then, setting $w = \hat{w}$ in~\eqref{Nonlinear:Lem3:ASM} yields~\eqref{Nonlinear:Lem2:ASM}.
+\end{proof}
+
+Combining Lemmas~\ref{Nonlinear:Lem:decrease} and~\ref{Nonlinear:Lem:ASM} yields the main result of this section: a descent property of PSC, which is presented in Theorem~\ref{Nonlinear:Thm:descent}.
+Due to the page limit, we only provide a sketch of proof of Theorem~\ref{Nonlinear:Thm:descent}.
+
+% Theorem: Descent property
+\begin{theorem}
+\label{Nonlinear:Thm:descent}
+Suppose that Assumption~\ref{Nonlinear:Ass:local}(a--c) holds.
+In Algorithm~\ref{Nonlinear:Alg:PSC}, we have
+\begin{equation*}
+F(u^{(n+1)}) \leq F(u^{(n)}) + \tau \theta \min_{w \in V} \left\{ \langle F'(u^{(n)}), w \rangle + \inf_{w = \sum_{j=1}^J w_j} \sum_{j=1}^J d_j (w_j; u^{(n)}) \right\},
+\quad n \geq 0,
+\end{equation*}
+where the constant $\theta$ is given by
+\begin{equation}
+\label{Nonlinear:theta}
+\theta = \begin{cases}
+1, & \quad \text{ if } \omega \in (0,1], \\
+\frac{\rho - \omega}{\rho - 1}, & \quad \text{ if } \omega \in (1, \rho).
+\end{cases}
+\end{equation}
+\end{theorem}
+\begin{proof}
+Take any $n \geq 0$.
+By~\eqref{Nonlinear:strengthened_convexity}, we have
+\begin{equation}
+\label{Nonlinear:Thm1:descent}
+F(u^{(n+1)}) \leq (1 - \tau N) F(u^{(n)}) + \tau \sum_{j=1}^J F(u^{(n)} + w_j^{(n+1)}).
+\end{equation}
+Hence, it suffices to estimate $\sum_{j=1}^J F(u^{(n)} + w_j^{(n+1)})$.
+We first consider the case $\omega \in (0, 1]$.
+It follows that
+\begin{equation}
+\label{Nonlinear:Thm2:descent}
+\begin{split}
+\sum_{j=1}^J F(u^{(n)} + w_j^{(n+1)})
+&\stackrel{\eqref{Nonlinear:omega}}{\leq} \sum_{j=1}^J \left( F(u^{(n)}) + \langle F'(u^{(n)}), w_j^{(n+1)} \rangle + \omega d_j (w_j^{(n+1)}; u^{(n)}) \right) \\
+&\leq N F(u^{(n)}) + \sum_{j=1}^J \left( \langle F'(u^{(n)}), w_j^{(n+1)} \rangle + d_j (w_j^{(n+1)}; u^{(n)}) \right) \\
+&= N F(u^{(n)}) + \min_{w \in V } \left\{ \langle F'(u^{(n)}), w \rangle + d(w; u^{(n)}) \right\},
+\end{split}
+\end{equation}
+where the last inequality is due to Lemma~\ref{Nonlinear:Lem:ASM}.
+On the other hand, in the case $\omega \in (1, \rho)$, we have
+\begin{equation}
+\label{Nonlinear:Thm3:descent}
+\begin{split}
+&\sum_{j=1}^J F(u^{(n)} + w_j^{(n+1)})
+\stackrel{\eqref{Nonlinear:omega}}{\leq} \sum_{j=1}^J \left( F(u^{(n)}) + \langle F'(u^{(n)}), w_j^{(n+1)} \rangle + \omega d_j (w_j^{(n+1)}; u^{(n)}) \right) \\
+&= N F(u^{(n)}) + \omega \min_{w \in V} \left\{ \langle F'(u^{(n)}, w \rangle + d(w; u^{(n)}) \right\} - (\omega - 1) \sum_{j=1}^J \langle F'(u^{(n)}), w_j^{(n+1)} \rangle.
+\end{split}
+\end{equation}
+Note that Lemma~\ref{Nonlinear:Lem:decrease} implies
+\begin{equation}
+\label{Nonlinear:Thm4:descent}
+\begin{split}
+- \langle F'(u^{(n)}), w_j^{(n+1)} \rangle
+&\stackrel{\eqref{Nonlinear:hat_w_j_optimality}}{=} \langle d_j' (w_j^{(n+1)}; u^{(n)}), w_j^{(n+1)} \rangle \\
+&\leq \frac{\rho}{\rho - \omega} \left( F(u^{(n)}) - F(u^{(n)} + w_j^{(n+1)}) \right).
+\end{split}
+\end{equation}
+By~\eqref{Nonlinear:Thm3:descent} and~\eqref{Nonlinear:Thm4:descent}, we get
+\begin{equation}
+\label{Nonlinear:Thm5:descent}
+\sum_{j=1}^J F(u^{(n)} + w_j^{(n+1)})
+\leq N F(u^{(n)}) + \frac{\rho - \omega}{\rho - 1} \min_{w \in V} \left\{ \langle F'(u^{(n)}, w \rangle + d(w; u^{(n)}) \right\}.
+\end{equation}
+Finally, combining~\eqref{Nonlinear:Thm1:descent},~\eqref{Nonlinear:Thm2:descent}, and~\eqref{Nonlinear:Thm5:descent} yields the desired result.
+\end{proof}
+
+% Corollary: Monotone decrease of energy
+\begin{corollary}
+\label{Nonlinear:Cor:monotone}
+Suppose that Assumption~\ref{Nonlinear:Ass:local}(a--c) holds.
+In Algorithm~\ref{Nonlinear:Alg:PSC}, the sequence $\{ F(u^{(n)}) \}$ is decreasing.
+\end{corollary}
+
+% Section: Convergence theorems
+\subsection{Convergence theorems}
+Now, we establish convergence theorems for PSC in general convex optimization settings.
+Thanks to Theorem~\ref{Nonlinear:Thm:descent}, it suffices to estimate
+\begin{equation}
+\label{Nonlinear:min_term}
+\min_{w \in V} \left\{ \langle F'(u^{(n)}), w \rangle + \inf_{w = \sum_{j=1}^J w_j} \sum_{j=1}^J d_j (w_j; u^{(n)}) \right\} 
+\end{equation}
+to derive a convergence rate of PSC.
+
+The following lemma provides an important result for estimating the $d_j$-term in~\eqref{Nonlinear:min_term}, demonstrating that a stable decomposition can be found for the subspaces and the corresponding local problems.
+
+% Lemma: Stable decomposition
+\begin{lemma}[Stable decomposition]
+\label{Nonlinear:Lem:stable}
+Suppose that Assumption~\ref{Nonlinear:Ass:local}(a, b, d) holds.
+For any bounded subset $K \subset V$, the following holds:
+\begin{equation}
+\label{Nonlinear:C_K}
+C_K := q \sup_{v, v+w \in K, \text{ } w \neq 0} \inf_{w = \sum_{j=1}^J w_j} \frac{\sum_{j=1}^J d_j (w_j; v)}{\| w \|^q} < \infty.
+\end{equation}
+\end{lemma}
+\begin{proof}
+We fix the set $K$, and choose any $v \in V$ and $w \in V \setminus \{ 0 \}$ such that $v, v+w \in K$.
+Note that $\| w \|$ is bounded by a constant $M_K > 0$ depending on $K$ only.
+
+Let $( \tilde{w}_j )_{j=1}^J$ be a minimizer of $\sum_{j=1}^J \| w_j \|^q$ over $w_j \in V_j$ such that $\sum_{j=1}^J w_j = w$.
+By~\eqref{Nonlinear:norm_equivalence}, each $\| \tilde{w}_j \|$ is bounded by a constant depending on $K$ only.
+Namely, we have
+\begin{equation*}
+\| \tilde{w}_j \|^q
+\leq \sum_{j=1}^J \| \tilde{w}_j \|^q
+\leq c_q^q \| w \|^q
+\leq c_q^q M_K^q.
+\end{equation*}
+If we set $K_j = \{ w_j \in V_j : \| w_j \| \leq c_q M_K \}$ in Assumption~\ref{Nonlinear:Ass:local}(d), then it follows that
+\begin{equation*}
+\inf_{\substack{w_j \in V_j, \\ w = \sum_{j=1}^J w_j}} d_j (w_j; v)
+\leq \sum_{j=1}^J d_j (\tilde{w}_j; v)
+\leq \sum_{j=1}^J \frac{L_j}{q} \| \tilde{w}_j \|^q
+\leq \frac{c_q^q \max_{j} L_j}{q} \| w \|^q.
+\end{equation*}
+As the constant in the rightmost-hand side of the above equation depends on $K$ only, the proof is complete.
+\end{proof}
+
+Given $u^{(0)} \in V$, we define
+\begin{subequations}
+\label{Nonlinear:KR_0}
+\begin{align}
+\label{Nonlinear:K_0}
+K_0 &= \left\{ v \in V : F(v) \leq F(u^{(0)}) \right\}, \\
+\label{Nonlinear:R_0}
+R_0 &= \sup_{v \in K_0} \| v - u \|.
+\end{align}
+\end{subequations}
+By the convexity and coercivity of $F$, the set $K_0$ is bounded and convex, ensuring $R_0 < \infty$.
+Moreover, Theorem~\ref{Nonlinear:Thm:descent} implies that the sequence $\{ u^{(n)} \}$ generated by Algorithm~\ref{Nonlinear:Alg:PSC} is contained in $K_0$.
+Consequently, for any $n \geq 0$, by Lemma~\ref{Nonlinear:Lem:stable}, we get
+\begin{equation}
+\label{Nonlinear:stable}
+\inf_{w = \sum_{j=1}^J w_j} \sum_{j=1}^J d_j (w_j; u^{(n)})
+\leq \frac{C_{K_0}}{q} \| w \|^q.
+\end{equation}
+Using~\eqref{Nonlinear:min_term} and~\eqref{Nonlinear:stable}, we are able to derive the following convergence theorem for PSC for solving~\eqref{Nonlinear:model_convex}.
+
+% Theorem: Convergence theorem
+\begin{theorem}
+\label{Nonlinear:Thm:conv}
+Suppose that Assumption~\ref{Nonlinear:Ass:local} holds.
+In Algorithm~\ref{Nonlinear:Alg:PSC}, let $\zeta_n = F(u^{(n)}) - F(u)$ for $n \geq 0$.
+If $\zeta_0 > C_{K_0} R_0^q$, then we have
+\begin{equation*}
+\zeta_1 \leq \left(1 - \tau \theta \left( 1 - \frac{1}{q} \right) \right) \zeta_0,
+\end{equation*}
+where $\theta$, $C_{K_0}$, and $R_0$ were given in~\eqref{Nonlinear:theta},~\eqref{Nonlinear:C_K}, and~\eqref{Nonlinear:KR_0}.
+Otherwise, we have
+\begin{equation*}
+\zeta_n \leq \frac{C}{\left( n + (C/\zeta_0)^{1/\beta} \right)^{\beta}},
+\quad n \geq 0,
+\end{equation*}
+where
+\begin{equation*}
+\beta = q-1, \quad
+C = \left(\frac{q}{\tau \theta}\right)^{q-1} C_{K_0} R_0^q.
+\end{equation*}
+\end{theorem}
+
+To prove Theorem~\ref{Nonlinear:Thm:conv}
+We begin by presenting several elementary lemmas.
+
+% Lemma: Minimum of a function
+\begin{lemma}
+\label{Nonlinear:Lem:minimum}
+Let $a, b > 0$, $q  > 1$, and $T > 0$.
+The minimum of the function $g(t) = \frac{a}{q}t^q - bt$, $t \in [0, T]$, is given as follows:
+\begin{equation*}
+\min_{t \in [0, T]} g(t) =
+\begin{cases}
+    \frac{a}{q} T^q - b T < -b T \left( 1- \frac{1}{q} \right) & \text{ if } a T^{q-1} - b < 0, \\
+    - b \left(1 - \frac{1}{q} \right) \left( \frac{b}{a} \right)^{\frac{1}{q-1}} & \text{ if } a T^{q-1} - b \geq 0.
+\end{cases}
+\end{equation*}
+\end{lemma}
+
+The following lemma can be proven easily.
+
+% Lemma: Recurrence relation
+\begin{lemma}
+\label{Nonlinear:Lem:recurrence}
+Let $\{ a_n \}$ be a sequence of positive real numbers that satisfies
+\begin{equation*}
+    a_n - a_{n+1} \geq C a_n^{\gamma}, \quad n \geq 0,
+\end{equation*}
+for some $C > 0$ and $\gamma > 1$.
+Then with $\beta = \frac{1}{\gamma - 1}$, we have
+\begin{equation*}
+    a_n \leq \left( \frac{\beta}{C n + \beta a_0^{-1/\beta}} \right)^{\beta},
+    \quad n \geq 0.
+\end{equation*}
+\end{lemma}
+% \begin{proof}
+% Take any $n \geq 0$.
+% Invoking~\cite[Lemma~3.7]{Park:2022a}, we get
+% \begin{equation*}
+%     a_{n+1}^{1-\gamma} \geq C (\gamma - 1) + a_n^{1-\gamma}.
+% \end{equation*}
+% Summing this equation over $0, \dots, n-1$ yields
+% \begin{equation*}
+%     a_n^{1-\gamma} \geq C(\gamma - 1)n + a_0^{1-\gamma},
+% \end{equation*}
+% which is equivalent to the desired result.
+% \end{proof}
+
+Thanks to Theorem~\ref{Nonlinear:Thm:descent}, for any $n \geq 0$, it suffices to estimate
+\begin{equation*}
+\min_{w \in V} \left\{ \langle F'(u^{(n)}), w \rangle + \inf_{\sum_{j=1}^J w_j = w} \sum_{j=1}^J d_j (w_j; u^{(n)}) \right\}.
+\end{equation*}
+It follows that
+\begin{equation}
+\label{Nonlinear:proof_core}
+\begin{split}
+\min_{w \in V} & \left\{ \langle F'(u^{(n)}), w \rangle + \inf_{\sum_{j=1}^J w_j = w} \sum_{j=1}^J d_j (w_j; u^{(n)}) \right\} \\
+&\leq \min_{u^{(n)} + w \in K_0} \left\{ \langle F'(u^{(n)}), w \rangle + \inf_{\sum_{j=1}^J w_j = w} \sum_{j=1}^J d_j (w_j; u^{(n)}) \right\} \\
+&\stackrel{\text{(i)}}{\leq} \min_{u^{(n)} + w \in K_0} \left\{ \langle F'(u^{(n)}), w \rangle + \frac{C_{K_0}}{q} \| w \|^q \right\} \\
+&\stackrel{\text{(ii)}}{\leq} \min_{\alpha \in [0,1]} \left\{ \alpha \langle F'(u^{(n)}), v - u^{(n)} \rangle + \frac{\alpha^q C_{K_0}}{q} \| v - u^{(n)} \|^q \right\} \\
+&\stackrel{\text{(iii)}}{\leq} \min_{\alpha \in [0,1]} \left\{ - \alpha \zeta_n + \frac{\alpha^q C_{K_0}}{q} \| v - u^{(n)} \|^q \right\},
+\end{split}
+\end{equation}
+where (i) follows from Lemma~\ref{Nonlinear:Lem:stable}, (ii) uses the substitution $w = \alpha (v - u^{(n)})$ for $\alpha \in [0, 1]$, (iii) is due to the convexity of $F$, and $\zeta_n = F(u^{(n)}) - F(u)$.
+Both Theorems~\ref{Nonlinear:Thm:conv} and~\ref{Nonlinear:Thm:conv_sharp} can be proven by using~\eqref{Nonlinear:proof_core}, as presented in the remainder of this appendix.
+
+\begin{proof}[Proof of Theorem~\ref{Nonlinear:Thm:conv}]
+We proceed to estimate the last line of~\eqref{Nonlinear:proof_core} as follows:
+\begin{equation}
+\label{Nonlinear:proof_conv}
+\begin{split}
+\min_{\alpha \in [0,1]} \left\{ - \alpha \zeta_n + \frac{\alpha^q C_{K_0}}{q} \| v - u^{(n)} \|^q \right\}
+&\stackrel{\eqref{Nonlinear:R_0}}{\leq} \min_{\alpha \in [0,1]} \left\{ - \alpha \zeta_n + \frac{\alpha^q C_{K_0} R_0^q}{q} \right\} \\
+&\leq \begin{cases}
+- \left(1 - \frac{1}{q} \right) \zeta_n & \text{ if } \zeta_n > C_{K_0} R_0^q, \\
+- \left(1 - \frac{1}{q} \right) \frac{\zeta_n^{\frac{q}{q-1}}}{(C_{K_0} R_0^q)^{\frac{1}{q-1}}} & \text{ if } \zeta_n \leq C_{K_0} R_0^q,
+\end{cases}
+\end{split}
+\end{equation}
+where the last inequality is due to Lemma~\ref{Nonlinear:Lem:minimum}.
+Combining Theorem~\ref{Nonlinear:Thm:descent},~\eqref{Nonlinear:proof_core}, and~\eqref{Nonlinear:proof_conv}, we obtain
+\begin{equation*}
+\zeta_{n+1}
+\leq \begin{cases}
+\left( 1 - \tau \left(1 - \frac{1}{q} \right) \right) \zeta_n & \text{ if } \zeta_n > C_{K_0} R_0^q, \\
+\zeta_n - \tau \left(1 - \frac{1}{q} \right) \frac{\zeta_n^{\frac{q}{q-1}}}{(C_{K_0} R_0^q)^{\frac{1}{q-1}}} & \text{ if } \zeta_n \leq C_{K_0} R_0^q.
+\end{cases}
+\end{equation*}
+Note that, by Corollary~\ref{Nonlinear:Cor:monotone}, the condition $\zeta_0 \leq C_{K_0} R_0^q$ ensures $\zeta_n \leq C_{K_0} R_0^q$.
+Finally, invoking Lemma~\ref{Nonlinear:Lem:recurrence} completes the proof of Theorem~\ref{Nonlinear:Thm:conv}.
+\end{proof}
+
+Meanwhile, in many applications, the energy functional $F$ satisfies the sharpness condition, which characterizes the growth rate of $F$ around its minimizer $u$.
+
+% Assumption: Sharpness
+\begin{assumption}[Sharpness]
+\label{Nonlinear:Ass:sharp}
+For some $p > 1$, the following holds: for any bounded and convex subset $K \subset V$ satisfying $u \in K$, we have
+\begin{equation}
+\label{Nonlinear:mu_K}
+\mu_K := p \inf_{v \in K \setminus \{ u \}} \frac{F(v) - F(u)}{\| v - u \|^p} > 0.
+\end{equation}
+\end{assumption}
+
+% Example: Sharpness
+\begin{example}
+\label{Nonlinear:Ex:sharp}
+As in Example~\ref{Nonlinear:Ex:rho_2}, we assume that the solution space $V$ is a Hilbert space equipped with an inner product $\langle \cdot, \cdot \rangle$.
+Suppose that the energy functional $F$ is given by
+\begin{equation*}
+F(v) = \frac{1}{2} \langle Av, v \rangle - \langle f, v \rangle,
+\quad v \in V,
+\end{equation*}
+where $A \colon V \to V$ is a bounded, symmetric, and positive definite linear operator, and $f \in V$.
+In this case, we have $u = A^{-1} f$.
+For any $u \in V \setminus \{ u \}$, it follows that
+\begin{equation*}
+\frac{F(v) - F(u)}{\| v - u \|^2}
+= \frac{1}{2} \frac{\langle A(v - u), v - u \rangle }{\| v - u \|^2}
+\geq \frac{1}{2} \lambda_{\min} (A),
+\end{equation*}
+where $\lambda_{\min} (A)$ denotes the minimum eigenvalue of $A$.
+This implies that Assumption~\ref{Nonlinear:Ass:sharp} holds with $p = 2$ and $\mu_K = \lambda_{\min} (A)$ for any $K$.
+In particular, if we equip the space $V$ with the energy norm $\| \cdot \|_A = ( \langle A \cdot, \cdot \rangle)^{\frac{1}{2}}$, then we can deduce that $\mu_K = 1$ for any $K$.
+\end{example}
+
+If we additionally assume that Assumption~\ref{Nonlinear:Ass:sharp} holds, then we are able to derive the following improved convergence theorem for PSC for solving~\eqref{Nonlinear:model_convex}.
+
+% Theorem: Convergence theorem - Sharp case
+\begin{theorem}
+\label{Nonlinear:Thm:conv_sharp}
+Suppose that Assumptions~\ref{Nonlinear:Ass:local} and~\ref{Nonlinear:Ass:sharp} hold.
+In Algorithm~\ref{Nonlinear:Alg:PSC}, let $\zeta_n = F(u^{(n)}) - F(u)$ for $n \geq 0$.
+Then we have the following:
+\begin{enumerate}[(a)]
+\item In the case $p = q$, we have
+\begin{equation*}
+\zeta_n \leq \left( 1- \tau \theta \left( 1 - \frac{1}{q} \right) \min \left\{ 1, \frac{\mu_{K_0}}{q C_{K_0}} \right\}^{\frac{1}{q-1}} \right)^n \zeta_0,
+\quad n \geq 0,
+\end{equation*}
+where $\theta$, $C_{K_0}$, and $\mu_{K_0}$ were given in~\eqref{Nonlinear:theta},~\eqref{Nonlinear:C_K}, \eqref{Nonlinear:K_0}, and~\eqref{Nonlinear:mu_K}.
+
+\item In the case $p > q$, if $\zeta_0 > \left( \frac{p}{\mu_{K_0}} \right)^{\frac{q}{p-q}} C_{K_0}^{\frac{p}{p-q}}$, then we have
+\begin{equation*}
+\zeta_1 \leq \left(1 - \tau \theta \left( 1 - \frac{1}{q} \right) \right) \zeta_0.
+\end{equation*}
+Otherwise, we have
+\begin{equation*}
+\zeta_n \leq \frac{C}{\left( n + (C/\zeta_0)^{1/\beta} \right)^{\beta}},
+\quad n \geq 0,
+\end{equation*}
+where
+\begin{equation*}
+\beta = \frac{p(q-1)}{p-q}, \quad
+C = \left( \frac{pq}{(p-q) \tau \theta} \right)^{\frac{p(q-1)}{p-q}} \left( \frac{p}{\mu_K} \right)^{\frac{q}{p-q}} C_K^{\frac{p}{p-q}}.
+\end{equation*}
+\end{enumerate}
+\end{theorem}
+\begin{proof}
+In the case of Theorem~\ref{Nonlinear:Thm:conv_sharp}, an alternative upper bound for the last line of~\eqref{Nonlinear:proof_core} can be derived by invoking Assumption~\ref{Nonlinear:Ass:sharp}:
+\begin{equation}
+\label{Nonlinear:proof_conv_sharp}
+\min_{\alpha \in [0,1]} \left\{ - \alpha \zeta_n + \frac{\alpha^q C_{K_0}}{q} \| v - u^{(n)} \|^q \right\}
+\leq \min_{\alpha \in [0,1]} \left\{ - \alpha \zeta_n + \frac{\alpha^q p^{\frac{q}{p}} C_{K_0}}{q \mu_{K_0}^{\frac{q}{p}}} \zeta_n^{\frac{q}{p}} \right\}.
+\end{equation}
+
+We first consider the case $p = q$.
+It follows by Lemma~\ref{Nonlinear:Lem:minimum} that
+\begin{equation}
+\label{Nonlinear:proof_conv_sharp_p=q}
+\begin{split}
+\min_{\alpha \in [0,1]} \left\{ - \alpha \zeta_n + \frac{\alpha^q p^{\frac{q}{p}} C_{K_0}}{q \mu_{K_0}^{\frac{q}{p}}} \zeta_n^{\frac{q}{p}} \right\}
+&= \min_{\alpha \in [0,1]} \left\{ - \alpha \zeta_n + \frac{\alpha^q q C_{K_0}}{q \mu_{K_0}} \zeta_n \right\} \\
+&\leq \zeta_n \left(1 - \frac{1}{q} \right) \min \left\{ 1 , \frac{\mu_{K_0}}{q C_{K_0}} \right\}^{\frac{1}{q-1}}.
+\end{split}
+\end{equation}
+By combining Theorem~\ref{Nonlinear:Thm:descent},~\eqref{Nonlinear:proof_core},~\eqref{Nonlinear:proof_conv_sharp}, and~\eqref{Nonlinear:proof_conv_sharp_p=q}, we obtain the desired result.
+
+Next, we consider the case $p > q$.
+By Lemma~\ref{Nonlinear:Lem:minimum}, we have
+\begin{multline}
+\label{Nonlinear:proof_conv_sharp_pnq}
+\min_{\alpha \in [0,1]} \left\{ - \alpha \zeta_n + \frac{\alpha^q p^{\frac{q}{p}} C_{K_0}}{q \mu_{K_0}^{\frac{q}{p}}} \zeta_n^{\frac{q}{p}} \right\} \\
+\leq \begin{cases}
+- \left(1 - \frac{1}{q} \right) \zeta_n & \text{ if } \zeta_n > \left( \frac{p}{\mu_{K_0}} \right)^{\frac{q}{p-q}} C_{K_0}^{\frac{p}{p-q}}, \\
+- \left(1 - \frac{1}{q} \right) \left( \frac{\mu_{K_0}}{p} \right)^{\frac{q}{p(q-1)}} \frac{\zeta_n^{\frac{q(p-1)}{p(q-1)}}}{C_{K_0}^{\frac{1}{q-1}}} & \text{ if } \zeta_n \leq \left( \frac{p}{\mu_{K_0}} \right)^{\frac{q}{p-q}} C_{K_0}^{\frac{p}{p-q}},
+\end{cases}
+\end{multline}
+Combining Theorem~\ref{Nonlinear:Thm:descent},~\eqref{Nonlinear:proof_core},~\eqref{Nonlinear:proof_conv_sharp}, and~\eqref{Nonlinear:proof_conv_sharp_pnq}, we get
+\begin{equation*}
+\zeta_{n+1}
+\leq \begin{cases}
+\left( 1 - \tau \left(1 - \frac{1}{q} \right) \right) \zeta_n & \text{ if } \zeta_n > \left( \frac{p}{\mu_{K_0}} \right)^{\frac{q}{p-q}} C_{K_0}^{\frac{p}{p-q}}, \\
+\zeta_n - \tau \left(1 - \frac{1}{q} \right) \left( \frac{\mu_{K_0}}{p} \right)^{\frac{q}{p(q-1)}} \frac{\zeta_n^{\frac{q(p-1)}{p(q-1)}}}{C_{K_0}^{\frac{1}{q-1}}} & \text{ if } \zeta_n \leq \left( \frac{p}{\mu_{K_0}} \right)^{\frac{q}{p-q}} C_{K_0}^{\frac{p}{p-q}}.
+\end{cases}
+\end{equation*}
+Invoking Lemma~\ref{Nonlinear:Lem:recurrence} completes the proof of Theorem~\ref{Nonlinear:Thm:conv_sharp}.
+\end{proof}
+
+% Section: Full approximation schemes
+\section{Full approximation schemes}
+\label{Nonlinear:Sec:FAS}
+From a computational perspective, one major difference between subspace correction methods for linear and nonlinear problems is that, in the nonlinear case, coupling between global and local variables may occur, which significantly increases the computational cost.  
+For example, consider the exact local problem~\eqref{Nonlinear:local_exact}.  
+Solving~\eqref{Nonlinear:local_exact} generally requires coupled computation of the global variable~$v$ and the local variable~$w_j$.  
+That is, although~\eqref{Nonlinear:local_exact} is a local problem, its solution involves non-local computations due to dependence on the global state.  
+To avoid such situations, it is necessary to formulate local problems in a way that fully localizes computation.  
+A strategy designed for this purpose is the full approximation scheme~(FAS), which we discuss in this section.
+
+% Subsection: Fully localized local problems
+\subsection{Fully localized local problems}\
+We consider the space decomposition~\eqref{Nonlinear:space_decomposition}.
+For each subspace~$V_j$, there exists a projection-like operator \( Q_j \colon V^* \to V_j^* \) defined by
+\begin{equation}
+\label{Nonlinear:Q_j}
+\langle Q_j p, v_j \rangle = \langle p, v_j \rangle, \quad \text{for all } v_j \in V_j, \ p \in V^*.
+\end{equation}
+Note that~$Q_j$ is the adjoint of the natural inclusion \( I_j \colon V_j \to V \), i.e., \( Q_j = I_j^t \).  
+In this sense, we refer to \( Q_j \) as the natural restriction operator.
+
+We also introduce a continuous operator \( \Pi_j \colon V \to V_j \), which will later be specified as an interpolation or projection.
+\begin{equation}
+\label{Nonlinear:Pi_j}
+\Pi_j \colon V \to V_j.
+\end{equation}
+
+We consider the general nonlinear problem~\eqref{Nonlinear:model}.
+We assume that for each subspace~$V_j$, there is an injective local operator \( A_j \colon V_j \to V_j^* \) that serves as a good approximation of the global operator~$A$ restricted to~$V_j$.
+
+Given a current iterate $u^{\mathrm{old}} \in V$, we start from the following trivial identity:
+\begin{equation}
+\label{Nonlinear:FAS_derivation_1}
+    A (u) - A (u^{\mathrm{old}}) = - A (u^{\mathrm{old}}).
+\end{equation}
+Note that the equation~\eqref{Nonlinear:FAS_derivation_1} is posed on the dual space $V^*$ of the global space $V$.
+To convert~\eqref{Nonlinear:FAS_derivation_1} to a problem posed on $V_j^*$, with an unknown $\tilde{u}_j \in V_j$, we replace $u$, $u^{\mathrm{old}}$, and $A$ in the left-hand side of~\eqref{Nonlinear:FAS_derivation_1} by $\tilde{u}_j$, $\Pi_j u^{\mathrm{old}}$, and $A_j$, respectively, where $\Pi_j$ was given in~\eqref{Nonlinear:Pi_j}, while we replace the right-hand side with its natural inclusion.
+Then, we have the following equation of $\tilde{u}_j \in V_j$ defined on $V_j^*$:
+\begin{equation*}
+A_j (\tilde{u}_j) - A_j (\Pi_j u^{\mathrm{old}} ) = - Q_j A (u^{\mathrm{old}}),
+\end{equation*}
+where $Q_j$ was defined in~\eqref{Nonlinear:Q_j}.
+Equivalently, we have the following variational problem: find $\tilde{u}_j \in V_j$ such that
+\begin{equation}
+\label{Nonlinear:FAS_derivation_2}
+\langle A_j (\tilde{u}_j), v_j \rangle
+= \langle A_j (\Pi_j u^{\mathrm{old}} ) - Q_j A (u^{\mathrm{old}}), v_j \rangle,
+\quad v_j \in V_j.
+\end{equation}
+The subspace function $\tilde{u}_j - \Pi_j u^{\mathrm{old}}$ given by~\eqref{Nonlinear:FAS_derivation_2} provides a correction of $u^{\mathrm{old}}$ to get a ``better" approximation for $u$.
+The problem~\eqref{Nonlinear:FAS_derivation_2} is called FAS local problem.
+
+% Remark: Zero correction
+\begin{remark}
+\label{Rem:zero}
+In~\eqref{Nonlinear:FAS_derivation_2}, if $u^{\mathrm{old}} = u$, then the injectivity of $A_j$ implies that $\tilde{u}_j = \Pi_j u^{\mathrm{old}}$.
+Namely,~\eqref{Nonlinear:FAS_derivation_2} provides the zero correction if the given approximation is an exact solution of~\eqref{Nonlinear:model}.
+\end{remark}
+
+% Remark: Linear case
+\begin{remark}
+\label{Rem:linear}
+We consider the special case where~\eqref{Nonlinear:model} is linear.
+Let $V$ be a Euclidean space equipped with an inner product $(\cdot, \cdot)$, and with an abuse of notation. let $A \colon V \to V$ be a SPD linear operator, and $f \in V$.
+We set
+\begin{equation*}
+A(v) = Av - f
+\end{equation*}
+in~\eqref{Nonlinear:model}.
+Now define
+\begin{equation*}
+A_j(v_j) = A_j v_j - f_j,
+\end{equation*}
+for some SPD linear operator $A_j \colon V_j \to V_j$ and $f_j \in V_j$.
+Then, in~\eqref{Nonlinear:FAS_derivation_2}, we obtain
+\begin{equation*}
+\tilde{u}_j - \Pi_j u^{\mathrm{old}} = A_j^{-1} Q_j (f - A u^{\mathrm{old}}).
+\end{equation*}
+That is, in this case, the correction $\tilde{u}_j - \Pi_j u^{\mathrm{old}}$ becomes independent of~$\Pi_j$, and~\eqref{Nonlinear:FAS_derivation_2} reduces to the conventional subspace correction for linear problems.
+\end{remark}
+
+% Subsection: Multigrid methods
+\subsection{Multigrid methods}
+Now, we study how to apply FAS in multigrid methods.
+Suppose that the solution space $V_h$ is defined on a fine grid, and we write the model problem~\eqref{Nonlinear:model} as
+\begin{equation}
+\label{Nonlinear:model_h}
+A_h(u_h) = 0
+\end{equation}
+to emphasize the mesh dependence.
+It suffices to consider the following setting: given a current approximation $u_{h,0} \in V_h$ of the solution $u_h$ to~\eqref{Nonlinear:model_h}, how can we construct a correction using the coarse grid space $V_{2h} \subset V_h$?
+
+Adapting~\eqref{Nonlinear:FAS_derivation_2}, the FAS local problem in this case is given by: find $\tilde{u}_{2h} \in V_{2h}$ such that
+\begin{equation}
+\label{Nonlinear:FAS_multigrid}
+A_{2h}(\tilde{u}_{2h}) = A_{2h}(u_{2h, 0}) - Q_{2h} A_h(u_{h,0}),
+\end{equation}
+where $u_{2h,0} = \Pi_h^{2h} u_{h,0}$, $\Pi_h^{2h} \colon V_h \to V_{2h}$ is a given interpolation or projection operator~(cf.~\eqref{Nonlinear:Pi_j}), and $Q_{2h} \colon V_h^* \to V_{2h}^*$ is the natural restriction operator~(cf.~\eqref{Nonlinear:Q_j}).  
+The coarse-grid correction is then defined by
+\begin{equation*}
+e_{2h} = \tilde{u}_{2h} - u_{2h, 0}.
+\end{equation*}
+
+To summarize, the FAS-$\backslash$-cycle multigrid method proceeds as follows:
+\begin{enumerate}
+\item \textbf{Fine-grid smoothing:} Apply $m$ steps of a smoothing iteration:
+\begin{equation*}
+u_h^i = u_h^{i-1} + S_h ( -A_h(u_h^{i-1}) ), \quad i = 1, \dots, m,
+\end{equation*}
+where $S_h \colon V_h^* \to V_h$ is a smoothing operator, such as gradient descent.
+
+\item \textbf{Coarse-grid correction:} Solve the coarse problem~\eqref{Nonlinear:FAS_multigrid} on the coarse space $V_{2h}$ to compute $e_{2h} = \tilde{u}_{2h} - u_{2h,0}$.
+
+\item \textbf{Update:}
+\begin{equation*}
+u_h^{m+1} = u_h^m + e_{2h}.
+\end{equation*}
+\end{enumerate}
+
+% Remark: FAS vs Linear Multigrid
+\begin{remark}
+\label{Nonlinear:Rem:FAS}
+Unlike linear multigrid, which solves for the error on the coarse grid, FAS solves for the full solution $\tilde{u}_{2h}$ on the coarse grid. The term $A_{2h}(u_{2h,0})$ in the coarse-grid equation accounts for the nonlinearity and ensures that the coarse problem correctly approximates the behavior of the fine-grid problem.
+The correction $e_{2h}$ still represents the difference between the computed coarse solution and the restricted fine solution.
+
+\end{remark}
+
+% Subsection: An example of a nonlinear boundary value problem
+\subsection{An example of a nonlinear boundary value problem}
+As an example, we consider the following one-dimensional boundary value problem:
+\begin{equation*}
+\begin{aligned}
+& -u'' + 2u^3 = 0 \quad \text{in } (0, 1), \\
+& u(0) = \tfrac{1}{3}, \quad u(1) = \tfrac{1}{4},
+\end{aligned}
+\end{equation*}
+whose analytical solution is
+\begin{equation*}
+u(x) = \frac{1}{x + 3}.
+\end{equation*}
+
+The weak formulation is given by
+\begin{equation*}
+(u', v') + (2u^3, v) = 0,
+\end{equation*}
+for all test functions $v$ in the appropriate space.
+
+We apply the Galerkin method using the continuous, piecewise linear finite element space. Writing the finite element solution $u_h$ as a linear combination of nodal basis functions:
+\begin{equation*}
+u_h = \sum \alpha_i \phi_i,
+\end{equation*}
+we obtain the following nonlinear system, where the unknown is the coefficient vector $\boldsymbol{\alpha}$:
+\begin{equation}
+\label{Nonlinear:FAS_example}
+A_h(\boldsymbol{\alpha}) := A \boldsymbol{\alpha} + 2h \boldsymbol{\alpha}^3 - f,
+\end{equation}
+with
+\begin{equation*}
+A = \frac{1}{h}
+\begin{bmatrix}
+2 & -1 &        &        &        \\
+-1 & 2 & -1     &        &        \\
+   & \ddots & \ddots & \ddots &   \\
+   &        & -1     & 2 & -1     \\
+   &        &        & -1 & 2
+\end{bmatrix}, \quad
+f = \frac{1}{h}
+\begin{bmatrix}
+\frac{1}{3} \\
+\vdots      \\
+\frac{1}{4}
+\end{bmatrix}.
+\end{equation*}
+
+We solve~\eqref{Nonlinear:FAS_example} using both the gradient descent method and the nonlinear multigrid method.  
+In the nonlinear multigrid method, the smoother consists of two steps of the gradient descent method:
+\begin{equation*}
+\boldsymbol{\alpha}^{n+1}
+= \boldsymbol{\alpha}^n 
+- \eta A_h(\boldsymbol{\alpha}^n) 
+- \eta A_h\big(\boldsymbol{\alpha}^n - \eta A_h(\boldsymbol{\alpha}^n)\big),
+\end{equation*}
+where $A_h$ is defined in~\eqref{Nonlinear:FAS_example} and $\eta$ is the step size.
+
+\begin{table}\label{Nonlinear:Table:FAS}
+\begin{center}
+\begin{tabular}{c|c|c}
+Size of unknowns  & Nonlinear multigrid method  & Gradient descent method \\ \hline
+15       &   13 steps  &  61.6K steps \\
+31       &   14 steps  &  976.6K steps  \\
+63       &   15 steps  & $>$ 1000K steps \\
+127      &   16 steps  & $>$ 1000K steps \\
+255      &   16 steps  & $>$ 1000K steps \\
+511      &   17 steps  & $>$ 1000K steps \\
+1023     &   18 steps  & $>$ 1000K steps \\
+\end{tabular}
+\caption{Number of iterations required to achieve $\| A_h({\boldsymbol{\alpha}}) \|/ \|b\| \leq 10^{-6}$.}
+\end{center}
+\end{table}
+
+As shown in Table~\ref{Nonlinear:Table:FAS}, the nonlinear multigrid method demonstrates uniform convergence with respect to the number of unknowns and significantly outperforms the gradient descent method in terms of iteration count.
+
+
+\end{document}

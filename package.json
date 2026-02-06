@@ -1,0 +1,249 @@
+{
+  "name": "scipen-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SciPen Studio - AI-Powered LaTeX/Typst IDE for Scientific Research",
+  "author": {
+    "name": "SciPen Team",
+    "email": "democat.iu@qq.com"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "npm run build:workers && electron-vite dev",
+    "build": "npm run prebuild && npm run typecheck:all && electron-vite build && npm run build:workers",
+    "build:win": "npm run prebuild && npm run typecheck:all && electron-vite build && npm run build:workers && electron-builder --win --x64 --publish never",
+    "build:mac": "npm run prebuild && npm run typecheck:all && electron-vite build && npm run build:workers && electron-builder --mac --publish never",
+    "build:linux": "npm run prebuild && npm run typecheck:all && electron-vite build && npm run build:workers && electron-builder --linux --publish never",
+    "build:unpack": "npm run build && electron-builder --dir",
+    "build:workers": "node scripts/build-workers.js",
+    "rebuild": "taskkill /IM \"SciPen Studio.exe\" /F 2>nul & taskkill /IM electron.exe /F 2>nul & timeout /t 2 >nul & rmdir /s /q release 2>nul & npm run build:win",
+    "start": "npm run dev",
+    "start:release": "start \"\" \"release\\0.1.0\\win-unpacked\\SciPen Studio.exe\"",
+    "preview": "npm run build && electron-vite preview",
+    "lint": "oxlint --fix && npm run typecheck:all",
+    "lint:check": "oxlint",
+    "format": "biome format --write && biome lint --write",
+    "format:check": "biome format && biome lint",
+    "typecheck": "tsc --noEmit",
+    "typecheck:node": "tsc --project tsconfig.node.json --noEmit",
+    "typecheck:all": "npm run typecheck && npm run typecheck:node",
+    "build:check": "npm run lint && npm run test:run",
+    "ci:local": "npm run lint:check && npm run format:check && npm run typecheck:all && npm run test:run && npm run build:workers && npx electron-vite build",
+    "ci:quick": "npm run lint:check && npm run typecheck:all",
+    "postinstall": "patch-package && electron-builder install-app-deps",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3,@parcel/watcher,selection-hook",
+    "download:texlab": "node scripts/download-texlab.js",
+    "download:tinymist": "node scripts/download-tinymist.js",
+    "download:lsp": "npm run download:texlab && npm run download:tinymist",
+    "prebuild": "npm run cli:build && npm run download:lsp",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:unit": "vitest run tests/electron tests/renderer",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:all": "npm run test:run && npm run test:e2e",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push --force",
+    "db:studio": "drizzle-kit studio",
+    "db:migrate": "drizzle-kit migrate",
+    "check:i18n": "npx tsx scripts/check-i18n.ts",
+    "cli:install": "cd cli_tools/scipen_pdf2tex && pnpm install && cd ../scipen-reviewer && pnpm install && cd ../scipen-beamer && pnpm install",
+    "cli:build": "node scripts/build-cli-sidecars.js",
+    "cli:setup": "npm run cli:install && npm run cli:build",
+    "setup": "npm install && npm run cli:setup"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.1",
+    "@ai-sdk/openai": "^3.0.1",
+    "@monaco-editor/react": "^4.7.0",
+    "@napi-rs/canvas": "^0.1.80",
+    "@parcel/watcher": "^2.5.4",
+    "@tailwindcss/typography": "^0.5.19",
+    "@tanstack/react-virtual": "^3.13.13",
+    "ai": "^6.0.3",
+    "autoprefixer": "^10.4.22",
+    "axios": "^1.6.2",
+    "better-sqlite3": "^11.6.0",
+    "chalk": "^4.1.2",
+    "chokidar": "^5.0.0",
+    "clsx": "^2.1.1",
+    "commander": "^11.1.0",
+    "diff-match-patch": "^1.0.5",
+    "dotenv": "^16.3.1",
+    "drizzle-orm": "^0.38.0",
+    "electron-log": "^5.4.3",
+    "electron-store": "^11.0.2",
+    "framer-motion": "^12.23.24",
+    "hnswlib-node": "^3.0.0",
+    "js-yaml": "^4.1.0",
+    "katex": "^0.16.25",
+    "lru-cache": "^11.0.2",
+    "lucide-react": "^0.555.0",
+    "mime-types": "^3.0.2",
+    "minimatch": "^10.0.1",
+    "monaco-editor": "^0.55.1",
+    "music-metadata": "^11.10.6",
+    "ora": "^5.4.1",
+    "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^5.4.394",
+    "postcss": "^8.5.6",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "react-resizable-panels": "^3.0.6",
+    "react-virtuoso": "^4.12.3",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "selection-hook": "^1.0.12",
+    "socket.io-client": "github:overleaf/socket.io-client#0.9.17-overleaf-5",
+    "tailwind-merge": "^3.4.0",
+    "tailwindcss": "^3.4.17",
+    "uuid": "^11.1.0",
+    "zod": "^4.3.5"
+  },
+  "build": {
+    "appId": "com.scipen.studio",
+    "productName": "SciPen Studio",
+    "icon": "resources/icon.png",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "fileAssociations": [
+      {
+        "ext": "tex",
+        "name": "LaTeX Document",
+        "description": "LaTeX Source File",
+        "mimeType": "text/x-tex",
+        "role": "Editor"
+      },
+      {
+        "ext": "bib",
+        "name": "BibTeX Database",
+        "description": "BibTeX Bibliography File",
+        "mimeType": "text/x-bibtex",
+        "role": "Editor"
+      },
+      {
+        "ext": "sty",
+        "name": "LaTeX Style",
+        "description": "LaTeX Style File",
+        "role": "Editor"
+      },
+      {
+        "ext": "cls",
+        "name": "LaTeX Class",
+        "description": "LaTeX Document Class",
+        "role": "Editor"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/hnswlib-node/**/*",
+      "node_modules/@parcel/watcher/**/*",
+      "node_modules/bindings/**/*",
+      "node_modules/@anthropic-ai/**/*",
+      "node_modules/@napi-rs/canvas/**/*",
+      "node_modules/@napi-rs/canvas-*/**/*",
+      "node_modules/pdfjs-dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/bin/",
+        "to": "bin/",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "cli_tools/scipen_pdf2tex/dist/",
+        "to": "cli/scipen-pdf2tex/",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "cli_tools/scipen-reviewer/dist/",
+        "to": "cli/scipen-reviewer/",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "cli_tools/scipen-beamer/dist/",
+        "to": "cli/scipen-beamer/",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@electron/rebuild": "^3.6.0",
+    "@playwright/test": "^1.48.0",
+    "@testing-library/jest-dom": "^6.6.0",
+    "@testing-library/react": "^16.0.0",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/diff-match-patch": "^1.0.36",
+    "@types/glob": "^8.1.0",
+    "@types/mime-types": "^3.0.1",
+    "@types/node": "^22.19.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@types/uuid": "^10.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.38.0",
+    "@typescript-eslint/parser": "^8.38.0",
+    "@vitejs/plugin-react-swc": "^4.2.2",
+    "@vitest/coverage-v8": "^4.0.15",
+    "drizzle-kit": "^0.30.0",
+    "electron": "^30.0.1",
+    "electron-builder": "^24.13.3",
+    "electron-vite": "^2.3.0",
+    "esbuild": "^0.24.0",
+    "eslint": "^9.31.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.18",
+    "happy-dom": "^20.0.11",
+    "oxlint": "^1.0.0",
+    "patch-package": "^8.0.0",
+    "playwright": "^1.48.0",
+    "sharp": "^0.34.5",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5.8.3",
+    "vite": "^5.1.6",
+    "vitest": "^4.0.15"
+  }
+}
