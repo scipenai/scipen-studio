@@ -116,7 +116,10 @@ function restoreViewState(
       editor.restoreViewState(cached.viewState);
     }
   } else {
-    const uri = monacoInstance.Uri.parse(`file:///${path.replace(/\\/g, '/')}`);
+    // Normalize path: replace backslashes and remove leading slashes to avoid invalid URIs
+    // e.g., /home/user/file.tex -> file:///home/user/file.tex (not file:////home/user/file.tex)
+    const normalizedPath = path.replace(/\\/g, '/').replace(/^\/+/, '');
+    const uri = monacoInstance.Uri.parse(`file:///${normalizedPath}`);
 
     let model = monacoInstance.editor.getModel(uri);
     if (!model || model.isDisposed()) {
