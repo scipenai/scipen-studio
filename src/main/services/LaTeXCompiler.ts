@@ -7,6 +7,7 @@
 import { execFile } from 'child_process';
 import { EventEmitter } from 'events';
 import { promisify } from 'util';
+import { augmentedEnv } from '../utils/shellEnv';
 import {
   type CompileLog,
   type CompileProgress,
@@ -22,6 +23,7 @@ import type {
 } from './compiler/interfaces';
 
 const execFileAsync = promisify(execFile);
+const augmentedExecOptions = { env: augmentedEnv };
 
 // ==================== Configuration Constants ====================
 
@@ -116,12 +118,11 @@ export class LaTeXCompiler extends EventEmitter implements ICompiler {
 
   async isAvailable(): Promise<boolean> {
     try {
-      await execFileAsync('pdflatex', ['--version']);
+      await execFileAsync('pdflatex', ['--version'], augmentedExecOptions);
       return true;
     } catch {
-      // Try tectonic as fallback
       try {
-        await execFileAsync('tectonic', ['--version']);
+        await execFileAsync('tectonic', ['--version'], augmentedExecOptions);
         return true;
       } catch {
         return false;
@@ -131,12 +132,12 @@ export class LaTeXCompiler extends EventEmitter implements ICompiler {
 
   async getVersion(): Promise<string | null> {
     try {
-      const { stdout } = await execFileAsync('pdflatex', ['--version']);
+      const { stdout } = await execFileAsync('pdflatex', ['--version'], augmentedExecOptions);
       const match = stdout.match(/pdfTeX [^\n]+/);
       return match ? match[0] : stdout.split('\n')[0] || null;
     } catch {
       try {
-        const { stdout } = await execFileAsync('tectonic', ['--version']);
+        const { stdout } = await execFileAsync('tectonic', ['--version'], augmentedExecOptions);
         return stdout.trim();
       } catch {
         return null;
@@ -150,7 +151,7 @@ export class LaTeXCompiler extends EventEmitter implements ICompiler {
     const results = await Promise.all(
       this.engines.map(async (engine) => {
         try {
-          const { stdout } = await execFileAsync(engine, ['--version']);
+          const { stdout } = await execFileAsync(engine, ['--version'], augmentedExecOptions);
           return { engine, available: true, version: stdout.split('\n')[0] };
         } catch {
           return { engine, available: false };

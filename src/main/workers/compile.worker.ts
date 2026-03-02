@@ -8,6 +8,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
 import { parentPort } from 'worker_threads';
+import { augmentedEnv } from '../utils/shellEnv';
 
 // ============ Type Definitions ============
 
@@ -382,7 +383,7 @@ function runTectonic(id: string, texFile: string, workDir: string): Promise<Comp
 
     sendLog(id, 'info', `Running: tectonic ${args.join(' ')}`);
 
-    const proc = spawn('tectonic', args, { cwd: workDir });
+    const proc = spawn('tectonic', args, { cwd: workDir, env: augmentedEnv });
     registerProcess(id, proc);
 
     let stdout = '';
@@ -501,7 +502,7 @@ function runTraditionalCompiler(
 
     sendLog(id, 'info', `[Pass ${pass}] Running: ${engine}`);
 
-    const proc = spawn(engine, args, { cwd: workDir });
+    const proc = spawn(engine, args, { cwd: workDir, env: augmentedEnv });
     const processId = `${id}-pass${pass}`;
     registerProcess(processId, proc);
 
@@ -659,7 +660,7 @@ function runTypstCompiler(
 
     sendLog(id, 'info', `Running: ${command} ${args.join(' ')}`);
 
-    const proc = spawn(command, args, { cwd: path.dirname(typFile) });
+    const proc = spawn(command, args, { cwd: path.dirname(typFile), env: augmentedEnv });
     registerProcess(id, proc);
 
     let stdout = '';

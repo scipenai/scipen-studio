@@ -8,6 +8,7 @@ import { execFile, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import os from 'os';
 import path from 'path';
+import { augmentedEnv } from '../utils/shellEnv';
 import { createLogger } from './LoggerService';
 import type {
   CompileLogEntry,
@@ -121,7 +122,7 @@ export class TypstCompiler extends EventEmitter implements ICompiler {
       if (!executable) continue;
 
       return new Promise((resolve) => {
-        execFile(executable, ['--version'], (error, stdout) => {
+        execFile(executable, ['--version'], { env: augmentedEnv }, (error, stdout) => {
           if (error) {
             resolve(null);
           } else {
@@ -145,7 +146,7 @@ export class TypstCompiler extends EventEmitter implements ICompiler {
         }
 
         return new Promise<{ engine: string; available: boolean; version?: string }>((resolve) => {
-          execFile(executable, ['--version'], (error, stdout) => {
+          execFile(executable, ['--version'], { env: augmentedEnv }, (error, stdout) => {
             if (error) {
               resolve({ engine, available: false });
             } else {
@@ -500,7 +501,7 @@ export class TypstCompiler extends EventEmitter implements ICompiler {
 
       const proc = spawn(executable, args, {
         cwd: workDir,
-        env: { ...process.env },
+        env: augmentedEnv,
       });
 
       this._currentProcess = proc;
@@ -660,7 +661,7 @@ export class TypstCompiler extends EventEmitter implements ICompiler {
 
   private checkExecutable(command: string): Promise<boolean> {
     return new Promise((resolve) => {
-      execFile(command, ['--version'], (error) => {
+      execFile(command, ['--version'], { env: augmentedEnv }, (error) => {
         resolve(!error);
       });
     });

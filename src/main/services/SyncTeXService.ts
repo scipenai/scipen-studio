@@ -20,6 +20,7 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import zlib from 'zlib';
+import { augmentedEnv } from '../utils/shellEnv';
 import type { ForwardSyncResult, ISyncTeXService, InverseSyncResult } from './interfaces';
 import fs from './knowledge/utils/fsCompat';
 
@@ -73,6 +74,7 @@ export class SyncTeXService implements ISyncTeXService {
 
       const proc = spawn(this.synctexPath, args, {
         cwd: dir,
+        env: augmentedEnv,
       });
       let output = '';
 
@@ -126,6 +128,7 @@ export class SyncTeXService implements ISyncTeXService {
 
       const proc = spawn(this.synctexPath, args, {
         cwd: dir,
+        env: augmentedEnv,
       });
       let output = '';
 
