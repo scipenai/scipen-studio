@@ -11,14 +11,10 @@ export const TIMEOUTS = {
   VLM: 60000,
   /** Whisper speech transcription timeout */
   WHISPER: 120000,
-  /** Embedding request timeout */
-  EMBEDDING: 30000,
   /** TexLab LSP timeout */
   TEXLAB: 5000,
   /** File operation timeout */
   FILE_OPERATION: 30000,
-  /** AutoRAG search timeout (seconds) */
-  AUTORAG_SEARCH: 30,
 } as const;
 
 /** Delay duration (milliseconds) */

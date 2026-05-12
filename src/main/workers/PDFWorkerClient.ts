@@ -23,7 +23,7 @@ export interface ChunkingConfig {
 export interface ChunkData {
   content: string;
   chunkType: string;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 }
 
 export interface DocumentMetadata {
@@ -35,7 +35,7 @@ export interface DocumentMetadata {
   journal?: string;
   doi?: string;
   pageCount?: number;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface PDFParseResult {
@@ -48,12 +48,12 @@ export interface PDFParseResult {
 interface WorkerResponse {
   id: string;
   success: boolean;
-  data?: any;
+  data?: unknown;
   error?: string;
 }
 
 type PendingRequest = {
-  resolve: (value: any) => void;
+  resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timeout?: NodeJS.Timeout;
 };
@@ -203,7 +203,7 @@ export class PDFWorkerClient {
     this.pendingRequests.clear();
   }
 
-  private sendRequest<T>(type: string, payload: any, timeout?: number): Promise<T> {
+  private sendRequest<T>(type: string, payload: unknown, timeout?: number): Promise<T> {
     return new Promise((resolve, reject) => {
       if (!this.worker) {
         reject(new Error('Worker not initialized'));
@@ -213,7 +213,10 @@ export class PDFWorkerClient {
       const id = `pdf-${++this.requestId}`;
       const timeoutMs = timeout ?? this.defaultTimeout;
 
-      const pending: PendingRequest = { resolve, reject };
+      const pending: PendingRequest = {
+        resolve: (value) => resolve(value as T),
+        reject,
+      };
 
       if (timeoutMs > 0) {
         pending.timeout = setTimeout(() => {

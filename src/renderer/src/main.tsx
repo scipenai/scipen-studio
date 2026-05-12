@@ -23,17 +23,10 @@ if (typeof URL.parse !== 'function') {
   ) => new URL(url, base);
 }
 
-// Why: Main process IPC handlers are registered after window creation
-// Need to wait a short time to ensure handlers are available
-// This is a trade-off: avoid complex ready signal mechanism
-const STARTUP_DELAY_MS = 100;
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
 
-setTimeout(() => {
-  ReactDOM.createRoot(document.getElementById('root')!).render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>
-  );
-}, STARTUP_DELAY_MS);
-
-console.log('[App] SciPen Studio started');
+console.info('[App] SciPen Studio started');

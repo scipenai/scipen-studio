@@ -36,10 +36,13 @@
         "useExponentiationOperator": "off",
         "noParameterAssign": "off"
       },
+      "security": {
+        "noDangerouslySetInnerHtml": "off"
+      },
       "suspicious": {
-        "noExplicitAny": "off",
+        "noExplicitAny": "warn",
         "noArrayIndexKey": "off",
-        "noConsoleLog": "off",
+        "noConsoleLog": "warn",
         "noConfusingVoidType": "off",
         "noControlCharactersInRegex": "off",
         "noAssignInExpressions": "off",
@@ -72,17 +75,7 @@
     }
   },
   "files": {
-    "ignore": [
-      "node_modules",
-      "dist",
-      "out",
-      "build",
-      ".git",
-      "*.min.js",
-      "*.d.ts",
-      "coverage",
-      "cli_tools"
-    ],
+    "ignore": ["node_modules", "dist", "out", "build", ".git", "*.min.js", "*.d.ts", "coverage"],
     "include": ["src/**/*.ts", "src/**/*.tsx", "shared/**/*.ts", "tests/**/*.ts", "tests/**/*.tsx"]
   },
   "overrides": [
@@ -92,6 +85,10 @@
         "rules": {
           "correctness": {
             "noUnusedVariables": "off"
+          },
+          "suspicious": {
+            "noExplicitAny": "off",
+            "noConsoleLog": "off"
           }
         }
       }

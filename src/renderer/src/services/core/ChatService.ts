@@ -1,10 +1,12 @@
 /**
  * @file ChatService.ts - Chat Service
- * @description Event-driven chat session and message management, supports RAG mode
+ * @description Event-driven chat session and message management
  * @depends IPC (api.chat), shared/utils (Emitter)
  */
 
 import type {
+  ArtifactSummary,
+  ChatMessageBlock,
   ChatSession,
   ChatStreamEvent,
   ReferencedFile,
@@ -39,13 +41,6 @@ export interface FilesReferencedEvent {
   readonly failed: ReferencedFileFailed[];
 }
 
-export interface RagSearchEvent {
-  readonly sessionId: string;
-  readonly status: 'searching' | 'complete';
-  readonly citations?: import('../../../../../shared/types/chat').Citation[];
-  readonly searchTime?: number;
-}
-
 // ============ ChatService ============
 
 export class ChatService implements IDisposable {
@@ -65,9 +60,6 @@ export class ChatService implements IDisposable {
   private _cachedCurrentMessages: UnifiedChatMessage[] = [];
   private _cachedReferencedFiles: ReferencedFile[] = [];
   private _cachedReferencedFailed: ReferencedFileFailed[] = [];
-  private _cachedRagSearching = false;
-  private _pendingCitations: import('../../../../../shared/types/chat').Citation[] = [];
-  private _pendingSearchTime: number | undefined;
 
   // Event stream cleanup
   private _streamUnsubscribe: (() => void) | null = null;
@@ -111,9 +103,6 @@ export class ChatService implements IDisposable {
   private readonly _onDidFilesReferenced = new Emitter<FilesReferencedEvent>();
   readonly onDidFilesReferenced: Event<FilesReferencedEvent> = this._onDidFilesReferenced.event;
 
-  private readonly _onDidRagSearch = new Emitter<RagSearchEvent>();
-  readonly onDidRagSearch: Event<RagSearchEvent> = this._onDidRagSearch.event;
-
   constructor() {
     // Register events
     this._disposables.add(this._onDidCreateSession);
@@ -128,7 +117,6 @@ export class ChatService implements IDisposable {
     this._disposables.add(this._onDidStreamTextDelta);
     this._disposables.add(this._onDidError);
     this._disposables.add(this._onDidFilesReferenced);
-    this._disposables.add(this._onDidRagSearch);
 
     // Subscribe to stream events
     this._subscribeToStream();
@@ -161,10 +149,6 @@ export class ChatService implements IDisposable {
 
   get referencedFailed(): ReferencedFileFailed[] {
     return this._cachedReferencedFailed;
-  }
-
-  get ragSearching(): boolean {
-    return this._cachedRagSearching;
   }
 
   getCurrentMessages(): UnifiedChatMessage[] {
@@ -286,63 +270,145 @@ export class ChatService implements IDisposable {
         // Session created on backend - sync if needed
         break;
 
-      case 'message_start':
+      case 'session_updated': {
+        const existing = this._sessionsById.get(event.session.id);
+        this._sessionsById.set(event.session.id, event.session);
+        if (!existing) {
+          this._sessionOrder.unshift(event.session.id);
+        }
+        this._updateSessionsCache();
+        if (this._currentSessionId === event.session.id) {
+          this._updateCurrentSessionCache();
+        }
+        this._onDidUpdateSession.fire({ session: event.session, type: 'updated' });
+        break;
+      }
+
+      case 'message_start': {
         // Create message placeholder
-        if (this._currentSessionId && event.role === 'assistant') {
+        const targetSession = event.sessionId ?? this._currentSessionId;
+        if (targetSession && event.role === 'assistant') {
           const msg: UnifiedChatMessage = {
             id: event.messageId,
-            sessionId: this._currentSessionId,
+            sessionId: targetSession,
             role: 'assistant',
             content: '',
             timestamp: Date.now(),
-            // Include pending citations if available (rag_search_complete may arrive before message_start)
-            citations: this._pendingCitations.length > 0 ? this._pendingCitations : undefined,
-            searchTime: this._pendingSearchTime,
+            blocks: [],
           };
-          this._addMessageToCache(this._currentSessionId, msg);
+          this._addMessageToCache(targetSession, msg);
           this._currentAssistantMessageId = event.messageId;
-          this._pendingCitations = []; // Clear after use
-          this._pendingSearchTime = undefined;
           this._onDidAddMessage.fire({
-            sessionId: this._currentSessionId,
+            sessionId: targetSession,
             message: msg,
             type: 'added',
           });
         }
         break;
+      }
 
-      case 'text_delta':
+      case 'text_delta': {
         // Append to current assistant message
-        if (this._currentSessionId && this._currentAssistantMessageId) {
-          const msgMap = this._messagesById.get(this._currentSessionId);
+        const deltaSession = event.sessionId ?? this._currentSessionId;
+        if (deltaSession && this._currentAssistantMessageId) {
+          const msgMap = this._messagesById.get(deltaSession);
           const msg = msgMap?.get(this._currentAssistantMessageId);
           if (msg) {
+            const blocks = this._upsertMarkdownBlock(msg.blocks, `${msg.content}${event.content}`);
             const updated: UnifiedChatMessage = {
               ...msg,
               content: `${msg.content}${event.content}`,
+              blocks,
             };
             msgMap?.set(this._currentAssistantMessageId, updated);
             this._updateCurrentMessagesCache();
             this._onDidUpdateMessage.fire({
-              sessionId: this._currentSessionId,
+              sessionId: deltaSession,
               message: updated,
               type: 'updated',
             });
             this._onDidStreamTextDelta.fire({
-              sessionId: this._currentSessionId,
+              sessionId: deltaSession,
               content: event.content,
             });
           }
         }
         break;
+      }
 
-      case 'message_complete':
-        if (this._currentSessionId) {
-          const msgMap = this._messagesById.get(this._currentSessionId);
+      case 'thinking_update': {
+        const thinkSession = event.sessionId ?? this._currentSessionId;
+        this._updateCurrentAssistantMessage(
+          (msg) => ({
+            ...msg,
+            blocks: this._upsertThinkingBlock(
+              msg.blocks,
+              event.title,
+              event.steps,
+              event.collapsed
+            ),
+          }),
+          thinkSession ?? undefined
+        );
+        break;
+      }
+
+      case 'artifact_upsert': {
+        const artifactSession = event.sessionId ?? this._currentSessionId;
+        this._updateCurrentAssistantMessage(
+          (msg) => ({
+            ...msg,
+            blocks: this._upsertArtifactBlock(msg.blocks, event.artifact),
+          }),
+          artifactSession ?? undefined
+        );
+        break;
+      }
+
+      case 'compile_update': {
+        const compileSession = event.sessionId ?? this._currentSessionId;
+        this._updateCurrentAssistantMessage(
+          (msg) => ({
+            ...msg,
+            blocks: this._upsertStatusBlock(
+              msg.blocks,
+              event.status,
+              event.title,
+              event.message,
+              event.attempt,
+              event.actionLabel
+            ),
+          }),
+          compileSession ?? undefined
+        );
+        break;
+      }
+
+      case 'agent_state': {
+        const agentSession = event.sessionId ?? this._currentSessionId;
+        this._updateCurrentAssistantMessage(
+          (msg) => ({
+            ...msg,
+            blocks: this._upsertStatusBlock(
+              msg.blocks,
+              event.status === 'error' ? 'error' : event.status === 'idle' ? 'success' : 'running',
+              event.tool ? `Agent · ${event.tool}` : 'Agent',
+              event.message
+            ),
+          }),
+          agentSession ?? undefined
+        );
+        break;
+      }
+
+      case 'message_complete': {
+        const completeSession = event.sessionId ?? this._currentSessionId;
+        if (completeSession) {
+          const msgMap = this._messagesById.get(completeSession);
           const msg = msgMap?.get(event.messageId);
           if (msg) {
             this._onDidCompleteMessage.fire({
-              sessionId: this._currentSessionId,
+              sessionId: completeSession,
               message: msg,
               type: 'completed',
             });
@@ -350,75 +416,21 @@ export class ChatService implements IDisposable {
         }
         this._currentAssistantMessageId = null;
         break;
+      }
 
-      case 'files_referenced':
-        if (this._currentSessionId) {
+      case 'files_referenced': {
+        const refSession = event.sessionId ?? this._currentSessionId;
+        if (refSession) {
           this._cachedReferencedFiles = event.files;
           this._cachedReferencedFailed = event.failed;
           this._onDidFilesReferenced.fire({
-            sessionId: this._currentSessionId,
+            sessionId: refSession,
             files: event.files,
             failed: event.failed,
           });
         }
         break;
-
-      case 'rag_search_start':
-        if (this._currentSessionId) {
-          this._cachedRagSearching = true;
-          this._onDidRagSearch.fire({
-            sessionId: this._currentSessionId,
-            status: 'searching',
-          });
-        }
-        break;
-
-      case 'rag_search_complete':
-        if (this._currentSessionId) {
-          this._cachedRagSearching = false;
-
-          const hasCitations = !!event.citations && event.citations.length > 0;
-          const hasSearchTime = event.searchTime !== undefined;
-
-          // Update current assistant message with citations/searchTime, or cache for later
-          if (hasCitations || hasSearchTime) {
-            if (this._currentAssistantMessageId) {
-              // Message already exists - update it directly
-              const msgMap = this._messagesById.get(this._currentSessionId);
-              const msg = msgMap?.get(this._currentAssistantMessageId);
-              if (msg) {
-                const updated: UnifiedChatMessage = {
-                  ...msg,
-                  citations: hasCitations ? event.citations : msg.citations,
-                  searchTime: hasSearchTime ? event.searchTime : msg.searchTime,
-                };
-                msgMap?.set(this._currentAssistantMessageId, updated);
-                this._updateCurrentMessagesCache();
-                this._onDidUpdateMessage.fire({
-                  sessionId: this._currentSessionId,
-                  message: updated,
-                  type: 'updated',
-                });
-              }
-            } else {
-              // Message not yet created - cache for message_start
-              if (hasCitations && event.citations) {
-                this._pendingCitations = event.citations;
-              }
-              if (hasSearchTime) {
-                this._pendingSearchTime = event.searchTime;
-              }
-            }
-          }
-
-          this._onDidRagSearch.fire({
-            sessionId: this._currentSessionId,
-            status: 'complete',
-            citations: event.citations,
-            searchTime: event.searchTime,
-          });
-        }
-        break;
+      }
 
       case 'done':
         this._resetTransientState({ clearReferences: false });
@@ -439,6 +451,106 @@ export class ChatService implements IDisposable {
   }
 
   /**
+   * Update the current assistant message. sessionIdOverride is used when streaming
+   * events arrive for a non-current session.
+   */
+  private _updateCurrentAssistantMessage(
+    updater: (message: UnifiedChatMessage) => UnifiedChatMessage,
+    sessionIdOverride?: string
+  ): void {
+    const sessionId = sessionIdOverride ?? this._currentSessionId;
+    if (!sessionId || !this._currentAssistantMessageId) return;
+
+    const msgMap = this._messagesById.get(sessionId);
+    const msg = msgMap?.get(this._currentAssistantMessageId);
+    if (!msg) return;
+
+    const updated = updater(msg);
+    msgMap?.set(this._currentAssistantMessageId, updated);
+    this._updateCurrentMessagesCache();
+    this._onDidUpdateMessage.fire({
+      sessionId,
+      message: updated,
+      type: 'updated',
+    });
+  }
+
+  private _upsertMarkdownBlock(
+    blocks: ChatMessageBlock[] | undefined,
+    content: string
+  ): ChatMessageBlock[] {
+    const next = [...(blocks ?? [])];
+    const index = next.findIndex((block) => block.type === 'markdown');
+    const markdownBlock: ChatMessageBlock = { type: 'markdown', content };
+    if (index === -1) {
+      next.push(markdownBlock);
+    } else {
+      next[index] = markdownBlock;
+    }
+    return next;
+  }
+
+  private _upsertThinkingBlock(
+    blocks: ChatMessageBlock[] | undefined,
+    title: string,
+    steps: import('../../../../../shared/types/chat').ThinkingStep[],
+    collapsed?: boolean
+  ): ChatMessageBlock[] {
+    const next = [...(blocks ?? [])];
+    const thinkingBlock: ChatMessageBlock = { type: 'thinking', title, steps, collapsed };
+    const index = next.findIndex((block) => block.type === 'thinking');
+    if (index === -1) {
+      next.unshift(thinkingBlock);
+    } else {
+      next[index] = thinkingBlock;
+    }
+    return next;
+  }
+
+  private _upsertArtifactBlock(
+    blocks: ChatMessageBlock[] | undefined,
+    artifact: ArtifactSummary
+  ): ChatMessageBlock[] {
+    const next = [...(blocks ?? [])];
+    const index = next.findIndex(
+      (block) => block.type === 'artifact' && block.artifact.path === artifact.path
+    );
+    const artifactBlock: ChatMessageBlock = { type: 'artifact', artifact };
+    if (index === -1) {
+      next.push(artifactBlock);
+    } else {
+      next[index] = artifactBlock;
+    }
+    return next;
+  }
+
+  private _upsertStatusBlock(
+    blocks: ChatMessageBlock[] | undefined,
+    status: 'info' | 'running' | 'success' | 'warning' | 'error',
+    title: string,
+    message: string,
+    attempt?: number,
+    actionLabel?: string
+  ): ChatMessageBlock[] {
+    const next = [...(blocks ?? [])];
+    const statusBlock: ChatMessageBlock = {
+      type: 'status',
+      status,
+      title,
+      message,
+      attempt,
+      actionLabel,
+    };
+    const index = next.findIndex((block) => block.type === 'status' && block.title === title);
+    if (index === -1) {
+      next.push(statusBlock);
+    } else {
+      next[index] = statusBlock;
+    }
+    return next;
+  }
+
+  /**
    * Reset transient state to prevent showing previous session's status when switching sessions
    */
   private _resetTransientState(options: { clearReferences?: boolean } = {}): void {
@@ -448,9 +560,6 @@ export class ChatService implements IDisposable {
       this._cachedReferencedFiles = [];
       this._cachedReferencedFailed = [];
     }
-    this._cachedRagSearching = false;
-    this._pendingCitations = [];
-    this._pendingSearchTime = undefined;
   }
 
   private _addMessageToCache(sessionId: string, msg: UnifiedChatMessage): void {
@@ -475,8 +584,8 @@ export class ChatService implements IDisposable {
 
   // ============ Session Operations ============
 
-  async createSession(knowledgeBaseId?: string): Promise<string> {
-    const session = await api.chat.createSession(knowledgeBaseId);
+  async createSession(): Promise<string> {
+    const session = await api.chat.createSession();
 
     this._sessionsById.set(session.id, session);
     this._sessionOrder.unshift(session.id);
@@ -603,7 +712,7 @@ export class ChatService implements IDisposable {
   async sendMessage(content: string, options: SendMessageOptions): Promise<void> {
     // Ensure we have a session
     if (!this._currentSessionId) {
-      await this.createSession(options.knowledgeBaseId);
+      await this.createSession();
     }
 
     // Cancel any ongoing generation before starting a new one

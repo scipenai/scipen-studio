@@ -169,7 +169,7 @@ export class ModelCache implements IDisposable {
           model.dispose();
         }
         this._cache.delete(oldest);
-        console.log(`[ModelCache] Evicted oldest: ${oldest}`);
+        console.info(`[ModelCache] Evicted oldest: ${oldest}`);
       }
     }
   }
@@ -189,7 +189,7 @@ export class ModelCache implements IDisposable {
     }
     this._cache.clear();
 
-    console.log('[ModelCache] Disposed');
+    console.info('[ModelCache] Disposed');
   }
 }
 

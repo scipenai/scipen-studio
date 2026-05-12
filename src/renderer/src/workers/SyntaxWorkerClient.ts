@@ -20,7 +20,19 @@ export interface SyntaxMarker {
   endColumn: number;
 }
 
-export function mapSeverityToMonaco(severity: SyntaxMarker['severity'], monaco: any): number {
+interface MonacoSeverityAdapter {
+  MarkerSeverity: {
+    Error: number;
+    Warning: number;
+    Info: number;
+    Hint: number;
+  };
+}
+
+export function mapSeverityToMonaco(
+  severity: SyntaxMarker['severity'],
+  monaco: MonacoSeverityAdapter
+): number {
   switch (severity) {
     case 'error':
       return monaco.MarkerSeverity.Error;
@@ -61,18 +73,18 @@ export class SyntaxWorkerClient {
       };
 
       this.worker.onerror = (error) => {
-        log.error('Worker 错误:', error);
+        log.error('Worker error:', error);
         // Reject all pending requests
         for (const [id, pending] of this.pendingRequests) {
-          pending.reject(new Error('Worker 错误'));
+          pending.reject(new Error('Worker error'));
           this.pendingRequests.delete(id);
         }
       };
 
       this.isInitialized = true;
-      log.debug('✓ Worker 初始化完成');
+      log.debug('Worker initialized');
     } catch (error) {
-      log.error('Worker 初始化失败:', error);
+      log.error('Worker initialization failed:', error);
     }
   }
 
@@ -100,7 +112,7 @@ export class SyntaxWorkerClient {
     if (!this.isInitialized || !this.worker) {
       this.initialize();
       if (!this.worker) {
-        log.warn('Worker 不可用，返回空结果');
+        log.warn('Worker unavailable, returning empty result');
         return [];
       }
     }
@@ -112,7 +124,7 @@ export class SyntaxWorkerClient {
       const timeoutId = setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
-          log.warn('请求超时');
+          log.warn('Request timed out');
           resolve([]); // Return empty result on timeout instead of rejecting
         }
       }, timeout);
@@ -142,7 +154,7 @@ export class SyntaxWorkerClient {
       this.worker = null;
       this.isInitialized = false;
       this.pendingRequests.clear();
-      log.debug('✓ Worker 已终止');
+      log.debug('Worker terminated');
     }
   }
 

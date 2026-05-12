@@ -19,14 +19,12 @@ export type ProviderId =
   | 'custom'
   | `custom-${string}`; // 🔧 Supports dynamic custom provider id (e.g., custom-1737453600000)
 
-export type ModelType = 'chat' | 'completion' | 'vision' | 'embedding' | 'rerank' | 'tts' | 'stt';
+export type ModelType = 'chat' | 'completion' | 'vision' | 'tts' | 'stt';
 
 export interface ModelCapabilities {
   chat?: boolean;
   completion?: boolean;
   vision?: boolean;
-  embedding?: boolean;
-  rerank?: boolean;
   tts?: boolean;
   stt?: boolean;
   functionCall?: boolean;
@@ -81,8 +79,6 @@ export interface SelectedModels {
   chat: { providerId: ProviderId; modelId: string } | null;
   completion: { providerId: ProviderId; modelId: string } | null;
   vision: { providerId: ProviderId; modelId: string } | null;
-  embedding: { providerId: ProviderId; modelId: string } | null;
-  rerank: { providerId: ProviderId; modelId: string } | null;
   tts: { providerId: ProviderId; modelId: string } | null;
   stt: { providerId: ProviderId; modelId: string } | null;
 }

@@ -5,6 +5,18 @@
  */
 
 import { IpcChannel } from '../../../../shared/ipc/channels';
+
+const IPC_BATCH_LIMIT = 100;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (items.length <= size) return [items];
+
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
 import { type ConfigKey, ConfigKeys } from '../../../../shared/types/config-keys';
 import type { FileNode } from '../types';
 
@@ -16,21 +28,75 @@ import type {
   AIConfig,
   AIResult,
   AITestResult,
-  KnowledgeEnhancedSearchOptions,
-  KnowledgeInitOptions,
-  KnowledgeSearchOptions,
   LSPCompletionItem,
   LSPDiagnostic,
   LSPDocumentSymbol,
   LSPHover,
   LSPLocation,
+  LSPSemanticTokens,
   LogEntry,
-  OverleafCompileOptions,
   OverleafConfig,
-  OverleafSyncCodePos,
-  OverleafSyncPdfPos,
   TypstCompileOptions,
   TypstCompileResult,
+  IMConnectionStateDTO,
+  IMErrorDTO,
+  IMMessagesChangedDTO,
+  IMSnapshot,
+  IMTypingDTO,
+  StudioIMConnectParams,
+  StudioIMConversationDTO,
+  StudioIMCreateConversationParams,
+  StudioIMListConversationsParams,
+  StudioIMMessageDTO,
+  StudioIMSendMessageParams,
+  StudioIMUploadAttachmentParams,
+  StudioIMUploadAttachmentResult,
+  OverleafLiveConfigureParams,
+  OverleafLiveConnectionStateDTO,
+  OverleafLiveDocStateDTO,
+  OverleafLiveEntityResultDTO,
+  OverleafLiveErrorDTO,
+  OverleafLiveJoinDocParams,
+  OverleafLiveCreateEntityParams,
+  OverleafLiveDeleteEntityParams,
+  OverleafLiveMoveEntityParams,
+  OverleafLiveRenameEntityParams,
+  OverleafLiveRemotePatchDTO,
+  OverleafLiveStateChangedDTO,
+  OverleafLiveSubmitPatchesParams,
+  OverleafLiveTreeChangedDTO,
+  EnsureBindingFromBootstrapParams,
+  EnsureBindingFromBootstrapResult,
+  ExportSnapshotParams,
+  ExportSnapshotResult,
+  OverleafLiveUploadFileParams,
+  ProjectConversationBindingDTO,
+  ProjectConversationCreateParams,
+  ProjectConversationListParams,
+  ProjectConversationResolveParams,
+  ProjectConversationSetDefaultParams,
+  ProjectConversationBindingChangedEvent,
+  ProjectBindingDTO,
+  ResolveBindingResult,
+  OTConnectionStateDTO,
+  OTErrorDTO,
+  OTFileEventDTO,
+  OTApplyBotEditParams,
+  OTRemoteUpdateDTO,
+  OTStateChangedDTO,
+  CollaborationOwnerClaimDTO,
+  CollaborationOwnerDTO,
+  StudioOTConfigureParams,
+  StudioOTCreateFileParams,
+  StudioOTCreateFolderParams,
+  StudioOTJoinFileParams,
+  StudioOTProjectFileDTO,
+  StudioOTProjectFolderDTO,
+  StudioOTProjectSnapshotDTO,
+  StudioOTRenameFileParams,
+  StudioOTRenameFolderParams,
+  StudioOTSubmitFileOpParams,
+  StudioOTSubmitFileOpResult,
 } from '../../../../shared/api-types';
 
 export type {
@@ -41,12 +107,6 @@ export type {
   TypstCompileOptions,
   TypstCompileResult,
   OverleafConfig,
-  OverleafCompileOptions,
-  OverleafSyncCodePos,
-  OverleafSyncPdfPos,
-  KnowledgeInitOptions,
-  KnowledgeSearchOptions,
-  KnowledgeEnhancedSearchOptions,
   LSPDiagnostic,
   LSPCompletionItem,
   LSPHover,
@@ -56,15 +116,8 @@ export type {
 };
 
 import type {
-  AdvancedRetrievalConfig,
-  EnhancedSearchResult,
-  KnowledgeDocument,
-  KnowledgeLibrary,
-  KnowledgeRAGResponse,
-  KnowledgeSearchResult,
   LaTeXCompileResult,
-  OverleafCompileResult,
-  OverleafProject,
+  OverleafProjectDTO,
   SyncTeXBackwardResult,
   SyncTeXForwardResult,
 } from '../../../../shared/ipc/types';
@@ -95,19 +148,7 @@ export type {
   ChatSessionsResult,
 };
 
-export type {
-  KnowledgeLibrary,
-  KnowledgeDocument,
-  KnowledgeSearchResult,
-  KnowledgeRAGResponse,
-  AdvancedRetrievalConfig,
-  EnhancedSearchResult,
-  LaTeXCompileResult,
-  SyncTeXForwardResult,
-  SyncTeXBackwardResult,
-  OverleafProject,
-  OverleafCompileResult,
-};
+export type { LaTeXCompileResult, SyncTeXForwardResult, SyncTeXBackwardResult, OverleafProjectDTO };
 
 // ==================== Local type definitions (file-scoped only) ====================
 
@@ -132,6 +173,12 @@ async function invoke<T>(channel: IpcChannel, ...args: unknown[]): Promise<T> {
   return getIpcRenderer().invoke(channel, ...args) as Promise<T>;
 }
 
+function onEvent<T>(channel: IpcChannel, callback: (data: T) => void): () => void {
+  const ipc = getIpcRenderer();
+  const handler = (...args: unknown[]) => callback(args[1] as T);
+  return ipc.on(channel, handler);
+}
+
 function on(channel: IpcChannel, listener: (...args: unknown[]) => void): () => void {
   const ipc = getIpcRenderer();
   // Use the cleanup function returned by preload directly
@@ -143,6 +190,12 @@ function on(channel: IpcChannel, listener: (...args: unknown[]) => void): () => 
 export const file = {
   read: (path: string) => invoke<{ content: string; mtime: number }>(IpcChannel.File_Read, path),
   readBinary: (path: string) => invoke<ArrayBuffer>(IpcChannel.File_ReadBinary, path),
+  getLocalFileUrl: (path: string) => {
+    if (!window.electron?.getLocalFileUrl) {
+      throw new Error('Local file URL API is not available');
+    }
+    return window.electron.getLocalFileUrl(path);
+  },
   write: (path: string, content: string, expectedMtime?: number) =>
     invoke<{ success: boolean; conflict?: boolean; currentMtime?: number }>(
       IpcChannel.File_Write,
@@ -165,10 +218,11 @@ export const file = {
   stats: (path: string) =>
     invoke<{ size: number; mtime: number; isDirectory: boolean }>(IpcChannel.File_Stats, path),
   showInFolder: (path: string) => invoke<void>(IpcChannel.File_ShowInFolder, path),
-  openPath: (path: string) => invoke<void>(IpcChannel.File_OpenPath, path),
+  openPath: (path: string) => invoke<boolean>(IpcChannel.File_OpenPath, path),
   select: (options?: {
     filters?: Array<{ name: string; extensions: string[] }>;
     multiple?: boolean;
+    directory?: boolean;
   }) =>
     invoke<Array<{ path: string; name: string; ext: string; content: Uint8Array }> | null>(
       IpcChannel.File_Select,
@@ -193,49 +247,61 @@ export const file = {
     return { success: files !== null, files: files ?? undefined };
   },
   batchRead: async (paths: string[]) => {
-    // Handler returns Array<{ path, success, content?, error? }>
-    // Convert to Record for easier usage
-    const results = await invoke<
-      Array<{ path: string; success: boolean; content?: string; error?: string }>
-    >(IpcChannel.File_BatchRead, paths);
     const record: Record<string, string> = {};
-    for (const r of results) {
-      if (r.success && r.content !== undefined) {
-        record[r.path] = r.content;
+
+    for (const chunk of chunkArray(paths, IPC_BATCH_LIMIT)) {
+      const results = await invoke<
+        Array<{ path: string; success: boolean; content?: string; error?: string }>
+      >(IpcChannel.File_BatchRead, chunk);
+
+      for (const result of results) {
+        if (result.success && result.content !== undefined) {
+          record[result.path] = result.content;
+        }
       }
     }
+
     return record;
   },
   batchStat: async (paths: string[]) => {
-    // Handler returns Array<{ path, success, stats?, error? }>
-    // Convert to Record for easier usage
-    const results = await invoke<
-      Array<{
-        path: string;
-        success: boolean;
-        stats?: { size: number; mtime: string };
-        error?: string;
-      }>
-    >(IpcChannel.File_BatchStat, paths);
     const record: Record<string, { size: number; mtime: number }> = {};
-    for (const r of results) {
-      if (r.success && r.stats) {
-        record[r.path] = { size: r.stats.size, mtime: new Date(r.stats.mtime).getTime() };
+
+    for (const chunk of chunkArray(paths, IPC_BATCH_LIMIT)) {
+      const results = await invoke<
+        Array<{
+          path: string;
+          success: boolean;
+          stats?: { size: number; mtime: string };
+          error?: string;
+        }>
+      >(IpcChannel.File_BatchStat, chunk);
+
+      for (const result of results) {
+        if (result.success && result.stats) {
+          record[result.path] = {
+            size: result.stats.size,
+            mtime: new Date(result.stats.mtime).getTime(),
+          };
+        }
       }
     }
+
     return record;
   },
   batchExists: async (paths: string[]) => {
-    // Handler returns Array<{ path, exists }>
-    // Convert to Record for easier usage
-    const results = await invoke<Array<{ path: string; exists: boolean }>>(
-      IpcChannel.File_BatchExists,
-      paths
-    );
     const record: Record<string, boolean> = {};
-    for (const r of results) {
-      record[r.path] = r.exists;
+
+    for (const chunk of chunkArray(paths, IPC_BATCH_LIMIT)) {
+      const results = await invoke<Array<{ path: string; exists: boolean }>>(
+        IpcChannel.File_BatchExists,
+        chunk
+      );
+
+      for (const result of results) {
+        record[result.path] = result.exists;
+      }
     }
+
     return record;
   },
   batchWrite: async (files: Array<{ path: string; content: string }>) => {
@@ -254,18 +320,132 @@ export const file = {
 
 // ==================== Project API ====================
 
+export const im = {
+  connect: (config: StudioIMConnectParams) => invoke<IMSnapshot>(IpcChannel.IM_Connect, config),
+  disconnect: () => invoke<void>(IpcChannel.IM_Disconnect),
+  getSnapshot: () => invoke<IMSnapshot>(IpcChannel.IM_GetSnapshot),
+  listConversations: (params: StudioIMListConversationsParams) =>
+    invoke<StudioIMConversationDTO[]>(IpcChannel.IM_ListConversations, params),
+  createConversation: (params: StudioIMCreateConversationParams) =>
+    invoke<StudioIMConversationDTO>(IpcChannel.IM_CreateConversation, params),
+  getConversationMembers: (baseUrl: string, token: string, conversationId: string) =>
+    invoke<Array<{ user_id: string; username: string; display_name: string; role: string }>>(
+      IpcChannel.IM_GetConversationMembers,
+      baseUrl,
+      token,
+      conversationId
+    ),
+  sendMessage: (params: StudioIMSendMessageParams) =>
+    invoke<StudioIMMessageDTO>(IpcChannel.IM_SendMessage, params),
+  uploadAttachment: (params: StudioIMUploadAttachmentParams) =>
+    invoke<StudioIMUploadAttachmentResult>(IpcChannel.IM_UploadAttachment, params),
+  sendTyping: (conversationId: string) => invoke<void>(IpcChannel.IM_SendTyping, conversationId),
+  getBotUserId: (baseUrl: string, token: string) =>
+    invoke<string>(IpcChannel.IM_GetBotUserId, baseUrl, token),
+  onStateChanged: (listener: (payload: IMConnectionStateDTO) => void) =>
+    on(IpcChannel.IM_StateChanged, listener as (...args: unknown[]) => void),
+  onMessagesChanged: (listener: (payload: IMMessagesChangedDTO) => void) =>
+    on(IpcChannel.IM_MessagesChanged, listener as (...args: unknown[]) => void),
+  onTypingChanged: (listener: (payload: IMTypingDTO) => void) =>
+    on(IpcChannel.IM_TypingChanged, listener as (...args: unknown[]) => void),
+  onError: (listener: (payload: IMErrorDTO) => void) =>
+    on(IpcChannel.IM_Error, listener as (...args: unknown[]) => void),
+};
+
+export const ot = {
+  configure: (config: StudioOTConfigureParams) =>
+    invoke<OTConnectionStateDTO>(IpcChannel.OT_Configure, config),
+  setBotUserId: (userId: string) => invoke<void>(IpcChannel.OT_SetBotUserId, userId),
+  disconnect: () => invoke<void>(IpcChannel.OT_Disconnect),
+  openLocalProject: (params: {
+    root_path: string;
+    name?: string;
+    files: Array<{ file_path: string; content: string }>;
+    folders?: string[];
+    workspace?: string;
+  }) => invoke<StudioOTProjectSnapshotDTO>(IpcChannel.OT_OpenLocalProject, params),
+  getProjectSnapshot: (projectId: string) =>
+    invoke<StudioOTProjectSnapshotDTO>(IpcChannel.OT_GetProjectSnapshot, projectId),
+  getProjectFile: (projectId: string, fileId: string) =>
+    invoke<StudioOTProjectFileDTO>(IpcChannel.OT_GetProjectFile, projectId, fileId),
+  joinFile: (params: StudioOTJoinFileParams) =>
+    invoke<StudioOTProjectFileDTO>(IpcChannel.OT_JoinFile, params),
+  submitFileOp: (params: StudioOTSubmitFileOpParams) =>
+    invoke<StudioOTSubmitFileOpResult>(IpcChannel.OT_SubmitFileOp, params),
+  applyBotEdit: (params: OTApplyBotEditParams) =>
+    invoke<import('../../../../shared/api-types').CollaborativeApplyOutcomeDTO>(
+      IpcChannel.OT_ApplyBotEdit,
+      params
+    ),
+  createFile: (params: StudioOTCreateFileParams) =>
+    invoke<StudioOTProjectFileDTO>(IpcChannel.OT_CreateFile, params),
+  createFolder: (params: StudioOTCreateFolderParams) =>
+    invoke<StudioOTProjectFolderDTO>(IpcChannel.OT_CreateFolder, params),
+  renameFile: (params: StudioOTRenameFileParams) =>
+    invoke<StudioOTProjectFileDTO>(IpcChannel.OT_RenameFile, params),
+  renameFolder: (params: StudioOTRenameFolderParams) =>
+    invoke<StudioOTProjectFolderDTO>(IpcChannel.OT_RenameFolder, params),
+  deleteFile: (projectId: string, fileId: string) =>
+    invoke<{ success: boolean }>(IpcChannel.OT_DeleteFile, projectId, fileId),
+  deleteFolder: (projectId: string, folderId: string) =>
+    invoke<{ success: boolean }>(IpcChannel.OT_DeleteFolder, projectId, folderId),
+  listProjects: (workspace?: string) =>
+    invoke<import('../../../../shared/api-types').StudioOTProjectSummaryDTO[]>(
+      IpcChannel.OT_ListProjects,
+      workspace ?? null
+    ),
+  updateProject: (projectId: string, updates: { name?: string; workspace?: string }) =>
+    invoke<import('../../../../shared/api-types').IPCResult<typeof IpcChannel.OT_UpdateProject>>(
+      IpcChannel.OT_UpdateProject,
+      projectId,
+      updates
+    ),
+  onStateChanged: (listener: (payload: OTStateChangedDTO) => void) =>
+    on(IpcChannel.OT_StateChanged, listener as (...args: unknown[]) => void),
+  onConnectionChanged: (listener: (payload: OTConnectionStateDTO) => void) =>
+    on(IpcChannel.OT_ConnectionChanged, listener as (...args: unknown[]) => void),
+  onRemoteUpdate: (listener: (payload: OTRemoteUpdateDTO) => void) =>
+    on(IpcChannel.OT_RemoteUpdate, listener as (...args: unknown[]) => void),
+  onFileEvent: (listener: (payload: OTFileEventDTO) => void) =>
+    on(IpcChannel.OT_FileEvent, listener as (...args: unknown[]) => void),
+  onError: (listener: (payload: OTErrorDTO) => void) =>
+    on(IpcChannel.OT_Error, listener as (...args: unknown[]) => void),
+};
+
 export const project = {
   open: () => invoke<{ projectPath: string; fileTree: unknown } | null>(IpcChannel.Project_Open),
   openByPath: (path: string) =>
     invoke<{ projectPath: string; fileTree: unknown } | null>(IpcChannel.Project_OpenByPath, path),
   getRecent: () =>
-    invoke<Array<{ path: string; name: string; lastOpened: number }>>(IpcChannel.Project_GetRecent),
+    invoke<Array<{ path: string; name: string; lastOpened: number; isRemote?: boolean }>>(
+      IpcChannel.Project_GetRecent
+    ),
+};
+
+export const projectConversation = {
+  resolve: (params: ProjectConversationResolveParams) =>
+    invoke<ProjectConversationBindingDTO | null>(IpcChannel.ProjectConversation_Resolve, params),
+  list: (params: ProjectConversationListParams) =>
+    invoke<ProjectConversationBindingDTO[]>(IpcChannel.ProjectConversation_List, params),
+  create: (params: ProjectConversationCreateParams) =>
+    invoke<ProjectConversationBindingDTO>(IpcChannel.ProjectConversation_Create, params),
+  setDefault: (params: ProjectConversationSetDefaultParams) =>
+    invoke<{ success: boolean }>(IpcChannel.ProjectConversation_SetDefault, params),
+  onBindingChanged: (listener: (payload: ProjectConversationBindingChangedEvent) => void) =>
+    on(IpcChannel.ProjectConversation_BindingChanged, listener as (...args: unknown[]) => void),
+};
+
+export const collaborationOwner = {
+  setActive: (owner: CollaborationOwnerClaimDTO) =>
+    invoke<CollaborationOwnerDTO>(IpcChannel.CollaborationOwner_SetActive, owner),
+  clear: (params: { backend: 'scipen-ot' | 'overleaf' }) =>
+    invoke<void>(IpcChannel.CollaborationOwner_Clear, params),
 };
 
 // ==================== Compile API ====================
 
 interface LaTeXOptions {
-  engine?: 'pdflatex' | 'xelatex' | 'lualatex' | 'tectonic' | 'overleaf';
+  engine?: 'pdflatex' | 'xelatex' | 'lualatex' | 'tectonic';
   mainFile?: string;
   outputDirectory?: string;
 }
@@ -331,13 +511,7 @@ export const ai = {
   updateConfig: (config: AIConfig) => invoke<void>(IpcChannel.AI_UpdateConfig, config),
   isConfigured: () => invoke<boolean>(IpcChannel.AI_IsConfigured),
   completion: (context: string) => invoke<AIResult>(IpcChannel.AI_Completion, context),
-  polish: (text: string, knowledgeBaseId?: string) =>
-    invoke<AIResult>(IpcChannel.AI_Polish, text, knowledgeBaseId),
-  chat: (messages: AIMessage[]) => invoke<AIResult>(IpcChannel.AI_Chat, messages),
   chatStream: (messages: AIMessage[]) => invoke<AIResult>(IpcChannel.AI_ChatStream, messages),
-  generateFormula: (description: string) =>
-    invoke<AIResult>(IpcChannel.AI_GenerateFormula, description),
-  review: (content: string) => invoke<AIResult>(IpcChannel.AI_Review, content),
   testConnection: () => invoke<{ success: boolean; message: string }>(IpcChannel.AI_TestConnection),
   stopGeneration: () => invoke<void>(IpcChannel.AI_StopGeneration),
   isGenerating: () => invoke<boolean>(IpcChannel.AI_IsGenerating),
@@ -351,121 +525,6 @@ export const ai = {
   onStreamChunk: (callback: (chunk: { type: string; content?: string; error?: string }) => void) =>
     on(IpcChannel.AI_StreamChunk, (data) =>
       callback(data as { type: string; content?: string; error?: string })
-    ),
-};
-
-// ==================== Knowledge Base API ====================
-
-type KnowledgeConfig = import('../../../../shared/api-types').KnowledgeInitOptions;
-
-interface SearchResult {
-  results: Array<{
-    chunkId: string;
-    content: string;
-    score: number;
-    metadata?: Record<string, unknown>;
-    filename?: string;
-    source?: string;
-    chunkMetadata?: {
-      page?: number;
-      startTime?: number;
-    };
-  }>;
-  processingTime?: number;
-}
-
-export const knowledge = {
-  initialize: (options: { dataPath: string }) =>
-    invoke<void>(IpcChannel.Knowledge_Initialize, options),
-  updateConfig: (config: KnowledgeConfig) =>
-    invoke<void>(IpcChannel.Knowledge_UpdateConfig, config),
-  createLibrary: (params: { name: string; description?: string; chunkingConfig?: unknown }) =>
-    invoke<KnowledgeLibrary>(IpcChannel.Knowledge_CreateLibrary, params),
-  getLibraries: () => invoke<KnowledgeLibrary[]>(IpcChannel.Knowledge_GetLibraries),
-  getLibrary: (id: string) => invoke<KnowledgeLibrary | null>(IpcChannel.Knowledge_GetLibrary, id),
-  updateLibrary: (id: string, updates: Partial<KnowledgeLibrary>) =>
-    invoke<void>(IpcChannel.Knowledge_UpdateLibrary, id, updates),
-  deleteLibrary: (id: string) => invoke<void>(IpcChannel.Knowledge_DeleteLibrary, id),
-  addDocument: (libraryId: string, filePath: string, options?: { processImmediately?: boolean }) =>
-    invoke<{ taskId: string }>(IpcChannel.Knowledge_AddDocument, libraryId, filePath, options),
-  addText: (libraryId: string, content: string, options?: { title?: string }) =>
-    invoke<{ documentId: string }>(IpcChannel.Knowledge_AddText, libraryId, content, options),
-  getDocument: (id: string) =>
-    invoke<KnowledgeDocument | null>(IpcChannel.Knowledge_GetDocument, id),
-  getDocuments: (libraryId: string) =>
-    invoke<KnowledgeDocument[]>(IpcChannel.Knowledge_GetDocuments, libraryId),
-  deleteDocument: (id: string) => invoke<void>(IpcChannel.Knowledge_DeleteDocument, id),
-  reprocessDocument: (documentId: string) =>
-    invoke<{ taskId: string }>(IpcChannel.Knowledge_ReprocessDocument, documentId),
-  search: (options: {
-    query: string;
-    libraryIds?: string[];
-    topK?: number;
-    scoreThreshold?: number;
-    retrieverType?: 'vector' | 'keyword' | 'hybrid';
-  }) => invoke<SearchResult>(IpcChannel.Knowledge_Search, options),
-  searchEnhanced: (options: {
-    query: string;
-    libraryIds?: string[];
-    topK?: number;
-    scoreThreshold?: number;
-    retrieverType?: 'vector' | 'keyword' | 'hybrid';
-    enableQueryRewrite?: boolean;
-    enableRerank?: boolean;
-    enableContextRouting?: boolean;
-    conversationHistory?: Array<{ role: string; content: string }>;
-  }) =>
-    invoke<SearchResult & { rewrittenQuery?: string }>(
-      IpcChannel.Knowledge_SearchEnhanced,
-      options
-    ),
-  query: (question: string, libraryIds?: string[], options?: { maxResults?: number }) =>
-    invoke<{ answer: string; citations: unknown[] }>(
-      IpcChannel.Knowledge_Query,
-      question,
-      libraryIds,
-      options
-    ),
-  getTask: (taskId: string) =>
-    invoke<{ status: string; progress: number }>(IpcChannel.Knowledge_GetTask, taskId),
-  getQueueStats: () =>
-    invoke<{ pending: number; processing: number }>(IpcChannel.Knowledge_GetQueueStats),
-  testEmbedding: () =>
-    invoke<{ success: boolean; message: string }>(IpcChannel.Knowledge_TestEmbedding),
-  getDiagnostics: (libraryId?: string) =>
-    invoke<{
-      totalChunks: number;
-      totalEmbeddings: number;
-      ftsRecords: number;
-      embeddingDimensions?: number[];
-      libraryStats?: Array<{ libraryId: string; chunks: number; embeddings: number }>;
-    }>(IpcChannel.Knowledge_Diagnostics, libraryId),
-  rebuildFTS: () =>
-    invoke<{ success: boolean; recordCount: number }>(IpcChannel.Knowledge_RebuildFTS),
-  generateEmbeddings: (libraryId?: string) =>
-    invoke<{ success: boolean; processed: number }>(
-      IpcChannel.Knowledge_GenerateEmbeddings,
-      libraryId
-    ),
-  getAdvancedConfig: () => invoke<AdvancedRetrievalConfig>(IpcChannel.Knowledge_GetAdvancedConfig),
-  setAdvancedConfig: (config: AdvancedRetrievalConfig) =>
-    invoke<void>(IpcChannel.Knowledge_SetAdvancedConfig, config),
-  selectFiles: (options?: { mediaTypes?: string[] }) =>
-    invoke<string[]>(IpcChannel.Knowledge_SelectFiles, options),
-  onEvent: (callback: (event: { type: string; timestamp: number; data: unknown }) => void) =>
-    on(IpcChannel.Knowledge_Event, (data) =>
-      callback(data as { type: string; timestamp: number; data: unknown })
-    ),
-  onTaskProgress: (
-    callback: (event: {
-      taskId: string;
-      progress: number;
-      status: string;
-      message?: string;
-    }) => void
-  ) =>
-    on(IpcChannel.Knowledge_TaskProgress, (data) =>
-      callback(data as { taskId: string; progress: number; status: string; message?: string })
     ),
 };
 
@@ -514,6 +573,8 @@ export const lsp = {
     ),
   getSymbols: (filePath: string) =>
     invoke<LSPDocumentSymbol[]>(IpcChannel.LSP_GetSymbols, filePath),
+  getSemanticTokens: (filePath: string) =>
+    invoke<LSPSemanticTokens | null>(IpcChannel.LSP_GetSemanticTokens, filePath),
   build: (filePath: string) => invoke<void>(IpcChannel.LSP_Build, filePath),
   forwardSearch: (filePath: string, line: number) =>
     invoke<void>(IpcChannel.LSP_ForwardSearch, filePath, line),
@@ -527,17 +588,17 @@ export const lsp = {
     on(IpcChannel.LSP_Exit, (data) =>
       callback(data as { code: number | null; signal: string | null })
     ),
-  onServiceStarted: (callback: (data: { service: 'texlab' | 'tinymist' }) => void) =>
+  onServiceStarted: (callback: (data: { service: 'texlab' | 'tinymist' | 'marksman' }) => void) =>
     on(IpcChannel.LSP_ServiceStarted, (data) =>
-      callback(data as { service: 'texlab' | 'tinymist' })
+      callback(data as { service: 'texlab' | 'tinymist' | 'marksman' })
     ),
-  onServiceStopped: (callback: (data: { service: 'texlab' | 'tinymist' }) => void) =>
+  onServiceStopped: (callback: (data: { service: 'texlab' | 'tinymist' | 'marksman' }) => void) =>
     on(IpcChannel.LSP_ServiceStopped, (data) =>
-      callback(data as { service: 'texlab' | 'tinymist' })
+      callback(data as { service: 'texlab' | 'tinymist' | 'marksman' })
     ),
-  onServiceRestarted: (callback: (data: { service: 'texlab' | 'tinymist' }) => void) =>
+  onServiceRestarted: (callback: (data: { service: 'texlab' | 'tinymist' | 'marksman' }) => void) =>
     on(IpcChannel.LSP_ServiceRestarted, (data) =>
-      callback(data as { service: 'texlab' | 'tinymist' })
+      callback(data as { service: 'texlab' | 'tinymist' | 'marksman' })
     ),
   onRecovered: (callback: () => void) => on(IpcChannel.LSP_Recovered, () => callback()),
   /**
@@ -566,109 +627,164 @@ export const lsp = {
 // ==================== Overleaf API ====================
 
 export const overleaf = {
-  init: (config: OverleafConfig) => invoke<void>(IpcChannel.Overleaf_Init, config),
+  init: (config: OverleafConfig) =>
+    invoke<{ success: boolean; message?: string }>(IpcChannel.OverleafAuth_Init, config),
   testConnection: (serverUrl: string) =>
-    invoke<{ success: boolean; message: string }>(IpcChannel.Overleaf_TestConnection, serverUrl),
+    invoke<{ success: boolean; message: string }>(
+      IpcChannel.OverleafAuth_TestConnection,
+      serverUrl
+    ),
   login: (config: OverleafConfig) =>
-    invoke<{ success: boolean; message?: string }>(IpcChannel.Overleaf_Login, config),
-  isLoggedIn: () => invoke<boolean>(IpcChannel.Overleaf_IsLoggedIn),
-  getCookies: () => invoke<string>(IpcChannel.Overleaf_GetCookies),
-  getProjects: () => invoke<OverleafProject[]>(IpcChannel.Overleaf_GetProjects),
+    invoke<{ success: boolean; message?: string }>(IpcChannel.OverleafAuth_Login, config),
+  isLoggedIn: () => invoke<boolean>(IpcChannel.OverleafAuth_IsLoggedIn),
+  getCookies: () => invoke<string>(IpcChannel.OverleafAuth_GetCookies),
+  getProjects: () => invoke<OverleafProjectDTO[]>(IpcChannel.OverleafProject_GetProjects),
   getProjectDetails: (projectId: string) =>
     invoke<{
       success: boolean;
       details?: { name?: string; rootFolder?: unknown[]; compiler?: string; rootDoc_id?: string };
       error?: string;
-    }>(IpcChannel.Overleaf_GetProjectDetails, projectId),
-  updateSettings: (projectId: string, settings: { compiler?: string; rootDocId?: string }) =>
-    invoke<{ success: boolean; error?: string }>(
-      IpcChannel.Overleaf_UpdateSettings,
-      projectId,
-      settings
-    ),
-  compile: (projectId: string, options?: { compiler?: string; rootDocId?: string }) =>
-    invoke<CompileResult>(IpcChannel.Overleaf_Compile, projectId, options),
-  stopCompile: (projectId: string) => invoke<void>(IpcChannel.Overleaf_StopCompile, projectId),
-  getBuildId: () => invoke<string | null>(IpcChannel.Overleaf_GetBuildId),
-  syncCode: (projectId: string, file: string, line: number, column: number, buildId?: string) =>
-    invoke<OverleafSyncCodePos[] | null>(
-      IpcChannel.Overleaf_SyncCode,
-      projectId,
-      file,
-      line,
-      column,
-      buildId
-    ),
-  syncPdf: (projectId: string, page: number, h: number, v: number, buildId?: string) =>
-    invoke<{ file: string; line: number; column: number } | null>(
-      IpcChannel.Overleaf_SyncPdf,
-      projectId,
-      page,
-      h,
-      v,
-      buildId
-    ),
-  getDoc: (projectId: string, docIdOrPath: string, isPath?: boolean) =>
-    invoke<{ success: boolean; content?: string; docId?: string; error?: string }>(
-      IpcChannel.Overleaf_GetDoc,
-      projectId,
-      docIdOrPath,
-      isPath
-    ),
-  updateDoc: (projectId: string, docId: string, content: string) =>
-    invoke<{ success: boolean; error?: string }>(
-      IpcChannel.Overleaf_UpdateDoc,
-      projectId,
+    }>(IpcChannel.OverleafProject_GetDetails, projectId),
+  // Write channels are deprecated — live writes go exclusively through OverleafLive_SubmitPatches (api.overleafLive).
+
+  /** Download an Overleaf project to local disk (local-first mode). */
+  downloadProject: (projectId: string, projectName: string) =>
+    invoke<{
+      success: boolean;
+      localPath?: string;
+      files?: Array<{ file_path: string; content: string }>;
+      folders?: string[];
+      meta?: {
+        overleafProjectId: string;
+        serverUrl: string;
+        projectName: string;
+        docIdMap: Record<string, string>;
+        downloadedAt: string;
+      };
+      error?: string;
+    }>(IpcChannel.OverleafProject_Download, projectId, projectName),
+
+  /** Look up the local path of a previously downloaded project. */
+  findLocalPath: (projectId: string) =>
+    invoke<string | null>(IpcChannel.OverleafProject_FindLocalPath, projectId),
+
+  /** Read metadata of a downloaded project. */
+  getProjectMeta: (localPath: string) =>
+    invoke<{
+      overleafProjectId: string;
+      serverUrl: string;
+      projectName: string;
+      docIdMap: Record<string, string>;
+      downloadedAt: string;
+    } | null>(IpcChannel.OverleafProject_GetMeta, localPath),
+
+  /** Persist the docIdMap of a downloaded project. */
+  updateDocIdMap: (localPath: string, docIdMap: Record<string, string>) =>
+    invoke<boolean>(IpcChannel.OverleafProject_UpdateDocIdMap, localPath, docIdMap),
+
+  /** Sync a single file to Overleaf. */
+  syncFile: (
+    overleafProjectId: string,
+    docId: string,
+    localContent: string,
+    baseCachePath: string
+  ) =>
+    invoke<{ status: string; remoteContent?: string; error?: string }>(
+      IpcChannel.OverleafProject_SyncFile,
+      overleafProjectId,
       docId,
-      content
+      localContent,
+      baseCachePath
     ),
-  updateDocDebounced: (projectId: string, docId: string, content: string) =>
-    invoke<{ success: boolean; error?: string }>(
-      IpcChannel.Overleaf_UpdateDocDebounced,
-      projectId,
-      docId,
-      content
+
+  /** Sync an entire project to Overleaf. */
+  syncProject: (overleafProjectId: string, docIdMap: Record<string, string>, localRoot: string) =>
+    invoke<Record<string, { status: string; remoteContent?: string; error?: string }>>(
+      IpcChannel.OverleafProject_SyncProject,
+      overleafProjectId,
+      docIdMap,
+      localRoot
     ),
-  flushUpdates: (projectId?: string) => invoke<void>(IpcChannel.Overleaf_FlushUpdates, projectId),
-  getDocCached: (projectId: string, docId: string) =>
-    invoke<string | null>(IpcChannel.Overleaf_GetDocCached, projectId, docId),
-  clearCache: (projectId?: string, docId?: string) =>
-    invoke<void>(IpcChannel.Overleaf_ClearCache, projectId, docId),
+
+  /** Sync a file by its relative path (auto-resolves or creates the docId; creates the file if missing). */
+  syncFileByPath: (
+    overleafProjectId: string,
+    relativePath: string,
+    localContent: string,
+    localRoot: string,
+    docIdMap: Record<string, string>
+  ) =>
+    invoke<{ status: string; remoteContent?: string; newDocId?: string; error?: string }>(
+      IpcChannel.OverleafProject_SyncFileByPath,
+      overleafProjectId,
+      relativePath,
+      localContent,
+      localRoot,
+      docIdMap
+    ),
+
+  /** Create a new Overleaf document and sync the local content. */
+  createAndSync: (
+    overleafProjectId: string,
+    fileName: string,
+    parentFolderId: string,
+    localContent: string,
+    baseCachePath: string
+  ) =>
+    invoke<{ docId: string } | null>(
+      IpcChannel.OverleafProject_CreateAndSync,
+      overleafProjectId,
+      fileName,
+      parentFolderId,
+      localContent,
+      baseCachePath
+    ),
 };
 
-// ==================== Local Replica API ====================
+export const overleafLive = {
+  configure: (config: OverleafLiveConfigureParams) =>
+    invoke<OverleafLiveConnectionStateDTO>(IpcChannel.OverleafLive_Configure, config),
+  disconnect: () => invoke<void>(IpcChannel.OverleafLive_Disconnect),
+  getState: () => invoke<OverleafLiveStateChangedDTO>(IpcChannel.OverleafLive_GetState),
+  joinDoc: (params: OverleafLiveJoinDocParams) =>
+    invoke<OverleafLiveDocStateDTO>(IpcChannel.OverleafLive_JoinDoc, params),
+  submitPatches: (params: OverleafLiveSubmitPatchesParams) =>
+    invoke<OverleafLiveRemotePatchDTO>(IpcChannel.OverleafLive_SubmitPatches, params),
+  createEntity: (params: OverleafLiveCreateEntityParams) =>
+    invoke<OverleafLiveEntityResultDTO>(IpcChannel.OverleafLive_CreateEntity, params),
+  renameEntity: (params: OverleafLiveRenameEntityParams) =>
+    invoke<OverleafLiveEntityResultDTO>(IpcChannel.OverleafLive_RenameEntity, params),
+  moveEntity: (params: OverleafLiveMoveEntityParams) =>
+    invoke<OverleafLiveEntityResultDTO>(IpcChannel.OverleafLive_MoveEntity, params),
+  deleteEntity: (params: OverleafLiveDeleteEntityParams) =>
+    invoke<OverleafLiveEntityResultDTO>(IpcChannel.OverleafLive_DeleteEntity, params),
+  uploadFile: (params: OverleafLiveUploadFileParams) =>
+    invoke<OverleafLiveEntityResultDTO>(IpcChannel.OverleafLive_UploadFile, params),
+  onConnectionChanged: (listener: (payload: OverleafLiveConnectionStateDTO) => void) =>
+    on(IpcChannel.OverleafLive_ConnectionChanged, listener as (...args: unknown[]) => void),
+  onStateChanged: (listener: (payload: OverleafLiveStateChangedDTO) => void) =>
+    on(IpcChannel.OverleafLive_StateChanged, listener as (...args: unknown[]) => void),
+  onRemotePatch: (listener: (payload: OverleafLiveRemotePatchDTO) => void) =>
+    on(IpcChannel.OverleafLive_RemotePatch, listener as (...args: unknown[]) => void),
+  onTreeChanged: (listener: (payload: OverleafLiveTreeChangedDTO) => void) =>
+    on(IpcChannel.OverleafLive_TreeChanged, listener as (...args: unknown[]) => void),
+  onError: (listener: (payload: OverleafLiveErrorDTO) => void) =>
+    on(IpcChannel.OverleafLive_Error, listener as (...args: unknown[]) => void),
+};
 
-export interface LocalReplicaConfig {
-  projectId: string;
-  projectName: string;
-  localPath: string;
-  enabled: boolean;
-  customIgnorePatterns?: string[];
-}
-
-export interface SyncResult {
-  synced: number;
-  skipped: number;
-  errors: string[];
-  conflicts: string[];
-}
-
-export const localReplica = {
-  init: (config: LocalReplicaConfig) => invoke<boolean>(IpcChannel.LocalReplica_Init, config),
-
-  getConfig: () => invoke<LocalReplicaConfig | null>(IpcChannel.LocalReplica_GetConfig),
-
-  setEnabled: (enabled: boolean) => invoke<void>(IpcChannel.LocalReplica_SetEnabled, enabled),
-
-  syncFromRemote: () => invoke<SyncResult>(IpcChannel.LocalReplica_SyncFromRemote),
-
-  syncToRemote: () => invoke<SyncResult>(IpcChannel.LocalReplica_SyncToRemote),
-
-  startWatching: () => invoke<void>(IpcChannel.LocalReplica_StartWatching),
-
-  stopWatching: () => invoke<void>(IpcChannel.LocalReplica_StopWatching),
-
-  isWatching: () => invoke<boolean>(IpcChannel.LocalReplica_IsWatching),
+export const projectBinding = {
+  getByPath: (localRootPath: string) =>
+    invoke<ProjectBindingDTO | null>(IpcChannel.ProjectBinding_GetByPath, localRootPath),
+  getByProjectId: (projectId: string) =>
+    invoke<ProjectBindingDTO | null>(IpcChannel.ProjectBinding_GetByProjectId, projectId),
+  resolve: (localRootPath: string) =>
+    invoke<ResolveBindingResult>(IpcChannel.ProjectBinding_Resolve, localRootPath),
+  ensureBindingFromBootstrap: (params: EnsureBindingFromBootstrapParams) =>
+    invoke<EnsureBindingFromBootstrapResult>(IpcChannel.ProjectBinding_EnsureBootstrap, params),
+  setEnabled: (projectId: string, enabled: boolean) =>
+    invoke<{ success: boolean }>(IpcChannel.ProjectBinding_SetEnabled, projectId, enabled),
+  exportSnapshot: (params: ExportSnapshotParams) =>
+    invoke<ExportSnapshotResult>(IpcChannel.ProjectBinding_ExportSnapshot, params),
 };
 
 // ==================== Chat API ====================
@@ -690,8 +806,7 @@ export const chat = {
   renameSession: (params: ChatRenameSessionParams) =>
     invoke<ChatOperationResult>(IpcChannel.Chat_RenameSession, params),
 
-  createSession: (knowledgeBaseId?: string) =>
-    invoke<ChatSession>(IpcChannel.Chat_CreateSession, knowledgeBaseId),
+  createSession: () => invoke<ChatSession>(IpcChannel.Chat_CreateSession),
 
   onStream: (callback: (event: ChatStreamEvent) => void) =>
     on(IpcChannel.Chat_Stream, (data) => callback(data as ChatStreamEvent)),
@@ -720,6 +835,15 @@ export const app = {
   getPlatform: (): NodeJS.Platform => {
     const w = window as unknown as { electron?: { platform?: NodeJS.Platform } };
     return w.electron?.platform ?? 'linux';
+  },
+  checkUpdate: () =>
+    invoke<import('../../../../shared/ipc/app-contract').UpdateStatus>(IpcChannel.App_CheckUpdate),
+  downloadUpdate: () => invoke<void>(IpcChannel.App_DownloadUpdate),
+  installUpdate: () => invoke<void>(IpcChannel.App_InstallUpdate),
+  onUpdateStatus: (
+    callback: (status: import('../../../../shared/ipc/app-contract').UpdateStatus) => void
+  ): (() => void) => {
+    return onEvent(IpcChannel.App_UpdateStatus, callback);
   },
 };
 
@@ -771,8 +895,12 @@ export const log = {
   write: (entries: LogEntry[]) => invoke<void>(IpcChannel.Log_Write, entries),
   exportDiagnostics: () => invoke<string>(IpcChannel.Log_ExportDiagnostics),
   clear: () => invoke<void>(IpcChannel.Log_Clear),
-  toMain: (level: string, message: string, context?: string) =>
-    invoke<void>(IpcChannel.Log_FromRenderer, level, message, context),
+  toMain: (
+    source: { process: 'renderer'; window?: string; module?: string },
+    level: 'debug' | 'info' | 'warn' | 'error',
+    message: string,
+    data?: unknown[]
+  ) => invoke<void>(IpcChannel.Log_FromRenderer, source, level, message, data),
 };
 
 // ==================== FileWatcher API ====================
@@ -788,57 +916,11 @@ export const fileWatcher = {
     ),
 };
 
-// ==================== Agent API (Tools) ====================
-
-import type {
-  AgentAvailability,
-  AgentProgress,
-  AgentResult,
-  Paper2BeamerConfig,
-  Pdf2LatexConfig,
-} from '../../../../shared/ipc/types';
-
-export type { AgentAvailability, AgentResult, AgentProgress, Pdf2LatexConfig, Paper2BeamerConfig };
-
-export const agent = {
-  getAvailable: () => invoke<AgentAvailability>(IpcChannel.Agent_GetAvailable),
-  pdf2latex: (inputFile: string, config?: Pdf2LatexConfig) =>
-    invoke<AgentResult>(IpcChannel.Agent_PDF2LaTeX, inputFile, config),
-  reviewPaper: (inputFile: string, timeout?: number) =>
-    invoke<AgentResult>(IpcChannel.Agent_Review, inputFile, timeout),
-  paper2beamer: (inputFile: string, config?: Paper2BeamerConfig) =>
-    invoke<AgentResult>(IpcChannel.Agent_Paper2Beamer, inputFile, config),
-  listTemplates: () => invoke<AgentResult>(IpcChannel.Agent_ListTemplates),
-  killCurrentProcess: () => invoke<boolean>(IpcChannel.Agent_Kill),
-  /** Sync VLM config to CLI tools */
-  syncVLMConfig: (vlmConfig: {
-    provider: string;
-    model: string;
-    apiKey: string;
-    baseUrl: string;
-    timeout?: number;
-    maxTokens?: number;
-    temperature?: number;
-  }) =>
-    invoke<{ success: boolean; message: string; path?: string }>(
-      IpcChannel.Agent_SyncVLMConfig,
-      vlmConfig
-    ),
-  createTempFile: (fileName: string, content: string) =>
-    invoke<string | null>(IpcChannel.Agent_CreateTempFile, fileName, content),
-  onProgress: (callback: (data: AgentProgress) => void) =>
-    on(IpcChannel.Agent_Progress, (data) => callback(data as AgentProgress)),
-};
-
 // ==================== Selection API (Text Selection Assistant) ====================
 
-import type {
-  SelectionAddToKnowledgeDTO,
-  SelectionCaptureDTO,
-  SelectionConfigDTO,
-} from '../../../../shared/ipc/types';
+import type { SelectionCaptureDTO, SelectionConfigDTO } from '../../../../shared/ipc/types';
 
-export type { SelectionCaptureDTO, SelectionAddToKnowledgeDTO, SelectionConfigDTO };
+export type { SelectionCaptureDTO, SelectionConfigDTO };
 
 export const selection = {
   setEnabled: (enabled: boolean) =>
@@ -848,16 +930,6 @@ export const selection = {
   setConfig: (config: Partial<SelectionConfigDTO>) =>
     invoke<{ success: boolean; error?: string }>(IpcChannel.Selection_SetConfig, config),
   getText: () => invoke<SelectionCaptureDTO | null>(IpcChannel.Selection_GetText),
-  showActionWindow: (data?: SelectionCaptureDTO) =>
-    invoke<{ success: boolean; error?: string }>(IpcChannel.Selection_ShowActionWindow, data),
-  hideActionWindow: () =>
-    invoke<{ success: boolean; error?: string }>(IpcChannel.Selection_HideActionWindow),
-  hideToolbar: () => invoke<{ success: boolean; error?: string }>(IpcChannel.Selection_HideToolbar),
-  addToKnowledge: (dto: SelectionAddToKnowledgeDTO) =>
-    invoke<{ success: boolean; taskId?: string; error?: string }>(
-      IpcChannel.Selection_AddToKnowledge,
-      dto
-    ),
   onTextCaptured: (callback: (data: SelectionCaptureDTO) => void) =>
     on(IpcChannel.Selection_TextCaptured, (data) => callback(data as SelectionCaptureDTO)),
 };
@@ -866,15 +938,18 @@ export const selection = {
 
 export const api = {
   file,
+  im,
+  ot,
+  overleafLive,
   project,
   compile,
   synctex,
   ai,
-  agent,
-  knowledge,
   lsp,
   overleaf,
-  localReplica,
+  projectBinding,
+  projectConversation,
+  collaborationOwner,
   chat,
   win,
   app,

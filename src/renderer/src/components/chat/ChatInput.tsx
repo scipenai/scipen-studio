@@ -3,13 +3,20 @@
  * @description Optimized chat input component with @ file reference autocomplete
  */
 
-import { AtSign, BookOpen, File, Folder, Send, Square } from 'lucide-react';
+import { AtSign, BookOpen, File, Folder, Send, Square, X } from 'lucide-react';
 import type React from 'react';
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { type CompletionItem, useFileCompletion } from '../../hooks/useFileCompletion';
 import { useTranslation } from '../../locales';
 import { IconButton } from '../ui';
+
+export interface ChatInputContextBadge {
+  id: string;
+  label: string;
+  tone?: 'info' | 'warning' | 'danger';
+  removable?: boolean;
+}
 
 export interface ChatInputProps {
   value: string;
@@ -22,6 +29,10 @@ export interface ChatInputProps {
   selectedLibraryName?: string;
   selectedLibraryDocCount?: number;
   autoFocus?: boolean;
+  variant?: 'default' | 'immersive';
+  contextBadges?: ChatInputContextBadge[];
+  onRemoveContextBadge?: (id: string) => void;
+  pulseKey?: number;
 }
 
 /**
@@ -59,6 +70,11 @@ function extractAtQuery(
   return { query, startPos: atPos };
 }
 
+function extractMentionTokens(value: string): string[] {
+  const matches = value.match(/@([^\s,;!?()[\]{}'"<>]+)/g) || [];
+  return [...new Set(matches.map((item) => item.slice(1)))];
+}
+
 /**
  * Chat input component
  *
@@ -79,6 +95,10 @@ export const ChatInput = memo<ChatInputProps>(
     selectedLibraryName,
     selectedLibraryDocCount,
     autoFocus = false,
+    variant = 'default',
+    contextBadges = [],
+    onRemoveContextBadge,
+    pulseKey = 0,
   }) => {
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const { t } = useTranslation();
@@ -126,8 +146,10 @@ export const ChatInput = memo<ChatInputProps>(
     const [atQueryInfo, setAtQueryInfo] = useState<{ query: string; startPos: number } | null>(
       null
     );
+    const [isPulsing, setIsPulsing] = useState(false);
     const { filteredItems, setQuery } = useFileCompletion(50);
     const completionVisible = showCompletion && filteredItems.length > 0;
+    const mentionTokens = useMemo(() => extractMentionTokens(value), [value]);
 
     const updateAtQuery = useCallback(() => {
       const textarea = inputRef.current;
@@ -309,6 +331,21 @@ export const ChatInput = memo<ChatInputProps>(
       }
     }, [value, isDisabled, onSend, focusInput]);
 
+    const handleRemoveMention = useCallback(
+      (path: string) => {
+        const nextValue = value
+          .replace(`@${path}`, '')
+          .replace(/\s{2,}/g, ' ')
+          .trimStart();
+        onChange(nextValue);
+        requestAnimationFrame(() => {
+          focusInput();
+          shouldKeepFocus.current = true;
+        });
+      },
+      [focusInput, onChange, value]
+    );
+
     const containerRef = useRef<HTMLDivElement>(null);
 
     // Calculate completion panel position (use fixed positioning to avoid affecting layout)
@@ -317,6 +354,8 @@ export const ChatInput = memo<ChatInputProps>(
       left: number;
       width: number;
     } | null>(null);
+
+    const isImmersive = variant === 'immersive';
 
     const updateCompletionPosition = useCallback(() => {
       if (!completionVisible || !containerRef.current) return;
@@ -340,17 +379,55 @@ export const ChatInput = memo<ChatInputProps>(
       };
     }, [completionVisible, updateCompletionPosition]);
 
+    useEffect(() => {
+      if (pulseKey === 0) return;
+      setIsPulsing(true);
+      shouldKeepFocus.current = true;
+      focusInput();
+      const timer = window.setTimeout(() => {
+        setIsPulsing(false);
+      }, 1600);
+      return () => window.clearTimeout(timer);
+    }, [focusInput, pulseKey]);
+
+    const hasTopBadges = contextBadges.length > 0 || mentionTokens.length > 0;
+    const toneClassNames: Record<NonNullable<ChatInputContextBadge['tone']>, string> = {
+      info: 'border-[rgba(15,157,223,0.18)] bg-[rgba(15,157,223,0.08)] text-[var(--color-accent)]',
+      warning:
+        'border-[rgba(245,158,11,0.2)] bg-[rgba(245,158,11,0.12)] text-[var(--color-warning)]',
+      danger: 'border-[rgba(239,68,68,0.18)] bg-[rgba(239,68,68,0.1)] text-[var(--color-error)]',
+    };
+
     return (
       <div
         ref={containerRef}
-        className="p-4 border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)] flex-shrink-0 sticky bottom-0"
+        className={
+          isImmersive
+            ? 'w-full flex-shrink-0 px-0 pb-0 pt-0'
+            : 'sticky bottom-0 flex-shrink-0 border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4'
+        }
       >
         <div
-          className={`relative transition-all duration-200 rounded-xl border ${
+          className={`relative transition-all duration-200 ${
+            isImmersive
+              ? 'w-full rounded-[22px] border shadow-[var(--shadow-md)]'
+              : 'rounded-xl border'
+          } ${
             isFocused
-              ? 'border-[var(--color-accent)]/50 ring-2 ring-[var(--color-accent-muted)]'
+              ? 'border-[var(--color-accent)]/55 ring-2 ring-[var(--color-accent-muted)]'
               : 'border-[var(--color-border)]'
-          } bg-[var(--color-bg-tertiary)]`}
+          } ${isImmersive ? '' : 'bg-[var(--color-bg-tertiary)]'} ${
+            isPulsing ? 'chat-input-pulse' : ''
+          }`}
+          style={
+            isImmersive
+              ? {
+                  borderColor: 'color-mix(in srgb, var(--color-border) 92%, transparent)',
+                  background: 'color-mix(in srgb, var(--color-bg-primary) 88%, transparent)',
+                  boxShadow: 'var(--shadow-md)',
+                }
+              : undefined
+          }
         >
           {completionVisible &&
             completionPosition &&
@@ -407,6 +484,51 @@ export const ChatInput = memo<ChatInputProps>(
               document.body
             )}
 
+          {isImmersive && contextBadges.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-4 pt-3">
+              {contextBadges.map((badge) => (
+                <div
+                  key={badge.id}
+                  className={`inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] ${toneClassNames[badge.tone || 'info']}`}
+                >
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-current opacity-80" />
+                  <span className="truncate max-w-[260px]">{badge.label}</span>
+                  {badge.removable && onRemoveContextBadge ? (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveContextBadge(badge.id)}
+                      className="inline-flex h-4 w-4 items-center justify-center rounded-full text-current transition-colors"
+                      style={{
+                        background: 'color-mix(in srgb, var(--color-bg-primary) 78%, transparent)',
+                      }}
+                      title={t('chatInput.removeContext')}
+                    >
+                      <X size={10} />
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {isImmersive && mentionTokens.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-4 pt-3">
+              {mentionTokens.map((path) => (
+                <button
+                  key={path}
+                  type="button"
+                  onClick={() => handleRemoveMention(path)}
+                  className="inline-flex max-w-full items-center gap-2 rounded-full border border-[rgba(15,157,223,0.16)] bg-[rgba(15,157,223,0.08)] px-3 py-1.5 text-[12px] text-[var(--color-accent)] transition-colors hover:bg-[rgba(15,157,223,0.12)]"
+                  title={t('chatInput.removeMention', { path })}
+                >
+                  <File size={12} />
+                  <span className="truncate max-w-[220px]">{path}</span>
+                  <X size={12} />
+                </button>
+              ))}
+            </div>
+          )}
+
           <textarea
             ref={inputRef}
             value={value}
@@ -418,15 +540,27 @@ export const ChatInput = memo<ChatInputProps>(
             placeholder={resolvedPlaceholder}
             rows={1}
             disabled={isLoading || isDisabled}
-            className="w-full px-4 py-3 pr-12 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] resize-none focus:outline-none bg-transparent transition-colors disabled:opacity-50 overflow-y-auto"
-            style={{ minHeight: '44px' }}
+            className={`w-full resize-none overflow-y-auto bg-transparent text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] transition-colors focus:outline-none disabled:opacity-50 ${
+              isImmersive
+                ? hasTopBadges
+                  ? 'px-4 pb-3 pt-2 pr-12 text-[14px] leading-6'
+                  : 'px-4 py-3 pr-12 text-[14px] leading-6'
+                : 'px-4 py-3 pr-12 text-sm'
+            }`}
+            style={{ minHeight: isImmersive ? '44px' : '44px' }}
           />
-          <div className="absolute right-2 bottom-2 flex items-center gap-2">
+          <div
+            className={`absolute flex items-center gap-2 ${isImmersive ? 'bottom-2.5 right-2.5' : 'bottom-2 right-2'}`}
+          >
             {isLoading ? (
               <IconButton
                 onClick={handleStop}
                 variant="destructive"
-                className="bg-[var(--color-error)] hover:bg-[var(--color-error)]/80 text-white"
+                className={
+                  isImmersive
+                    ? 'bg-[var(--color-error)] text-white hover:bg-[var(--color-error)]/80'
+                    : 'bg-[var(--color-error)] hover:bg-[var(--color-error)]/80 text-white'
+                }
                 tooltip={t('chat.stopGeneration')}
               >
                 <Square size={14} className="fill-current" />
@@ -438,8 +572,21 @@ export const ChatInput = memo<ChatInputProps>(
                 variant={value.trim() && !isDisabled ? 'solid' : 'default'}
                 className={
                   value.trim() && !isDisabled
-                    ? 'bg-[var(--color-accent)] hover:bg-[var(--color-accent-dim)] text-white'
-                    : ''
+                    ? isImmersive
+                      ? 'bg-[var(--color-accent)] text-white ring-1 ring-inset ring-[rgba(255,255,255,0.18)] shadow-[0_12px_24px_rgba(14,165,233,0.32)] hover:bg-[var(--color-accent-dim)]'
+                      : 'bg-[var(--color-accent)] hover:bg-[var(--color-accent-dim)] text-white'
+                    : isImmersive
+                      ? 'ring-1 ring-inset'
+                      : ''
+                }
+                style={
+                  !value.trim() && !isDisabled && isImmersive
+                    ? {
+                        background: 'var(--color-bg-hover)',
+                        color: 'var(--color-text-disabled)',
+                        borderColor: 'var(--color-border-subtle)',
+                      }
+                    : undefined
                 }
                 tooltip={t('chat.sendMessage')}
               >
@@ -449,49 +596,39 @@ export const ChatInput = memo<ChatInputProps>(
           </div>
         </div>
 
-        <div className="mt-2 flex items-center justify-between px-1">
-          <div className="flex items-center gap-3">
-            {selectedLibraryName ? (
+        {!isImmersive && (
+          <div className="mt-2 flex items-center justify-between px-1">
+            <div className="flex items-center gap-3">
+              {selectedLibraryName ? (
+                <div className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
+                  <BookOpen size={10} className="text-[var(--color-accent)]" />
+                  <span>
+                    KB:{' '}
+                    <span className="text-[var(--color-text-secondary)] font-medium">
+                      {selectedLibraryName}
+                    </span>{' '}
+                    ({selectedLibraryDocCount ?? 0})
+                  </span>
+                </div>
+              ) : null}
+
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
-                <BookOpen size={10} className="text-[var(--color-accent)]" />
-                <span>
-                  KB:{' '}
-                  <span className="text-[var(--color-text-secondary)] font-medium">
-                    {selectedLibraryName}
-                  </span>{' '}
-                  ({selectedLibraryDocCount ?? 0})
-                </span>
+                <AtSign size={10} />
+                <span>{t('chat.atReference')}</span>
               </div>
-            ) : null}
-
-            <div className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
-              <AtSign size={10} />
-              <span>{t('chat.atReference')}</span>
             </div>
+
+            {value.length > 0 && !isLoading && (
+              <div className="animate-fade-in text-[10px] text-[var(--color-text-disabled)]">
+                <kbd className="rounded border bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[var(--color-text-muted)]">
+                  Enter
+                </kbd>{' '}
+                {t('chat.toSend')}
+              </div>
+            )}
           </div>
-
-          {value.length > 0 && !isLoading && (
-            <div className="text-[10px] text-[var(--color-text-disabled)] animate-fade-in">
-              <kbd className="px-1 py-0.5 rounded bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] text-[var(--color-text-muted)]">
-                Enter
-              </kbd>{' '}
-              {t('chat.toSend')}
-            </div>
-          )}
-        </div>
+        )}
       </div>
-    );
-  },
-  (prevProps, nextProps) => {
-    // Custom comparison: only re-render when these props change
-    return (
-      prevProps.value === nextProps.value &&
-      prevProps.isLoading === nextProps.isLoading &&
-      prevProps.isDisabled === nextProps.isDisabled &&
-      prevProps.placeholder === nextProps.placeholder &&
-      prevProps.selectedLibraryName === nextProps.selectedLibraryName &&
-      prevProps.selectedLibraryDocCount === nextProps.selectedLibraryDocCount &&
-      prevProps.autoFocus === nextProps.autoFocus
     );
   }
 );

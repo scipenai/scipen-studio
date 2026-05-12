@@ -1,6 +1,6 @@
 /**
  * @file LRUCache.ts - LRU Cache Service
- * @description High-performance LRU cache for AI completion, document content, RAG search, and other scenarios
+ * @description High-performance LRU cache for AI completion, document content, and related scenarios
  * @depends lru-cache
  */
 
@@ -21,40 +21,15 @@ const DOC_CONTENT_CACHE_OPTIONS = {
   updateAgeOnGet: true,
 };
 
-// RAG search result cache configuration
-const RAG_SEARCH_CACHE_OPTIONS = {
-  max: 100, // Maximum 100 search results
-  ttl: 1000 * 60 * 3, // 3 minutes TTL
-  updateAgeOnGet: true,
-};
-
 /** AI completion cache item */
 interface CompletionCacheItem {
   completion: string;
   timestamp: number;
 }
 
-/** Citation information */
-interface Citation {
-  id: string;
-  bibKey?: string;
-  text: string;
-  source: string;
-  page?: number;
-}
-
-/** RAG search cache item */
-interface RAGSearchCacheItem {
-  context: string;
-  citations: Citation[];
-  searchTime: number;
-  timestamp: number;
-}
-
 // Create cache instances
 const completionCache = new LRUCache<string, CompletionCacheItem>(AI_COMPLETION_CACHE_OPTIONS);
 const docContentCache = new LRUCache<string, string>(DOC_CONTENT_CACHE_OPTIONS);
-const ragSearchCache = new LRUCache<string, RAGSearchCacheItem>(RAG_SEARCH_CACHE_OPTIONS);
 
 /**
  * AI completion cache service
@@ -155,72 +130,6 @@ export const DocContentCacheService = {
 };
 
 /**
- * RAG search cache service
- */
-export const RAGSearchCacheService = {
-  /**
-   * Generate cache key
-   */
-  generateKey(query: string, libraryId?: string): string {
-    // Normalize query: lowercase and remove extra spaces
-    const normalizedQuery = query.toLowerCase().trim().replace(/\s+/g, ' ');
-    return `${libraryId || 'all'}::${normalizedQuery}`;
-  },
-
-  /**
-   * Get cached search result
-   */
-  get(query: string, libraryId?: string): RAGSearchCacheItem | null {
-    const key = this.generateKey(query, libraryId);
-    const cached = ragSearchCache.get(key);
-    if (cached) {
-      return cached;
-    }
-    return null;
-  },
-
-  /**
-   * Set search result cache
-   */
-  set(query: string, result: Omit<RAGSearchCacheItem, 'timestamp'>, libraryId?: string): void {
-    const key = this.generateKey(query, libraryId);
-    ragSearchCache.set(key, {
-      ...result,
-      timestamp: Date.now(),
-    });
-  },
-
-  /**
-   * Clear cache for specified knowledge base
-   */
-  clearByLibrary(libraryId: string): void {
-    // LRU cache doesn't support prefix deletion, need to iterate
-    for (const key of ragSearchCache.keys()) {
-      if (key.startsWith(`${libraryId}::`)) {
-        ragSearchCache.delete(key);
-      }
-    }
-  },
-
-  /**
-   * Clear all search cache
-   */
-  clear(): void {
-    ragSearchCache.clear();
-  },
-
-  /**
-   * Get cache statistics
-   */
-  getStats() {
-    return {
-      size: ragSearchCache.size,
-      max: RAG_SEARCH_CACHE_OPTIONS.max,
-    };
-  },
-};
-
-/**
  * Global cache manager
  */
 export const CacheManager = {
@@ -230,7 +139,6 @@ export const CacheManager = {
   clearAll(): void {
     CompletionCacheService.clear();
     DocContentCacheService.clear();
-    RAGSearchCacheService.clear();
   },
 
   /**
@@ -240,7 +148,6 @@ export const CacheManager = {
     return {
       completion: CompletionCacheService.getStats(),
       docContent: DocContentCacheService.getStats(),
-      ragSearch: RAGSearchCacheService.getStats(),
     };
   },
 };

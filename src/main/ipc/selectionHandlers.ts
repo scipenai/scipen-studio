@@ -1,20 +1,15 @@
 /**
  * @file Selection Assistant IPC Handlers (Type-Safe)
- * @description Handles text selection capture, action window control, and knowledge base integration.
- * @depends ISelectionService, IKnowledgeService, createTypedHandlers
+ * @description Handles text selection capture and action window control.
+ * @depends ISelectionService, createTypedHandlers
  * @security Uses Zod schema validation via createTypedHandlers for all IPC inputs
  */
 
 import { IpcChannel } from '@shared/ipc/channels';
-import type {
-  SelectionAddToKnowledgeDTO,
-  SelectionCaptureDTO,
-  SelectionConfigDTO,
-} from '@shared/ipc/types';
+import type { SelectionCaptureDTO, SelectionConfigDTO } from '@shared/ipc/types';
 import type { BrowserWindow } from 'electron';
 import { createLogger } from '../services/LoggerService';
 import type { ISelectionService, SelectionCaptureData } from '../services/interfaces';
-import type { IKnowledgeService } from '../services/interfaces';
 import { createTypedHandlers } from './typedIpc';
 
 const logger = createLogger('SelectionHandlers');
@@ -25,8 +20,6 @@ const logger = createLogger('SelectionHandlers');
 export interface SelectionHandlersDeps {
   /** Retrieves the selection service instance */
   getSelectionService: () => ISelectionService;
-  /** Retrieves the knowledge service instance */
-  getKnowledgeService: () => IKnowledgeService;
   /** Retrieves the main browser window */
   getMainWindow: () => BrowserWindow | null;
 }
@@ -48,7 +41,7 @@ function toSelectionCaptureDTO(data: SelectionCaptureData): SelectionCaptureDTO 
  * @sideeffect Registers ipcMain handlers for selection operations
  */
 export function registerSelectionHandlers(deps: SelectionHandlersDeps): void {
-  const { getSelectionService, getKnowledgeService } = deps;
+  const { getSelectionService } = deps;
 
   logger.info('[SelectionHandlers] Registering selection IPC handlers...');
 
@@ -92,7 +85,6 @@ export function registerSelectionHandlers(deps: SelectionHandlersDeps): void {
             enabled: config.enabled,
             triggerMode: config.triggerMode,
             shortcutKey: config.shortcutKey,
-            defaultLibraryId: config.defaultLibraryId,
           };
         } catch (error) {
           logger.error('[SelectionHandlers] Failed to get config:', error);
@@ -127,89 +119,6 @@ export function registerSelectionHandlers(deps: SelectionHandlersDeps): void {
         } catch (error) {
           logger.error('[SelectionHandlers] Failed to get selected text:', error);
           return null;
-        }
-      },
-
-      // ====== Window Control ======
-
-      /** Shows the selection action window */
-      [IpcChannel.Selection_ShowActionWindow]: (data?: SelectionCaptureDTO) => {
-        try {
-          const service = getSelectionService();
-
-          if (data) {
-            // Use provided data
-            const captureData: SelectionCaptureData = {
-              text: data.text,
-              sourceApp: data.sourceApp,
-              capturedAt: data.capturedAt ? new Date(data.capturedAt).getTime() : Date.now(),
-              cursorPosition: data.cursorPosition,
-            };
-            service.showActionWindow(captureData);
-          } else {
-            // Capture current selection and show
-            service.captureCurrentSelection().then((capturedData) => {
-              if (capturedData) {
-                service.showActionWindow(capturedData);
-              }
-            });
-          }
-
-          return { success: true };
-        } catch (error) {
-          logger.error('[SelectionHandlers] Failed to show ActionWindow:', error);
-          return { success: false, error: String(error) };
-        }
-      },
-
-      /** Hides the selection action window */
-      [IpcChannel.Selection_HideActionWindow]: () => {
-        try {
-          const service = getSelectionService();
-          service.hideActionWindow();
-          return { success: true };
-        } catch (error) {
-          logger.error('[SelectionHandlers] Failed to hide ActionWindow:', error);
-          return { success: false, error: String(error) };
-        }
-      },
-
-      /** Hides the selection toolbar */
-      [IpcChannel.Selection_HideToolbar]: () => {
-        try {
-          const service = getSelectionService();
-          service.hideToolbar();
-          return { success: true };
-        } catch (error) {
-          logger.error('[SelectionHandlers] Failed to hide Toolbar:', error);
-          return { success: false, error: String(error) };
-        }
-      },
-
-      // ====== Knowledge Base Integration ======
-
-      /**
-       * Adds selected text to knowledge base (aggregated by month).
-       * @sideeffect Creates or updates monthly clip document in the library
-       */
-      [IpcChannel.Selection_AddToKnowledge]: async (dto: SelectionAddToKnowledgeDTO) => {
-        try {
-          const knowledgeService = getKnowledgeService();
-
-          // Calls knowledge service to add clip (auto-aggregated to monthly file)
-          const result = await knowledgeService.addClip(dto.libraryId, {
-            text: dto.text,
-            sourceApp: dto.metadata?.sourceApp,
-            capturedAt: dto.metadata?.capturedAt || new Date().toISOString(),
-            note: dto.note,
-            tags: dto.metadata?.tags,
-          });
-
-          logger.info(`[SelectionHandlers] Clip added to knowledge base: ${dto.libraryId}`);
-          return { success: true, taskId: result.taskId };
-        } catch (error) {
-          logger.error('[SelectionHandlers] Failed to add clip:', error);
-          return { success: false, error: String(error) };
         }
       },
     },

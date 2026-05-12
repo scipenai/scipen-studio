@@ -10,7 +10,6 @@ interface UseEditorEventsOptions {
   editorRef: React.RefObject<monaco.editor.IStandaloneCodeEditor | null>;
   activeTabPath: string | null;
   onCompile: () => void;
-  onPolish: () => void;
 }
 
 /**
@@ -22,7 +21,6 @@ export function useEditorEvents({
   editorRef,
   activeTabPath,
   onCompile,
-  onPolish,
 }: UseEditorEventsOptions): void {
   // SyncTeX reverse sync event (jump from PDF to source code)
   // Uses useWindowEvent to automatically manage event listeners
@@ -58,14 +56,6 @@ export function useEditorEvents({
     'trigger-compile' as keyof WindowEventMap,
     (() => {
       onCompile();
-    }) as EventListener
-  );
-
-  // Global AI polish shortcut event
-  useWindowEvent(
-    'trigger-ai-polish' as keyof WindowEventMap,
-    (() => {
-      onPolish();
     }) as EventListener
   );
 }

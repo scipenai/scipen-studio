@@ -1,12 +1,12 @@
 /**
  * @file AI service IPC handlers (Type-Safe)
- * @description Handles AI chat, polish, streaming, and model management via IPC.
- * @depends IAIService, IKnowledgeService (for RAG-enhanced polish)
+ * @description Handles AI chat, streaming, and model management via IPC.
+ * @depends IAIService
  */
 
 import { IpcChannel } from '../../../shared/ipc/channels';
 import { createLogger } from '../services/LoggerService';
-import type { AIConfig, AIMessage, IAIService, IKnowledgeService } from '../services/interfaces';
+import type { AIConfig, AIMessage, IAIService } from '../services/interfaces';
 import { createTypedHandlers, registerTypedHandler } from './typedIpc';
 
 const logger = createLogger('AIHandlers');
@@ -17,8 +17,6 @@ const logger = createLogger('AIHandlers');
 export interface AIHandlersDeps {
   /** AI service instance */
   aiService: IAIService;
-  /** Knowledge service getter (lazy, may not be initialized at registration time) */
-  getKnowledgeService: () => IKnowledgeService;
 }
 
 // ====== Handler Registration ======
@@ -28,7 +26,7 @@ export interface AIHandlersDeps {
  * @sideeffect Registers handlers on ipcMain for AI operations
  */
 export function registerAIHandlers(deps: AIHandlersDeps): void {
-  const { aiService, getKnowledgeService } = deps;
+  const { aiService } = deps;
 
   const handlers = createTypedHandlers(
     {
@@ -44,77 +42,6 @@ export function registerAIHandlers(deps: AIHandlersDeps): void {
       [IpcChannel.AI_Completion]: async (context) => {
         try {
           const content = await aiService.getCompletion(context);
-          return { success: true, content };
-        } catch (error) {
-          return { success: false, error: error instanceof Error ? error.message : String(error) };
-        }
-      },
-
-      // RAG-enhanced polish: optionally retrieves context from knowledge base
-      [IpcChannel.AI_Polish]: async (text, knowledgeBaseId) => {
-        try {
-          let ragContext = '';
-          const knowledgeService = getKnowledgeService();
-
-          logger.info('[Polish] Starting polish operation');
-          logger.info(`[Polish] Input length: ${text.length} chars`);
-
-          if (knowledgeBaseId && knowledgeService) {
-            logger.info(`[Polish] Knowledge base ID: ${knowledgeBaseId}`);
-            const startTime = Date.now();
-
-            try {
-              const searchResult = await knowledgeService.search({
-                query: text,
-                libraryIds: [knowledgeBaseId],
-                topK: 3,
-                scoreThreshold: 0.3,
-              });
-
-              logger.info(`[Polish] RAG search took: ${Date.now() - startTime}ms`);
-              logger.info(`[Polish] RAG results count: ${searchResult.length}`);
-
-              if (searchResult.length > 0) {
-                ragContext = searchResult
-                  .map((r: { content?: string }) => r.content || '')
-                  .join('\n\n---\n\n');
-              }
-            } catch (ragError) {
-              console.error('[Polish] RAG search failed:', ragError);
-            }
-          }
-
-          const content = await aiService.polishText(text, ragContext || undefined);
-          logger.info('[Polish] Polish operation complete');
-
-          return { success: true, content };
-        } catch (error) {
-          console.error('[Polish] Polish failed:', error);
-          return { success: false, error: error instanceof Error ? error.message : String(error) };
-        }
-      },
-
-      [IpcChannel.AI_Chat]: async (messages) => {
-        try {
-          const content = await aiService.chat(messages as AIMessage[]);
-          return { success: true, content };
-        } catch (error) {
-          return { success: false, error: error instanceof Error ? error.message : String(error) };
-        }
-      },
-
-      [IpcChannel.AI_GenerateFormula]: async (description) => {
-        try {
-          const content = await aiService.generateFormula(description);
-          return { success: true, content };
-        } catch (error) {
-          return { success: false, error: error instanceof Error ? error.message : String(error) };
-        }
-      },
-
-      [IpcChannel.AI_Review]: async (documentContent) => {
-        try {
-          const content = await aiService.reviewDocument(documentContent);
           return { success: true, content };
         } catch (error) {
           return { success: false, error: error instanceof Error ? error.message : String(error) };

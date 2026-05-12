@@ -156,12 +156,7 @@ export function useFileWatcher() {
 
   const handleFileChanged = useCallback(
     (event: { type: string; path: string }) => {
-      // Skip Overleaf projects - they have their own sync mechanism
-      if (
-        !projectPath ||
-        projectPath.startsWith('overleaf://') ||
-        projectPath.startsWith('overleaf:')
-      ) {
+      if (!projectPath) {
         return;
       }
 

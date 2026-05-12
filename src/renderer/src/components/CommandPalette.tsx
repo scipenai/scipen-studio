@@ -4,16 +4,7 @@
  */
 
 import { AnimatePresence, motion } from 'framer-motion';
-import {
-  BookOpen,
-  FileText,
-  HelpCircle,
-  MessageSquare,
-  Play,
-  Search,
-  Settings,
-  WandSparkles,
-} from 'lucide-react';
+import { FileText, HelpCircle, MessageSquare, Play, Search, Settings } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useWindowEvent } from '../hooks';
@@ -45,37 +36,14 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
 
   const commands: Command[] = [
     {
-      id: 'ai-polish',
-      label: t('commandPalette.aiPolish'),
-      description: t('commandPalette.aiPolishDesc'),
-      icon: <WandSparkles size={16} />,
-      category: 'ai',
-      shortcut: 'Ctrl+Shift+P',
-      action: () => {
-        window.dispatchEvent(new CustomEvent('trigger-ai-polish'));
-        onClose();
-      },
-    },
-    {
       id: 'ai-chat',
       label: t('commandPalette.openAI'),
       description: t('commandPalette.openAIDesc'),
       icon: <MessageSquare size={16} />,
       category: 'ai',
-      shortcut: 'Ctrl+Shift+C',
+      shortcut: 'Ctrl+L',
       action: () => {
-        uiService.setSidebarTab('ai');
-        onClose();
-      },
-    },
-    {
-      id: 'ai-review',
-      label: t('commandPalette.aiReview'),
-      description: t('commandPalette.aiReviewDesc'),
-      icon: <BookOpen size={16} />,
-      category: 'ai',
-      action: () => {
-        uiService.setRightPanelTab('review');
+        uiService.requestChatWithText('', 'editor');
         onClose();
       },
     },
@@ -114,17 +82,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
       },
     },
     {
-      id: 'view-knowledge',
-      label: t('commandPalette.openKnowledge'),
-      icon: <BookOpen size={16} />,
-      category: 'view',
-      action: () => {
-        uiService.setSidebarTab('knowledge');
-        onClose();
-      },
-    },
-
-    {
       id: 'settings',
       label: t('commandPalette.openSettings'),
       icon: <Settings size={16} />,
@@ -140,7 +97,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
       icon: <HelpCircle size={16} />,
       category: 'help',
       action: () => {
-        // TODO: Show shortcuts panel
         onClose();
       },
     },

@@ -40,7 +40,7 @@ type WorkerMessage =
 interface WorkerResponse {
   id: string;
   success: boolean;
-  data?: any;
+  data?: unknown;
   error?: string;
 }
 
@@ -108,7 +108,7 @@ class CompileWorkerClient extends EventEmitter {
   private pendingRequests: Map<
     string,
     {
-      resolve: (value: any) => void;
+      resolve: (value: unknown) => void;
       reject: (error: Error) => void;
       onProgress?: (progress: CompileProgress) => void;
       onLog?: (log: CompileLog) => void;
@@ -291,7 +291,7 @@ class CompileWorkerClient extends EventEmitter {
    */
   private async sendRequest<T>(
     type: WorkerMessage['type'],
-    payload: any,
+    payload: WorkerMessage['payload'],
     options: {
       timeout?: number;
       onProgress?: (progress: CompileProgress) => void;
@@ -327,14 +327,14 @@ class CompileWorkerClient extends EventEmitter {
       }
 
       this.pendingRequests.set(id, {
-        resolve,
+        resolve: (value) => resolve(value as T),
         reject,
         onProgress,
         onLog,
         timeout: timeoutHandle,
       });
 
-      const message: WorkerMessage = { id, type, payload };
+      const message = { id, type, payload } as WorkerMessage;
       this.worker!.postMessage(message);
     });
   }

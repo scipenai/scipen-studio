@@ -98,21 +98,6 @@ export {
   useDebouncedEvent,
   useEventBuffer,
   useEmitter,
-  // Service hooks
-  useServiceRegistry,
-  useEditorService,
-  useAIService,
-  useProjectService,
-  useUIService,
-  useSettingsService,
-  useWorkingCopyService,
-  useBackupService,
-  useCompileService,
-  useCommandService,
-  useKeybindingService,
-  useViewRegistry,
-  useStorageService,
-  useServiceState,
 } from '../hooks';
 
 // ============ File Utilities ============

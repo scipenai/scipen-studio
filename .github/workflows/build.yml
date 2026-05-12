@@ -6,6 +6,11 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# Required so electron-builder can POST /releases via GITHUB_TOKEN.
+# GitHub Actions defaults GITHUB_TOKEN to read-only since 2023; releases need contents=write.
+permissions:
+  contents: write
+
 env:
   NODE_VERSION: '22'
 
@@ -22,16 +27,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Install pnpm
-        run: npm install -g pnpm
-
       - name: Install dependencies
         run: npm ci
 
       - name: Build and Package
-        run: npm run build:win
+        run: npm run build:win -- --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.SCIPEN_STUDIO_RELEASE }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -40,6 +42,7 @@ jobs:
           path: |
             release/*.exe
             release/*.zip
+            release/latest.yml
           if-no-files-found: error
 
   build-macos:
@@ -54,16 +57,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Install pnpm
-        run: npm install -g pnpm
-
       - name: Install dependencies
         run: npm ci
 
       - name: Build and Package
-        run: npm run build:mac
+        run: npm run build:mac -- --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.SCIPEN_STUDIO_RELEASE }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -72,6 +72,7 @@ jobs:
           path: |
             release/*.dmg
             release/*.zip
+            release/latest-mac.yml
           if-no-files-found: error
 
   build-linux:
@@ -86,16 +87,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Install pnpm
-        run: npm install -g pnpm
-
       - name: Install dependencies
         run: npm ci
 
       - name: Build and Package
-        run: npm run build:linux
+        run: npm run build:linux -- --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.SCIPEN_STUDIO_RELEASE }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -104,34 +102,5 @@ jobs:
           path: |
             release/*.AppImage
             release/*.deb
+            release/latest-linux.yml
           if-no-files-found: error
-
-  release:
-    needs: [build-windows, build-macos, build-linux]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: List artifacts
-        run: find artifacts -type f
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            artifacts/**/*.exe
-            artifacts/**/*.dmg
-            artifacts/**/*.AppImage
-            artifacts/**/*.deb
-            artifacts/**/*.zip
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

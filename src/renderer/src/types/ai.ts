@@ -6,16 +6,6 @@
 /** AI message role */
 export type AIMessageRole = 'user' | 'assistant' | 'system';
 
-/** AI citation source */
-export interface AICitation {
-  id: string;
-  content: string;
-  source: string;
-  page?: number;
-  timestamp?: number;
-  score: number;
-}
-
 /**
  * AI message - unified definition
  *
@@ -28,8 +18,6 @@ export interface AIMessage {
   role: AIMessageRole;
   content: string;
   timestamp: number;
-  citations?: AICitation[];
-  searchTime?: number;
 }
 
 /** AI message - simplified version for API calls */
@@ -43,9 +31,6 @@ export type VLMProvider = 'openai' | 'anthropic' | 'ollama' | 'custom';
 
 /** Whisper provider type */
 export type WhisperProvider = 'openai' | 'custom';
-
-/** Embedding provider type */
-export type EmbeddingProvider = 'openai' | 'ollama' | 'custom';
 
 /** AI configuration */
 export interface AIConfig {

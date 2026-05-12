@@ -26,18 +26,6 @@ for (const dir of [workersOutDir, lspProcessOutDir]) {
 // ====== Worker Threads Configuration ======
 const workers = [
   {
-    entry: resolve(rootDir, 'src/main/workers/vectorSearch.worker.ts'),
-    // Use .cjs extension because package.json has "type": "module"
-    // and worker files use CommonJS format for native module compatibility
-    outfile: resolve(workersOutDir, 'vectorSearch.worker.cjs'),
-    external: ['better-sqlite3', 'hnswlib-node']
-  },
-  {
-    entry: resolve(rootDir, 'src/main/workers/sqlite.worker.ts'),
-    outfile: resolve(workersOutDir, 'sqlite.worker.cjs'),
-    external: ['better-sqlite3']
-  },
-  {
     entry: resolve(rootDir, 'src/main/workers/compile.worker.ts'),
     outfile: resolve(workersOutDir, 'compile.worker.cjs'),
     external: []
@@ -68,7 +56,7 @@ const utilityProcesses = [
     // UtilityProcess requires .cjs format for Electron module system compatibility
     outfile: resolve(lspProcessOutDir, 'index.cjs'),
     // Externalize Electron modules and native dependencies that may be imported dynamically
-    external: ['electron', 'better-sqlite3', 'hnswlib-node']
+    external: ['electron', 'better-sqlite3']
   }
 ];
 

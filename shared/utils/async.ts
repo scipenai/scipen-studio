@@ -99,12 +99,9 @@ export type ITask<T> = () => T;
  * ```
  */
 export class Throttler implements IDisposable {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic internal state requires any for type flexibility
-  private activePromise: Promise<any> | null = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private queuedPromise: Promise<any> | null = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private queuedPromiseFactory: ICancellableTask<any> | null = null;
+  private activePromise: Promise<unknown> | null = null;
+  private queuedPromise: Promise<unknown> | null = null;
+  private queuedPromiseFactory: ICancellableTask<unknown> | null = null;
   private cancellationTokenSource: CancellationTokenSource;
 
   constructor() {
@@ -147,12 +144,12 @@ export class Throttler implements IDisposable {
         };
 
         this.queuedPromise = new Promise((resolve, reject) => {
-          this.activePromise!.then(onComplete, onComplete).then(resolve, reject);
+          this.activePromise!.then(onComplete, onComplete).then((value) => resolve(value), reject);
         });
       }
 
       return new Promise((resolve, reject) => {
-        this.queuedPromise!.then(resolve, reject);
+        this.queuedPromise!.then((value) => resolve(value as T), reject);
       });
     }
 
@@ -161,9 +158,9 @@ export class Throttler implements IDisposable {
 
     return new Promise((resolve, reject) => {
       this.activePromise!.then(
-        (result: T) => {
+        (result) => {
           this.activePromise = null;
-          resolve(result);
+          resolve(result as T);
         },
         (err: unknown) => {
           this.activePromise = null;
@@ -311,10 +308,8 @@ const microtaskDeferred = (fn: () => void): IScheduledLater => {
  */
 export class Delayer<T> implements IDisposable {
   private deferred: IScheduledLater | null = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic internal state requires any for type flexibility
-  private completionPromise: Promise<any> | null = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private doResolve: ((value?: any) => void) | null = null;
+  private completionPromise: Promise<T> | null = null;
+  private doResolve: (() => void) | null = null;
   private doReject: ((err: unknown) => void) | null = null;
   private task: (() => T | Promise<T>) | null = null;
   private _defaultDelay: number | typeof MicrotaskDelay;
@@ -346,24 +341,24 @@ export class Delayer<T> implements IDisposable {
     this.cancelTimeout();
 
     if (!this.completionPromise) {
-      this.completionPromise = new Promise((resolve, reject) => {
-        this.doResolve = resolve;
+      this.completionPromise = new Promise<void>((resolve, reject) => {
+        this.doResolve = () => resolve();
         this.doReject = reject;
-      }).then(() => {
+      }).then(async () => {
         this.completionPromise = null;
         this.doResolve = null;
         if (this.task) {
-          const task = this.task;
+          const currentTask = this.task;
           this.task = null;
-          return task();
+          return await currentTask();
         }
-        return undefined;
+        throw new CancellationError('Delayer task missing at execution time');
       });
     }
 
     const fn = () => {
       this.deferred = null;
-      this.doResolve?.(null);
+      this.doResolve?.();
     };
 
     this.deferred =
@@ -392,7 +387,7 @@ export class Delayer<T> implements IDisposable {
     this.cancelTimeout();
 
     if (this.doResolve) {
-      this.doResolve(null);
+      this.doResolve();
     }
 
     return this.completionPromise ?? undefined;
@@ -598,8 +593,7 @@ export class SimpleThrottle implements IDisposable {
 
   constructor(private readonly interval: number) {}
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic wrapper requires any for arbitrary function signatures
-  wrap<T extends (...args: any[]) => void>(fn: T): T {
+  wrap<T extends (...args: never[]) => void>(fn: T): T {
     return ((...args: Parameters<T>) => {
       const now = Date.now();
 

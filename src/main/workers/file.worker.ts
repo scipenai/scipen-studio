@@ -88,26 +88,8 @@ interface WorkerEvent {
   data: unknown;
 }
 
-/**
- * @remarks File tree node used by the renderer and worker APIs.
- */
-export interface FileNode {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  children?: FileNode[];
-  /** Lazy-loading flag: whether children have been resolved */
-  isResolved?: boolean;
-}
-
-/**
- * @remarks File change event emitted by watcher.
- */
-export interface FileChangeEvent {
-  type: 'change' | 'unlink' | 'add';
-  path: string;
-  mtime?: number;
-}
+import type { FileNode, FileChangeEvent } from '../services/interfaces/IFileSystemService';
+export type { FileNode, FileChangeEvent };
 
 // ============ Default Ignore Patterns ============
 

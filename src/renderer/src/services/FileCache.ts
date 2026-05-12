@@ -59,7 +59,7 @@ class FileCache implements IDisposable {
 
     this._cleanupIntervalId = setInterval(() => this.cleanupExpired(), 30 * 1000);
 
-    console.log('[FileCache L1] Initialized');
+    console.info('[FileCache L1] Initialized');
   }
 
   /**
@@ -80,7 +80,7 @@ class FileCache implements IDisposable {
     this.clear();
     this.initialized = false;
 
-    console.log('[FileCache L1] Disposed');
+    console.info('[FileCache L1] Disposed');
   }
 
   /**

@@ -31,8 +31,6 @@ export interface SelectionConfig {
   triggerMode: 'shortcut' | 'hook';
   /** Global shortcut. */
   shortcutKey: string;
-  /** Default target knowledge base id. */
-  defaultLibraryId?: string;
 }
 
 /**
@@ -88,22 +86,6 @@ export interface ISelectionService extends Partial<IDisposable> {
    * @sideeffect Simulates clipboard copy to read selection
    */
   captureCurrentSelection(): Promise<SelectionCaptureData | null>;
-
-  /**
-   * Shows selection action window.
-   * @param data Captured selection payload
-   */
-  showActionWindow(data: SelectionCaptureData): void;
-
-  /**
-   * Hides selection action window.
-   */
-  hideActionWindow(): void;
-
-  /**
-   * Hides selection toolbar.
-   */
-  hideToolbar(): void;
 
   // ====== Events ======
 

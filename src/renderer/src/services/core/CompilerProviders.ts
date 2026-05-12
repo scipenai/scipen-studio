@@ -1,11 +1,14 @@
 /**
  * @file CompilerProviders.ts - Compiler Provider Implementation
- * @description Provides Provider implementations for LaTeX, Typst, and Overleaf compilers
- * @depends IPC (api.compiler), CompilerRegistry
+ * @description Provides Provider implementations for LaTeX, Typst, Overleaf, and WASM compilers
+ * @depends IPC (api.compiler), CompilerRegistry, StellarLatexEngine
  */
 
 import { api } from '../../api';
 import { createLogger } from '../LogService';
+import { StellarLatexEngine } from '../StellarLatexEngine';
+import { getSyncTeXService } from '../SyncTeXService';
+import { getSettingsService } from './ServiceRegistry';
 import type { CompileResult, LatexEngine, TypstEngine } from './CompileService';
 import type { CompilerOptions, CompilerProvider } from './LanguageFeatureRegistry';
 
@@ -44,6 +47,10 @@ export class LaTeXCompilerProvider implements CompilerProvider {
 
     const result = await api.compile.latex(content, compileOptions);
 
+    // Clear WASM engine for traditional compilation
+    const syncTeXService = getSyncTeXService();
+    syncTeXService.setWASMEngine(null);
+
     return {
       success: result.success,
       pdfPath: result.pdfPath,
@@ -58,7 +65,8 @@ export class LaTeXCompilerProvider implements CompilerProvider {
   }
 
   canHandle(filePath: string, options?: CompilerOptions): boolean {
-    if (options?.engine === 'overleaf') {
+    // Exclude WASM engines
+    if (options?.engine === 'wasm-pdftex' || options?.engine === 'wasm-xetex') {
       return false;
     }
     const ext = filePath.split('.').pop()?.toLowerCase() || '';
@@ -118,85 +126,191 @@ export class TypstCompilerProvider implements CompilerProvider {
   }
 }
 
-// ====== Overleaf Remote Compiler Provider ======
+// ====== WASM Compiler Provider (StellarLatex) ======
 
-export class OverleafCompilerProvider implements CompilerProvider {
-  readonly id = 'overleaf-remote';
-  readonly name = 'Overleaf (Remote)';
+/** File extensions relevant for LaTeX compilation */
+const TEX_FILE_EXTENSIONS = /\.(tex|bib|sty|cls|bst|def|cfg|fd|bbl|aux|clo|ldf|ltx|dtx|ins)$/i;
+
+export class WASMCompilerProvider implements CompilerProvider {
+  readonly id = 'stellar-wasm';
+  readonly name = 'StellarLatex (WASM)';
   readonly supportedExtensions = ['tex', 'latex', 'ltx'];
-  readonly priority = 5;
-  readonly isRemote = true;
+  readonly priority = 8;
+  readonly isRemote = false;
+
+  private engine: StellarLatexEngine | null = null;
+  private currentEngineType: 'pdftex' | 'xetex' | null = null;
 
   async compile(
-    _filePath: string,
-    _content: string,
+    filePath: string,
+    content: string,
     options: CompilerOptions
   ): Promise<CompileResult> {
-    const overleafConfig = options.overleaf;
-    if (!overleafConfig?.projectId) {
+    const engineType = options.engine === 'wasm-pdftex' ? 'pdftex' : 'xetex';
+
+    logger.info('Starting WASM compile', {
+      engine: engineType,
+      file: filePath,
+    });
+
+    try {
+      // Initialize or reuse engine
+      if (!this.engine || this.currentEngineType !== engineType) {
+        this.engine?.close();
+        this.engine = new StellarLatexEngine(engineType);
+        this.currentEngineType = engineType;
+        await this.engine.loadEngine();
+      }
+
+      // Apply the user-configured TexLive package endpoint
+      const texliveEndpoint = getSettingsService().getSettings().compiler.texliveEndpoint;
+      if (texliveEndpoint) {
+        this.engine.setTexliveEndpoint(texliveEndpoint);
+      }
+
+      // Clean previous compilation state
+      this.engine.flushWorkDir();
+      this.engine.flushBuild();
+
+      // Write project files to WASM virtual filesystem
+      await this.writeProjectFiles(filePath, content, options);
+
+      // Set main file and compile
+      const mainFileName = this.resolveMainFile(filePath, options);
+      this.engine.setMainFile(mainFileName);
+
+      const result = await this.engine.compile();
+
+      // Set WASM engine for SyncTeX if compilation succeeded
+      if (result.success && result.synctex) {
+        const syncTeXService = getSyncTeXService();
+        syncTeXService.setWASMEngine(this.engine);
+      }
+
+      return {
+        success: result.success,
+        pdfBuffer: result.pdf,
+        synctexBuffer: result.synctex,
+        log: result.log,
+        errors: result.success ? undefined : this.parseErrors(result.log),
+        warnings: this.parseWarnings(result.log),
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('WASM compilation failed', { error: message });
       return {
         success: false,
-        errors: ['Please configure Overleaf project ID in settings'],
+        errors: [message],
+        log: message,
       };
     }
-
-    logger.info('Starting Overleaf compile', {
-      projectId: overleafConfig.projectId,
-    });
-
-    const loginResult = await api.overleaf.login({
-      serverUrl: overleafConfig.serverUrl,
-      cookies: overleafConfig.cookies || undefined,
-    });
-
-    if (!loginResult.success) {
-      throw new Error(`Overleaf login failed: ${loginResult.message}`);
-    }
-
-    logger.debug('Overleaf login successful');
-
-    let rootDocId: string | undefined;
-    const activeTab = options.activeTab;
-    if (activeTab?.isRemote && activeTab?._id && activeTab?.name?.endsWith('.tex')) {
-      rootDocId = activeTab._id;
-      logger.debug('Using current file as root doc', {
-        rootDocId,
-        name: activeTab.name,
-      });
-    }
-
-    const compileOptions: { compiler?: string; rootDocId?: string } = {
-      compiler: overleafConfig.remoteCompiler,
-    };
-    if (rootDocId) {
-      compileOptions.rootDocId = rootDocId;
-    }
-
-    const compileResult = await api.overleaf.compile(overleafConfig.projectId, compileOptions);
-
-    logger.debug('Overleaf compile result', {
-      success: compileResult.success,
-      buildId: compileResult.buildId,
-      hasPdfBuffer: !!compileResult.pdfBuffer,
-    });
-
-    return {
-      success: compileResult.success,
-      pdfBuffer: compileResult.pdfBuffer,
-      log: compileResult.errors?.join('\n'),
-      errors: compileResult.errors,
-      buildId: compileResult.buildId,
-      parsedErrors: compileResult.parsedErrors as
-        | Array<{ line: number; message: string }>
-        | undefined,
-      parsedWarnings: compileResult.parsedWarnings as
-        | Array<{ line: number; message: string }>
-        | undefined,
-      parsedInfo: compileResult.parsedInfo as Array<{ line: number; message: string }> | undefined,
-    };
   }
 
   canHandle(_filePath: string, options?: CompilerOptions): boolean {
-    return options?.engine === 'overleaf';
+    return options?.engine === 'wasm-pdftex' || options?.engine === 'wasm-xetex';
+  }
+
+  /**
+   * Write all project files to the WASM virtual filesystem.
+   * Current file uses the provided content (may be unsaved).
+   * Other files are read via IPC batch read.
+   */
+  private async writeProjectFiles(
+    currentFilePath: string,
+    content: string,
+    options: CompilerOptions
+  ): Promise<void> {
+    const engine = this.engine!;
+    const projectPath = options.projectPath;
+    const currentRelativePath = this.toWasmRelativePath(currentFilePath, projectPath);
+    const createdDirs = new Set<string>();
+
+    await this.ensureParentDirectories(engine, currentRelativePath, createdDirs);
+    engine.registerPathMapping(currentFilePath, currentRelativePath);
+    await engine.writeFile(currentRelativePath, content);
+
+    if (!projectPath) return;
+
+    try {
+      const scanResult = await api.file.scanFilePaths(projectPath);
+      if (!scanResult.success || !scanResult.paths) return;
+
+      const texFiles = scanResult.paths.filter((p) => TEX_FILE_EXTENSIONS.test(p));
+      if (texFiles.length === 0) return;
+
+      const batchResult = await api.file.batchRead(texFiles);
+
+      for (const [absolutePath, fileContent] of Object.entries(batchResult)) {
+        const relativePath = this.toWasmRelativePath(absolutePath, projectPath);
+
+        if (relativePath === currentRelativePath) continue;
+
+        await this.ensureParentDirectories(engine, relativePath, createdDirs);
+        engine.registerPathMapping(absolutePath, relativePath);
+        await engine.writeFile(relativePath, fileContent);
+      }
+    } catch (error) {
+      logger.warn('Failed to read project files for WASM compilation', { error });
+    }
+  }
+
+  private resolveMainFile(filePath: string, options: CompilerOptions): string {
+    const mainFilePath = options.mainFile || filePath;
+    return this.toWasmRelativePath(mainFilePath, options.projectPath);
+  }
+
+  private toWasmRelativePath(filePath: string, projectPath?: string): string {
+    const normalizedFilePath = filePath.replace(/\\/g, '/');
+    const normalizedProjectPath = projectPath?.replace(/\\/g, '/').replace(/\/$/, '');
+
+    if (normalizedProjectPath && normalizedFilePath.startsWith(`${normalizedProjectPath}/`)) {
+      return normalizedFilePath.slice(normalizedProjectPath.length + 1);
+    }
+
+    return normalizedFilePath.split('/').pop() || 'main.tex';
+  }
+
+  private async ensureParentDirectories(
+    engine: StellarLatexEngine,
+    relativePath: string,
+    createdDirs: Set<string>
+  ): Promise<void> {
+    const normalizedPath = relativePath.replace(/\\/g, '/');
+    const parts = normalizedPath.split('/');
+    if (parts.length <= 1) return;
+
+    let dirPath = '';
+    for (let index = 0; index < parts.length - 1; index++) {
+      dirPath = dirPath ? `${dirPath}/${parts[index]}` : parts[index];
+      if (createdDirs.has(dirPath)) continue;
+      await engine.mkdir(dirPath);
+      createdDirs.add(dirPath);
+    }
+  }
+
+  private parseErrors(log: string): string[] {
+    const errors: string[] = [];
+    const lines = log.split('\n');
+    for (const line of lines) {
+      if (line.startsWith('!') || line.includes('Fatal error')) {
+        errors.push(line.trim());
+      }
+    }
+    return errors.length > 0 ? errors : ['Compilation failed'];
+  }
+
+  private parseWarnings(log: string): string[] {
+    const warnings: string[] = [];
+    const lines = log.split('\n');
+    for (const line of lines) {
+      if (line.includes('Warning:') || line.includes('Underfull') || line.includes('Overfull')) {
+        warnings.push(line.trim());
+      }
+    }
+    return warnings;
+  }
+
+  cancel(): void {
+    this.engine?.close();
   }
 }

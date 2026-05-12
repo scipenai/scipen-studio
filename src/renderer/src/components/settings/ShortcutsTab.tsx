@@ -46,14 +46,9 @@ export const ShortcutsTab: React.FC = () => {
         onChange={(v) => handleShortcutChange('commandPalette', v)}
       />
       <EditableShortcut
-        label={t('shortcuts.aiPolish')}
-        keys={settings.shortcuts.aiPolish}
-        onChange={(v) => handleShortcutChange('aiPolish', v)}
-      />
-      <EditableShortcut
-        label={t('shortcuts.aiChat')}
-        keys={settings.shortcuts.aiChat}
-        onChange={(v) => handleShortcutChange('aiChat', v)}
+        label={t('shortcuts.chatWithSelection')}
+        keys={settings.shortcuts.chatWithSelection}
+        onChange={(v) => handleShortcutChange('chatWithSelection', v)}
       />
       <EditableShortcut
         label={t('shortcuts.togglePreview')}

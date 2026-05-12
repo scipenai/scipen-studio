@@ -1,6 +1,6 @@
 /**
  * @file ChatOrchestrator.test.ts
- * @description Tests for chat orchestrator - session management, message streaming, @ mentions, RAG integration
+ * @description Tests for chat orchestrator - session management, message streaming, @ mentions
  * @depends vitest, electron, main/services/chat/ChatOrchestrator
  */
 
@@ -15,11 +15,6 @@ vi.mock('electron', () => ({
   app: {
     getPath: vi.fn().mockReturnValue('/tmp/scipen-studio-test'),
   },
-}));
-
-// Mock knowledge service
-vi.mock('../../../src/main/services/knowledge/MultimodalKnowledgeService', () => ({
-  getKnowledgeService: vi.fn(() => null),
 }));
 
 // ============ Mock Factories ============
@@ -153,13 +148,6 @@ describe('ChatOrchestrator', () => {
       expect(session.title).toBe('New Conversation');
       expect(session.status).toBe('idle');
       expect(session.messageCount).toBe(0);
-    });
-
-    it('should create session with knowledge base ID', () => {
-      const kbId = 'kb-123';
-      const session = orchestrator.createSession(kbId);
-
-      expect(session.knowledgeBaseId).toBe(kbId);
     });
 
     it('should get existing session', () => {
@@ -402,42 +390,6 @@ describe('ChatOrchestrator', () => {
 
       // send should not be called because webContents is destroyed
       expect(destroyedWebContents.send).not.toHaveBeenCalled();
-    });
-  });
-
-  // ============ RAG Integration ============
-
-  describe('RAG Integration', () => {
-    it('should emit rag_search_start when knowledge base is selected', async () => {
-      await orchestrator.sendMessage(
-        null,
-        'What is machine learning?',
-        { knowledgeBaseId: 'kb-123' },
-        mockWebContents
-      );
-
-      await waitForEvent(mockWebContents, 'rag_search_start');
-
-      expect(mockWebContents.send).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({ type: 'rag_search_start' })
-      );
-    });
-
-    it('should emit rag_search_complete after search', async () => {
-      await orchestrator.sendMessage(
-        null,
-        'Explain transformers',
-        { knowledgeBaseId: 'kb-456' },
-        mockWebContents
-      );
-
-      await waitForEvent(mockWebContents, 'rag_search_complete');
-
-      expect(mockWebContents.send).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({ type: 'rag_search_complete' })
-      );
     });
   });
 

@@ -6,10 +6,9 @@
  */
 
 import { createRequire } from 'module';
-import { join } from 'path';
 import { IpcChannel } from '@shared/ipc/channels';
 import { Emitter } from '@shared/utils';
-import { BrowserWindow, app, clipboard, globalShortcut, screen, systemPreferences } from 'electron';
+import { BrowserWindow, clipboard, globalShortcut, screen, systemPreferences } from 'electron';
 import type {
   SelectionHookConstructor,
   SelectionHookInstance,
@@ -46,15 +45,9 @@ const DEFAULT_CONFIG: SelectionConfig = {
   enabled: false,
   triggerMode: 'shortcut',
   shortcutKey: 'Alt+D',
-  defaultLibraryId: undefined,
 };
 
 // ====== Window Dimensions ======
-
-const ACTION_WINDOW_WIDTH = 420;
-const ACTION_WINDOW_HEIGHT = 460;
-const TOOLBAR_WIDTH = 320;
-const TOOLBAR_HEIGHT = 56;
 
 type SelectionHookPosition = { x: number; y: number };
 type SelectionHookData = TextSelectionData & {
@@ -101,13 +94,11 @@ export class SelectionService implements ISelectionService {
       const enabled = configManager.get<boolean>(ConfigKeys.SelectionEnabled);
       const triggerMode = configManager.get<'shortcut' | 'hook'>(ConfigKeys.SelectionTriggerMode);
       const shortcutKey = configManager.get<string>(ConfigKeys.SelectionShortcutKey);
-      const defaultLibraryId = configManager.get<string>(ConfigKeys.SelectionDefaultLibraryId);
 
       this.config = {
         enabled: enabled ?? DEFAULT_CONFIG.enabled,
         triggerMode: triggerMode ?? DEFAULT_CONFIG.triggerMode,
         shortcutKey: shortcutKey ?? DEFAULT_CONFIG.shortcutKey,
-        defaultLibraryId: defaultLibraryId ?? DEFAULT_CONFIG.defaultLibraryId,
       };
 
       logger.info('[SelectionService] Config loaded:', this.config);
@@ -125,9 +116,6 @@ export class SelectionService implements ISelectionService {
       configManager.set(ConfigKeys.SelectionEnabled, this.config.enabled);
       configManager.set(ConfigKeys.SelectionTriggerMode, this.config.triggerMode);
       configManager.set(ConfigKeys.SelectionShortcutKey, this.config.shortcutKey);
-      if (this.config.defaultLibraryId) {
-        configManager.set(ConfigKeys.SelectionDefaultLibraryId, this.config.defaultLibraryId);
-      }
       logger.debug('[SelectionService] Config saved');
     } catch (error) {
       logger.error('[SelectionService] Failed to save config:', error);
@@ -158,9 +146,6 @@ export class SelectionService implements ISelectionService {
           );
         }
       }
-
-      // Pre-create ActionWindow (hidden state)
-      await this.ensureActionWindow();
 
       this.started = true;
       logger.info('[SelectionService] Service started');
@@ -327,360 +312,7 @@ export class SelectionService implements ISelectionService {
     }
   }
 
-  showActionWindow(data: SelectionCaptureData): void {
-    // Hide toolbar if exists
-    if (this.toolbarWindow && !this.toolbarWindow.isDestroyed()) {
-      this.toolbarWindow.hide();
-    }
-
-    if (!this.actionWindow || this.actionWindow.isDestroyed()) {
-      logger.warn('[SelectionService] ActionWindow does not exist, creating...');
-      this.ensureActionWindow().then(() => {
-        this.doShowActionWindow(data);
-      });
-      return;
-    }
-
-    this.doShowActionWindow(data);
-  }
-
-  hideActionWindow(): void {
-    if (this.actionWindow && !this.actionWindow.isDestroyed()) {
-      this.actionWindow.hide();
-      logger.debug('[SelectionService] ActionWindow hidden');
-    }
-  }
-
-  hideToolbar(): void {
-    if (this.toolbarWindow && !this.toolbarWindow.isDestroyed()) {
-      this.toolbarWindow.hide();
-      logger.debug('[SelectionService] ToolbarWindow hidden');
-    }
-  }
-
   // ====== Internal Methods ======
-
-  private getPreloadPath(): string {
-    const appRoot = process.env.APP_ROOT ?? app.getAppPath();
-    return join(appRoot, 'out', 'preload', 'index.mjs');
-  }
-
-  private async ensureActionWindow(): Promise<BrowserWindow> {
-    if (this.actionWindow && !this.actionWindow.isDestroyed()) {
-      return this.actionWindow;
-    }
-
-    logger.info('[SelectionService] Creating ActionWindow...');
-
-    const preloadPath = this.getPreloadPath();
-    this.actionWindow = new BrowserWindow({
-      width: ACTION_WINDOW_WIDTH,
-      height: ACTION_WINDOW_HEIGHT,
-      show: false,
-      frame: false,
-      transparent: true,
-      resizable: true,
-      skipTaskbar: true,
-      focusable: true,
-      alwaysOnTop: true,
-      webPreferences: {
-        preload: preloadPath,
-        contextIsolation: true,
-        nodeIntegration: false,
-        // sandbox: false allows ESM preload scripts to load properly
-        sandbox: false,
-        // Security baseline: explicitly enable web security
-        webSecurity: true,
-        // Disable DevTools in production
-        devTools: isDev,
-      },
-    });
-    const actionWindow = this.actionWindow;
-
-    // Monitor load failures and render crashes
-    actionWindow.webContents.on(
-      'did-fail-load',
-      (_event, errorCode, errorDescription, validatedURL) => {
-        logger.error(
-          `[SelectionService] ActionWindow load failed: code=${errorCode}, desc=${errorDescription}, url=${validatedURL}`
-        );
-      }
-    );
-    actionWindow.webContents.on('render-process-gone', (_event, details) => {
-      logger.error('[SelectionService] ActionWindow render process crashed:', details);
-    });
-    if (isDev) {
-      actionWindow.webContents.on('console-message', (_event, level, message) => {
-        logger.info(`[SelectionService] ActionWindow console: level=${level}, message=${message}`);
-      });
-    }
-    actionWindow.webContents.on('did-finish-load', () => {
-      logger.info('[SelectionService] ActionWindow did-finish-load');
-    });
-
-    // Load ActionWindow page
-    await this.loadWindowContent(actionWindow, 'selectionAction.html');
-
-    if (actionWindow.isDestroyed()) {
-      logger.warn('[SelectionService] ActionWindow destroyed during load');
-      return actionWindow;
-    }
-
-    // Clean up reference when window closes
-    actionWindow.on('closed', () => {
-      if (this.actionWindow === actionWindow) {
-        this.actionWindow = null;
-      }
-    });
-
-    // Hide on blur
-    actionWindow.on('blur', () => {
-      // Delay hide to avoid hiding when clicking internal elements
-      setTimeout(() => {
-        if (this.actionWindow && !this.actionWindow.isFocused()) {
-          this.hideActionWindow();
-        }
-      }, 200);
-    });
-
-    logger.info('[SelectionService] ActionWindow created');
-    return actionWindow;
-  }
-
-  private async ensureToolbarWindow(): Promise<BrowserWindow> {
-    if (this.toolbarWindow && !this.toolbarWindow.isDestroyed()) {
-      return this.toolbarWindow;
-    }
-
-    logger.info('[SelectionService] Creating ToolbarWindow...');
-
-    const preloadPath = this.getPreloadPath();
-    this.toolbarWindow = new BrowserWindow({
-      width: TOOLBAR_WIDTH,
-      height: TOOLBAR_HEIGHT,
-      show: false,
-      frame: false,
-      transparent: true,
-      resizable: false,
-      skipTaskbar: true,
-      alwaysOnTop: true,
-      hasShadow: false,
-      thickFrame: false,
-      // Windows: type=toolbar + focusable=false prevents focus stealing
-      // macOS: type=panel supports fullscreen apps
-      ...(isWin ? { type: 'toolbar', focusable: false } : { type: 'panel' }),
-      webPreferences: {
-        preload: preloadPath,
-        contextIsolation: true,
-        nodeIntegration: false,
-        // sandbox: false allows ESM preload scripts to load properly
-        sandbox: false,
-        // Security baseline: explicitly enable web security
-        webSecurity: true,
-        // Disable DevTools in production
-        devTools: isDev,
-      },
-    });
-    const toolbarWindow = this.toolbarWindow;
-
-    // Monitor load failures and render crashes
-    toolbarWindow.webContents.on(
-      'did-fail-load',
-      (_event, errorCode, errorDescription, validatedURL) => {
-        logger.error(
-          `[SelectionService] ToolbarWindow load failed: code=${errorCode}, desc=${errorDescription}, url=${validatedURL}`
-        );
-      }
-    );
-    toolbarWindow.webContents.on('render-process-gone', (_event, details) => {
-      logger.error('[SelectionService] ToolbarWindow render process crashed:', details);
-    });
-    if (isDev) {
-      toolbarWindow.webContents.on('console-message', (_event, level, message) => {
-        logger.info(`[SelectionService] ToolbarWindow console: level=${level}, message=${message}`);
-      });
-    }
-    toolbarWindow.webContents.on('did-finish-load', () => {
-      logger.info('[SelectionService] ToolbarWindow did-finish-load');
-    });
-
-    await this.loadWindowContent(toolbarWindow, 'selectionToolbar.html');
-
-    if (toolbarWindow.isDestroyed()) {
-      logger.warn('[SelectionService] ToolbarWindow destroyed during load');
-      return toolbarWindow;
-    }
-
-    toolbarWindow.on('closed', () => {
-      if (this.toolbarWindow === toolbarWindow) {
-        this.toolbarWindow = null;
-      }
-    });
-
-    // Note: Don't hide toolbar on blur since user may select text in other apps
-    // Toolbar closes manually on button click or Esc key
-
-    logger.info('[SelectionService] ToolbarWindow created');
-    return toolbarWindow;
-  }
-
-  private doShowActionWindow(data: SelectionCaptureData): void {
-    if (!this.actionWindow || this.actionWindow.isDestroyed()) {
-      logger.warn('[SelectionService] doShowActionWindow: window does not exist or destroyed');
-      return;
-    }
-
-    this.cachedSelection = data;
-
-    // Calculate window position (near cursor, prevent overflow)
-    const position = this.calculateWindowPosition();
-    logger.info(`[SelectionService] Window position: x=${position.x}, y=${position.y}`);
-    this.actionWindow.setPosition(position.x, position.y, false);
-
-    // Send data to ActionWindow
-    this.actionWindow.webContents.send(IpcChannel.Selection_TextCaptured, {
-      text: data.text,
-      sourceApp: data.sourceApp,
-      capturedAt: new Date(data.capturedAt).toISOString(),
-      cursorPosition: data.cursorPosition,
-    });
-
-    // Show window
-    this.actionWindow.show();
-    this.actionWindow.focus();
-
-    logger.info('[SelectionService] ActionWindow shown, text length:', data.text.length);
-  }
-
-  private async showToolbarWindow(data: SelectionCaptureData): Promise<void> {
-    logger.info('[SelectionService] showToolbarWindow called, text length:', data.text.length);
-
-    const toolbar = await this.ensureToolbarWindow();
-
-    // Convert coordinates first (following Cherry Studio approach)
-    let refPoint = data.cursorPosition ?? screen.getCursorScreenPoint();
-
-    // selection-hook returns physical pixel coordinates, need to convert to logical (DIP)
-    // macOS doesn't need conversion, Windows/Linux do
-    if (!isMac && data.cursorPosition) {
-      refPoint = screen.screenToDipPoint(refPoint);
-    }
-    refPoint = { x: Math.round(refPoint.x), y: Math.round(refPoint.y) };
-
-    // Get display info (using converted coordinates)
-    const display = screen.getDisplayNearestPoint(refPoint);
-    logger.info(
-      `[SelectionService] Display info: workArea=${JSON.stringify(display.workArea)}, refPoint=${JSON.stringify(refPoint)}`
-    );
-
-    const position = this.calculateToolbarPositionFromPoint(refPoint, display.workArea);
-    logger.info(`[SelectionService] Toolbar position: x=${position.x}, y=${position.y}`);
-
-    // Use setBounds instead of just setPosition (following Cherry Studio)
-    toolbar.setPosition(position.x, position.y, false);
-    toolbar.setBounds({
-      x: position.x,
-      y: position.y,
-      width: TOOLBAR_WIDTH,
-      height: TOOLBAR_HEIGHT,
-    });
-
-    // Ensure window is on top
-    toolbar.setAlwaysOnTop(true, 'screen-saver');
-
-    // Ensure webContents is loaded before sending data
-    const sendData = () => {
-      toolbar.webContents.send(IpcChannel.Selection_TextCaptured, {
-        text: data.text,
-        sourceApp: data.sourceApp,
-        capturedAt: new Date(data.capturedAt).toISOString(),
-        cursorPosition: data.cursorPosition,
-      });
-      logger.info('[SelectionService] IPC data sent to ToolbarWindow');
-    };
-
-    if (toolbar.webContents.isLoading()) {
-      logger.info('[SelectionService] ToolbarWindow loading, waiting...');
-      toolbar.webContents.once('did-finish-load', sendData);
-    } else {
-      sendData();
-    }
-
-    // Key: Windows and macOS use different display methods (following Cherry Studio)
-    if (!isMac) {
-      // [Windows] Use show() since focusable: false is already set
-      toolbar.show();
-      toolbar.moveTop();
-      toolbar.setAlwaysOnTop(true, 'screen-saver');
-      logger.info('[SelectionService] ToolbarWindow shown (Windows: show)');
-    } else {
-      // [macOS] Use showInactive() to prevent bringing other windows forward
-      toolbar.showInactive();
-      logger.info('[SelectionService] ToolbarWindow shown (macOS: showInactive)');
-    }
-
-    const bounds = toolbar.getBounds();
-    logger.info(
-      `[SelectionService] ToolbarWindow state: visible=${toolbar.isVisible()}, bounds=${JSON.stringify(
-        bounds
-      )}`
-    );
-  }
-
-  // Calculate toolbar position from converted coordinate point
-  private calculateToolbarPositionFromPoint(
-    refPoint: { x: number; y: number },
-    workArea: { x: number; y: number; width: number; height: number }
-  ): { x: number; y: number } {
-    // Show toolbar below and to the right of cursor
-    let x = refPoint.x + 8;
-    let y = refPoint.y + 16;
-
-    // Ensure window stays within screen
-    if (x + TOOLBAR_WIDTH > workArea.x + workArea.width) {
-      x = workArea.x + workArea.width - TOOLBAR_WIDTH - 8;
-    }
-
-    if (y + TOOLBAR_HEIGHT > workArea.y + workArea.height) {
-      // If not enough space below, show above cursor
-      y = refPoint.y - TOOLBAR_HEIGHT - 8;
-    }
-
-    // Check bounds again
-    if (y + TOOLBAR_HEIGHT > workArea.y + workArea.height) {
-      y = workArea.y + workArea.height - TOOLBAR_HEIGHT - 8;
-    }
-
-    x = Math.max(workArea.x + 8, x);
-    y = Math.max(workArea.y + 8, y);
-
-    return { x: Math.round(x), y: Math.round(y) };
-  }
-
-  private calculateWindowPosition(): { x: number; y: number } {
-    const cursor = screen.getCursorScreenPoint();
-    const display = screen.getDisplayNearestPoint(cursor);
-    const workArea = display.workArea;
-
-    let x = cursor.x + 10;
-    let y = cursor.y + 10;
-
-    // Prevent window from exceeding right edge
-    if (x + ACTION_WINDOW_WIDTH > workArea.x + workArea.width) {
-      x = workArea.x + workArea.width - ACTION_WINDOW_WIDTH - 10;
-    }
-
-    // Prevent window from exceeding bottom edge
-    if (y + ACTION_WINDOW_HEIGHT > workArea.y + workArea.height) {
-      y = cursor.y - ACTION_WINDOW_HEIGHT - 10;
-    }
-
-    // Ensure not exceeding left/top edges
-    x = Math.max(workArea.x + 10, x);
-    y = Math.max(workArea.y + 10, y);
-
-    return { x, y };
-  }
 
   private getCursorPosition(): { x: number; y: number } {
     const cursor = screen.getCursorScreenPoint();
@@ -702,7 +334,7 @@ export class SelectionService implements ISelectionService {
 
       const data = await this.captureCurrentSelection();
       if (data?.text.trim()) {
-        this.showActionWindow(data);
+        this.sendCapturedTextToMainWindow(data.text);
       }
     });
 
@@ -743,43 +375,6 @@ export class SelectionService implements ISelectionService {
       return `${error.name}: ${error.message}${error.stack ? `\n${error.stack}` : ''}`;
     }
     return String(error);
-  }
-
-  private getRendererEntryUrl(entry: string): string | null {
-    const baseUrl = process.env.ELECTRON_RENDERER_URL || process.env.VITE_DEV_SERVER_URL;
-    if (!baseUrl) return null;
-    return `${baseUrl.replace(/\/$/, '')}/${entry}`;
-  }
-
-  private async loadWindowContent(window: BrowserWindow, entry: string): Promise<void> {
-    const devUrl = this.getRendererEntryUrl(entry);
-    try {
-      if (devUrl) {
-        logger.info(`[SelectionService] Loading window page (dev): ${devUrl}`);
-        await window.loadURL(devUrl);
-        return;
-      }
-      const filePath = join(__dirname, '../renderer', entry);
-      logger.info(`[SelectionService] Loading window page (file): ${filePath}`);
-      await window.loadFile(filePath);
-    } catch (error) {
-      logger.error(
-        `[SelectionService] Failed to load window page: ${entry} -> ${this.formatError(error)}`
-      );
-      if (devUrl) {
-        const filePath = join(__dirname, '../renderer', entry);
-        try {
-          logger.warn(`[SelectionService] Attempting loadFile fallback: ${filePath}`);
-          await window.loadFile(filePath);
-          return;
-        } catch (fallbackError) {
-          logger.error(
-            `[SelectionService] Fallback load failed: ${entry} -> ${this.formatError(fallbackError)}`
-          );
-        }
-      }
-      throw error;
-    }
   }
 
   private cleanupAfterFailedStart(): void {
@@ -853,7 +448,6 @@ export class SelectionService implements ISelectionService {
     }
     logger.info('[SelectionService] selection-hook started');
 
-    await this.ensureToolbarWindow();
     this.hookRunning = true;
     logger.info('[SelectionService] Hook mode started successfully');
     return true;
@@ -925,8 +519,36 @@ export class SelectionService implements ISelectionService {
 
     this.cachedSelection = data;
     this._onTextCaptured.fire(data);
-    this.showToolbarWindow(data);
+    this.sendCapturedTextToMainWindow(data.text);
   };
+
+  /**
+   * Sends captured text to the currently focused window (accurate routing in multi-window setups).
+   */
+  private sendCapturedTextToMainWindow(text: string): void {
+    // Prefer the focused window so text doesn't end up in the wrong one
+    let targetWin = BrowserWindow.getFocusedWindow();
+    if (!targetWin || targetWin.isDestroyed()) {
+      // Fall back to the most recent non-auxiliary window when nothing is focused
+      targetWin =
+        BrowserWindow.getAllWindows().find(
+          (w) => w !== this.actionWindow && w !== this.toolbarWindow && !w.isDestroyed()
+        ) ?? null;
+    }
+    if (targetWin) {
+      targetWin.webContents.send(IpcChannel.Selection_TextCaptured, {
+        text,
+        capturedAt: new Date().toISOString(),
+      });
+      if (targetWin.isMinimized()) targetWin.restore();
+      targetWin.focus();
+      logger.info(
+        `[SelectionService] Sent captured text to window ${targetWin.id} (${text.length} chars)`
+      );
+    } else {
+      logger.warn('[SelectionService] No window found to send captured text');
+    }
+  }
 
   /**
    * Gets cached selection data.

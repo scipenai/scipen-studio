@@ -290,8 +290,6 @@ describe('ConfigManager', () => {
         chat: { providerId: 'anthropic' as const, modelId: 'claude-3' },
         completion: null,
         vision: null,
-        embedding: null,
-        rerank: null,
         tts: null,
         stt: null,
       };
@@ -324,8 +322,6 @@ describe('ConfigManager', () => {
           chat: { providerId: 'openai' as const, modelId: 'model' },
           completion: null,
           vision: null,
-          embedding: null,
-          rerank: null,
           tts: null,
           stt: null,
         },

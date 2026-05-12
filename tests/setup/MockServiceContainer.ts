@@ -12,13 +12,27 @@ import type {
   ForwardSyncResult,
   IAIService,
   IFileSystemService,
-  IKnowledgeService,
-  IOverleafService,
   ISyncTeXService,
   InverseSyncResult,
-  OverleafProject,
   StreamChunk,
 } from '../../src/main/services/interfaces';
+
+// IOverleafService has been removed — define the minimum type needed locally for the mock
+interface OverleafProject {
+  id: string;
+  name: string;
+  lastUpdated?: string;
+}
+
+interface IOverleafService {
+  init: () => Promise<{ success: boolean }>;
+  testConnection: () => Promise<{ success: boolean; message: string }>;
+  login: () => Promise<{ success: boolean; message: string }>;
+  isLoggedIn: () => boolean;
+  getCookies: () => unknown;
+  getProjects: () => Promise<OverleafProject[]>;
+  [key: string]: unknown;
+}
 
 import { ServiceContainer, ServiceNames } from '../../src/main/services/ServiceContainer';
 
@@ -181,54 +195,6 @@ export function createMockOverleafService(
   return service;
 }
 
-// ============ Mock Knowledge Service ============
-
-export interface MockKnowledgeServiceOptions {
-  libraries?: any[];
-  searchResults?: any[];
-  isInitialized?: boolean;
-}
-
-export function createMockKnowledgeService(
-  options: MockKnowledgeServiceOptions = {}
-): IKnowledgeService {
-  const { libraries = [], searchResults = [], isInitialized = true } = options;
-
-  const emitter = new EventEmitter();
-
-  const service = Object.assign(emitter, {
-    initialize: vi.fn().mockResolvedValue(isInitialized),
-    updateConfig: vi.fn().mockResolvedValue(undefined),
-    createLibrary: vi.fn().mockResolvedValue({ id: 'new-lib', name: 'New Library' }),
-    getLibraries: vi.fn().mockResolvedValue(libraries),
-    getLibrary: vi.fn().mockResolvedValue(null),
-    updateLibrary: vi.fn().mockResolvedValue({}),
-    deleteLibrary: vi.fn().mockResolvedValue({ success: true }),
-    addDocument: vi.fn().mockResolvedValue({ documentId: 'doc-1' }),
-    addText: vi.fn().mockResolvedValue({ documentId: 'text-1' }),
-    getDocument: vi.fn().mockResolvedValue(null),
-    getDocuments: vi.fn().mockResolvedValue([]),
-    deleteDocument: vi.fn().mockResolvedValue({ success: true }),
-    reprocessDocument: vi.fn().mockResolvedValue({ taskId: 'task-1' }),
-    search: vi.fn().mockResolvedValue(searchResults),
-    searchEnhanced: vi.fn().mockResolvedValue({ results: searchResults }),
-    query: vi.fn().mockResolvedValue({ answer: 'Mock answer', sources: [] }),
-    getTaskStatus: vi.fn().mockResolvedValue(null),
-    getQueueStats: vi
-      .fn()
-      .mockResolvedValue({ pending: 0, processing: 0, completed: 0, failed: 0 }),
-    testEmbedding: vi.fn().mockResolvedValue({ success: true, dimension: 1536 }),
-    getDiagnostics: vi.fn().mockResolvedValue({}),
-    rebuildFTSIndex: vi.fn().mockResolvedValue({ success: true, count: 0 }),
-    generateMissingEmbeddings: vi.fn().mockResolvedValue({ success: true, count: 0 }),
-    getAdvancedRetrievalConfig: vi.fn().mockResolvedValue({}),
-    setAdvancedRetrievalConfig: vi.fn().mockResolvedValue({ success: true }),
-    selectFiles: vi.fn().mockResolvedValue(null),
-  }) as unknown as IKnowledgeService;
-
-  return service;
-}
-
 // ============ Mock Compiler Registry ============
 
 export function createMockCompilerRegistry() {
@@ -259,7 +225,6 @@ export interface MockContainerOptions {
   fileSystemService?: IFileSystemService;
   syncTeXService?: ISyncTeXService;
   overleafService?: IOverleafService;
-  knowledgeService?: IKnowledgeService;
   compilerRegistry?: ReturnType<typeof createMockCompilerRegistry>;
 }
 
@@ -289,11 +254,6 @@ export function createMockContainer(options: MockContainerOptions = {}): Service
     () => options.overleafService || createMockOverleafService()
   );
 
-  container.registerSingleton(
-    ServiceNames.KNOWLEDGE,
-    () => options.knowledgeService || createMockKnowledgeService()
-  );
-
   // Note: CompilerRegistry is typically registered as 'compilerRegistry'
   // Add if needed for specific tests
 
@@ -310,7 +270,6 @@ export function createMockHandlerDeps<T extends Record<string, unknown>>(
 ): T {
   const defaultDeps = {
     aiService: createMockAIService(),
-    knowledgeService: createMockKnowledgeService(),
     fileSystemService: createMockFileSystemService(),
     syncTeXService: createMockSyncTeXService(),
     overleafService: createMockOverleafService(),

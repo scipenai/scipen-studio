@@ -29,6 +29,7 @@ import type {
 import { createLogger } from './LoggerService';
 import { type TexLabService, getTexLabService } from './TexLabService';
 import { type TinymistService, getTinymistService } from './TinymistService';
+import { type MarkmanService, getMarkmanService } from './MarkmanService';
 
 const logger = createLogger('LSPManager');
 
@@ -50,8 +51,10 @@ export type {
 export interface LSPAvailability {
   texlab: boolean;
   tinymist: boolean;
+  marksman: boolean;
   texlabVersion: string | null;
   tinymistVersion: string | null;
+  marksmanVersion: string | null;
 }
 
 // ====== Lazy Loading Configuration ======
@@ -61,13 +64,14 @@ const MAX_RESTART_ATTEMPTS = 3;
 const RESTART_COOLDOWN_MS = 30 * 1000; // 30s between restart attempts
 const RESTART_RESET_DELAY_MS = 60 * 1000; // Reset counter after stable run
 
-type LSPServiceType = 'texlab' | 'tinymist';
+type LSPServiceType = 'texlab' | 'tinymist' | 'marksman';
 
 // ====== LSP Manager Class ======
 
 export class LSPManager extends EventEmitter {
   private texlabService: TexLabService;
   private tinymistService: TinymistService;
+  private markmanService: MarkmanService;
   private rootPath: string | null = null;
   private startOptions: LSPStartOptions | undefined;
 
@@ -76,8 +80,10 @@ export class LSPManager extends EventEmitter {
   private configured = false;
   private activeLatexFiles: Set<string> = new Set();
   private activeTypstFiles: Set<string> = new Set();
+  private activeMarkdownFiles: Set<string> = new Set();
   private texlabShutdownTimer: ReturnType<typeof setTimeout> | null = null;
   private tinymistShutdownTimer: ReturnType<typeof setTimeout> | null = null;
+  private markmanShutdownTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ====== Auto-Restart State ======
 
@@ -90,6 +96,7 @@ export class LSPManager extends EventEmitter {
     super();
     this.texlabService = getTexLabService();
     this.tinymistService = getTinymistService();
+    this.markmanService = getMarkmanService();
 
     // Forward events
     this.setupEventForwarding();
@@ -183,6 +190,20 @@ export class LSPManager extends EventEmitter {
     } catch {
       logger.error('[LSPManager] Error killing Tinymist');
     }
+
+    try {
+      const markmanProcess = (
+        this.markmanService as unknown as {
+          process?: { killed?: boolean; kill: (signal: string) => void };
+        }
+      ).process;
+      if (markmanProcess && !markmanProcess.killed) {
+        logger.info('[LSPManager] Force killing Marksman process');
+        markmanProcess.kill('SIGKILL');
+      }
+    } catch {
+      logger.error('[LSPManager] Error killing Marksman');
+    }
   }
 
   private setupEventForwarding(): void {
@@ -234,6 +255,30 @@ export class LSPManager extends EventEmitter {
         error instanceof Error ? error : new Error(String(error))
       );
     });
+
+    // Marksman events
+    this.markmanService.on('diagnostics', (data) => {
+      this.emit('diagnostics', { ...data, source: 'marksman' });
+    });
+    this.markmanService.on('initialized', () => {
+      this.emit('initialized', { source: 'marksman' });
+    });
+    this.markmanService.on('exit', (data: { code: number | null; signal: string | null }) => {
+      this.emit('exit', { ...data, source: 'marksman' });
+      if (data.code !== 0 || data.signal) {
+        this.handleServiceCrash(
+          'marksman',
+          new Error(`Marksman exited with code ${data.code}, signal ${data.signal}`)
+        );
+      }
+    });
+    this.markmanService.on('error', (error) => {
+      this.emit('error', { error, source: 'marksman' });
+      this.handleServiceCrash(
+        'marksman',
+        error instanceof Error ? error : new Error(String(error))
+      );
+    });
   }
 
   private async handleServiceCrash(serviceType: LSPServiceType, error: Error): Promise<void> {
@@ -247,7 +292,11 @@ export class LSPManager extends EventEmitter {
 
     // Check if there are active files of the corresponding type
     const hasActiveFiles =
-      serviceType === 'texlab' ? this.activeLatexFiles.size > 0 : this.activeTypstFiles.size > 0;
+      serviceType === 'texlab'
+        ? this.activeLatexFiles.size > 0
+        : serviceType === 'tinymist'
+          ? this.activeTypstFiles.size > 0
+          : this.activeMarkdownFiles.size > 0;
 
     if (!hasActiveFiles) {
       logger.info(`[LSPManager] ${serviceType} crashed but no active files, skipping restart`);
@@ -328,6 +377,22 @@ export class LSPManager extends EventEmitter {
             }
           }
         }
+      } else if (serviceType === 'marksman') {
+        // Ensure service is stopped
+        await this.markmanService.stop().catch(() => {});
+        // Restart
+        success = await this.markmanService.start(this.rootPath, this.startOptions);
+
+        if (success) {
+          // Re-open active files
+          for (const filePath of this.activeMarkdownFiles) {
+            try {
+              logger.info(`[LSPManager] Re-tracking Markdown file: ${filePath}`);
+            } catch (e) {
+              console.error(`[LSPManager] Failed to re-open file ${filePath}:`, e);
+            }
+          }
+        }
       }
 
       if (success) {
@@ -384,6 +449,11 @@ export class LSPManager extends EventEmitter {
       return this.texlabService;
     }
 
+    // Markdown files
+    if (this.markmanService.getSupportedExtensions().includes(ext)) {
+      return this.markmanService;
+    }
+
     return null;
   }
 
@@ -407,24 +477,35 @@ export class LSPManager extends EventEmitter {
   // ====== Availability Checks ======
 
   async checkAvailability(): Promise<LSPAvailability> {
-    const [texlabAvailable, tinymistAvailable, texlabVersion, tinymistVersion] = await Promise.all([
+    const [
+      texlabAvailable,
+      tinymistAvailable,
+      marksmanAvailable,
+      texlabVersion,
+      tinymistVersion,
+      marksmanVersion,
+    ] = await Promise.all([
       this.texlabService.isAvailable(),
       this.tinymistService.isAvailable(),
+      this.markmanService.isAvailable(),
       this.texlabService.getVersion(),
       this.tinymistService.getVersion(),
+      this.markmanService.getVersion(),
     ]);
 
     return {
       texlab: texlabAvailable,
       tinymist: tinymistAvailable,
+      marksman: marksmanAvailable,
       texlabVersion,
       tinymistVersion,
+      marksmanVersion,
     };
   }
 
   async isAnyAvailable(): Promise<boolean> {
     const availability = await this.checkAvailability();
-    return availability.texlab || availability.tinymist;
+    return availability.texlab || availability.tinymist || availability.marksman;
   }
 
   async isTexLabAvailable(): Promise<boolean> {
@@ -452,7 +533,7 @@ export class LSPManager extends EventEmitter {
   async start(
     rootPath: string,
     options?: LSPStartOptions
-  ): Promise<{ texlab: boolean; tinymist: boolean }> {
+  ): Promise<{ texlab: boolean; tinymist: boolean; marksman: boolean }> {
     this.rootPath = rootPath;
     this.startOptions = options;
     this.configured = true;
@@ -464,27 +545,28 @@ export class LSPManager extends EventEmitter {
     // Lazy mode: don't start services immediately, return true for "configuration success"
     // This differs from old behavior which started all services immediately
     // If caller explicitly wants immediate start, call startAllNow()
-    return { texlab: true, tinymist: true };
+    return { texlab: true, tinymist: true, marksman: true };
   }
 
   /** Starts all services immediately (bypasses lazy mode) */
   async startAllNow(
     rootPath?: string,
     options?: LSPStartOptions
-  ): Promise<{ texlab: boolean; tinymist: boolean }> {
+  ): Promise<{ texlab: boolean; tinymist: boolean; marksman: boolean }> {
     const path = rootPath || this.rootPath;
-    if (!path) return { texlab: false, tinymist: false };
+    if (!path) return { texlab: false, tinymist: false, marksman: false };
 
     this.rootPath = path;
     this.startOptions = options || this.startOptions;
     this.configured = true;
 
-    const [texlabStarted, tinymistStarted] = await Promise.all([
+    const [texlabStarted, tinymistStarted, markmanStarted] = await Promise.all([
       this.startTexLabNow(path, this.startOptions),
       this.startTinymistNow(path, this.startOptions),
+      this.startMarkmanNow(path, this.startOptions),
     ]);
 
-    return { texlab: texlabStarted, tinymist: tinymistStarted };
+    return { texlab: texlabStarted, tinymist: tinymistStarted, marksman: markmanStarted };
   }
 
   /**
@@ -506,6 +588,11 @@ export class LSPManager extends EventEmitter {
     // LaTeX files
     if (this.texlabService.getSupportedExtensions().includes(ext)) {
       return this.ensureTexLab();
+    }
+
+    // Markdown files
+    if (this.markmanService.getSupportedExtensions().includes(ext)) {
+      return this.ensureMarkman();
     }
 
     return null;
@@ -563,6 +650,32 @@ export class LSPManager extends EventEmitter {
     return null;
   }
 
+  private async ensureMarkman(): Promise<MarkmanService | null> {
+    // Cancel auto-shutdown timer
+    if (this.markmanShutdownTimer) {
+      clearTimeout(this.markmanShutdownTimer);
+      this.markmanShutdownTimer = null;
+    }
+
+    if (this.markmanService.isRunning()) {
+      return this.markmanService;
+    }
+
+    if (!this.rootPath) return null;
+
+    logger.info('[LSPManager] Lazy-starting Marksman...');
+    const started = await this.markmanService.start(this.rootPath, this.startOptions);
+
+    if (started) {
+      logger.info('[LSPManager] Marksman started successfully');
+      this.emit('serviceStarted', { service: 'marksman' });
+      return this.markmanService;
+    }
+
+    console.error('[LSPManager] Marksman failed to start');
+    return null;
+  }
+
   async startTexLab(rootPath?: string, options?: LSPStartOptions): Promise<boolean> {
     return this.startTexLabNow(rootPath, options);
   }
@@ -611,6 +724,30 @@ export class LSPManager extends EventEmitter {
     return result;
   }
 
+  async startMarkman(rootPath?: string, options?: LSPStartOptions): Promise<boolean> {
+    return this.startMarkmanNow(rootPath, options);
+  }
+
+  private async startMarkmanNow(rootPath?: string, options?: LSPStartOptions): Promise<boolean> {
+    const path = rootPath || this.rootPath;
+    if (!path) return false;
+
+    // Cancel auto-shutdown
+    if (this.markmanShutdownTimer) {
+      clearTimeout(this.markmanShutdownTimer);
+      this.markmanShutdownTimer = null;
+    }
+
+    const opts = options || this.startOptions;
+    const result = await this.markmanService.start(path, opts);
+
+    if (result) {
+      this.emit('serviceStarted', { service: 'marksman' });
+    }
+
+    return result;
+  }
+
   async stop(): Promise<void> {
     // Clear all timers
     if (this.texlabShutdownTimer) {
@@ -620,6 +757,10 @@ export class LSPManager extends EventEmitter {
     if (this.tinymistShutdownTimer) {
       clearTimeout(this.tinymistShutdownTimer);
       this.tinymistShutdownTimer = null;
+    }
+    if (this.markmanShutdownTimer) {
+      clearTimeout(this.markmanShutdownTimer);
+      this.markmanShutdownTimer = null;
     }
 
     // Clear restart counter reset timers
@@ -633,8 +774,13 @@ export class LSPManager extends EventEmitter {
     // Clear active file tracking
     this.activeLatexFiles.clear();
     this.activeTypstFiles.clear();
+    this.activeMarkdownFiles.clear();
 
-    await Promise.all([this.texlabService.stop(), this.tinymistService.stop()]);
+    await Promise.all([
+      this.texlabService.stop(),
+      this.tinymistService.stop(),
+      this.markmanService.stop(),
+    ]);
 
     this.rootPath = null;
     this.startOptions = undefined;
@@ -684,11 +830,34 @@ export class LSPManager extends EventEmitter {
           this.emit('serviceStopped', { service: 'tinymist' });
         }
       }, AUTO_SHUTDOWN_TIMEOUT_MS);
+    } else if (serviceType === 'marksman') {
+      // Don't shutdown if there are still active Markdown files
+      if (this.activeMarkdownFiles.size > 0) return;
+
+      // No need to shutdown if Marksman isn't running
+      if (!this.markmanService.isRunning()) return;
+
+      logger.info(
+        `[LSPManager] No active Markdown files, auto-shutdown Marksman in ${AUTO_SHUTDOWN_TIMEOUT_MS / 1000}s`
+      );
+
+      this.markmanShutdownTimer = setTimeout(async () => {
+        // Re-check if still no active files
+        if (this.activeMarkdownFiles.size === 0 && this.markmanService.isRunning()) {
+          logger.info('[LSPManager] Auto-shutdown Marksman');
+          await this.markmanService.stop();
+          this.emit('serviceStopped', { service: 'marksman' });
+        }
+      }, AUTO_SHUTDOWN_TIMEOUT_MS);
     }
   }
 
   isAnyRunning(): boolean {
-    return this.texlabService.isRunning() || this.tinymistService.isRunning();
+    return (
+      this.texlabService.isRunning() ||
+      this.tinymistService.isRunning() ||
+      this.markmanService.isRunning()
+    );
   }
 
   isRunning(filePath?: string): boolean {
@@ -700,17 +869,22 @@ export class LSPManager extends EventEmitter {
   }
 
   isVirtualMode(): boolean {
-    return this.texlabService.isVirtualMode() || this.tinymistService.isVirtualMode();
+    return (
+      this.texlabService.isVirtualMode() ||
+      this.tinymistService.isVirtualMode() ||
+      this.markmanService.isVirtualMode()
+    );
   }
 
   isConfigured(): boolean {
     return this.configured;
   }
 
-  getActiveFileStats(): { latex: number; typst: number } {
+  getActiveFileStats(): { latex: number; typst: number; markdown: number } {
     return {
       latex: this.activeLatexFiles.size,
       typst: this.activeTypstFiles.size,
+      markdown: this.activeMarkdownFiles.size,
     };
   }
 
@@ -799,6 +973,16 @@ export class LSPManager extends EventEmitter {
       logger.info(
         `[LSPManager] Tracking Typst file: ${filePath} (active: ${this.activeTypstFiles.size})`
       );
+    } else if (this.markmanService.getSupportedExtensions().includes(ext)) {
+      // Cancel shutdown timer
+      if (this.markmanShutdownTimer) {
+        clearTimeout(this.markmanShutdownTimer);
+        this.markmanShutdownTimer = null;
+      }
+      this.activeMarkdownFiles.add(filePath);
+      logger.info(
+        `[LSPManager] Tracking Markdown file: ${filePath} (active: ${this.activeMarkdownFiles.size})`
+      );
     }
   }
 
@@ -824,6 +1008,16 @@ export class LSPManager extends EventEmitter {
       // Schedule auto-shutdown if no active files left
       if (this.activeTypstFiles.size === 0) {
         this.scheduleAutoShutdown('tinymist');
+      }
+    } else if (this.markmanService.getSupportedExtensions().includes(ext)) {
+      this.activeMarkdownFiles.delete(filePath);
+      logger.info(
+        `[LSPManager] Closed Markdown file: ${filePath} (active: ${this.activeMarkdownFiles.size})`
+      );
+
+      // Schedule auto-shutdown if no active files left
+      if (this.activeMarkdownFiles.size === 0) {
+        this.scheduleAutoShutdown('marksman');
       }
     }
   }
@@ -880,6 +1074,27 @@ export class LSPManager extends EventEmitter {
     return service.getDocumentSymbols(filePath);
   }
 
+  async getSemanticTokens(filePath: string): Promise<{
+    resultId?: string | null;
+    data: number[];
+    legend: { tokenTypes: string[]; tokenModifiers: string[] };
+  } | null> {
+    const service = await this.ensureServiceForFile(filePath);
+    if (!service) return null;
+
+    const result = await service.getSemanticTokens(filePath);
+    if (!result) return null;
+
+    if (this.markmanService.getSupportedExtensions().includes(this.getFileExtension(filePath))) {
+      return {
+        ...result,
+        legend: { tokenTypes: ['class', 'class', 'enumMember'], tokenModifiers: [] },
+      };
+    }
+
+    return result;
+  }
+
   // ====== Specialized Feature Proxies ======
 
   async build(filePath: string): Promise<{ status: string }> {
@@ -926,6 +1141,10 @@ export class LSPManager extends EventEmitter {
 
   getTinymistService(): TinymistService {
     return this.tinymistService;
+  }
+
+  getMarkmanService(): MarkmanService {
+    return this.markmanService;
   }
 }
 

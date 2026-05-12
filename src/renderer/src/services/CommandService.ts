@@ -222,12 +222,8 @@ export const Commands = {
   PALETTE_QUICK_OPEN: 'palette.quickOpen',
 
   AI_CHAT: 'ai.chat',
-  AI_POLISH: 'ai.polish',
   AI_COMPLETE: 'ai.complete',
   AI_REVIEW: 'ai.review',
-
-  KNOWLEDGE_SEARCH: 'knowledge.search',
-  KNOWLEDGE_ADD: 'knowledge.add',
 
   SETTINGS_OPEN: 'settings.open',
   SETTINGS_KEYBOARD: 'settings.keyboard',

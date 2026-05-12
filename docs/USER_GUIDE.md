@@ -1,359 +1,269 @@
-# SciPen Studio 用户手册
+# SciPen Studio User Guide
 
-> **版本**: 0.1.0  
-> **最后更新**: 2026-01
+> **Version:** 0.2.0
+> **Last updated:** 2026-04-28
 
----
-
-## 目录
-
-1. [快速入门](#快速入门)
-2. [编辑器功能](#编辑器功能)
-3. [AI 助手](#ai-助手)
-4. [知识库](#知识库)
-5. [Overleaf 同步](#overleaf-同步)
-6. [工具箱](#工具箱)
-7. [设置说明](#设置说明)
-8. [快捷键](#快捷键)
-9. [常见问题](#常见问题)
+**English** · [简体中文](USER_GUIDE.zh-CN.md)
 
 ---
 
-## 快速入门
+## Table of contents
 
-### 安装
-
-1. 从 [GitHub Releases](https://github.com/bug-cat-iu/scipen_studio/releases) 下载适合您系统的安装包
-2. 运行安装程序，按提示完成安装
-3. 首次启动时，建议在设置中配置 AI API Key
-
-### 创建/打开项目
-
-- **新建项目**: 文件 → 新建项目，选择 LaTeX 或 Typst 模板
-- **打开文件夹**: 文件 → 打开文件夹，选择包含 `.tex` 或 `.typ` 文件的目录
-- **最近项目**: 启动页面显示最近打开的项目
-
-### 编译与预览
-
-1. 打开 `.tex` 或 `.typ` 文件
-2. 点击工具栏 **编译** 按钮（或按 `Ctrl+B`）
-3. 右侧 PDF 预览自动更新
-4. 点击 PDF 可跳转到对应源码（SyncTeX）
+1. [Getting started](#getting-started)
+2. [Editor](#editor)
+3. [Compile and PDF preview](#compile-and-pdf-preview)
+4. [AI assistant](#ai-assistant)
+5. [Overleaf integration](#overleaf-integration)
+6. [Settings](#settings)
+7. [Keyboard shortcuts](#keyboard-shortcuts)
+8. [FAQ](#faq)
 
 ---
 
-## 编辑器功能
+## Getting started
 
-### 支持的文件类型
+### Install
 
-| 类型 | 扩展名 | LSP 支持 |
-|------|--------|----------|
+1. Download the installer for your platform (Windows / macOS / Linux) from [GitHub Releases](https://github.com/scipenai/scipen-studio/releases).
+2. Run the installer and follow the prompts.
+3. On first launch, configure AI as needed:
+   - **Chat / Agent:** connect an OpenClaw runtime under *Settings → Collaboration / IM* (the default path).
+   - **Editor inline completion:** add an OpenAI / Anthropic API key under *Settings → AI*.
+   - The two paths are independent — you can configure either, both, or neither.
+
+### Open a project
+
+The welcome screen offers three entry points:
+
+- **Open local project** — pick a local folder containing `.tex` / `.typ` / `.md` files; SciPen Studio scans the directory and builds a file tree.
+- **Cloud project** — after connecting to Overleaf, browse and download a remote project to disk.
+- **Recent projects** — recently opened projects are listed at the bottom of the welcome screen for one-click reopen.
+
+> The current release ships no LaTeX / Typst project templates. To start a new document, create an empty folder yourself and open it via *Open local project*.
+
+### First compile
+
+1. Open any `.tex` or `.typ` file.
+2. Click **Compile** in the toolbar or press `Ctrl+Enter`.
+3. By default the bundled **WASM compiler** (StellarLatex pdfTeX) runs — no local TeX installation required.
+4. The PDF preview on the right updates automatically. Click on the PDF to jump back to the source; `Ctrl+click` in the editor jumps forward to the matching PDF location (SyncTeX).
+
+---
+
+## Editor
+
+### Supported file types
+
+| Type | Extensions | LSP |
+|------|------------|-----|
 | LaTeX | `.tex`, `.bib`, `.sty`, `.cls` | TexLab |
 | Typst | `.typ` | Tinymist |
-| Markdown | `.md` | - |
+| Markdown | `.md` | Marksman |
 
-### 编辑器特性
+LSP binaries ship with the installer — **no manual setup needed**.
 
-- **语法高亮**: LaTeX/Typst/Markdown 语法着色
-- **智能补全**: 命令、环境、引用自动补全
-- **错误诊断**: 实时显示语法错误和警告
-- **代码折叠**: 折叠章节、环境块
-- **多光标编辑**: `Alt+Click` 添加光标
-- **查找替换**: `Ctrl+F` 查找，`Ctrl+H` 替换
+### Key capabilities
 
-### PDF 预览
-
-- **双向同步**: 
-  - 编辑器 → PDF: `Ctrl+Click` 跳转到对应位置
-  - PDF → 编辑器: 双击 PDF 跳转到源码
-- **缩放**: 滚轮缩放，或使用工具栏按钮
-- **页面导航**: 输入页码或使用上下翻页
+- Syntax highlighting, completion, diagnostics, hover documentation
+- Go-to-definition (`Ctrl+click`) and find-references
+- Section / environment-block folding
+- Multi-cursor (`Alt+click`) and column selection
+- Find / replace (`Ctrl+F` / `Ctrl+H`)
+- Command palette (`Ctrl+P`) — global command search and file jump
 
 ---
 
-## AI 助手
+## Compile and PDF preview
 
-> 需要在设置中配置 AI API Key
+### Compile engines
 
-### 打开 AI 面板
+| Engine | Notes | Local install required |
+|--------|-------|------------------------|
+| **WASM pdfTeX** (default) | Bundled StellarLatex, works out of the box | No |
+| **WASM XeTeX** | Bundled, supports Unicode / CJK | No |
+| **Tectonic** | Fetches packages on demand, good for larger projects | Yes |
+| **TeX Live** (pdfLaTeX / XeLaTeX / LuaLaTeX) | Full distribution | Yes |
 
-点击右侧边栏的 **AI 图标** 或按 `Ctrl+Shift+A`
+Switch the default engine under *Settings → Compiler*, or override per project via the toolbar engine selector.
 
-### 功能列表
+### PDF preview
 
-#### 1. AI 对话
+- Rendered with pdf.js — arbitrary zoom, virtualized scroll, CJK glyph support
+- **Two-way SyncTeX** — `Ctrl+click` in the editor jumps to the corresponding PDF location; click on the PDF jumps back to the source
+- The editor side panel shows compile errors; clicking an error entry jumps to the matching line
 
-在输入框中提问，AI 会结合知识库内容回答。支持：
-- 普通对话
-- `@文件名` 引用项目文件
-- 选择知识库进行 RAG 增强
-
-#### 2. 文本润色
-
-1. 在编辑器中选中文本
-2. 按 `Ctrl+Shift+P`（或右键 → AI 润色）
-3. AI 返回润色结果
-4. 点击「应用到编辑器」替换原文
-
-#### 3. 公式生成
-
-1. 在工具箱中选择「公式识别」
-2. 粘贴或上传公式图片
-3. AI 识别并返回 LaTeX 代码
-
-#### 4. 论文审阅
-
-1. 在工具箱中选择「AI 审阅」
-2. 选择论文文件
-3. AI 生成综合评审报告
-
-### 支持的 AI 提供商
-
-- OpenAI (GPT-4o, GPT-4, GPT-3.5)
-- Anthropic (Claude 3.5, Claude 3)
-- 国内代理 (AIHubMix, SiliconFlow 等)
+> Hovering over a LaTeX formula in the editor shows a KaTeX-rendered preview (independent of the PDF rendering layer).
 
 ---
 
-## 知识库
+## AI assistant
 
-知识库是 SciPen Studio 的核心功能，支持将文献、笔记等资料转化为可检索的向量数据库。
+> SciPen Studio splits AI into two independent paths:
+> - **Chat / agent / formula generation / text polish** → routed through the OpenClaw runtime (default)
+> - **Editor inline completion** → direct API calls (OpenAI / Anthropic, etc.)
+>
+> The two paths don't depend on each other: if you only want inline completion, you can skip OpenClaw; if you only want the agent, you don't need an API key.
 
-### 创建知识库
+### Capabilities
 
-1. 点击左侧边栏 **知识库图标**
-2. 点击 **+ 新建知识库**
-3. 输入名称，选择类型
+#### 1. Project chat
 
-### 添加文档
+Ask questions in the chat panel — the assistant answers using your currently open files as context.
+- Type `@` in the input to open a file picker; any project file can be referenced as context (e.g. `@chapters/intro.tex`)
+- When a compile fails, the error log is automatically attached as context for diagnostic help
 
-支持以下格式：
-- **PDF**: 学术论文、书籍
-- **Markdown**: 笔记、文档
-- **图片**: PNG, JPG, WebP（OCR 识别）
-- **音频**: MP3, WAV, M4A（语音转文字）
+#### 2. OpenClaw agent mode
 
-添加方式：
-1. 拖拽文件到知识库区域
-2. 点击「添加文档」按钮选择文件
-
-### 使用知识库
-
-在 AI 对话中：
-1. 点击知识库选择器
-2. 选择要引用的知识库
-3. 提问时 AI 会自动检索相关内容
-4. 回答中会标注引用来源 [1], [2]...
+Once OpenClaw is connected, the assistant can call tools to read project files and propose cross-file edits. Every bot-authored change appears as a **Diff Review**:
+- Inline green / yellow / red decorations show additions / modifications / deletions
+- A top overlay bar offers *Accept All* / *Reject All*
+- Each hunk has its own ✓ / ✗ buttons next to it
 
 ---
 
-## Overleaf 同步
+## Overleaf integration
 
-SciPen Studio 支持与 Overleaf 项目双向同步。
+### Connect
 
-### 连接 Overleaf
+1. On the welcome screen, click **Cloud project** to open the Overleaf connection dialog.
+2. Fill in the server URL (default `https://www.overleaf.com`) and a session cookie (e.g. `overleaf_session2=...`, copyable from the Network panel of your browser's DevTools).
+3. Click connect. The cookie is stored locally, and your project list is pulled for selection.
 
-1. 打开设置 → Overleaf
-2. 输入 Overleaf 服务器地址（默认 `www.overleaf.com`）
-3. 输入邮箱和密码
-4. 点击「连接」
+### Open a remote project
 
-### 打开 Overleaf 项目
+After a successful connection:
+1. Pick *Overleaf project* on the welcome screen.
+2. The selected project is **downloaded to disk** (`~/.scipen-studio/overleaf-projects/{project-name}/`).
+3. From that point on you work locally — fully offline-capable.
 
-1. 连接成功后，点击「项目列表」
-2. 选择要编辑的项目
-3. 项目文件会同步到本地
+### Sync strategy
 
-### 同步模式
+SciPen Studio uses a **local-first + background sync** model:
 
-- **自动同步**: 本地编辑自动推送到 Overleaf
-- **手动同步**: 点击同步按钮手动推送/拉取
-- **本地副本**: 在本地文件夹创建项目副本
-
-### 编译选项
-
-- **本地编译**: 使用 Tectonic/TeX Live
-- **远程编译**: 使用 Overleaf 服务器编译
+- **Local writes** — save lands on disk first (local disk is the source of truth, edits have no network latency)
+- **Background push** — after save, edits are pushed to Overleaf asynchronously, never blocking the editor
+- **Three-way merge** — on push, base (last-synced snapshot) / local / remote are compared:
+  - Local changes only → push directly
+  - Remote changes only → pull and overwrite local
+  - Both sides changed → a **conflict-resolution dialog** opens, asking you to keep local or accept remote
 
 ---
 
-## 工具箱
+## Settings
 
-点击左侧边栏 **工具图标** 打开工具箱。
+Open the settings panel from the command palette (`Ctrl+P`, search "Open Settings") or click the settings button in the top-right corner.
 
-### PDF 转 LaTeX
+### General
 
-将扫描版 PDF 转换为可编辑的 LaTeX 代码。
+| Option | Description |
+|--------|-------------|
+| Theme | Light / Dark / Follow system |
+| Language | English / 中文 |
+| Font | Editor font family and size |
 
-1. 选择 PDF 文件
-2. 配置并发数和超时时间
-3. 点击「开始转换」
-4. 转换完成后保存 `.tex` 文件
+### AI
 
-### 论文转 Beamer
+| Option | Description |
+|--------|-------------|
+| Provider | OpenAI / Anthropic / OpenAI-compatible endpoint — used for **editor inline completion** |
+| API Key | Stored locally |
+| API Host | Custom endpoint, for private proxies or aggregator services |
+| Model | The completion model used for inline completion |
 
-将学术论文自动转换为演示幻灯片。
+> The chat / agent model is *not* configured here — it lives on the OpenClaw server side. See *Settings → Collaboration / IM* for OpenClaw configuration.
 
-1. 选择论文文件（`.tex` 或 `.pdf`）
-2. 设置演讲时长
-3. 选择模板（可选）
-4. 点击「生成 Beamer」
+### Compiler
 
-### AI 论文审阅
+| Option | Description |
+|--------|-------------|
+| LaTeX engine | WASM pdfTeX / WASM XeTeX / Tectonic / TeX Live |
+| Typst engine | Compiled via the bundled Tinymist |
+| TeX Live package endpoint | URL the WASM compiler uses to fetch TeX packages on demand (leave blank for the default, or point to your own mirror) |
 
-自动生成学术论文的综合评审报告。
+### Keyboard shortcuts
 
-1. 选择论文文件
-2. 点击「开始审阅」
-3. 等待 AI 生成报告
-4. 报告包含：技术评估、实验分析、语言建议等
-
----
-
-## 设置说明
-
-按 `Ctrl+,` 打开设置面板。
-
-### 通用设置
-
-| 选项 | 说明 |
-|------|------|
-| 主题 | 浅色 / 深色 / 跟随系统 |
-| 语言 | 中文 / English |
-| 字体大小 | 编辑器字体大小 |
-
-### AI 设置
-
-| 选项 | 说明 |
-|------|------|
-| 提供商 | 选择 AI 服务提供商 |
-| API Key | 输入 API 密钥 |
-| API Host | 自定义 API 地址（用于代理） |
-| 模型选择 | 为不同功能选择模型 |
-
-### 编译设置
-
-| 选项 | 说明 |
-|------|------|
-| LaTeX 引擎 | Tectonic / pdfLaTeX / XeLaTeX / LuaLaTeX |
-| 自动编译 | 保存时自动编译 |
-| 编译超时 | 编译超时时间（秒） |
-
-### 快捷键设置
-
-可自定义以下快捷键：
-- 编译
-- AI 润色
-- 打开 AI 面板
-- 保存
+Customize the bindings for compile, AI invocation, command palette, and other commands under the *Shortcuts* tab.
 
 ---
 
-## 快捷键
+## Keyboard shortcuts
 
-### 文件操作
+> On macOS, some shortcuts use `Cmd` instead of `Ctrl`. Bindings can be customized under *Settings → Shortcuts*.
 
-| 快捷键 | 功能 |
-|--------|------|
-| `Ctrl+N` | 新建文件 |
-| `Ctrl+O` | 打开文件 |
-| `Ctrl+S` | 保存 |
-| `Ctrl+Shift+S` | 另存为 |
-| `Ctrl+W` | 关闭标签页 |
+### File / window
 
-### 编辑操作
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+S` | Save current file |
+| `Ctrl+Shift+N` | New window |
+| `Ctrl+P` | Command palette / file jump |
+| `Cmd+W` (macOS) / `Alt+F4` (Windows · Linux) | Close window / quit app |
 
-| 快捷键 | 功能 |
-|--------|------|
-| `Ctrl+Z` | 撤销 |
-| `Ctrl+Y` | 重做 |
-| `Ctrl+X` | 剪切 |
-| `Ctrl+C` | 复制 |
-| `Ctrl+V` | 粘贴 |
-| `Ctrl+A` | 全选 |
-| `Ctrl+F` | 查找 |
-| `Ctrl+H` | 替换 |
-| `Ctrl+D` | 复制当前行 |
-| `Alt+↑/↓` | 移动行 |
+### Edit
 
-### 编译与预览
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
+| `Ctrl+F` / `Ctrl+H` | Find / replace |
+| `Shift+Alt+↓` / `Shift+Alt+↑` | Copy line down / up |
+| `Alt+↑` / `Alt+↓` | Move line up / down |
+| `Alt+click` | Add cursor |
+| `Ctrl+D` | Add next match to selection (Monaco default) |
 
-| 快捷键 | 功能 |
-|--------|------|
-| `Ctrl+B` | 编译 |
-| `Ctrl+Click` | SyncTeX 正向跳转 |
+### Compile and preview
 
-### AI 功能
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Enter` | Compile current document |
+| `Ctrl+click` (editor) | SyncTeX forward jump |
+| Click (PDF) | SyncTeX reverse jump |
 
-| 快捷键 | 功能 |
-|--------|------|
-| `Ctrl+Shift+A` | 打开 AI 面板 |
-| `Ctrl+Shift+P` | AI 润色选中文本 |
+### AI
 
-### 界面
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+L` | Invoke AI on the current selection |
+| `@` (AI input) | Reference a project file |
 
-| 快捷键 | 功能 |
-|--------|------|
-| `Ctrl+,` | 打开设置 |
-| `Ctrl+B` | 切换侧边栏 |
-| `Ctrl+\`` | 切换终端 |
+### Interface
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Shift+V` | Toggle PDF preview pane |
+
+> There is no dedicated shortcut for "Open Settings" yet — search "Open Settings" in the command palette (`Ctrl+P`), or click the settings button in the top-right corner.
 
 ---
 
-## 常见问题
+## FAQ
 
-### Q: 编译失败，提示找不到 LaTeX 引擎？
+### Q: Compile fails saying it can't find a LaTeX engine?
 
-**A**: 请安装 LaTeX 发行版：
-- 推荐: [Tectonic](https://tectonic-typesetting.github.io/)（轻量，自动下载包）
-- 或: [TeX Live](https://www.tug.org/texlive/)（完整发行版）
+**A:** The default is the bundled WASM engine, no external toolchain required. If you switched to Tectonic / TeX Live but haven't installed it:
+- Install [Tectonic](https://tectonic-typesetting.github.io/) (lightweight, fetches packages on demand)
+- Or install [TeX Live](https://www.tug.org/texlive/)
+- Or switch back to *WASM pdfTeX* under *Settings → Compiler → Default engine*
 
-安装后重启 SciPen Studio。
+### Q: PDF preview is blank?
 
-### Q: AI 功能无法使用？
+**A:** Common causes:
 
-**A**: 请检查：
-1. 是否在设置中配置了 API Key
-2. API Key 是否有效
-3. 网络是否可以访问 API 服务器
-4. 如在国内，建议使用代理或国内 API 服务
+1. Compile hasn't succeeded yet — check the build log below
+2. The WASM engine takes a few seconds to load on first run
+3. The document is too large — consider splitting it into chapters
+4. Try restarting the app
 
-### Q: PDF 预览不显示？
+### Q: How do I update the app?
 
-**A**: 可能的原因：
-1. 编译未成功（检查错误日志）
-2. PDF 文件过大（尝试分章节编译）
-3. 重启应用后重试
-
-### Q: Overleaf 连接失败？
-
-**A**: 请检查：
-1. 服务器地址是否正确
-2. 账号密码是否正确
-3. 是否需要 VPN（如使用官方 overleaf.com）
-
-### Q: 知识库检索不准确？
-
-**A**: 优化建议：
-1. 确保文档质量良好（PDF 非扫描版最佳）
-2. 为知识库添加更多相关文档
-3. 提问时使用更具体的关键词
-
-### Q: 如何更新软件？
-
-**A**: 
-1. 访问 [GitHub Releases](https://github.com/bug-cat-iu/scipen_studio/releases)
-2. 下载最新版本
-3. 安装时会自动覆盖旧版本
-4. 设置和知识库数据会保留
+**A:** SciPen Studio ships with built-in auto-update (against GitHub Releases) and prompts you when a new version is available. You can also download manually from [Releases](https://github.com/scipenai/scipen-studio/releases); local data and settings are preserved across installs.
 
 ---
 
-## 获取帮助
+## Getting help
 
-- **GitHub Issues**: [报告问题](https://github.com/bug-cat-iu/scipen_studio/issues)
-- **讨论区**: [GitHub Discussions](https://github.com/bug-cat-iu/scipen_studio/discussions)
+- **GitHub Issues:** <https://github.com/scipenai/scipen-studio/issues>
+- **GitHub Discussions:** <https://github.com/scipenai/scipen-studio/discussions>
 
 ---
 
-*感谢使用 SciPen Studio！*
+*Thanks for using SciPen Studio.*

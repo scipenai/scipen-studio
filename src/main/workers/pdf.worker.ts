@@ -105,7 +105,7 @@ interface ChunkingConfig {
 interface ChunkData {
   content: string;
   chunkType: string;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 }
 
 interface DocumentMetadata {
@@ -117,7 +117,31 @@ interface DocumentMetadata {
   journal?: string;
   doi?: string;
   pageCount?: number;
-  [key: string]: any;
+  [key: string]: unknown;
+}
+
+interface PdfTextItem {
+  str?: string;
+}
+
+interface PdfTextContent {
+  items: PdfTextItem[];
+}
+
+interface PdfPageData {
+  getTextContent(): Promise<PdfTextContent>;
+}
+
+interface PdfInfo {
+  Title?: string;
+  Author?: string;
+  Keywords?: string;
+}
+
+interface PdfParseOutput {
+  text?: string;
+  info?: PdfInfo;
+  numpages?: number;
 }
 
 interface ProcessorResult {
@@ -142,12 +166,19 @@ const DEFAULT_CHUNKING_CONFIG: ChunkingConfig = {
 
 // ============ PDF Parsing ============
 
-let pdfParse: any = null;
+type PdfParseFunction = (
+  buffer: Buffer,
+  options?: {
+    pagerender?: (pageData: PdfPageData) => Promise<string>;
+  }
+) => Promise<PdfParseOutput>;
+
+let pdfParse: PdfParseFunction | null = null;
 
 async function getPdfParse() {
   if (!pdfParse) {
     try {
-      pdfParse = (await import('pdf-parse')).default;
+      pdfParse = (await import('pdf-parse')).default as PdfParseFunction;
     } catch (error) {
       log.error('Failed to load pdf-parse:', error);
       throw new Error('pdf-parse module not available');
@@ -250,7 +281,7 @@ function chunkText(
   text: string,
   chunkType: string,
   config: ChunkingConfig,
-  baseMetadata: Record<string, any> = {}
+  baseMetadata: Record<string, unknown> = {}
 ): ChunkData[] {
   const chunks: ChunkData[] = [];
   const { chunkSize, chunkOverlap, separators } = config;
@@ -418,7 +449,7 @@ async function parsePDF(
     const pageContents: PDFPageContent[] = [];
 
     const pdfData = await pdf(dataBuffer, {
-      pagerender: async (pageData: any) => {
+      pagerender: async (pageData: PdfPageData) => {
         if (abortSignal?.aborted) {
           throw new Error('Parse aborted');
         }
@@ -427,7 +458,7 @@ async function parsePDF(
         await new Promise((resolve) => setTimeout(resolve, 0));
 
         const textContent = await pageData.getTextContent();
-        const strings = textContent.items.map((item: any) => item.str);
+        const strings = textContent.items.map((item: PdfTextItem) => item.str ?? '');
         const pageText = strings.join(' ');
 
         pageContents.push({

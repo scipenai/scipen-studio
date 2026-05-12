@@ -9,7 +9,6 @@ import { api } from '../api';
 import { createLogger } from '../services/LogService';
 import { getSettingsService } from '../services/core/ServiceRegistry';
 import type { ProviderId } from '../types/provider';
-import { useSettings } from './useSettings';
 
 const logger = createLogger('ConfigSync');
 
@@ -30,179 +29,11 @@ function getProviderBaseUrl(provider: AIProviderDTO): string {
   return provider.apiHost || provider.defaultApiHost || 'https://api.openai.com/v1';
 }
 
-// ====== Knowledge Config Sync ======
-
-/**
- * Syncs knowledge base config (VLM/Whisper/Embedding/RAG) to backend.
- * Only syncs when config actually changes to avoid unnecessary IPC.
- *
- * @sideeffect Calls api.knowledge.updateConfig and api.knowledge.setAdvancedConfig
- */
-export function useKnowledgeConfigSync() {
-  const [configVersion, setConfigVersion] = useState(0);
-  const lastSyncedConfigRef = useRef<string>('');
-  const lastSyncedAdvancedConfigRef = useRef<string>('');
-
-  const ragAdvanced = useSettings((s) => s.rag?.advanced);
-
-  useEffect(() => {
-    const settingsService = getSettingsService();
-    const disposable = settingsService.onDidChangeAIProviders(() => {
-      setConfigVersion((v) => v + 1);
-    });
-
-    return () => {
-      disposable.dispose();
-    };
-  }, []);
-
-  const syncConfig = useCallback(async () => {
-    try {
-      const settingsService = getSettingsService();
-      const config = await settingsService.getAIConfig();
-
-      if (!config.providers || config.providers.length === 0) {
-        logger.debug('AI config not found, skipping knowledge config sync');
-        return;
-      }
-
-      const { providers, selectedModels } = config;
-      const mainProvider = getEnabledProvider(providers);
-
-      if (!mainProvider?.apiKey) {
-        logger.debug('No valid API key, skipping knowledge config sync');
-        return;
-      }
-
-      // Embedding model
-      const embeddingSelection = selectedModels.embedding;
-      const embeddingProvider = embeddingSelection
-        ? getProviderById(providers, embeddingSelection.providerId)
-        : mainProvider;
-      const embeddingApiKey = embeddingProvider?.apiKey || mainProvider.apiKey;
-      const embeddingBaseUrl = embeddingProvider
-        ? getProviderBaseUrl(embeddingProvider)
-        : getProviderBaseUrl(mainProvider);
-      const embeddingModel = embeddingSelection?.modelId || 'text-embedding-3-small';
-
-      // VLM (Vision) model
-      const visionSelection = selectedModels.vision;
-      const visionProvider = visionSelection
-        ? getProviderById(providers, visionSelection.providerId)
-        : mainProvider;
-      const vlmApiKey = visionProvider?.apiKey || mainProvider.apiKey;
-      const vlmBaseUrl = visionProvider
-        ? getProviderBaseUrl(visionProvider)
-        : getProviderBaseUrl(mainProvider);
-      const vlmModel = visionSelection?.modelId || 'gpt-4o';
-
-      // STT (Whisper) model
-      const sttSelection = selectedModels.stt;
-      const sttProvider = sttSelection
-        ? getProviderById(providers, sttSelection.providerId)
-        : mainProvider;
-      const whisperApiKey = sttProvider?.apiKey || mainProvider.apiKey;
-      const whisperBaseUrl = sttProvider
-        ? getProviderBaseUrl(sttProvider)
-        : getProviderBaseUrl(mainProvider);
-      const whisperModel = sttSelection?.modelId || 'whisper-1';
-
-      // Chat model (LLM)
-      const chatSelection = selectedModels.chat;
-      const chatProvider = chatSelection
-        ? getProviderById(providers, chatSelection.providerId)
-        : mainProvider;
-      const llmApiKey = chatProvider?.apiKey || mainProvider.apiKey;
-      const llmBaseUrl = chatProvider
-        ? getProviderBaseUrl(chatProvider)
-        : getProviderBaseUrl(mainProvider);
-      const llmModel = chatSelection?.modelId || 'gpt-4o';
-
-      // Why provider type mapping: Ollama uses different API format, others use OpenAI-compatible
-      const embeddingProviderId = embeddingSelection?.providerId || mainProvider.id;
-      const visionProviderId = visionSelection?.providerId || mainProvider.id;
-
-      const getKnowledgeProviderType = (providerId: string) => {
-        if (providerId === 'ollama') return 'ollama';
-        if (providerId === 'local') return 'local';
-        return 'openai'; // Default to OpenAI-compatible mode
-      };
-
-      const configPayload = {
-        embeddingProvider: getKnowledgeProviderType(embeddingProviderId),
-        embeddingApiKey,
-        embeddingBaseUrl,
-        embeddingModel,
-        vlmProvider: getKnowledgeProviderType(visionProviderId),
-        vlmApiKey,
-        vlmBaseUrl,
-        vlmModel,
-        whisperApiKey,
-        whisperBaseUrl,
-        whisperModel,
-        whisperLanguage: 'auto',
-        llmApiKey,
-        llmBaseUrl,
-        llmModel,
-      };
-
-      const configHash = JSON.stringify(configPayload);
-      if (configHash === lastSyncedConfigRef.current) {
-        return;
-      }
-
-      await api.knowledge.updateConfig(configPayload);
-      lastSyncedConfigRef.current = configHash;
-      logger.info('Knowledge API config synced');
-    } catch (error) {
-      logger.error('Failed to sync knowledge config:', error);
-    }
-  }, []);
-
-  const syncAdvancedConfig = useCallback(async () => {
-    if (!ragAdvanced || !api.knowledge?.setAdvancedConfig) {
-      return;
-    }
-
-    try {
-      const advancedPayload = {
-        enableQueryRewrite: ragAdvanced.enableQueryRewrite ?? false,
-        enableRerank: ragAdvanced.enableRerank ?? false,
-        enableContextRouting: ragAdvanced.enableContextRouting ?? false,
-        enableBilingualSearch: ragAdvanced.enableBilingualSearch ?? false,
-        rerankProvider: ragAdvanced.rerankProvider,
-        rerankModel: ragAdvanced.rerankModel,
-        rerankApiKey: ragAdvanced.rerankApiKey,
-        rerankBaseUrl: ragAdvanced.rerankBaseUrl,
-      };
-
-      const advancedHash = JSON.stringify(advancedPayload);
-      if (advancedHash === lastSyncedAdvancedConfigRef.current) {
-        return;
-      }
-
-      await api.knowledge.setAdvancedConfig(advancedPayload);
-      lastSyncedAdvancedConfigRef.current = advancedHash;
-      logger.info('Knowledge advanced retrieval config synced');
-    } catch (error) {
-      logger.error('Failed to sync advanced retrieval config:', error);
-    }
-  }, [ragAdvanced]);
-
-  useEffect(() => {
-    syncConfig();
-  }, [syncConfig, configVersion]);
-
-  useEffect(() => {
-    syncAdvancedConfig();
-  }, [syncAdvancedConfig]);
-}
-
 // ====== AI Config Sync ======
 
 /**
  * Infers SDK type from provider ID.
- * Why: Anthropic requires dedicated SDK, others use OpenAI-compatible mode.
+ * Anthropic needs its dedicated SDK; everything else goes through the OpenAI-compatible path.
  */
 function inferProviderType(
   providerId: string
@@ -245,7 +76,12 @@ function buildAIServiceConfig(
     : getProviderBaseUrl(mainProvider);
 
   const chatProviderId = chatSelection?.providerId || mainProvider.id;
-  const chatModel = chatSelection?.modelId || mainProvider.models?.[0]?.id || '';
+  // When chat has no explicit selection, fall back to the completion model (user may have configured completion only).
+  const chatModel =
+    chatSelection?.modelId ||
+    mainProvider.models?.[0]?.id ||
+    selectedModels.completion?.modelId ||
+    '';
   const providerType = inferProviderType(chatProviderId);
 
   const completionSelection = selectedModels.completion;
@@ -259,7 +95,6 @@ function buildAIServiceConfig(
 
     const completionProviderObj = getProviderById(providers, completionSelection.providerId);
     if (completionProviderObj) {
-      // Why separate provider type: Ensures correct SDK (Anthropic vs OpenAI) for completion
       completionProviderType = inferProviderType(completionSelection.providerId);
 
       if (completionSelection.providerId !== chatSelection?.providerId) {
@@ -335,9 +170,9 @@ export function useAIConfigSync() {
         aiSettings
       );
 
-      // Prevent empty model causing AIService errors
-      if (!configPayload.model) {
-        logger.warn('No chat model selected, skipping AI config sync');
+      // Need at least one usable model (chat or completion) before syncing is worthwhile.
+      if (!configPayload.model && !configPayload.completionModel) {
+        logger.warn('No model selected (neither chat nor completion), skipping AI config sync');
         return;
       }
 

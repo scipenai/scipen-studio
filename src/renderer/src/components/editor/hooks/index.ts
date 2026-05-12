@@ -3,8 +3,13 @@
  * @description Unified export entry for editor-related custom hooks
  */
 
-export { useFileDrop } from './useFileDrop';
 export { useEditorEvents } from './useEditorEvents';
+export { useOTCollaboration } from './useOTCollaboration';
+export { useDiffReview } from './useDiffReview';
+export { useCompilation } from './useCompilation';
+export { useSyncTeX } from './useSyncTeX';
+export { useDiagnostics } from './useDiagnostics';
+export { useFileDrop } from './useFileDrop';
 
 // Editor setup functions (not hooks)
 export {

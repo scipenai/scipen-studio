@@ -12,22 +12,6 @@ export type {
   StreamChunk,
 } from './IAIService';
 
-// ====== Agent Services ======
-export type {
-  IAgentService,
-  AgentResult,
-  AgentResultData,
-  AgentExecutionOptions,
-  Pdf2LatexConfig,
-  Paper2BeamerConfig,
-} from './IAgentService';
-
-// ====== Knowledge Services ======
-export type {
-  IKnowledgeService,
-  InitOptions,
-} from './IKnowledgeService';
-
 // ====== File System Services ======
 export type {
   IFileSystemService,
@@ -46,18 +30,7 @@ export type {
 export type { ICompilerRegistry } from './ICompilerRegistry';
 
 // ====== Overleaf Services ======
-export type {
-  IOverleafService,
-  OverleafConfig,
-  OverleafProject,
-  OverleafProjectDetails,
-  OverleafProjectSettings,
-  OverleafCompileOptions,
-  OverleafCompileResult,
-  OverleafSyncCodePos,
-  OverleafSyncPdfPos,
-  OverleafSocketEventHandlers,
-} from './IOverleafService';
+// Types are imported from their individual service files.
 
 // ====== Overleaf File System Services ======
 export type {
@@ -71,22 +44,40 @@ export type {
   DocWithId,
 } from './IOverleafFileSystemService';
 
-// ====== Local Replica Services ======
-export type {
-  ILocalReplicaService,
-  LocalReplicaConfig,
-  SyncResult,
-  SyncProgressEvent,
-  ConflictInfo,
-} from './ILocalReplicaService';
-export { DEFAULT_IGNORE_PATTERNS } from './ILocalReplicaService';
-
 // ====== Selection Helper Services ======
 export type {
   ISelectionService,
   SelectionCaptureData,
   SelectionConfig,
 } from './ISelectionService';
+
+// ====== Project Binding Services ======
+export type { IProjectBindingService } from './IProjectBindingService';
+export {
+  OT_MANAGED_EXTENSIONS,
+  RESOURCE_EXTENSIONS,
+  ALWAYS_IGNORE_DIRS,
+} from './IProjectBindingService';
+
+// ====== Remote Project Bridge ======
+export type {
+  IRemoteProjectBridge,
+  BridgeConnectionState,
+  BridgeConnectionStateDTO,
+  BridgeProjectSnapshot,
+  BridgeFileEntry,
+  BridgeFolderEntry,
+  BridgeDocumentState,
+  BridgeRemotePatchEvent,
+  BridgeTreeChangeEvent,
+  BridgeSubmitOpsParams,
+  BridgeSubmitOpsResult,
+  BridgeCreateFileParams,
+  BridgeCreateFolderParams,
+  BridgeRenameParams,
+  BridgeMoveParams,
+  BridgeDeleteParams,
+} from './IRemoteProjectBridge';
 
 // ====== Configuration ======
 export type { IConfigManager } from './IConfigManager';

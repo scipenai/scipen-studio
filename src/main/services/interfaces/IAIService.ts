@@ -69,12 +69,7 @@ export interface IAIService extends Partial<IDisposable> {
   getCompletion(context: string): Promise<string>;
 
   /**
-   * Polishes text with optional RAG context.
-   */
-  polishText(text: string, ragContext?: string): Promise<string>;
-
-  /**
-   * Runs a non-streaming chat completion.
+   * Runs a non-streaming chat completion (used internally by ChatOrchestrator).
    */
   chat(messages: AIMessage[]): Promise<string>;
 
@@ -93,16 +88,6 @@ export interface IAIService extends Partial<IDisposable> {
    * Checks whether generation is in progress.
    */
   isGenerating(): boolean;
-
-  /**
-   * Generates a math formula.
-   */
-  generateFormula(description: string, format?: 'latex' | 'typst'): Promise<string>;
-
-  /**
-   * Reviews a document.
-   */
-  reviewDocument(content: string): Promise<string>;
 
   /**
    * Tests AI connectivity.

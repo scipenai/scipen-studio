@@ -15,18 +15,19 @@ import type { EditorTab } from '../../types';
 import { createLogger } from '../LogService';
 import {
   LaTeXCompilerProvider,
-  OverleafCompilerProvider,
   TypstCompilerProvider,
+  WASMCompilerProvider,
 } from './CompilerProviders';
-import { CompilerRegistry } from './LanguageFeatureRegistry';
+import { CompilerRegistry, type CompilerProvider } from './LanguageFeatureRegistry';
 
 const logger = createLogger('CompileService');
 
 // ====== Type Definitions ======
 
 export type LatexEngine = 'pdflatex' | 'xelatex' | 'lualatex' | 'tectonic';
+export type WasmEngine = 'wasm-pdftex' | 'wasm-xetex';
 export type TypstEngine = 'typst' | 'tinymist';
-export type CompileEngine = LatexEngine | TypstEngine | 'overleaf';
+export type CompileEngine = LatexEngine | WasmEngine | TypstEngine;
 
 export type CompileLogType = 'info' | 'success' | 'warning' | 'error';
 
@@ -40,23 +41,19 @@ export interface CompileOptions {
   engine: CompileEngine;
   mainFile?: string;
   projectPath?: string;
-  overleaf?: {
-    serverUrl: string;
-    projectId: string;
-    email?: string;
-    cookies?: string;
-    remoteCompiler?: string;
-  };
   activeTab?: EditorTab;
 }
 
 export interface CompileResult {
   success: boolean;
+  /** Source file path that triggered the compile, used to disambiguate per-file results */
+  sourceFile?: string;
   pdfPath?: string;
   /** @deprecated Use pdfBuffer instead, Base64 encoding is inefficient */
   pdfData?: string;
   pdfBuffer?: ArrayBuffer | Uint8Array;
   synctexPath?: string;
+  synctexBuffer?: Uint8Array;
   log?: string;
   errors?: string[];
   warnings?: string[];
@@ -103,6 +100,7 @@ export class CompileService implements IDisposable {
   private readonly _compileThrottler = new Throttler();
 
   private readonly _compilerRegistry: CompilerRegistry;
+  private _currentProvider: CompilerProvider | null = null;
 
   // ====== Event Definitions ======
 
@@ -130,7 +128,7 @@ export class CompileService implements IDisposable {
 
     this._disposables.add(this._compilerRegistry.register(new TypstCompilerProvider(), 10));
 
-    this._disposables.add(this._compilerRegistry.register(new OverleafCompilerProvider(), 5));
+    this._disposables.add(this._compilerRegistry.register(new WASMCompilerProvider(), 8));
 
     logger.info('Builtin compiler providers registered', {
       count: this._compilerRegistry.size,
@@ -164,6 +162,10 @@ export class CompileService implements IDisposable {
     options: CompileOptions
   ): Promise<CompileResult> {
     return this._compileThrottler.queue((_token) => this._doCompile(filePath, content, options));
+  }
+
+  cancel(): void {
+    this._currentProvider?.cancel?.();
   }
 
   private async _doCompile(
@@ -204,8 +206,11 @@ export class CompileService implements IDisposable {
       const engineName = options.engine || provider.id.split('-')[0];
       this.log('info', `Using compiler: ${engineName} (${provider.id})`);
 
+      this._currentProvider = provider;
       result = await provider.compile(filePath, content, options);
+      this._currentProvider = null;
 
+      result.sourceFile = filePath;
       result.time = Date.now() - startTime;
       this.logCompileResult(result);
     } catch (error) {
@@ -224,10 +229,7 @@ export class CompileService implements IDisposable {
   }
 
   /**
-   * Log compile result
-   *
-   * Why: errors/warnings may be string arrays or object arrays (LaTeXError/LaTeXWarning)
-   * Need to convert to strings uniformly, otherwise passing objects directly causes React render crash (Error #31)
+   * Log compile result.
    */
   private logCompileResult(result: CompileResult): void {
     const timeStr = ((result.time || 0) / 1000).toFixed(2);
@@ -235,7 +237,13 @@ export class CompileService implements IDisposable {
     if (result.success) {
       this.log('success', `Compilation succeeded! Time: ${timeStr}s`);
 
-      if (result.warnings && result.warnings.length > 0) {
+      // Prefer showing parsed warnings (with file and line number)
+      if (result.parsedWarnings && result.parsedWarnings.length > 0) {
+        result.parsedWarnings.forEach((entry) => {
+          const msg = this.formatParsedEntry(entry);
+          this.log('warning', msg, entry.raw || entry.content || undefined);
+        });
+      } else if (result.warnings && result.warnings.length > 0) {
         result.warnings.forEach((w) => {
           const msg = this.formatLogEntry(w);
           this.log('warning', msg);
@@ -251,10 +259,26 @@ export class CompileService implements IDisposable {
     } else {
       this.log('error', `Compilation failed! Time: ${timeStr}s`);
 
-      if (result.errors && result.errors.length > 0) {
+      // Prefer showing parsed structured errors (with file and line number)
+      if (result.parsedErrors && result.parsedErrors.length > 0) {
+        result.parsedErrors.forEach((entry) => {
+          const msg = this.formatParsedEntry(entry);
+          // raw/content provided as details — expandable for the full log context
+          this.log('error', msg, entry.raw || entry.content || undefined);
+        });
+      } else if (result.errors && result.errors.length > 0) {
+        // Fall back to raw error strings when parsed results are unavailable
         result.errors.forEach((err) => {
           const msg = this.formatLogEntry(err);
           this.log('error', msg);
+        });
+      }
+
+      // Show parsed warnings
+      if (result.parsedWarnings && result.parsedWarnings.length > 0) {
+        result.parsedWarnings.forEach((entry) => {
+          const msg = this.formatParsedEntry(entry);
+          this.log('warning', msg, entry.raw || entry.content || undefined);
         });
       }
 
@@ -265,10 +289,7 @@ export class CompileService implements IDisposable {
   }
 
   /**
-   * Format log entry as string
-   *
-   * Why: IPC-returned errors/warnings may be LaTeXError/LaTeXWarning objects
-   * Need to convert to renderable string format
+   * Format log entry as string.
    */
   private formatLogEntry(
     entry: string | { message?: string; line?: number; file?: string }
@@ -288,6 +309,16 @@ export class CompileService implements IDisposable {
   }
 
   // ====== Helper Methods ======
+
+  /** Format a parsed log entry as "file:line: message" */
+  private formatParsedEntry(entry: {
+    file?: string;
+    line?: number | null;
+    message: string;
+  }): string {
+    const loc = entry.file ? (entry.line != null ? `${entry.file}:${entry.line}` : entry.file) : '';
+    return loc ? `${loc}: ${entry.message}` : entry.message;
+  }
 
   private log(type: CompileLogType, message: string, details?: string): void {
     this._onDidLog.fire({ type, message, details });

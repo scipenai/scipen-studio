@@ -8,16 +8,9 @@
 
 export { IpcChannel, type IpcChannelType } from './channels';
 
-// ====== Type Definitions ======
+// ====== Shared Data Types (from types.ts) ======
 
 export type {
-  IPCChannel,
-  IPCEventChannel,
-  IPCParams,
-  IPCResult,
-  IPCEventData,
-  IPCHandlers,
-  IPCEvents,
   FileTreeNode,
   FileStats,
   SelectedFile,
@@ -28,52 +21,15 @@ export type {
   LaTeXWarning,
   SyncTeXForwardResult,
   SyncTeXBackwardResult,
-  AgentAvailability,
-  AgentResult,
-  AgentResultData,
-  AgentProgress,
-  Pdf2LatexConfig,
-  Paper2BeamerConfig,
-  KnowledgeBaseInfo,
-  MediaType,
-  ProcessStatus,
-  RetrieverType,
-  EmbeddingProvider,
-  ChunkingConfig,
-  EmbeddingConfig,
-  RetrievalConfig,
-  KnowledgeLibrary,
-  KnowledgeDocument,
-  ChunkMetadata,
-  KnowledgeSearchResult,
-  KnowledgeCitation,
-  KnowledgeRAGResponse,
-  AdvancedRetrievalConfig,
-  RewrittenQuery,
-  ContextDecision,
-  EnhancedSearchResult,
-  KnowledgeInitOptions,
-  KnowledgeTaskStatus,
-  KnowledgeQueueStats,
-  KnowledgeDiagnostics,
-  KnowledgeEvent,
   OverleafConfig,
-  OverleafProject,
-  OverleafCompileOptions,
-  OverleafCompileResult,
+  OverleafProjectDTO,
   ParsedLogEntry,
+  AIProviderDTO,
+  AIConfigDTO,
+  SelectionTriggerMode,
+  SelectionCaptureDTO,
+  SelectionConfigDTO,
 } from './types';
-
-// ====== Client Utilities ======
-
-export {
-  ipc,
-  onIPCEvent,
-  isValidChannel,
-  type AllIPCChannels,
-  type IPCHandler,
-  type IPCEventListener,
-} from './client';
 
 // ====== API Type Contract ======
 
@@ -104,11 +60,7 @@ export type {
   LSPLocation,
   LSPDocumentSymbol,
   LSPTextChange,
-  KnowledgeInitOptions as KnowledgeInitConfig,
-  KnowledgeSearchOptions,
-  KnowledgeEnhancedSearchOptions,
   OverleafConfig as OverleafInitConfig,
-  OverleafCompileOptions as OverleafCompileParams,
   WindowInfo,
   LogEntry,
   ConfirmDialogOptions,

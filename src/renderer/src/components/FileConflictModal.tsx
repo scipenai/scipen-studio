@@ -8,7 +8,14 @@ import { AlertTriangle, RefreshCw, Save, Trash2, X } from 'lucide-react';
 import type React from 'react';
 import { api } from '../api';
 import { useTranslation } from '../locales';
-import { getEditorService, getProjectService, useFileConflict } from '../services/core';
+import {
+  getEditorService,
+  getOTService,
+  getProjectService,
+  getUIService,
+  useFileConflict,
+} from '../services/core';
+import { triggerOverleafSyncAfterSave } from '../utils/overleaf-sync-helper';
 
 export const FileConflictModal: React.FC = () => {
   const fileConflict = useFileConflict();
@@ -35,11 +42,39 @@ export const FileConflictModal: React.FC = () => {
         const saveInfo = editorService.beginSave(path);
         if (saveInfo) {
           const result = await api.file.write(path, saveInfo.content);
-          // Update mtime and complete save
           if (result?.currentMtime) {
             editorService.updateFileMtime(path, result.currentMtime);
           }
-          editorService.completeSave(path, saveInfo.version);
+          const tab = editorService.getTab(path);
+          let otSynced = true;
+          if (tab?._id) {
+            const otProjectId = tab.projectId || getOTService().getProjectId();
+            if (otProjectId) {
+              otSynced = await getOTService().syncSavedContent(
+                otProjectId,
+                tab._id,
+                saveInfo.content
+              );
+            }
+          }
+          if (otSynced) {
+            editorService.completeSave(path, saveInfo.version);
+          } else {
+            editorService.finalizeSaveKeepingDirty(path);
+          }
+          // After an overwrite save, sync to Overleaf
+          triggerOverleafSyncAfterSave({
+            filePath: path,
+            content: saveInfo.content,
+            fileName: path.split(/[\\/]/).pop() || '',
+            addLog: (type, message) => getUIService().addCompilationLog({ type, message }),
+          });
+          if (!otSynced) {
+            getUIService().addCompilationLog({
+              type: 'warning',
+              message: t('syncTeX.savedOtPending', { name: path.split(/[\\/]/).pop() || path }),
+            });
+          }
         }
       } else if (action === 'close') {
         editorService.closeTab(path);

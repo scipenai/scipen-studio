@@ -186,7 +186,82 @@ function registerTypstLanguage(monaco: Monaco): void {
   });
 }
 
+function registerMarkdownLanguage(monaco: Monaco): void {
+  // Monaco has built-in markdown support, but we register a configuration
+  // to ensure our LSP can attach to the language ID properly
+  const languages = monaco.languages.getLanguages();
+  const hasMarkdown = languages.some((lang: { id: string }) => lang.id === 'markdown');
+
+  if (!hasMarkdown) {
+    monaco.languages.register({
+      id: 'markdown',
+      extensions: ['.md', '.markdown', '.mdx'],
+      aliases: ['Markdown', 'markdown', 'md'],
+    });
+  }
+
+  monaco.languages.setLanguageConfiguration('markdown', {
+    comments: {
+      blockComment: ['<!--', '-->'],
+    },
+    brackets: [
+      ['{', '}'],
+      ['[', ']'],
+      ['(', ')'],
+    ],
+    autoClosingPairs: [
+      { open: '{', close: '}' },
+      { open: '[', close: ']' },
+      { open: '(', close: ')' },
+      { open: '<', close: '>' },
+      { open: '`', close: '`' },
+      { open: '"', close: '"' },
+      { open: "'", close: "'" },
+      { open: '*', close: '*' },
+      { open: '_', close: '_' },
+    ],
+    surroundingPairs: [
+      { open: '{', close: '}' },
+      { open: '[', close: ']' },
+      { open: '(', close: ')' },
+      { open: '<', close: '>' },
+      { open: '`', close: '`' },
+      { open: '"', close: '"' },
+      { open: "'", close: "'" },
+      { open: '*', close: '*' },
+      { open: '_', close: '_' },
+    ],
+  });
+
+  monaco.languages.setMonarchTokensProvider('markdown', {
+    tokenizer: {
+      root: [
+        [/^#{1,6}\s.+$/, 'markup.heading'],
+        [/^>\s.+$/, 'markup.quote'],
+        [/^\s*([-*+]|\d+\.)\s+/, 'markup.list'],
+        [/`{3,}[\w-]*/, 'markup.fence'],
+        [/`[^`]+`/, 'markup.inlinecode'],
+        [/!\[[^\]]*\]\([^)]+\)/, 'markup.link'],
+        [/\[[^\]]+\]\([^)]+\)/, 'markup.link'],
+        [/\*\*[^*]+\*\*/, 'markup.bold'],
+        [/__[^_]+__/, 'markup.bold'],
+        [/\*[^*]+\*/, 'markup.italic'],
+        [/_[^_]+_/, 'markup.italic'],
+        [/^---+$/, 'comment'],
+        [/^\|.*\|$/, 'markup.table'],
+        [/<!--/, 'comment', '@htmlcomment'],
+        [/<[A-Za-z][^>]*>/, 'markup.html'],
+      ],
+      htmlcomment: [
+        [/-->/, 'comment', '@pop'],
+        [/./, 'comment'],
+      ],
+    },
+  });
+}
+
 export function registerLanguages(monaco: Monaco): void {
   registerLatexLanguage(monaco);
   registerTypstLanguage(monaco);
+  registerMarkdownLanguage(monaco);
 }

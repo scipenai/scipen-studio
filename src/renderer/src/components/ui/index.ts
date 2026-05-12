@@ -19,7 +19,6 @@ export {
   type CardContentProps,
   type CardFooterProps,
 } from './Card';
-export { Divider, type DividerProps } from './Divider';
 export {
   Tabs,
   TabsList,
@@ -32,9 +31,7 @@ export {
 } from './Tabs';
 
 export { Badge, type BadgeProps } from './Badge';
-export { Tooltip, type TooltipProps } from './Tooltip';
 export { Modal, type ModalProps } from './Modal';
-export { Dropdown, type DropdownProps, type DropdownItem } from './Dropdown';
 
 export {
   Skeleton,

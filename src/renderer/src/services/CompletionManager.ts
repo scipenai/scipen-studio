@@ -4,7 +4,6 @@
  * @depends LSPService, AIService, LatexIndexer
  */
 
-import { api } from '../api';
 import { AIService } from './AIService';
 import { CompletionCacheService } from './LRUCache';
 import { LSPService } from './LSPService';
@@ -796,19 +795,18 @@ export class CompletionManager {
     return items;
   }
 
-  // ====== Layer 2: AI RAG Completion ======
+  // ====== Layer 2: AI Completion ======
 
   /**
    * Get AI Ghost Text suggestion
    */
   async getAICompletion(
     context: CompletionContext,
-    knowledgeBaseId?: string,
     signal?: AbortSignal
   ): Promise<GhostTextSuggestion | null> {
     // Check cache - using new LRU cache service
-    // Note: If knowledge base is used, include knowledge base ID in cache key
-    const cacheKey = knowledgeBaseId ? `${context.prefix}__kb:${knowledgeBaseId}` : context.prefix;
+    // Cache key based on prefix
+    const cacheKey = context.prefix;
     const cachedText = CompletionCacheService.get(cacheKey, context.lineContent);
     if (cachedText) {
       const cached: GhostTextSuggestion = { text: cachedText };
@@ -819,39 +817,8 @@ export class CompletionManager {
     }
 
     try {
-      // Build RAG context
-      let ragContext = '';
-      const bibKeys: string[] = [];
-
-      if (knowledgeBaseId) {
-        try {
-          const searchResult = await api.knowledge.search({
-            query: context.lineContent,
-            libraryIds: [knowledgeBaseId],
-            topK: 3,
-            scoreThreshold: 0.3,
-          });
-
-          if (searchResult?.results && searchResult.results.length > 0) {
-            ragContext = searchResult.results
-              .map((r) => {
-                const metadata = r.metadata as Record<string, unknown> | undefined;
-                const bibKey = metadata?.bib_key;
-                if (bibKey && typeof bibKey === 'string') {
-                  bibKeys.push(bibKey);
-                }
-                const source = r.filename || 'unknown';
-                return `[Source: ${source}] ${r.content}`;
-              })
-              .join('\n\n');
-          }
-        } catch (e) {
-          console.error('[Completion] RAG retrieval failed:', e);
-        }
-      }
-
       // Build prompt
-      const systemPrompt = this.buildSystemPrompt(context, ragContext, bibKeys);
+      const systemPrompt = this.buildSystemPrompt(context);
 
       // Build context text
       const contextText = this.buildContextText(context);
@@ -870,12 +837,9 @@ export class CompletionManager {
 
       const result: GhostTextSuggestion = {
         text: cleanedText,
-        bibKeys: bibKeys.length > 0 ? bibKeys : undefined,
-        source: bibKeys.length > 0 ? 'Knowledge Base' : undefined,
       };
 
-      // Cache result - using new LRU cache service
-      // Use same cache key as read (includes knowledge base ID)
+      // Cache result
       CompletionCacheService.set(cacheKey, cleanedText, context.lineContent);
 
       return result;
@@ -909,11 +873,7 @@ export class CompletionManager {
   /**
    * Build system prompt
    */
-  private buildSystemPrompt(
-    context: CompletionContext,
-    ragContext: string,
-    bibKeys: string[]
-  ): string {
+  private buildSystemPrompt(context: CompletionContext): string {
     // Detect file type
     const isTypst = context.filePath?.endsWith('.typ');
     const formatName = isTypst ? 'Typst' : 'LaTeX';
@@ -941,14 +901,6 @@ IMPORTANT RULES:
         ? 'You are in math mode. Use Typst math syntax.'
         : 'You are in math mode. Use standard LaTeX math notation.';
       prompt += `\n7. ${mathNote}`;
-    }
-
-    if (ragContext) {
-      const citeCmd = isTypst ? `@${bibKeys[0] || 'key'}` : `\\cite{${bibKeys[0] || 'key'}}`;
-      prompt += `\n\nContext from Knowledge Base:
-${ragContext}
-
-If you use information from the context, YOU MUST append the citation command like ${citeCmd}.`;
     }
 
     return prompt;

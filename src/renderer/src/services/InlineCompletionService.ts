@@ -1,6 +1,6 @@
 /**
  * @file InlineCompletionService.ts - Inline Completion Service
- * @description Integrates deterministic completion and AI RAG completion to provide Monaco inline suggestions
+ * @description Integrates deterministic completion and AI assistance to provide Monaco inline suggestions
  * @depends CompletionManager, Monaco Editor
  */
 
@@ -13,7 +13,7 @@ import {
 } from './CompletionManager';
 import { isLSPSupportedFile } from './LSPService';
 import { TaskPriority, cancelIdleTask, scheduleIdleTask } from './core/IdleTaskScheduler';
-import { getEditorService, getProjectService } from './core/ServiceRegistry';
+import { getEditorService } from './core/ServiceRegistry';
 
 // ====== Configuration ======
 
@@ -497,11 +497,8 @@ export class InlineCompletionService implements IDisposable {
                 documentContent: fullContent,
               };
 
-              const completionKnowledgeBaseId = getProjectService().completionKnowledgeBaseId;
-
               const suggestion = await completionManager.getAICompletion(
                 completionContext,
-                completionKnowledgeBaseId || undefined,
                 pendingController?.signal
               );
 

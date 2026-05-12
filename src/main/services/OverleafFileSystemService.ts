@@ -1,15 +1,21 @@
 /**
  * @file OverleafFileSystemService - Overleaf remote file system interface
  * @description Wraps Overleaf remote file operations with unified file system interface
- * @depends IOverleafService
+ * @depends OverleafProjectMetaService (cached project tree / doc lookup)
+ * @depends StudioOverleafLiveService (live doc content / entity CRUD via WebSocket)
+ * @depends OverleafAuthService (cookies / CSRF for direct HTTP calls like updateDoc)
  *
  * Design principles:
  * - Single responsibility: only handles file system operations, not compilation
- * - Dependency injection: IOverleafService injected via constructor
+ * - Dependency injection: via constructor (MetaService + LiveService + AuthService)
  * - Composite operations: copyEntity is composed of read + create + write
  */
 
+import { lookup as lookupMimeType } from 'mime-types';
 import { createLogger } from './LoggerService';
+import type { OverleafAuthService } from './OverleafAuthService';
+import type { OverleafProjectMetaService } from './OverleafProjectMetaService';
+import type { StudioOverleafLiveService } from './StudioOverleafLiveService';
 import type {
   CopyEntityResult,
   CreateDocResult,
@@ -20,7 +26,6 @@ import type {
   OverleafEntityType,
   UploadFileResult,
 } from './interfaces/IOverleafFileSystemService';
-import type { IOverleafService } from './interfaces/IOverleafService';
 
 const logger = createLogger('OverleafFSService');
 
@@ -38,7 +43,11 @@ interface FolderEntity {
 // ====== Service Implementation ======
 
 export class OverleafFileSystemService implements IOverleafFileSystemService {
-  constructor(private overleafService: IOverleafService) {
+  constructor(
+    private metaService: OverleafProjectMetaService,
+    private liveService: StudioOverleafLiveService,
+    private authService: OverleafAuthService
+  ) {
     logger.info('OverleafFileSystemService initialized');
   }
 
@@ -46,7 +55,7 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
 
   async getDoc(projectId: string, docId: string): Promise<string | null> {
     try {
-      const result = await this.overleafService.getDocViaSocket(projectId, docId);
+      const result = await this.liveService.getDocContent(projectId, docId);
       return result;
     } catch (error) {
       logger.error(`getDoc failed: projectId=${projectId}, docId=${docId}`, error);
@@ -56,7 +65,7 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
 
   async getDocByPath(projectId: string, path: string): Promise<DocWithId | null> {
     try {
-      const result = await this.overleafService.getDocByPathWithId(projectId, path);
+      const result = await this.metaService.getDocByPathWithId(projectId, path);
       return result;
     } catch (error) {
       logger.error(`getDocByPath failed: projectId=${projectId}, path=${path}`, error);
@@ -66,8 +75,8 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
 
   async downloadFile(projectId: string, fileId: string): Promise<Buffer | null> {
     try {
-      const serverUrl = this.overleafService.getServerUrl();
-      const cookies = this.overleafService.getCookies();
+      const serverUrl = this.authService.getServerUrl();
+      const cookies = this.authService.getCookies();
 
       if (!cookies) {
         logger.error('downloadFile failed: not logged in');
@@ -96,7 +105,7 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
 
   async listFolder(projectId: string, folderId?: string): Promise<OverleafEntityInfo[]> {
     try {
-      const details = await this.overleafService.getProjectDetailsViaSocket(projectId);
+      const details = await this.metaService.getProjectDetailsCached(projectId);
       if (!details?.rootFolder?.[0]) {
         return [];
       }
@@ -162,27 +171,32 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
     content?: string
   ): Promise<CreateDocResult> {
     try {
-      const result = await this.overleafService.createDoc(projectId, parentFolderId, name);
+      const result = await this.liveService.createEntity({
+        projectId,
+        entityType: 'doc',
+        parentFolderId,
+        name,
+      });
 
-      if (!result.success || !result.docId) {
+      if (!result.success || !result.entityId) {
         return { success: false, error: 'Failed to create document' };
       }
 
-      // If initial content provided, write content
+      // Write initial content if provided.
       if (content && content.length > 0) {
-        const updateResult = await this.overleafService.updateDoc(projectId, result.docId, content);
+        const updateResult = await this.updateDoc(projectId, result.entityId, content);
         if (!updateResult.success) {
           logger.warn(
-            `createDoc: document created but failed to write initial content: docId=${result.docId}`
+            `createDoc: created but failed to write initial content: docId=${result.entityId}`
           );
         }
       }
 
-      return { success: true, docId: result.docId };
+      this.metaService.invalidateProjectCache(projectId);
+      return { success: true, docId: result.entityId };
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Failed to create document';
-      logger.error(`createDoc failed: ${errorMsg}`);
-      return { success: false, error: errorMsg };
+      logger.error('createDoc failed:', error instanceof Error ? error.message : error);
+      return { success: false, error: error instanceof Error ? error.message : 'Create failed' };
     }
   }
 
@@ -192,16 +206,21 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
     name: string
   ): Promise<CreateFolderResult> {
     try {
-      const result = await this.overleafService.createFolder(projectId, parentFolderId, name);
+      const result = await this.liveService.createEntity({
+        projectId,
+        entityType: 'folder',
+        parentFolderId,
+        name,
+      });
+      this.metaService.invalidateProjectCache(projectId);
       return {
         success: result.success,
-        folderId: result.folderId,
-        error: result.success ? undefined : 'Failed to create folder',
+        folderId: result.entityId,
+        error: result.success ? undefined : 'Create failed',
       };
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Failed to create folder';
-      logger.error(`createFolder failed: ${errorMsg}`);
-      return { success: false, error: errorMsg };
+      logger.error('createFolder failed:', error instanceof Error ? error.message : error);
+      return { success: false, error: error instanceof Error ? error.message : 'Create failed' };
     }
   }
 
@@ -212,26 +231,28 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
     content: Buffer
   ): Promise<UploadFileResult> {
     try {
-      const result = await this.overleafService.uploadFile(
+      const mimeType = lookupMimeType(fileName) || 'application/octet-stream';
+      const data = new Uint8Array(
+        content instanceof ArrayBuffer
+          ? content
+          : content.buffer.slice(content.byteOffset, content.byteOffset + content.byteLength)
+      );
+      const result = await this.liveService.uploadFile({
         projectId,
         parentFolderId,
         fileName,
-        content
-      );
-      if (!result.success) {
-        logger.error(
-          `uploadFile failed: projectId=${projectId}, folderId=${parentFolderId}, fileName=${fileName}, error=${result.error || 'unknown'}`
-        );
-      }
+        mimeType,
+        data,
+      });
+      this.metaService.invalidateProjectCache(projectId);
       return {
         success: result.success,
-        fileId: result.fileId,
-        error: result.error,
+        fileId: result.entityId,
+        error: result.success ? undefined : 'Upload failed',
       };
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Failed to upload file';
-      logger.error(`uploadFile failed: ${errorMsg}`);
-      return { success: false, error: errorMsg };
+      logger.error(`uploadFile failed: ${fileName}`, error);
+      return { success: false, error: error instanceof Error ? error.message : 'Upload failed' };
     }
   }
 
@@ -243,7 +264,19 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
     content: string
   ): Promise<{ success: boolean }> {
     try {
-      return await this.overleafService.updateDoc(projectId, docId, content);
+      const serverUrl = this.authService.getServerUrl();
+      const cookies = this.authService.getCookies();
+      const csrfToken = this.authService.getCsrfToken();
+      if (!serverUrl || !cookies || !csrfToken) return { success: false };
+
+      const lines = content.split('\n');
+      const response = await fetch(`${serverUrl}/project/${projectId}/doc/${docId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookies, 'X-Csrf-Token': csrfToken },
+        body: JSON.stringify({ lines }),
+      });
+      this.authService.absorbResponseCookies(response);
+      return { success: response.ok };
     } catch (error) {
       logger.error(`updateDoc failed: projectId=${projectId}, docId=${docId}`, error);
       return { success: false };
@@ -257,9 +290,19 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
     newName: string
   ): Promise<boolean> {
     try {
-      return await this.overleafService.renameEntity(projectId, entityType, entityId, newName);
+      const result = await this.liveService.renameEntity({
+        projectId,
+        entityType,
+        entityId,
+        newName,
+      });
+      if (result.success) this.metaService.invalidateProjectCache(projectId);
+      return result.success;
     } catch (error) {
-      logger.error(`renameEntity failed: ${entityType}/${entityId} -> ${newName}`, error);
+      logger.error(
+        `renameEntity failed: ${entityType}/${entityId} -> ${newName}`,
+        error instanceof Error ? error.message : error
+      );
       return false;
     }
   }
@@ -271,7 +314,14 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
     targetFolderId: string
   ): Promise<boolean> {
     try {
-      return await this.overleafService.moveEntity(projectId, entityType, entityId, targetFolderId);
+      const result = await this.liveService.moveEntity({
+        projectId,
+        entityType,
+        entityId,
+        targetFolderId,
+      });
+      if (result.success) this.metaService.invalidateProjectCache(projectId);
+      return result.success;
     } catch (error) {
       logger.error(
         `moveEntity failed: ${entityType}/${entityId} -> folder/${targetFolderId}`,
@@ -289,7 +339,9 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
     entityId: string
   ): Promise<boolean> {
     try {
-      return await this.overleafService.deleteEntity(projectId, entityType, entityId);
+      const result = await this.liveService.deleteEntity({ projectId, entityType, entityId });
+      if (result.success) this.metaService.invalidateProjectCache(projectId);
+      return result.success;
     } catch (error) {
       logger.error(`deleteEntity failed: ${entityType}/${entityId}`, error);
       return false;
@@ -311,7 +363,7 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
       );
 
       // Get project details to find entity name
-      const details = await this.overleafService.getProjectDetailsViaSocket(projectId);
+      const details = await this.metaService.getProjectDetailsCached(projectId);
       if (!details?.rootFolder?.[0]) {
         return { success: false, error: 'Failed to get project details' };
       }
@@ -354,13 +406,13 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
     targetFolderId: string,
     newName: string
   ): Promise<CopyEntityResult> {
-    // 1. Get document content
+    // 1. Fetch the document content.
     const content = await this.getDoc(projectId, docId);
     if (content === null) {
       return { success: false, error: 'Failed to get document content' };
     }
 
-    // 2. Create new document
+    // 2. Create the new document.
     const createResult = await this.createDoc(projectId, targetFolderId, newName, content);
     if (!createResult.success) {
       return { success: false, error: createResult.error || 'Failed to create new document' };
@@ -379,13 +431,13 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
     targetFolderId: string,
     newName: string
   ): Promise<CopyEntityResult> {
-    // 1. Download file content
+    // 1. Download file content.
     const content = await this.downloadFile(projectId, fileId);
     if (!content) {
       return { success: false, error: 'Failed to download file content' };
     }
 
-    // 2. Upload to target folder
+    // 2. Upload to the target folder.
     const uploadResult = await this.uploadFile(projectId, targetFolderId, newName, content);
 
     if (!uploadResult.success) {
@@ -406,7 +458,7 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
     newName: string,
     rootFolder: FolderEntity
   ): Promise<CopyEntityResult> {
-    // 1. Create target folder
+    // 1. Create the target folder.
     const createResult = await this.createFolder(projectId, targetFolderId, newName);
     if (!createResult.success || !createResult.folderId) {
       return { success: false, error: createResult.error || 'Failed to create target folder' };
@@ -414,16 +466,16 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
 
     const newFolderId = createResult.folderId;
 
-    // 2. Find source folder
+    // 2. Locate the source folder.
     const sourceFolder = this.findFolderById(rootFolder, folderId);
     if (!sourceFolder) {
       return { success: false, error: 'Source folder not found' };
     }
 
-    // 3. Recursively copy all children
+    // 3. Recursively copy all children.
     const errors: string[] = [];
 
-    // Copy documents
+    // Copy docs.
     if (sourceFolder.docs) {
       for (const doc of sourceFolder.docs) {
         const result = await this.copyDoc(projectId, doc._id, newFolderId, doc.name);
@@ -433,7 +485,7 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
       }
     }
 
-    // Copy files
+    // Copy binary files.
     if (sourceFolder.fileRefs) {
       for (const file of sourceFolder.fileRefs) {
         const result = await this.copyFile(projectId, file._id, newFolderId, file.name);
@@ -443,7 +495,7 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
       }
     }
 
-    // Recursively copy subfolders
+    // Recurse into subfolders.
     if (sourceFolder.folders) {
       for (const folder of sourceFolder.folders) {
         const result = await this.copyFolder(
@@ -476,7 +528,7 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
 
   async resolvePathToEntity(projectId: string, path: string): Promise<OverleafEntityInfo | null> {
     try {
-      const details = await this.overleafService.getProjectDetailsViaSocket(projectId);
+      const details = await this.metaService.getProjectDetailsCached(projectId);
       if (!details?.rootFolder?.[0]) {
         return null;
       }
@@ -491,7 +543,7 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
 
   async resolveFolderIdByPath(projectId: string, folderPath: string): Promise<string | null> {
     try {
-      const details = await this.overleafService.getProjectDetailsViaSocket(projectId);
+      const details = await this.metaService.getProjectDetailsCached(projectId);
       if (!details?.rootFolder?.[0]) {
         return null;
       }
@@ -699,7 +751,9 @@ export class OverleafFileSystemService implements IOverleafFileSystemService {
 // ====== Factory Function ======
 
 export function createOverleafFileSystemService(
-  overleafService: IOverleafService
+  metaService: OverleafProjectMetaService,
+  liveService: StudioOverleafLiveService,
+  authService: OverleafAuthService
 ): IOverleafFileSystemService {
-  return new OverleafFileSystemService(overleafService);
+  return new OverleafFileSystemService(metaService, liveService, authService);
 }

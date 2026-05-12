@@ -76,13 +76,18 @@ KnowledgeBase/
 *.asar
 *.unpacked/
 
-# LSP binaries (downloaded at runtime via scripts)
+# LSP binaries (downloaded at build time via scripts/download-*.js)
 resources/bin/texlab
 resources/bin/texlab.exe
 resources/bin/tinymist
 resources/bin/tinymist.exe
+resources/bin/marksman
+resources/bin/marksman.exe
 resources/bin/*.dll
 !resources/bin/README.md
+
+# Renderer assets copied from npm packages at build time (scripts/copy-public-assets.js)
+public/cmaps/
 
 # CLI tools build outputs
 cli_tools/*/dist/
@@ -103,3 +108,13 @@ test-results/
 
 # Temporary diff files
 temp_*.txt
+
+# Internal working artifacts (not for public repo)
+findings.md
+progress.md
+task_plan.md
+审阅报告.md
+CODE_REVIEW.md
+
+# Codex local working directory
+.codex/

@@ -48,8 +48,10 @@ interface PendingRequest {
 export interface LSPAvailability {
   texlab: boolean;
   tinymist: boolean;
+  marksman: boolean;
   texlabVersion: string | null;
   tinymistVersion: string | null;
+  marksmanVersion: string | null;
 }
 
 // ====== LSP Process Client ======
@@ -284,13 +286,14 @@ export class LSPProcessClient extends EventEmitter {
   async start(
     rootPath: string,
     options?: { virtual?: boolean }
-  ): Promise<{ texlab: boolean; tinymist: boolean }> {
+  ): Promise<{ texlab: boolean; tinymist: boolean; marksman: boolean }> {
     await this.ensureProcess();
     this.rootPath = rootPath;
     this.startOptions = options;
     return this.sendRequest('start', { rootPath, options }) as Promise<{
       texlab: boolean;
       tinymist: boolean;
+      marksman: boolean;
     }>;
   }
 
@@ -373,6 +376,19 @@ export class LSPProcessClient extends EventEmitter {
   async getDocumentSymbols(filePath: string): Promise<unknown[]> {
     await this.ensureProcess();
     return this.sendRequest('getDocumentSymbols', { filePath }) as Promise<unknown[]>;
+  }
+
+  async getSemanticTokens(filePath: string): Promise<{
+    resultId?: string | null;
+    data: number[];
+    legend: { tokenTypes: string[]; tokenModifiers: string[] };
+  } | null> {
+    await this.ensureProcess();
+    return this.sendRequest('getSemanticTokens', { filePath }) as Promise<{
+      resultId?: string | null;
+      data: number[];
+      legend: { tokenTypes: string[]; tokenModifiers: string[] };
+    } | null>;
   }
 
   // ====== Language-Specific Features ======

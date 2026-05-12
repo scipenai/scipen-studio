@@ -1,6 +1,6 @@
 /**
  * @file Database Schema - Drizzle ORM Table Definitions
- * @description Defines core table structures for projects, knowledge base, documents, vectors, chat, settings
+ * @description Defines core table structures for projects, chat, settings
  * @depends drizzle-orm/sqlite-core
  */
 
@@ -16,85 +16,6 @@ export const projectsTable = sqliteTable('projects', {
   lastOpened: integer('last_opened', { mode: 'timestamp' }).notNull(),
   isRemote: integer('is_remote', { mode: 'boolean' }).default(false),
   settings: text('settings', { mode: 'json' }).$type<Record<string, unknown>>(),
-  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-});
-
-// ============ Knowledge Libraries ============
-
-export const knowledgeLibrariesTable = sqliteTable('knowledge_libraries', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  description: text('description'),
-  embeddingModel: text('embedding_model').default('text-embedding-3-small'),
-  embeddingDimensions: integer('embedding_dimensions').default(1536),
-  chunkSize: integer('chunk_size').default(512),
-  chunkOverlap: integer('chunk_overlap').default(50),
-  retrievalConfig: text('retrieval_config', { mode: 'json' }).$type<Record<string, unknown>>(),
-  documentCount: integer('document_count').default(0),
-  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-});
-
-// ============ Knowledge Documents ============
-
-export const knowledgeDocumentsTable = sqliteTable('knowledge_documents', {
-  id: text('id').primaryKey(),
-  libraryId: text('library_id')
-    .notNull()
-    .references(() => knowledgeLibrariesTable.id, { onDelete: 'cascade' }),
-  title: text('title').notNull(),
-  filePath: text('file_path'),
-  originalName: text('original_name'),
-  mediaType: text('media_type').notNull().default('text/plain'),
-  fileSize: integer('file_size'),
-  contentHash: text('content_hash'),
-  status: text('status', { enum: ['pending', 'processing', 'completed', 'error'] }).default(
-    'pending'
-  ),
-  errorMessage: text('error_message'),
-  bibKey: text('bib_key'),
-  citationText: text('citation_text'),
-  metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>(),
-  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-  processedAt: integer('processed_at', { mode: 'timestamp' }),
-});
-
-// ============ Knowledge Chunks ============
-
-export const knowledgeChunksTable = sqliteTable('knowledge_chunks', {
-  id: text('id').primaryKey(),
-  documentId: text('document_id')
-    .notNull()
-    .references(() => knowledgeDocumentsTable.id, { onDelete: 'cascade' }),
-  libraryId: text('library_id')
-    .notNull()
-    .references(() => knowledgeLibrariesTable.id, { onDelete: 'cascade' }),
-  content: text('content').notNull(),
-  chunkIndex: integer('chunk_index').notNull(),
-  startOffset: integer('start_offset'),
-  endOffset: integer('end_offset'),
-  pageNumber: integer('page_number'),
-  sectionTitle: text('section_title'),
-  hasEmbedding: integer('has_embedding', { mode: 'boolean' }).default(false),
-  metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>(),
-  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-});
-
-// ============ Vector Embeddings ============
-// Note: Actual embeddings are stored in HNSW index for performance
-// This table tracks embedding metadata
-
-export const embeddingsMetaTable = sqliteTable('embeddings_meta', {
-  chunkId: text('chunk_id')
-    .primaryKey()
-    .references(() => knowledgeChunksTable.id, { onDelete: 'cascade' }),
-  libraryId: text('library_id')
-    .notNull()
-    .references(() => knowledgeLibrariesTable.id, { onDelete: 'cascade' }),
-  embeddingModel: text('embedding_model').notNull(),
-  dimensions: integer('dimensions').notNull(),
-  hnswIndex: integer('hnsw_index'),
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
 });
 
@@ -127,6 +48,95 @@ export const chatMessagesTable = sqliteTable('chat_messages', {
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
 });
 
+// ============ Project Bindings (Cloud Collaboration) ============
+
+export const projectBindingsTable = sqliteTable('project_bindings', {
+  /** Local auto-generated row id */
+  id: text('id').primaryKey(),
+  /** Cloud OT/remote project id */
+  projectId: text('project_id').notNull(),
+  /** Collaboration backend kind */
+  backend: text('backend', { enum: ['scipen-ot', 'overleaf'] })
+    .notNull()
+    .default('scipen-ot'),
+  /** Authority of the project state */
+  authority: text('authority').notNull().default('remote'),
+  /** Local materialization mode */
+  materialization: text('materialization').notNull().default('local-working-copy'),
+  /** Cloud workspace id */
+  workspaceId: text('workspace_id').notNull(),
+  /** Absolute path to local project root */
+  localRootPath: text('local_root_path').notNull().unique(),
+  /** Project display name */
+  projectName: text('project_name').notNull(),
+  /** Last successful sync timestamp */
+  lastSyncAt: integer('last_sync_at', { mode: 'timestamp' }),
+  /** Whether sync is currently enabled */
+  enabled: integer('enabled', { mode: 'boolean' }).default(true),
+  /** Custom ignore patterns (JSON string[]) */
+  customIgnorePatterns: text('custom_ignore_patterns', { mode: 'json' }).$type<string[]>(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+});
+
+// ============ Sync File Snapshots (baseline for change detection) ============
+
+export const syncFileSnapshotsTable = sqliteTable('sync_file_snapshots', {
+  id: text('id').primaryKey(),
+  /** References project_bindings.project_id */
+  projectId: text('project_id').notNull(),
+  /** Relative file path (forward slashes) */
+  filePath: text('file_path').notNull(),
+  /** OT file id (null for resource files) */
+  fileId: text('file_id'),
+  /** File category */
+  fileType: text('file_type', { enum: ['ot_text', 'resource'] }).notNull(),
+  /** Content hash at last sync (MD5 hex, 8 chars) */
+  contentHash: text('content_hash').notNull(),
+  /** File size in bytes */
+  fileSize: integer('file_size').notNull(),
+  /** OT version at last sync (null for resource files) */
+  otVersion: integer('ot_version'),
+  /** Timestamp of last successful sync */
+  syncedAt: integer('synced_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+});
+
+// ============ Pending Offline OT Operations ============
+
+export const pendingOpsTable = sqliteTable('pending_ops', {
+  id: text('id').primaryKey(),
+  /** Cloud OT project id */
+  projectId: text('project_id').notNull(),
+  /** OT file id */
+  fileId: text('file_id').notNull(),
+  /** OT version this operation is based on */
+  baseVersion: integer('base_version').notNull(),
+  /** Serialized OT operations (JSON array of RawOp) */
+  ops: text('ops', { mode: 'json' }).notNull(),
+  /** Content hash after applying the operation locally */
+  localContentHash: text('local_content_hash').notNull(),
+  /** When this operation was created */
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+});
+
+// ============ Assistant Conversation Bindings ============
+
+export const assistantConversationBindingsTable = sqliteTable('assistant_conversation_bindings', {
+  id: text('id').primaryKey(),
+  runtime: text('runtime').notNull(),
+  conversationId: text('conversation_id').notNull().unique(),
+  scopeType: text('scope_type').notNull(),
+  scopeKey: text('scope_key').notNull(),
+  projectId: text('project_id'),
+  localRootPath: text('local_root_path'),
+  workspaceId: text('workspace_id'),
+  title: text('title'),
+  isDefault: integer('is_default', { mode: 'boolean' }).default(false).notNull(),
+  lastOpenedAt: integer('last_opened_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+});
+
 // ============ User Settings ============
 
 export const userSettingsTable = sqliteTable('user_settings', {
@@ -140,18 +150,6 @@ export const userSettingsTable = sqliteTable('user_settings', {
 export type Project = typeof projectsTable.$inferSelect;
 export type NewProject = typeof projectsTable.$inferInsert;
 
-export type KnowledgeLibrary = typeof knowledgeLibrariesTable.$inferSelect;
-export type NewKnowledgeLibrary = typeof knowledgeLibrariesTable.$inferInsert;
-
-export type KnowledgeDocument = typeof knowledgeDocumentsTable.$inferSelect;
-export type NewKnowledgeDocument = typeof knowledgeDocumentsTable.$inferInsert;
-
-export type KnowledgeChunk = typeof knowledgeChunksTable.$inferSelect;
-export type NewKnowledgeChunk = typeof knowledgeChunksTable.$inferInsert;
-
-export type EmbeddingMeta = typeof embeddingsMetaTable.$inferSelect;
-export type NewEmbeddingMeta = typeof embeddingsMetaTable.$inferInsert;
-
 export type ChatSession = typeof chatSessionsTable.$inferSelect;
 export type NewChatSession = typeof chatSessionsTable.$inferInsert;
 
@@ -160,3 +158,16 @@ export type NewChatMessage = typeof chatMessagesTable.$inferInsert;
 
 export type UserSetting = typeof userSettingsTable.$inferSelect;
 export type NewUserSetting = typeof userSettingsTable.$inferInsert;
+
+export type ProjectBinding = typeof projectBindingsTable.$inferSelect;
+export type NewProjectBinding = typeof projectBindingsTable.$inferInsert;
+
+export type SyncFileSnapshot = typeof syncFileSnapshotsTable.$inferSelect;
+export type NewSyncFileSnapshot = typeof syncFileSnapshotsTable.$inferInsert;
+
+export type PendingOp = typeof pendingOpsTable.$inferSelect;
+export type NewPendingOp = typeof pendingOpsTable.$inferInsert;
+
+export type AssistantConversationBinding = typeof assistantConversationBindingsTable.$inferSelect;
+export type NewAssistantConversationBinding =
+  typeof assistantConversationBindingsTable.$inferInsert;

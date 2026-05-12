@@ -5,8 +5,9 @@
  * @security All document paths validated via PathSecurityService
  */
 
-import { type BrowserWindow, ipcMain } from 'electron';
+import type { BrowserWindow } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
+import type { LSPDocumentSymbol } from '../../../shared/api-types';
 import { type LSPProcessClient, getLSPProcessClient } from '../services/LSPProcessClient';
 import { createLogger } from '../services/LoggerService';
 import { type PathAccessMode, checkPathSecurity } from '../services/PathSecurityService';
@@ -17,35 +18,9 @@ const logger = createLogger('LSPHandlers');
 // ====== Path Helpers ======
 
 /**
- * Check if path is an Overleaf virtual path.
- * Handles multiple variants: overleaf://, overleaf:\, with leading slashes, etc.
- */
-function isOverleafVirtualPath(filePath: string): boolean {
-  if (!filePath) return false;
-  // Strip possible leading slashes before checking
-  const normalized = filePath.replace(/^[/\\]+/, '');
-  return (
-    normalized.startsWith('overleaf://') ||
-    normalized.startsWith('overleaf:') ||
-    filePath.includes('overleaf:/') ||
-    filePath.includes('overleaf:\\')
-  );
-}
-
-/**
  * Validate path security, throws if unsafe.
- *
- * Note: Overleaf virtual paths skip security check because:
- * 1. LSP only operates on virtual documents in memory, no real filesystem access
- * 2. Overleaf paths are virtual, cannot be mapped to local filesystem
  */
 function assertPathSecurity(filePath: string, mode: PathAccessMode = 'read'): string {
-  // Overleaf virtual paths skip security check
-  // LSP only performs in-memory operations on Overleaf docs
-  if (isOverleafVirtualPath(filePath)) {
-    return filePath;
-  }
-
   const result = checkPathSecurity(filePath, mode, 'project');
   if (!result.allowed) {
     logger.error(`[PathSecurity] Access denied: ${result.reason}`);
@@ -85,7 +60,7 @@ export function registerLSPHandlers(deps: LSPHandlersDeps): void {
       // Check if any LSP is available
       [IpcChannel.LSP_IsAvailable]: async () => {
         const availability = await lspClient.checkAvailability();
-        return availability.texlab || availability.tinymist;
+        return availability.texlab || availability.tinymist || availability.marksman;
       },
 
       // Get version (legacy API compat, returns TexLab version)
@@ -233,8 +208,13 @@ export function registerLSPHandlers(deps: LSPHandlersDeps): void {
         // Path security check
         const safePath = assertPathSecurity(filePath, 'read');
         const result = await lspClient.getDocumentSymbols(safePath);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return result as any;
+        return result as LSPDocumentSymbol[];
+      },
+
+      // Get semantic tokens
+      [IpcChannel.LSP_GetSemanticTokens]: async (filePath) => {
+        const safePath = assertPathSecurity(filePath, 'read');
+        return lspClient.getSemanticTokens(safePath);
       },
 
       // ====== TexLab Specific Features ======
@@ -290,39 +270,45 @@ export function registerLSPHandlers(deps: LSPHandlersDeps): void {
   logger.info('[IPC] LSP handlers registered (type-safe)');
 }
 
-/**
- * Register extra LSP handlers (extension APIs).
- * Note: Parameterless status query APIs use ipcMain.handle as they don't need param validation
- */
+/** Register extra LSP handlers (extension APIs). */
 function registerExtraLSPHandlers(lspClient: LSPProcessClient): void {
-  // Check if TexLab is available (no params, no type safety needed)
-  ipcMain.handle(IpcChannel.LSP_IsTexLabAvailable, async () => {
-    const availability = await lspClient.checkAvailability();
-    return availability.texlab;
-  });
-
-  // Check if Tinymist is available
-  ipcMain.handle(IpcChannel.LSP_IsTinymistAvailable, async () => {
-    const availability = await lspClient.checkAvailability();
-    return availability.tinymist;
-  });
-
-  // Get all LSP availability info
-  ipcMain.handle(IpcChannel.LSP_CheckAvailability, async () => {
-    return lspClient.checkAvailability();
-  });
-
-  // Get TexLab version
-  ipcMain.handle(IpcChannel.LSP_GetTexLabVersion, async () => {
-    const availability = await lspClient.checkAvailability();
-    return availability.texlabVersion;
-  });
-
-  // Get Tinymist version
-  ipcMain.handle(IpcChannel.LSP_GetTinymistVersion, async () => {
-    const availability = await lspClient.checkAvailability();
-    return availability.tinymistVersion;
-  });
+  createTypedHandlers({
+    [IpcChannel.LSP_IsTexLabAvailable]: async () => {
+      const availability = await lspClient.checkAvailability();
+      return availability.texlab;
+    },
+    [IpcChannel.LSP_IsTinymistAvailable]: async () => {
+      const availability = await lspClient.checkAvailability();
+      return availability.tinymist;
+    },
+    [IpcChannel.LSP_IsMarksmanAvailable]: async () => {
+      const availability = await lspClient.checkAvailability();
+      return availability.marksman;
+    },
+    [IpcChannel.LSP_CheckAvailability]: async () => {
+      const a = await lspClient.checkAvailability();
+      return {
+        texlab: a.texlab,
+        tinymist: a.tinymist,
+        marksman: a.marksman,
+        texlabVersion: a.texlabVersion ?? undefined,
+        tinymistVersion: a.tinymistVersion ?? undefined,
+        marksmanVersion: a.marksmanVersion ?? undefined,
+      };
+    },
+    [IpcChannel.LSP_GetTexLabVersion]: async () => {
+      const availability = await lspClient.checkAvailability();
+      return availability.texlabVersion ?? undefined;
+    },
+    [IpcChannel.LSP_GetTinymistVersion]: async () => {
+      const availability = await lspClient.checkAvailability();
+      return availability.tinymistVersion ?? undefined;
+    },
+    [IpcChannel.LSP_GetMarksmanVersion]: async () => {
+      const availability = await lspClient.checkAvailability();
+      return availability.marksmanVersion ?? undefined;
+    },
+  }).registerAll();
 
   // Start all services and return detailed results (has path param, needs type safety)
   registerTypedHandler(
@@ -350,6 +336,16 @@ function registerExtraLSPHandlers(lspClient: LSPProcessClient): void {
       const safePath = assertPathSecurity(rootPath, 'read');
       const result = await lspClient.start(safePath, options);
       return result.tinymist;
+    }
+  );
+
+  // Start Marksman only
+  registerTypedHandler(
+    IpcChannel.LSP_StartMarksman,
+    async (_event, rootPath: string, options?: { virtual?: boolean }) => {
+      const safePath = assertPathSecurity(rootPath, 'read');
+      const result = await lspClient.start(safePath, options);
+      return result.marksman;
     }
   );
 

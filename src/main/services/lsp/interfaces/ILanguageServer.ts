@@ -88,6 +88,15 @@ export interface LSPTextEdit {
   newText: string;
 }
 
+export interface LSPSemanticTokens {
+  resultId?: string | null;
+  data: number[];
+  legend: {
+    tokenTypes: string[];
+    tokenModifiers: string[];
+  };
+}
+
 /** LSP incremental document change event. */
 export interface LSPTextDocumentContentChangeEvent {
   /** Change range (empty means full update) */
@@ -180,6 +189,7 @@ export interface ILanguageServer extends EventEmitter {
     includeDeclaration?: boolean
   ): Promise<LSPLocation[]>;
   getDocumentSymbols(uri: string): Promise<LSPDocumentSymbol[] | LSPSymbol[]>;
+  getSemanticTokens(uri: string): Promise<LSPSemanticTokens | null>;
   formatDocument(uri: string): Promise<LSPTextEdit[]>;
 
   // ====== Events ======

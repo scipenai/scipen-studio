@@ -47,10 +47,6 @@ const mockFs = {
   existsSync: vi.fn().mockReturnValue(false),
 };
 
-vi.mock('../../../src/main/services/knowledge/utils/fsCompat', () => ({
-  default: mockFs,
-}));
-
 // ====== Mock electron ======
 vi.mock('electron', () => ({
   app: {
@@ -101,7 +97,7 @@ describe('TypstCompiler', () => {
     });
   });
 
-  describe('compile 方法签名', () => {
+  describe('compile method signature', () => {
     it('should have compile method', () => {
       const compiler = new TypstCompiler();
       expect(typeof compiler.compile).toBe('function');

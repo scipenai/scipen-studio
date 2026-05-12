@@ -11,13 +11,14 @@ import path from 'path';
 import { augmentedEnv } from '../utils/shellEnv';
 import { createLogger } from './LoggerService';
 import type {
+  CompileMessage,
   CompileLogEntry,
   CompileOptions,
   CompileProgress,
   CompileResult,
   ICompiler,
 } from './compiler/interfaces';
-import fs from './knowledge/utils/fsCompat';
+import fs from 'fs-extra';
 
 const logger = createLogger('TypstCompiler');
 
@@ -69,6 +70,7 @@ export interface TypstCompilationResult {
   pdfBuffer?: Uint8Array;
   errors?: string[];
   warnings?: string[];
+  messages?: CompileMessage[];
   log?: string;
   time?: number;
 }
@@ -83,6 +85,45 @@ const DEFAULT_COMPILE_TIMEOUT = 60 * 1000;
 
 /** Max compile timeout (ms) */
 const MAX_COMPILE_TIMEOUT = 5 * 60 * 1000;
+
+function parseTypstMessage(entry: string, level: 'error' | 'warning'): CompileMessage {
+  const trimmed = entry.trim();
+  const withColumn = trimmed.match(/^(.*?):(\d+):(\d+):\s*(.*)$/);
+  if (withColumn) {
+    return {
+      level,
+      file: withColumn[1] || undefined,
+      line: Number.parseInt(withColumn[2], 10),
+      column: Number.parseInt(withColumn[3], 10),
+      message: withColumn[4].trim(),
+    };
+  }
+
+  const withLine = trimmed.match(/^(.*?):(\d+):\s*(.*)$/);
+  if (withLine) {
+    return {
+      level,
+      file: withLine[1] || undefined,
+      line: Number.parseInt(withLine[2], 10),
+      message: withLine[3].trim(),
+    };
+  }
+
+  return {
+    level,
+    message: trimmed,
+  };
+}
+
+function buildTypstCompileMessages(
+  errors: string[] | undefined,
+  warnings: string[] | undefined
+): CompileMessage[] {
+  return [
+    ...(errors ?? []).map((entry) => parseTypstMessage(entry, 'error')),
+    ...(warnings ?? []).map((entry) => parseTypstMessage(entry, 'warning')),
+  ];
+}
 
 // ============ Main Compiler Class ============
 
@@ -199,6 +240,9 @@ export class TypstCompiler extends EventEmitter implements ICompiler {
         outputBuffer: legacyResult.pdfBuffer,
         errors: legacyResult.errors || [],
         warnings: legacyResult.warnings || [],
+        messages:
+          legacyResult.messages ??
+          buildTypstCompileMessages(legacyResult.errors, legacyResult.warnings),
         log: legacyResult.log,
         duration,
       };
@@ -212,6 +256,10 @@ export class TypstCompiler extends EventEmitter implements ICompiler {
         success: false,
         errors: [error instanceof Error ? error.message : String(error)],
         warnings: [],
+        messages: buildTypstCompileMessages(
+          [error instanceof Error ? error.message : String(error)],
+          []
+        ),
         duration,
       };
       this.emit('complete', result);

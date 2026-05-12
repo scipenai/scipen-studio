@@ -76,7 +76,7 @@ function isPathAllowed(filePath: string): boolean {
   const normalized = path.normalize(filePath).toLowerCase();
 
   for (const allowedDir of allowedDirectories) {
-    if (normalized.startsWith(allowedDir)) {
+    if (normalized === allowedDir || normalized.startsWith(allowedDir + path.sep)) {
       return true;
     }
   }

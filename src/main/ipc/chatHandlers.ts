@@ -18,7 +18,12 @@ const logger = createLogger('ChatHandlers');
 
 // Send message options schema
 const sendMessageOptionsSchema = z.object({
-  knowledgeBaseId: z.string().max(100).optional(),
+  workspace: z
+    .object({
+      projectPath: z.string().max(4096).nullable().optional(),
+      activeFilePath: z.string().max(4096).nullable().optional(),
+    })
+    .optional(),
 });
 
 // Send message params schema
@@ -74,15 +79,7 @@ channelSchemas.set(
   ])
 );
 
-channelSchemas.set(
-  IpcChannel.Chat_CreateSession,
-  z.tuple([
-    z
-      .string()
-      .max(100)
-      .optional(), // knowledgeBaseId
-  ])
-);
+channelSchemas.set(IpcChannel.Chat_CreateSession, z.tuple([]));
 
 // ====== Handler Dependencies ======
 
@@ -148,8 +145,8 @@ export function registerChatHandlers(deps: ChatHandlersDeps): void {
   });
 
   // Chat_CreateSession
-  registerTypedHandler(IpcChannel.Chat_CreateSession, async (_event, knowledgeBaseId) => {
-    return chatOrchestrator.createSession(knowledgeBaseId ?? undefined);
+  registerTypedHandler(IpcChannel.Chat_CreateSession, async () => {
+    return chatOrchestrator.createSession();
   });
 
   logger.info('[ChatHandlers] Handlers registered');

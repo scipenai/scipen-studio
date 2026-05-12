@@ -8,41 +8,28 @@ import { EventEmitter } from 'events';
 import { Worker } from 'worker_threads';
 import { WorkerRestartManager, createWorkerLogger, delay, getWorkerPath } from './workerUtils';
 
+import type { FileNode, FileChangeEvent } from '../services/interfaces/IFileSystemService';
+
+export type { FileNode, FileChangeEvent };
+
 const logger = createWorkerLogger('FileWorkerClient');
-
-// ====== Types ======
-
-export interface FileNode {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  children?: FileNode[];
-  /** Whether directory children have been resolved (lazy-load flag) */
-  isResolved?: boolean;
-}
-
-export interface FileChangeEvent {
-  type: 'change' | 'unlink' | 'add';
-  path: string;
-  mtime?: number;
-}
 
 interface WorkerResponse {
   id: string;
   success: boolean;
-  data?: any;
+  data?: unknown;
   error?: string;
   isResponse?: boolean;
 }
 
 interface WorkerEvent {
   type: 'file-change' | 'watcher-error' | 'scan-progress';
-  data: any;
+  data: unknown;
   isEvent?: boolean;
 }
 
 type PendingRequest = {
-  resolve: (value: any) => void;
+  resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timeout?: NodeJS.Timeout;
 };
@@ -218,7 +205,7 @@ export class FileWorkerClient extends EventEmitter {
     this.emit('error', error);
   }
 
-  private sendRequest<T>(type: string, payload: any, timeout?: number): Promise<T> {
+  private sendRequest<T>(type: string, payload: unknown, timeout?: number): Promise<T> {
     return new Promise((resolve, reject) => {
       if (!this.worker) {
         reject(new Error('Worker not initialized'));
@@ -228,7 +215,10 @@ export class FileWorkerClient extends EventEmitter {
       const id = `file-${++this.requestId}`;
       const timeoutMs = timeout ?? this.defaultTimeout;
 
-      const pending: PendingRequest = { resolve, reject };
+      const pending: PendingRequest = {
+        resolve: (value) => resolve(value as T),
+        reject,
+      };
 
       if (timeoutMs > 0) {
         pending.timeout = setTimeout(() => {

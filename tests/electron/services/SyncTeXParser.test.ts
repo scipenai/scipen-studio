@@ -247,7 +247,7 @@ y:200.00`;
       expect(result).toBeNull();
     });
 
-    it('无效输出应返回 null', () => {
+    it('should return null for invalid output', () => {
       const output = `This is not synctex output
 Just some random text`;
 
@@ -402,7 +402,7 @@ Line:10`;
       expect(result).toBeNull();
     });
 
-    it('无效输出应返回 null', () => {
+    it('should return null for invalid output', () => {
       const output = 'No valid synctex data';
       const result = parser.parseEditOutput(output);
       expect(result).toBeNull();

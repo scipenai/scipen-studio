@@ -1,17 +1,4 @@
-# SciPen Studio - CI/CD Pipeline
-#
-# This workflow runs on every push and pull request to ensure code quality.
-# It includes:
-# - Multi-platform testing (Ubuntu, Windows, macOS)
-# - Linting and type checking
-# - Unit tests
-# - Build verification
-#
-# Best Practices:
-# - Uses npm for dependency management
-# - Caches dependencies to speed up builds
-# - Matrix strategy for cross-platform testing
-# - Fail-fast disabled to see all platform results
+# Lint, typecheck, unit test, and build across Linux / Windows / macOS on every push and PR.
 
 name: CI
 
@@ -21,19 +8,15 @@ on:
   pull_request:
     branches: [main, develop]
 
-# Cancel in-progress runs for the same branch
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  # Skip CLI tool builds in CI (they require separate pnpm workspaces)
   SKIP_CLI_BUILD: 'true'
-  # Skip LSP download in CI (not needed for unit tests)
   SKIP_LSP_DOWNLOAD: 'true'
 
 jobs:
-  # ============ Quality Gate ============
   quality:
     name: Quality Gate
     runs-on: ubuntu-latest
@@ -60,7 +43,6 @@ jobs:
       - name: Type Check (TypeScript)
         run: npm run typecheck:all
 
-  # ============ Unit Tests ============
   test:
     name: Test (${{ matrix.os }})
     needs: quality
@@ -84,7 +66,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Native modules (better-sqlite3, hnswlib-node) require rebuild
       - name: Rebuild native modules
         run: npm run rebuild:native
         continue-on-error: true
@@ -92,7 +73,6 @@ jobs:
       - name: Run Unit Tests
         run: npm run test:run
         env:
-          # Prevent Electron from opening windows
           DISPLAY: ':99'
 
       - name: Upload coverage
@@ -102,7 +82,6 @@ jobs:
           fail_ci_if_error: false
         continue-on-error: true
 
-  # ============ Build Check ============
   build:
     name: Build (${{ matrix.os }})
     needs: quality
@@ -126,14 +105,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Skip native rebuild on build check (it's just checking compilation)
       - name: Build Workers
         run: npm run build:workers
 
       - name: Build Application (electron-vite)
         run: npx electron-vite build
         env:
-          # Increase Node.js memory limit for large builds (especially on macOS ARM64)
           NODE_OPTIONS: '--max-old-space-size=4096'
 
       - name: Verify build output
@@ -148,12 +125,11 @@ jobs:
             exit 1
           fi
 
-  # ============ E2E Tests (Optional - requires Playwright) ============
   e2e:
     name: E2E Tests
     needs: [test, build]
     runs-on: ubuntu-latest
-    # Only run E2E on main branch or when explicitly requested
+    # Runs on main or when PR is labelled 'run-e2e'.
     if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'run-e2e')
 
     steps:
@@ -191,7 +167,6 @@ jobs:
       - name: Package Application for E2E
         run: npx electron-builder --linux --dir
         env:
-          # Skip code signing for CI
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: Run E2E Tests
@@ -208,7 +183,6 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
-  # ============ Summary ============
   ci-complete:
     name: CI Complete
     needs: [quality, test, build]

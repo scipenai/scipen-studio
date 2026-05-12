@@ -161,7 +161,7 @@ self.onmessage = (event: MessageEvent<DiagnosticsRequest>) => {
 
       self.postMessage(response);
     } catch (error) {
-      log.error('诊断失败:', error);
+      log.error('Diagnostics failed:', error);
 
       const response: DiagnosticsResponse = {
         type: 'diagnosticsResult',

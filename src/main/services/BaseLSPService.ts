@@ -15,7 +15,7 @@ import { EventEmitter } from 'events';
 import * as path from 'path';
 import { Sequencer } from '../../../shared/utils/async';
 import { createLogger } from './LoggerService';
-import fs from './knowledge/utils/fsCompat';
+import fs from 'fs-extra';
 import type {
   LSPPosition as ILSPPosition,
   LSPTextDocumentContentChangeEvent as ILSPTextDocumentContentChangeEvent,
@@ -162,6 +162,15 @@ export interface LSPDocumentSymbol {
 export interface LSPTextEdit {
   range: LSPRange;
   newText: string;
+}
+
+export interface LSPSemanticTokens {
+  resultId?: string | null;
+  data: number[];
+  legend: {
+    tokenTypes: string[];
+    tokenModifiers: string[];
+  };
 }
 
 // ====== LSP Message Types ======
@@ -568,6 +577,27 @@ export abstract class BaseLSPService extends EventEmitter implements ILanguageSe
     }
   }
 
+  async getSemanticTokens(filePath: string): Promise<LSPSemanticTokens | null> {
+    if (!this.initialized) return null;
+
+    try {
+      const result = (await this.sendRequest('textDocument/semanticTokens/full', {
+        textDocument: { uri: this.pathToUri(filePath) },
+      })) as { resultId?: string | null; data?: number[] } | null;
+
+      if (!result?.data) return null;
+
+      return {
+        resultId: result.resultId ?? null,
+        data: result.data,
+        legend: { tokenTypes: [], tokenModifiers: [] },
+      };
+    } catch (error) {
+      console.error(`[${this.getServiceName()}] Semantic tokens error:`, error);
+      return null;
+    }
+  }
+
   // ====== LSP Initialization ======
 
   protected async initialize(rootPath: string): Promise<void> {
@@ -743,13 +773,9 @@ export abstract class BaseLSPService extends EventEmitter implements ILanguageSe
   /**
    * Convert file path to URI
    *
-   * Handles multiple path formats:
+   * Handles path formats:
    * - Local path: C:\foo\bar.tex → file:///C:/foo/bar.tex
    * - Virtual path: virtual://... → unchanged
-   * - Overleaf path (virtualMode=true): overleaf://xxx → virtual:///overleaf://xxx
-   *
-   * Important: TexLab only recognizes file:// and virtual:// schemes, not overleaf://
-   * So Overleaf paths must be converted to virtual:// scheme in virtualMode
    */
   protected pathToUri(filePath: string): string {
     // Normalize backslashes to forward slashes
@@ -760,8 +786,7 @@ export abstract class BaseLSPService extends EventEmitter implements ILanguageSe
       return normalized;
     }
 
-    // Virtual mode (for Overleaf and other remote projects)
-    // All paths converted to virtual:// scheme, letting TexLab handle in memory
+    // Virtual mode: all paths converted to virtual:// scheme
     if (this.virtualMode) {
       return `virtual:///${normalized}`;
     }
@@ -777,16 +802,12 @@ export abstract class BaseLSPService extends EventEmitter implements ILanguageSe
    * Convert URI to file path
    *
    * Reverse conversion:
-   * - virtual:///overleaf://xxx → overleaf://xxx
    * - virtual:///path → path
    * - file:///path → path
    */
   protected uriToPath(uri: string): string {
     // Handle virtual:// scheme
     if (uri.startsWith('virtual://')) {
-      // Remove virtual:/// prefix, preserve original path
-      // virtual:///overleaf://xxx → overleaf://xxx
-      // virtual:///C:/path → C:/path
       return uri.replace(/^virtual:\/\/\/?/, '');
     }
 

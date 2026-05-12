@@ -1,6 +1,6 @@
 /**
  * @file ProjectService.ts - Project Management Service
- * @description Event-driven project management, including project paths, file trees, and knowledge base
+ * @description Event-driven project management, including project paths and file trees
  * @depends IPC (api.file), shared/utils (Emitter)
  */
 
@@ -12,7 +12,13 @@ import {
   IdleValue,
 } from '../../../../../shared/utils';
 import { api } from '../../api';
-import type { FileNode, KnowledgeBase } from '../../types';
+import type { FileNode } from '../../types';
+import {
+  getRelativePathFromRoot,
+  isSameOrChildPath,
+  isSamePath,
+  normalizeComparablePath,
+} from '../../utils/pathComparison';
 import { createLogger } from '../LogService';
 
 const logger = createLogger('ProjectService');
@@ -101,9 +107,6 @@ export class ProjectService implements IDisposable {
 
   private _projectPath: string | null = null;
   private _fileTree: FileNode | null = null;
-  private _knowledgeBases: KnowledgeBase[] = [];
-  private _selectedKnowledgeBaseId: string | null = null;
-  private _completionKnowledgeBaseId: string | null = null;
   private _fileConflict: FileConflict | null = null;
 
   // ====== File Path Index (for @ completion) ======
@@ -138,16 +141,6 @@ export class ProjectService implements IDisposable {
   private readonly _onDidChangeFileTree = new Emitter<FileNode | null>();
   readonly onDidChangeFileTree: Event<FileNode | null> = this._onDidChangeFileTree.event;
 
-  private readonly _onDidChangeKnowledgeBases = new Emitter<KnowledgeBase[]>();
-  readonly onDidChangeKnowledgeBases: Event<KnowledgeBase[]> =
-    this._onDidChangeKnowledgeBases.event;
-
-  private readonly _onDidChangeSelectedKB = new Emitter<string | null>();
-  readonly onDidChangeSelectedKB: Event<string | null> = this._onDidChangeSelectedKB.event;
-
-  private readonly _onDidChangeCompletionKB = new Emitter<string | null>();
-  readonly onDidChangeCompletionKB: Event<string | null> = this._onDidChangeCompletionKB.event;
-
   private readonly _onDidChangeFileConflict = new Emitter<FileConflict | null>();
   readonly onDidChangeFileConflict: Event<FileConflict | null> =
     this._onDidChangeFileConflict.event;
@@ -161,9 +154,6 @@ export class ProjectService implements IDisposable {
   constructor() {
     this._disposables.add(this._onDidChangeProject);
     this._disposables.add(this._onDidChangeFileTree);
-    this._disposables.add(this._onDidChangeKnowledgeBases);
-    this._disposables.add(this._onDidChangeSelectedKB);
-    this._disposables.add(this._onDidChangeCompletionKB);
     this._disposables.add(this._onDidChangeFileConflict);
     this._disposables.add(this._onDidChangeFilePathIndex);
     this._disposables.add(this._onDidChangeIndexingState);
@@ -177,18 +167,6 @@ export class ProjectService implements IDisposable {
 
   get fileTree(): FileNode | null {
     return this._fileTree;
-  }
-
-  get knowledgeBases(): KnowledgeBase[] {
-    return this._knowledgeBases;
-  }
-
-  get selectedKnowledgeBaseId(): string | null {
-    return this._selectedKnowledgeBaseId;
-  }
-
-  get completionKnowledgeBaseId(): string | null {
-    return this._completionKnowledgeBaseId;
   }
 
   get fileConflict(): FileConflict | null {
@@ -252,12 +230,12 @@ export class ProjectService implements IDisposable {
    * - Supports cancelling old index and starting new index on project switch
    */
   private async _buildFilePathIndexAsync(projectPath: string): Promise<void> {
-    if (this._isIndexing && this._indexingProjectPath === projectPath) {
+    if (this._isIndexing && isSamePath(this._indexingProjectPath, projectPath)) {
       logger.debug('Indexing already in progress, skipping (same project)');
       return;
     }
 
-    if (this._isIndexing && this._indexingProjectPath !== projectPath) {
+    if (this._isIndexing && !isSamePath(this._indexingProjectPath, projectPath)) {
       logger.debug('Project switch detected, old index results will be ignored');
     }
 
@@ -271,18 +249,14 @@ export class ProjectService implements IDisposable {
     try {
       const result = await api.file.scanFilePaths(projectPath);
 
-      if (this._projectPath !== projectPath) {
+      if (!isSamePath(this._projectPath, projectPath)) {
         logger.debug('Index complete but project switched, discarding results');
         return;
       }
 
       if (result.success && result.paths) {
         const relativePaths = result.paths.map((p) => {
-          if (p.startsWith(projectPath)) {
-            const relative = p.slice(projectPath.length);
-            return relative.replace(/^[/\\]/, '');
-          }
-          return p;
+          return getRelativePathFromRoot(p, projectPath) ?? normalizeComparablePath(p);
         });
 
         this._filePathIndex = relativePaths;
@@ -298,7 +272,7 @@ export class ProjectService implements IDisposable {
     } catch (error) {
       logger.error('File path index build exception:', error);
     } finally {
-      if (this._indexingProjectPath === projectPath) {
+      if (isSamePath(this._indexingProjectPath, projectPath)) {
         this._isIndexing = false;
         this._indexingProjectPath = null;
         this._onDidChangeIndexingState.fire(false);
@@ -384,7 +358,7 @@ export class ProjectService implements IDisposable {
   applyFileChange(delta: FileChangeDelta): void {
     if (!this._fileTree || !this._projectPath) return;
 
-    if (!delta.path.startsWith(this._projectPath)) return;
+    if (!isSameOrChildPath(delta.path, this._projectPath)) return;
 
     const separator = this._projectPath.includes('\\') ? '\\' : '/';
 
@@ -410,11 +384,7 @@ export class ProjectService implements IDisposable {
   private _updateFilePathIndexIncremental(delta: FileChangeDelta): void {
     if (!this._projectPath) return;
 
-    let relativePath = delta.path;
-    if (relativePath.startsWith(this._projectPath)) {
-      relativePath = relativePath.slice(this._projectPath.length);
-      relativePath = relativePath.replace(/^[/\\]/, '');
-    }
+    const relativePath = getRelativePathFromRoot(delta.path, this._projectPath) ?? delta.path;
 
     if (delta.type === 'add') {
       if (!this._filePathIndex.includes(relativePath)) {
@@ -541,25 +511,6 @@ export class ProjectService implements IDisposable {
     });
   }
 
-  // ====== Knowledge Base Operations ======
-
-  setKnowledgeBases(bases: KnowledgeBase[]): void {
-    this._knowledgeBases = bases;
-    this._onDidChangeKnowledgeBases.fire(bases);
-  }
-
-  setSelectedKnowledgeBase(id: string | null): void {
-    if (this._selectedKnowledgeBaseId === id) return;
-    this._selectedKnowledgeBaseId = id;
-    this._onDidChangeSelectedKB.fire(id);
-  }
-
-  setCompletionKnowledgeBase(id: string | null): void {
-    if (this._completionKnowledgeBaseId === id) return;
-    this._completionKnowledgeBaseId = id;
-    this._onDidChangeCompletionKB.fire(id);
-  }
-
   // ====== File Conflicts ======
 
   setFileConflict(conflict: FileConflict | null): void {
@@ -575,22 +526,10 @@ export class ProjectService implements IDisposable {
   // ====== Lifecycle ======
 
   dispose(): void {
-    this._knowledgeBases = [];
     this._fileTreeStats?.dispose();
     this._fileTreeStats = null;
     this._disposables.dispose();
   }
 }
 
-let projectService: ProjectService | null = null;
-
-export function getProjectService(): ProjectService {
-  if (!projectService) {
-    projectService = ProjectService.getInstance();
-  }
-  return projectService;
-}
-
-export function useProjectService(): ProjectService {
-  return getProjectService();
-}
+// Module-level getProjectService removed — obtain it from ServiceRegistry instead.

@@ -4,23 +4,35 @@
  * @depends StorageService, CompileService
  */
 
-import type { AgentToolId } from '../../../../../shared/ipc/types';
 import {
   DisposableStore,
   Emitter,
   type Event,
   type IDisposable,
 } from '../../../../../shared/utils';
-import type { CompilationResult } from '../../types';
+import type { CompilationResult, FilePdfPreviewState, ParsedLogEntry } from '../../types';
 import { getStorageService } from '../StorageService';
 import { type CompileResult, getCompileServiceAsync } from './CompileService';
+import {
+  type EditorToPreviewEvent,
+  type PreviewMode,
+  type PreviewToEditorEvent,
+  resolvePreviewMode,
+} from './PreviewTypes';
 
 // ====== Type Definitions ======
 
 // SidebarTab changed to string to support dynamically registered view IDs
-// Built-in view IDs: 'files' | 'knowledge' | 'ai' | 'aiconfig' | 'settings'
+// Built-in view IDs: 'im' | 'files' | 'settings'
 export type SidebarTab = string;
-export type RightPanelTab = 'preview' | 'review';
+export type RightPanelTab = 'preview';
+export type WorkspaceMode = 'chat' | 'chat-editor' | 'chat-editor-preview';
+export type LogsSurface = 'hidden' | 'drawer';
+export type ResearchLayoutFocus = 'balanced' | 'files' | 'chat' | 'preview';
+
+function normalizeRightPanelTab(_tab: string): RightPanelTab {
+  return 'preview';
+}
 
 export interface CompilationLog {
   id: string;
@@ -42,6 +54,8 @@ export interface PdfHighlight {
  * Compilation error AI analysis request
  */
 export interface AskAIAboutErrorRequest {
+  /** Heading summary */
+  summaryTitle?: string;
   /** Error message */
   errorMessage: string;
   /** Detailed content */
@@ -54,6 +68,10 @@ export interface AskAIAboutErrorRequest {
   compilerType: 'LaTeX' | 'Typst';
   /** Source code context (code near error line) */
   sourceContext?: string;
+  /** Structured error entries */
+  relatedEntries?: ParsedLogEntry[];
+  /** Full raw log */
+  rawLog?: string;
 }
 
 /**
@@ -62,8 +80,8 @@ export interface AskAIAboutErrorRequest {
 export interface AgentState {
   /** Whether running */
   isRunning: boolean;
-  /** Active tool (for ToolsPanel) */
-  activeTool: AgentToolId | null;
+  /** Active tool */
+  activeTool: string | null;
   /** Start time */
   startTime: number;
   /** Progress message */
@@ -88,7 +106,20 @@ const STORAGE_KEYS = {
   RIGHT_PANEL_COLLAPSED: 'ui.rightPanelCollapsed',
   SIDEBAR_WIDTH: 'ui.sidebarWidth', // Pixel width
   EDITOR_WIDTH: 'ui.editorWidth', // Percentage
+  WORKSPACE_MODE: 'ui.workspaceMode',
+  RESEARCH_LAYOUT_FOCUS: 'ui.researchLayoutFocus',
+  ACTIVE_ARTIFACT_PATH: 'ui.activeArtifactPath',
+  ACTIVE_ARTIFACT_ID: 'ui.activeArtifactId',
+  LOGS_SURFACE: 'ui.logsSurface',
+  PREVIEW_VISIBLE: 'ui.previewVisible',
 };
+
+function normalizeSidebarTab(tab: string): SidebarTab {
+  if (tab === 'ai' || tab === 'chat') {
+    return 'im';
+  }
+  return tab as SidebarTab;
+}
 
 // ====== UIService Implementation ======
 
@@ -97,20 +128,18 @@ export class UIService implements IDisposable {
   private readonly _storage = getStorageService();
 
   // Sidebar state
-  private _sidebarTab: SidebarTab = this._storage.getString(
-    STORAGE_KEYS.SIDEBAR_TAB,
-    'files'
-  ) as SidebarTab;
+  private _sidebarTab: SidebarTab = normalizeSidebarTab(
+    this._storage.getString(STORAGE_KEYS.SIDEBAR_TAB, 'im')
+  );
   private _isSidebarCollapsed = this._storage.getBoolean(STORAGE_KEYS.SIDEBAR_COLLAPSED, false);
 
   // Layout dimensions
   private _sidebarWidth = this._storage.getNumber(STORAGE_KEYS.SIDEBAR_WIDTH, 260);
 
   // Right panel state
-  private _rightPanelTab: RightPanelTab = this._storage.getString(
-    STORAGE_KEYS.RIGHT_PANEL_TAB,
-    'preview'
-  ) as RightPanelTab;
+  private _rightPanelTab: RightPanelTab = normalizeRightPanelTab(
+    this._storage.getString(STORAGE_KEYS.RIGHT_PANEL_TAB, 'preview')
+  );
   private _isRightPanelCollapsed = this._storage.getBoolean(
     STORAGE_KEYS.RIGHT_PANEL_COLLAPSED,
     false
@@ -126,6 +155,7 @@ export class UIService implements IDisposable {
   private _pdfData: ArrayBuffer | null = null;
   private _pdfUrl: string | null = null; // Custom protocol URL for efficient local PDF loading
   private _compilationLogs: CompilationLog[] = [];
+  private _filePdfPreviews = new Map<string, FilePdfPreviewState>();
 
   // SyncTeX
   private _synctexPath: string | null = null;
@@ -140,6 +170,26 @@ export class UIService implements IDisposable {
     progress: '',
     message: '',
   };
+
+  // Preview mode state
+  private _previewMode: PreviewMode = 'none';
+  private _workspaceMode = this._storage.getString(
+    STORAGE_KEYS.WORKSPACE_MODE,
+    'chat'
+  ) as WorkspaceMode;
+  private _researchLayoutFocus = this._storage.getString(
+    STORAGE_KEYS.RESEARCH_LAYOUT_FOCUS,
+    'balanced'
+  ) as ResearchLayoutFocus;
+  private _activeArtifactPath =
+    this._storage.get<string | null>(STORAGE_KEYS.ACTIVE_ARTIFACT_PATH, null) ?? null;
+  private _activeArtifactId =
+    this._storage.get<string | null>(STORAGE_KEYS.ACTIVE_ARTIFACT_ID, null) ?? null;
+  private _logsSurface = this._storage.getString(
+    STORAGE_KEYS.LOGS_SURFACE,
+    'hidden'
+  ) as LogsSurface;
+  private _isPreviewVisible = this._storage.getBoolean(STORAGE_KEYS.PREVIEW_VISIBLE, false);
 
   // ====== Event Definitions ======
 
@@ -176,6 +226,15 @@ export class UIService implements IDisposable {
   readonly onDidChangePdf: Event<{ path: string | null; data: ArrayBuffer | null }> =
     this._onDidChangePdf.event;
 
+  private readonly _onDidChangeFilePdfPreview = new Emitter<{
+    filePath: string;
+    state: FilePdfPreviewState | null;
+  }>();
+  readonly onDidChangeFilePdfPreview: Event<{
+    filePath: string;
+    state: FilePdfPreviewState | null;
+  }> = this._onDidChangeFilePdfPreview.event;
+
   private readonly _onDidAddCompilationLog = new Emitter<CompilationLog>();
   readonly onDidAddCompilationLog: Event<CompilationLog> = this._onDidAddCompilationLog.event;
 
@@ -190,6 +249,43 @@ export class UIService implements IDisposable {
   private readonly _onDidChangeAgentState = new Emitter<AgentState>();
   readonly onDidChangeAgentState: Event<AgentState> = this._onDidChangeAgentState.event;
 
+  private readonly _onDidChangePreviewMode = new Emitter<PreviewMode>();
+  readonly onDidChangePreviewMode: Event<PreviewMode> = this._onDidChangePreviewMode.event;
+
+  private readonly _onDidChangeWorkspaceMode = new Emitter<WorkspaceMode>();
+  readonly onDidChangeWorkspaceMode: Event<WorkspaceMode> = this._onDidChangeWorkspaceMode.event;
+
+  private readonly _onDidChangeResearchLayoutFocus = new Emitter<ResearchLayoutFocus>();
+  readonly onDidChangeResearchLayoutFocus: Event<ResearchLayoutFocus> =
+    this._onDidChangeResearchLayoutFocus.event;
+
+  private readonly _onDidChangeActiveArtifactPath = new Emitter<string | null>();
+  readonly onDidChangeActiveArtifactPath: Event<string | null> =
+    this._onDidChangeActiveArtifactPath.event;
+
+  private readonly _onDidChangeActiveArtifactId = new Emitter<string | null>();
+  readonly onDidChangeActiveArtifactId: Event<string | null> =
+    this._onDidChangeActiveArtifactId.event;
+
+  private readonly _onDidChangeLogsSurface = new Emitter<LogsSurface>();
+  readonly onDidChangeLogsSurface: Event<LogsSurface> = this._onDidChangeLogsSurface.event;
+
+  private readonly _onDidChangePreviewVisible = new Emitter<boolean>();
+  readonly onDidChangePreviewVisible: Event<boolean> = this._onDidChangePreviewVisible.event;
+
+  private readonly _onDidEditorToPreview = new Emitter<EditorToPreviewEvent>();
+  readonly onDidEditorToPreview: Event<EditorToPreviewEvent> = this._onDidEditorToPreview.event;
+
+  private readonly _onDidPreviewToEditor = new Emitter<PreviewToEditorEvent>();
+  readonly onDidPreviewToEditor: Event<PreviewToEditorEvent> = this._onDidPreviewToEditor.event;
+
+  private readonly _onDidRequestChatWithText = new Emitter<{
+    text: string;
+    source: 'editor' | 'selection';
+  }>();
+  readonly onDidRequestChatWithText: Event<{ text: string; source: 'editor' | 'selection' }> =
+    this._onDidRequestChatWithText.event;
+
   constructor() {
     this._disposables.add(this._onDidChangeSidebarTab);
     this._disposables.add(this._onDidChangeSidebarCollapsed);
@@ -199,10 +295,21 @@ export class UIService implements IDisposable {
     this._disposables.add(this._onDidChangeCompiling);
     this._disposables.add(this._onDidChangeCompilationResult);
     this._disposables.add(this._onDidChangePdf);
+    this._disposables.add(this._onDidChangeFilePdfPreview);
     this._disposables.add(this._onDidAddCompilationLog);
     this._disposables.add(this._onDidChangePdfHighlight);
     this._disposables.add(this._onDidRequestAIErrorAnalysis);
     this._disposables.add(this._onDidChangeAgentState);
+    this._disposables.add(this._onDidChangePreviewMode);
+    this._disposables.add(this._onDidChangeWorkspaceMode);
+    this._disposables.add(this._onDidChangeResearchLayoutFocus);
+    this._disposables.add(this._onDidChangeActiveArtifactPath);
+    this._disposables.add(this._onDidChangeActiveArtifactId);
+    this._disposables.add(this._onDidChangeLogsSurface);
+    this._disposables.add(this._onDidChangePreviewVisible);
+    this._disposables.add(this._onDidEditorToPreview);
+    this._disposables.add(this._onDidPreviewToEditor);
+    this._disposables.add(this._onDidRequestChatWithText);
 
     this._bindCompileService();
 
@@ -227,6 +334,22 @@ export class UIService implements IDisposable {
           editorService.onDidChangeActiveTab(() => {
             // Clear old compilation results to avoid showing other files' error messages
             this.setCompilationResult(null);
+
+            // Auto-resolve preview mode based on active tab's file type
+            const activeTabPath = editorService.activeTabPath;
+            this.setPreviewMode(resolvePreviewMode(activeTabPath));
+            this.syncPdfPreviewForFile(activeTabPath);
+          })
+        );
+
+        this._disposables.add(
+          editorService.onDidChangeDirtyState(({ path, isDirty }) => {
+            if (isDirty && path.toLowerCase().endsWith('.typ')) {
+              this.markFilePdfPreviewStale(path, true);
+              if (editorService.activeTabPath === path) {
+                this.syncPdfPreviewForFile(path);
+              }
+            }
           })
         );
       })
@@ -340,13 +463,32 @@ export class UIService implements IDisposable {
   get pdfHighlight(): PdfHighlight | null {
     return this._pdfHighlight;
   }
+  get workspaceMode(): WorkspaceMode {
+    return this._workspaceMode;
+  }
+  get researchLayoutFocus(): ResearchLayoutFocus {
+    return this._researchLayoutFocus;
+  }
+  get activeArtifactPath(): string | null {
+    return this._activeArtifactPath;
+  }
+  get activeArtifactId(): string | null {
+    return this._activeArtifactId;
+  }
+  get logsSurface(): LogsSurface {
+    return this._logsSurface;
+  }
+  get isPreviewVisible(): boolean {
+    return this._isPreviewVisible;
+  }
   // ============ Sidebar Operations ============
 
   setSidebarTab(tab: SidebarTab): void {
-    if (this._sidebarTab === tab) return;
-    this._sidebarTab = tab;
-    this._storage.store(STORAGE_KEYS.SIDEBAR_TAB, tab);
-    this._onDidChangeSidebarTab.fire(tab);
+    const normalizedTab = normalizeSidebarTab(tab);
+    if (this._sidebarTab === normalizedTab) return;
+    this._sidebarTab = normalizedTab;
+    this._storage.store(STORAGE_KEYS.SIDEBAR_TAB, normalizedTab);
+    this._onDidChangeSidebarTab.fire(normalizedTab);
 
     // Auto-expand sidebar when switching tabs
     if (this._isSidebarCollapsed) {
@@ -371,10 +513,11 @@ export class UIService implements IDisposable {
   // ====== Right Panel Operations ======
 
   setRightPanelTab(tab: RightPanelTab): void {
-    if (this._rightPanelTab === tab) return;
-    this._rightPanelTab = tab;
-    this._storage.store(STORAGE_KEYS.RIGHT_PANEL_TAB, tab);
-    this._onDidChangeRightPanelTab.fire(tab);
+    const nextTab = normalizeRightPanelTab(tab);
+    if (this._rightPanelTab === nextTab) return;
+    this._rightPanelTab = nextTab;
+    this._storage.store(STORAGE_KEYS.RIGHT_PANEL_TAB, nextTab);
+    this._onDidChangeRightPanelTab.fire(nextTab);
 
     if (this._isRightPanelCollapsed) {
       this.setRightPanelCollapsed(false);
@@ -386,6 +529,48 @@ export class UIService implements IDisposable {
     this._isRightPanelCollapsed = collapsed;
     this._storage.store(STORAGE_KEYS.RIGHT_PANEL_COLLAPSED, collapsed);
     this._onDidChangeRightPanelCollapsed.fire(collapsed);
+  }
+
+  setWorkspaceMode(mode: WorkspaceMode): void {
+    if (this._workspaceMode === mode) return;
+    this._workspaceMode = mode;
+    this._storage.store(STORAGE_KEYS.WORKSPACE_MODE, mode);
+    this._onDidChangeWorkspaceMode.fire(mode);
+  }
+
+  setResearchLayoutFocus(focus: ResearchLayoutFocus): void {
+    if (this._researchLayoutFocus === focus) return;
+    this._researchLayoutFocus = focus;
+    this._storage.store(STORAGE_KEYS.RESEARCH_LAYOUT_FOCUS, focus);
+    this._onDidChangeResearchLayoutFocus.fire(focus);
+  }
+
+  setActiveArtifactPath(path: string | null): void {
+    if (this._activeArtifactPath === path) return;
+    this._activeArtifactPath = path;
+    this._storage.store(STORAGE_KEYS.ACTIVE_ARTIFACT_PATH, path);
+    this._onDidChangeActiveArtifactPath.fire(path);
+  }
+
+  setActiveArtifactId(id: string | null): void {
+    if (this._activeArtifactId === id) return;
+    this._activeArtifactId = id;
+    this._storage.store(STORAGE_KEYS.ACTIVE_ARTIFACT_ID, id);
+    this._onDidChangeActiveArtifactId.fire(id);
+  }
+
+  setLogsSurface(surface: LogsSurface): void {
+    if (this._logsSurface === surface) return;
+    this._logsSurface = surface;
+    this._storage.store(STORAGE_KEYS.LOGS_SURFACE, surface);
+    this._onDidChangeLogsSurface.fire(surface);
+  }
+
+  setPreviewVisible(visible: boolean): void {
+    if (this._isPreviewVisible === visible) return;
+    this._isPreviewVisible = visible;
+    this._storage.store(STORAGE_KEYS.PREVIEW_VISIBLE, visible);
+    this._onDidChangePreviewVisible.fire(visible);
   }
 
   // ====== Command Palette ======
@@ -429,6 +614,60 @@ export class UIService implements IDisposable {
 
   get pdfUrl(): string | null {
     return this._pdfUrl;
+  }
+
+  getFilePdfPreview(filePath: string | null): FilePdfPreviewState | null {
+    if (!filePath) return null;
+    return this._filePdfPreviews.get(filePath) ?? null;
+  }
+
+  updateFilePdfPreview(
+    filePath: string,
+    preview: { pdfPath: string | null; pdfData: ArrayBuffer | null; isStale?: boolean }
+  ): void {
+    const nextState: FilePdfPreviewState = {
+      filePath,
+      pdfPath: preview.pdfPath,
+      pdfData: preview.pdfData,
+      isStale: preview.isStale ?? false,
+      updatedAt: Date.now(),
+    };
+
+    this._filePdfPreviews.set(filePath, nextState);
+    this._onDidChangeFilePdfPreview.fire({ filePath, state: nextState });
+  }
+
+  markFilePdfPreviewStale(filePath: string, isStale: boolean): void {
+    const current = this._filePdfPreviews.get(filePath);
+    if (!current || current.isStale === isStale) return;
+
+    const nextState: FilePdfPreviewState = {
+      ...current,
+      isStale,
+    };
+    this._filePdfPreviews.set(filePath, nextState);
+    this._onDidChangeFilePdfPreview.fire({ filePath, state: nextState });
+  }
+
+  private syncPdfPreviewForFile(filePath: string | null): void {
+    if (!filePath) {
+      this.setPdfPath(null);
+      this.setPdfData(null);
+      this.setPdfUrl(null);
+      return;
+    }
+
+    const preview = this._filePdfPreviews.get(filePath);
+    if (!preview || preview.isStale) {
+      this.setPdfPath(null);
+      this.setPdfData(null);
+      this.setPdfUrl(null);
+      return;
+    }
+
+    this.setPdfPath(preview.pdfPath);
+    this.setPdfData(preview.pdfData);
+    this.setPdfUrl(null);
   }
 
   // ====== Compilation Logs ======
@@ -477,6 +716,29 @@ export class UIService implements IDisposable {
     return this._agentState;
   }
 
+  // ====== Preview Mode ======
+
+  get previewMode(): PreviewMode {
+    return this._previewMode;
+  }
+
+  setPreviewMode(mode: PreviewMode): void {
+    if (this._previewMode === mode) return;
+    this._previewMode = mode;
+    this._onDidChangePreviewMode.fire(mode);
+    if (mode === 'none') {
+      this.setPreviewVisible(false);
+    }
+  }
+
+  fireEditorToPreview(event: EditorToPreviewEvent): void {
+    this._onDidEditorToPreview.fire(event);
+  }
+
+  firePreviewToEditor(event: PreviewToEditorEvent): void {
+    this._onDidPreviewToEditor.fire(event);
+  }
+
   setAgentState(state: Partial<AgentState>): void {
     this._agentState = { ...this._agentState, ...state };
     this._onDidChangeAgentState.fire(this._agentState);
@@ -497,11 +759,22 @@ export class UIService implements IDisposable {
 
   /**
    * Request AI analysis of compilation error
-   * Automatically switches to AI chat panel and pre-fills prompt
+   * Automatically switches to AI chat panel and keeps current editor/preview layout
    */
   requestAIErrorAnalysis(request: AskAIAboutErrorRequest): void {
-    this.setSidebarTab('ai');
+    this.setSidebarTab('im');
     this._onDidRequestAIErrorAnalysis.fire(request);
+  }
+
+  // ====== Chat With Text (Ctrl+L) ======
+
+  /**
+   * Send text to the IM input (triggered by Ctrl+L or global selection).
+   */
+  requestChatWithText(text: string, source: 'editor' | 'selection' = 'editor'): void {
+    this.setSidebarTab('im');
+    this.setSidebarCollapsed(false);
+    this._onDidRequestChatWithText.fire({ text, source });
   }
 
   // ====== Lifecycle ======

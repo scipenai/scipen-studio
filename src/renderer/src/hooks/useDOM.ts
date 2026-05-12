@@ -307,15 +307,11 @@ export function useIntersectionObserver<T extends HTMLElement = HTMLElement>(
   const [entry, setEntry] = useState<IntersectionObserverEntry | null>(null);
 
   // Memoize options to prevent infinite re-subscription when caller passes inline object
-  // Note: threshold can be a number or array, so we JSON.stringify it for stable comparison
+  // threshold can be number or array, so JSON.stringify it for stable comparison
   const memoizedOptions = useMemo(
     () => options,
-    [
-      options?.root,
-      options?.rootMargin,
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      JSON.stringify(options?.threshold),
-    ]
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional shallow option memoization, identity-based deps would re-subscribe every parent render
+    [options?.root, options?.rootMargin, JSON.stringify(options?.threshold)]
   );
 
   useEffect(() => {

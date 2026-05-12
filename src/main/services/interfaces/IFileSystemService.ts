@@ -17,6 +17,12 @@ export interface FileNode {
   path: string;
   type: 'file' | 'directory';
   children?: FileNode[];
+  /**
+   * Whether directory children have been resolved (lazy loading flag)
+   * - true: children are loaded
+   * - false/undefined: children not loaded, need to resolve when expanding
+   */
+  isResolved?: boolean;
   size?: number;
   mtime?: number;
 }

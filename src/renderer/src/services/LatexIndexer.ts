@@ -144,7 +144,7 @@ export class LatexIndexer {
     try {
       await this.scanDirectory(projectPath, '');
     } catch (error) {
-      console.error('索引项目失败:', error);
+      console.error('Failed to index project:', error);
     }
   }
 
@@ -152,8 +152,7 @@ export class LatexIndexer {
    * Recursively scan directory
    */
   private async scanDirectory(_basePath: string, _relativePath: string): Promise<void> {
-    // TODO: List directory contents via Electron API
-    // Currently implemented via file tree
+    // Indexing is driven by file tree events, not directory scanning
   }
 
   /**

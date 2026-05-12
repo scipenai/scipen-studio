@@ -42,41 +42,18 @@ export {
   useIpcEvent,
 } from './useEvent';
 
-// ============ Service Hooks ============
-export {
-  useServiceRegistry,
-  useEditorService,
-  useAIService,
-  useProjectService,
-  useUIService,
-  useSettingsService,
-  useWorkingCopyService,
-  useBackupService,
-  useCompileService,
-  useCommandService,
-  useKeybindingService,
-  useViewRegistry,
-  useStorageService,
-  useServiceState,
-} from './useService';
-
 // ============ App-specific Hooks ============
 export { useThemeSync } from './useThemeSync';
 export { useLocaleSync } from './useLocaleSync';
-export { useKnowledgeConfigSync, useAIConfigSync } from './useConfigSync';
+export { useAIConfigSync } from './useConfigSync';
 export { useLSPInit } from './useLSPInit';
 export { useFileWatcher } from './useFileWatcher';
 export { useGlobalShortcuts } from './useGlobalShortcuts';
 export { useMemoryCleanup } from './useMemoryCleanup';
-export { useOverleafFlushOnUnload } from './useOverleafSync';
 export { useFileOpen } from './useFileOpen';
 
 // ============ Chat Hooks ============
 export {
   useChatService,
-  useChatMessages,
-  useChatSessions,
-  useCurrentChatSession,
-  useChatGenerating,
   type UseChatServiceReturn,
 } from './useChatService';

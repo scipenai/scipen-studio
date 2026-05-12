@@ -32,11 +32,8 @@ export interface UseChatServiceReturn {
   referencedFiles: ReferencedFile[];
   referencedFailed: ReferencedFileFailed[];
 
-  // RAG Search State
-  ragSearching: boolean;
-
   // Session Actions
-  createSession: (knowledgeBaseId?: string) => Promise<string>;
+  createSession: () => Promise<string>;
   switchSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => Promise<void>;
   renameSession: (sessionId: string, title: string) => Promise<void>;
@@ -206,31 +203,11 @@ export function useChatService(): UseChatServiceReturn {
     () => service.referencedFailed
   );
 
-  // RAG search state
-  const ragSearching = useSyncExternalStore(
-    useCallback(
-      (onStoreChange: () => void) => {
-        const d1 = service.onDidRagSearch(() => onStoreChange());
-        const d2 = service.onDidChangeLoading(() => onStoreChange());
-        return () => {
-          d1.dispose();
-          d2.dispose();
-        };
-      },
-      [service]
-    ),
-    () => service.ragSearching,
-    () => service.ragSearching
-  );
-
   // ============ Actions ============
 
-  const createSession = useCallback(
-    async (knowledgeBaseId?: string) => {
-      return service.createSession(knowledgeBaseId);
-    },
-    [service]
-  );
+  const createSession = useCallback(async () => {
+    return service.createSession();
+  }, [service]);
 
   const switchSession = useCallback(
     (sessionId: string) => {
@@ -290,9 +267,6 @@ export function useChatService(): UseChatServiceReturn {
     referencedFiles,
     referencedFailed,
 
-    // RAG Search State
-    ragSearching,
-
     // Session Actions
     createSession,
     switchSession,
@@ -305,102 +279,4 @@ export function useChatService(): UseChatServiceReturn {
     addLocalMessage,
     updateLocalMessage,
   };
-}
-
-// ====== Individual Hooks (for optimized re-renders) ======
-
-/**
- * Subscribes only to message list changes (avoids re-renders from other state).
- */
-export function useChatMessages(): UnifiedChatMessage[] {
-  const service = getChatService();
-
-  return useSyncExternalStore(
-    useCallback(
-      (onStoreChange: () => void) => {
-        const d1 = service.onDidAddMessage(() => onStoreChange());
-        const d2 = service.onDidUpdateMessage(() => onStoreChange());
-        const d3 = service.onDidCompleteMessage(() => onStoreChange());
-        const d4 = service.onDidSwitchSession(() => onStoreChange());
-        return () => {
-          d1.dispose();
-          d2.dispose();
-          d3.dispose();
-          d4.dispose();
-        };
-      },
-      [service]
-    ),
-    () => service.getCurrentMessages(),
-    () => service.getCurrentMessages()
-  );
-}
-
-/**
- * Subscribes only to session list changes.
- */
-export function useChatSessions(): ChatSession[] {
-  const service = getChatService();
-
-  return useSyncExternalStore(
-    useCallback(
-      (onStoreChange: () => void) => {
-        const d1 = service.onDidCreateSession(() => onStoreChange());
-        const d2 = service.onDidDeleteSession(() => onStoreChange());
-        const d3 = service.onDidRenameSession(() => onStoreChange());
-        return () => {
-          d1.dispose();
-          d2.dispose();
-          d3.dispose();
-        };
-      },
-      [service]
-    ),
-    () => service.sessions,
-    () => service.sessions
-  );
-}
-
-/**
- * Subscribes only to current session changes.
- */
-export function useCurrentChatSession(): ChatSession | null {
-  const service = getChatService();
-
-  return useSyncExternalStore(
-    useCallback(
-      (onStoreChange: () => void) => {
-        const d1 = service.onDidSwitchSession(() => onStoreChange());
-        const d2 = service.onDidUpdateSession(() => onStoreChange());
-        const d3 = service.onDidRenameSession(() => onStoreChange());
-        return () => {
-          d1.dispose();
-          d2.dispose();
-          d3.dispose();
-        };
-      },
-      [service]
-    ),
-    () => service.currentSession,
-    () => service.currentSession
-  );
-}
-
-/**
- * Subscribes only to generating state changes.
- */
-export function useChatGenerating(): boolean {
-  const service = getChatService();
-
-  return useSyncExternalStore(
-    useCallback(
-      (onStoreChange: () => void) => {
-        const d = service.onDidChangeLoading(() => onStoreChange());
-        return () => d.dispose();
-      },
-      [service]
-    ),
-    () => service.isGenerating,
-    () => service.isGenerating
-  );
 }

@@ -26,6 +26,16 @@ function defineDarkTheme(monaco: Monaco): void {
       { token: 'string.math', foreground: 'f59e0b' }, // --color-warning
       { token: 'number', foreground: '10b981' }, // --color-success
       { token: 'delimiter.curly', foreground: 'f59e0b' }, // --color-warning
+      { token: 'markup.heading', foreground: '67e8f9', fontStyle: 'bold' },
+      { token: 'markup.quote', foreground: '94a3b8' },
+      { token: 'markup.list', foreground: '22d3ee' },
+      { token: 'markup.fence', foreground: '64748b' },
+      { token: 'markup.inlinecode', foreground: 'f59e0b' },
+      { token: 'markup.link', foreground: '38bdf8' },
+      { token: 'markup.bold', foreground: 'f8fafc', fontStyle: 'bold' },
+      { token: 'markup.italic', foreground: 'cbd5e1', fontStyle: 'italic' },
+      { token: 'markup.table', foreground: 'cbd5e1' },
+      { token: 'markup.html', foreground: '10b981' },
     ],
     colors: {
       // Synchronized with index.css --color-bg-secondary
@@ -49,6 +59,10 @@ function defineDarkTheme(monaco: Monaco): void {
       // Sidebar synchronized with index.css --color-bg-primary
       'editorWidget.background': '#0c1018',
       'editorWidget.border': 'rgba(56, 189, 248, 0.12)',
+      'editorOverviewRuler.border': '#00000000',
+      'editorOverviewRuler.errorForeground': '#f8717166',
+      'editorOverviewRuler.warningForeground': '#fbbf2466',
+      'editorOverviewRuler.infoForeground': '#34d39955',
       // Scrollbar
       'scrollbarSlider.background': 'rgba(148, 163, 184, 0.2)',
       'scrollbarSlider.hoverBackground': 'rgba(148, 163, 184, 0.35)',
@@ -78,6 +92,16 @@ function defineLightTheme(monaco: Monaco): void {
       { token: 'string.math', foreground: 'c07d10' }, // --academic-gold
       { token: 'number', foreground: 'b91c1c' }, // --academic-red
       { token: 'delimiter.curly', foreground: 'c07d10' }, // --academic-gold
+      { token: 'markup.heading', foreground: '1e4e8c', fontStyle: 'bold' },
+      { token: 'markup.quote', foreground: '6b7280' },
+      { token: 'markup.list', foreground: '0d7377' },
+      { token: 'markup.fence', foreground: '6b7280' },
+      { token: 'markup.inlinecode', foreground: 'c07d10' },
+      { token: 'markup.link', foreground: '1e4e8c' },
+      { token: 'markup.bold', foreground: '1a1c1e', fontStyle: 'bold' },
+      { token: 'markup.italic', foreground: '3d4249', fontStyle: 'italic' },
+      { token: 'markup.table', foreground: '3d4249' },
+      { token: 'markup.html', foreground: '0d7377' },
     ],
     colors: {
       // Synchronized with index.css --paper-cream
@@ -101,6 +125,10 @@ function defineLightTheme(monaco: Monaco): void {
       // Widget background
       'editorWidget.background': '#ffffff',
       'editorWidget.border': 'rgba(30, 78, 140, 0.15)',
+      'editorOverviewRuler.border': '#00000000',
+      'editorOverviewRuler.errorForeground': '#de8f8573',
+      'editorOverviewRuler.warningForeground': '#c6a25770',
+      'editorOverviewRuler.infoForeground': '#6cae9f66',
       // Scrollbar
       'scrollbarSlider.background': 'rgba(30, 78, 140, 0.15)',
       'scrollbarSlider.hoverBackground': 'rgba(30, 78, 140, 0.25)',

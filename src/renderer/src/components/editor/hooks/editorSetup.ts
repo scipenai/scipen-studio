@@ -8,6 +8,7 @@ import type * as monaco from 'monaco-editor';
 import { startTransition } from 'react';
 import { api } from '../../../api';
 import { t } from '../../../locales';
+import { triggerOverleafSyncAfterSave } from '../../../utils/overleaf-sync-helper';
 import {
   getNextWordFromSuggestion,
   resetPartialAccept,
@@ -20,21 +21,21 @@ import {
   normalizeModelPath,
 } from '../../../services/LSPService';
 import { createLogger } from '../../../services/LogService';
+import { getSyncTeXService } from '../../../services/SyncTeXService';
 import {
   getEditorService,
-  getProjectService,
+  getOTService,
   getSettingsService,
   getShortcutService,
   getUIService,
 } from '../../../services/core';
-import type { EditorTab } from '../../../types';
+import { SyncEventType } from '../../../services/core/PreviewTypes';
 
 const logger = createLogger('EditorSetup');
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
 
 export function setupCursorTracking(editor: Editor): void {
-  // Why: Use startTransition to avoid blocking input during cursor position updates
   editor.onDidChangeCursorPosition((e) => {
     startTransition(() => {
       getEditorService().setCursorPosition(e.position.lineNumber, e.position.column);
@@ -59,25 +60,55 @@ export function setupCursorTracking(editor: Editor): void {
 }
 
 /**
- * Setup scroll event listeners (LSP performance optimization)
+ * Setup scroll event listeners (LSP performance optimization + preview scroll sync)
+ * @returns Disposable for the preview-to-editor listener (must be disposed when editor is destroyed)
  */
-export function setupScrollTracking(editor: Editor): void {
+export function setupScrollTracking(editor: Editor): { dispose: () => void } {
   editor.onDidScrollChange(() => {
     LSPService.notifyScrollStart();
     LSPService.notifyScrollEnd();
+
+    // Fire scroll-to-line event for Markdown preview sync
+    const uiService = getUIService();
+    if (uiService.previewMode === 'markdown') {
+      const visibleRange = editor.getVisibleRanges()[0];
+      if (visibleRange) {
+        uiService.fireEditorToPreview({
+          type: SyncEventType.SCROLL_TO_LINE,
+          line: visibleRange.startLineNumber,
+        });
+      }
+    }
   });
+
+  // Listen for preview-to-editor click events
+  const uiService = getUIService();
+  const previewDisposable = uiService.onDidPreviewToEditor((event) => {
+    if (event.type === SyncEventType.CLICK_TO_SOURCE && event.line != null) {
+      editor.revealLineInCenter(event.line);
+      editor.setPosition({ lineNumber: event.line, column: event.column ?? 1 });
+      editor.focus();
+    }
+  });
+
+  return previewDisposable;
 }
 
 /**
  * Setup file content change tracking
  * Note: Does not depend on external activeTabPath, dynamically gets path from model URI
  */
-export function setupContentChangeTracking(editor: Editor): void {
+export function setupContentChangeTracking(
+  editor: Editor,
+  isProgrammaticUpdateRef?: { readonly current: boolean }
+): void {
   editor.onDidChangeModelContent((event) => {
     const model = editor.getModel();
     if (!model) return;
 
-    // Why: Normalize model URI path for consistent file path handling
+    // Skip OT and content updates during programmatic changes (e.g. remote OT)
+    if (isProgrammaticUpdateRef?.current) return;
+
     const filePath = normalizeModelPath(model.uri.path);
     const content = model.getValue();
 
@@ -92,11 +123,26 @@ export function setupContentChangeTracking(editor: Editor): void {
       LSPService.updateDocumentIncremental(filePath, changes);
     }
 
+    // Forward changes to OT service when collaboration is active
+    const otService = getOTService();
+
+    if (otService.isActive) {
+      const changes = event.changes.map((change) => ({
+        rangeOffset: change.rangeOffset,
+        rangeLength: change.rangeLength,
+        text: change.text,
+      }));
+      // modelValueLengthBefore = content length before changes
+      // event.changes describe what changed in the original text, so baseLength = current - net delta
+      const netDelta = event.changes.reduce((sum, c) => sum + c.text.length - c.rangeLength, 0);
+      const baseLength = content.length - netDelta;
+      otService.applyLocalChange(changes, baseLength);
+    }
+
     resetPartialAccept();
   });
 }
 
-// Why: Debounce timer prevents rapid repeated SyncTeX triggers (e.g., double-click or duplicate events)
 let syncTexDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
@@ -114,68 +160,13 @@ function performSyncTexForward(lineNumber: number, column: number): void {
 
 function PerformSyncTexForwardFormatted(lineNumber: number, column: number): void {
   const uiService = getUIService();
-  const settingsService = getSettingsService();
-  const projectService = getProjectService();
-  const projectPath = projectService.projectPath;
 
   if (!uiService.pdfData && !uiService.pdfPath) {
     uiService.addCompilationLog({ type: 'warning', message: t('syncTeX.compilePdfFirst') });
     return;
   }
 
-  const isRemote = projectPath?.startsWith('overleaf://') || projectPath?.startsWith('overleaf:');
-
-  if (isRemote) {
-    performRemoteSyncTeX(lineNumber, column, uiService, settingsService);
-  } else {
-    performLocalSyncTeX(lineNumber, column, uiService);
-  }
-}
-
-function performRemoteSyncTeX(
-  lineNumber: number,
-  column: number,
-  uiService: ReturnType<typeof getUIService>,
-  settingsService: ReturnType<typeof getSettingsService>
-): void {
-  const remoteBuildId = uiService.remoteBuildId;
-  if (!remoteBuildId) {
-    uiService.addCompilationLog({ type: 'warning', message: t('syncTeX.compileFirst') });
-    return;
-  }
-
-  const editorService = getEditorService();
-  const currentPath = editorService.activeTabPath;
-  if (!currentPath) return;
-
-  const projectId = settingsService.compiler.overleaf?.projectId;
-  if (!projectId) {
-    uiService.addCompilationLog({ type: 'warning', message: t('syncTeX.missingProjectId') });
-    return;
-  }
-
-  let filePath = currentPath;
-  const match = currentPath.match(/^overleaf:\/\/[^/]+\/(.+)$/);
-  if (match) {
-    filePath = match[1];
-  }
-
-  api.overleaf.syncCode(projectId, filePath, lineNumber, column, remoteBuildId).then((result) => {
-    if (result && result.length > 0) {
-      const pos = result[0];
-      uiService.setPdfHighlight({
-        page: pos.page || 1,
-        x: pos.h,
-        y: pos.v,
-        width: pos.width || 50,
-        height: pos.height || 20,
-      });
-      uiService.addCompilationLog({
-        type: 'info',
-        message: t('syncTeX.jumpToPage', { page: String(pos.page) }),
-      });
-    }
-  });
+  performLocalSyncTeX(lineNumber, column, uiService);
 }
 
 function performLocalSyncTeX(
@@ -183,16 +174,17 @@ function performLocalSyncTeX(
   column: number,
   uiService: ReturnType<typeof getUIService>
 ): void {
-  const synctexPath = uiService.synctexPath;
   const editorService = getEditorService();
   const currentPath = editorService.activeTabPath;
+  const synctexPath = uiService.synctexPath;
 
-  if (!currentPath || !synctexPath) {
+  if (!currentPath) {
     uiService.addCompilationLog({ type: 'warning', message: t('syncTeX.compileFirst') });
     return;
   }
 
-  api.synctex.forward(currentPath, lineNumber, column, synctexPath).then((result) => {
+  const syncTeXService = getSyncTeXService();
+  syncTeXService.forward(currentPath, lineNumber, column, synctexPath).then((result) => {
     if (result) {
       uiService.setPdfHighlight({
         page: result.page || 1,
@@ -247,13 +239,12 @@ export function setupShortcuts(editor: Editor, monacoInstance: Monaco): void {
     uiService.setCommandPaletteOpen(true);
   });
 
-  shortcutService.registerHandler('aiPolish', () => {
-    window.dispatchEvent(new CustomEvent('trigger-ai-polish'));
-  });
-
-  shortcutService.registerHandler('aiChat', () => {
-    uiService.setSidebarTab('ai');
-    uiService.setSidebarCollapsed(false);
+  shortcutService.registerHandler('chatWithSelection', () => {
+    const selection = editor.getSelection();
+    const model = editor.getModel();
+    const selectedText =
+      selection && !selection.isEmpty() && model ? model.getValueInRange(selection) : '';
+    getUIService().requestChatWithText(selectedText, 'editor');
   });
 
   shortcutService.registerHandler('togglePreview', () => {
@@ -294,24 +285,69 @@ export function setupShortcuts(editor: Editor, monacoInstance: Monaco): void {
   });
 }
 
+/**
+ * Save current file (local-first: every file goes through local save + Overleaf sync).
+ */
 async function handleSaveCommand(): Promise<void> {
   const editorService = getEditorService();
-  const settingsService = getSettingsService();
   const uiService = getUIService();
-  const currentTab = editorService.tabs.find((t) => t.path === editorService.activeTabPath);
+  const currentTab = editorService.tabs.find((tab) => tab.path === editorService.activeTabPath);
 
   if (!currentTab || !editorService.activeTabPath) return;
 
-  try {
-    const isRemoteFile =
-      editorService.activeTabPath.startsWith('overleaf://') ||
-      editorService.activeTabPath.startsWith('overleaf:');
+  const path = editorService.activeTabPath;
 
-    if (isRemoteFile) {
-      await saveRemoteFile(currentTab, editorService, settingsService, uiService);
-    } else {
-      await saveLocalFile(currentTab, editorService, uiService);
+  if (!currentTab.isDirty) return;
+
+  try {
+    const saveInfo = editorService.beginSave(path);
+    if (!saveInfo) return;
+
+    await api.file.write(path, saveInfo.content);
+
+    let otSynced = true;
+    if (currentTab._id) {
+      const otProjectId = currentTab.projectId || getOTService().getProjectId();
+      if (otProjectId) {
+        otSynced = await getOTService().syncSavedContent(
+          otProjectId,
+          currentTab._id,
+          saveInfo.content
+        );
+      }
     }
+
+    let wasClean = false;
+    if (otSynced) {
+      wasClean = editorService.completeSave(path, saveInfo.version);
+    } else {
+      editorService.finalizeSaveKeepingDirty(path);
+    }
+
+    if (!otSynced) {
+      uiService.addCompilationLog({
+        type: 'warning',
+        message: t('syncTeX.savedLocalWithEdits', { name: currentTab.name }),
+      });
+    } else if (wasClean) {
+      uiService.addCompilationLog({
+        type: 'success',
+        message: t('syncTeX.savedLocal', { name: currentTab.name }),
+      });
+    } else {
+      uiService.addCompilationLog({
+        type: 'info',
+        message: t('syncTeX.savedLocalWithEdits', { name: currentTab.name }),
+      });
+    }
+
+    // Overleaf local-first: push the saved content to Overleaf
+    triggerOverleafSyncAfterSave({
+      filePath: path,
+      content: saveInfo.content,
+      fileName: currentTab.name,
+      addLog: (type, message) => uiService.addCompilationLog({ type, message }),
+    });
   } catch (error) {
     logger.error(t('syncTeX.saveFailed'), error);
     uiService.addCompilationLog({
@@ -319,102 +355,6 @@ async function handleSaveCommand(): Promise<void> {
       message: t('syncTeX.saveFailedDetail', {
         error: error instanceof Error ? error.message : t('syncTeX.saveFailedUnknown'),
       }),
-    });
-  }
-}
-
-/**
- * Save remote file (versioned save to prevent race conditions)
- *
- * 🔧 P3 fix: Uses beginSave/completeSave instead of deprecated markClean
- */
-async function saveRemoteFile(
-  currentTab: EditorTab,
-  editorService: ReturnType<typeof getEditorService>,
-  settingsService: ReturnType<typeof getSettingsService>,
-  uiService: ReturnType<typeof getUIService>
-): Promise<void> {
-  const projectId = settingsService.compiler.overleaf?.projectId;
-  if (!projectId) {
-    uiService.addCompilationLog({ type: 'error', message: t('syncTeX.remoteProjectIdNotFound') });
-    return;
-  }
-
-  const docId = currentTab._id;
-  if (!docId) {
-    uiService.addCompilationLog({ type: 'error', message: t('syncTeX.docIdNotFound') });
-    return;
-  }
-
-  const path = editorService.activeTabPath!;
-
-  if (!currentTab.isDirty) {
-    return;
-  }
-
-  // Why: Version tracking prevents race conditions when user continues editing during async save
-  const saveInfo = editorService.beginSave(path);
-  if (!saveInfo) {
-    return;
-  }
-
-  // Why: Async save allows user to continue editing during save operation
-  const result = await api.overleaf.updateDoc(projectId, docId, saveInfo.content);
-  if (!result?.success) {
-    throw new Error(result?.error || 'Failed to save remote file');
-  }
-
-  // Why: Only mark as clean if no new edits occurred during save
-  const wasClean = editorService.completeSave(path, saveInfo.version);
-
-  if (wasClean) {
-    uiService.addCompilationLog({
-      type: 'success',
-      message: t('syncTeX.savedRemote', { name: currentTab.name }),
-    });
-  } else {
-    uiService.addCompilationLog({
-      type: 'info',
-      message: t('syncTeX.savedRemoteWithEdits', { name: currentTab.name }),
-    });
-  }
-}
-
-/**
- * Save local file (versioned save to prevent race conditions)
- */
-async function saveLocalFile(
-  currentTab: EditorTab,
-  editorService: ReturnType<typeof getEditorService>,
-  uiService: ReturnType<typeof getUIService>
-): Promise<void> {
-  const path = editorService.activeTabPath!;
-
-  if (!currentTab.isDirty) {
-    return;
-  }
-
-  // Why: Version tracking prevents race conditions when user continues editing during async save
-  const saveInfo = editorService.beginSave(path);
-  if (!saveInfo) {
-    return;
-  }
-
-  // Why: Async save allows user to continue editing during save operation
-  await api.file.write(path, saveInfo.content);
-
-  // Why: Only mark as clean if no new edits occurred during save
-  const wasClean = editorService.completeSave(path, saveInfo.version);
-
-  if (wasClean) {
-    uiService.addCompilationLog({
-      type: 'success',
-      message: t('syncTeX.savedLocal', { name: currentTab.name }),
-    });
-  } else {
-    uiService.addCompilationLog({
-      type: 'info',
-      message: t('syncTeX.savedLocalWithEdits', { name: currentTab.name }),
     });
   }
 }

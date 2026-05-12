@@ -68,6 +68,8 @@ export const lspApi = {
   ) =>
     ipcRenderer.invoke(IpcChannel.LSP_GetReferences, filePath, line, character, includeDeclaration),
   getDocumentSymbols: (filePath: string) => ipcRenderer.invoke(IpcChannel.LSP_GetSymbols, filePath),
+  getSemanticTokens: (filePath: string) =>
+    ipcRenderer.invoke(IpcChannel.LSP_GetSemanticTokens, filePath),
 
   // ====== Build ======
   build: (filePath: string) => ipcRenderer.invoke(IpcChannel.LSP_Build, filePath),
@@ -99,7 +101,7 @@ export const lspApi = {
    * @returns Unsubscribe function
    * @sideeffect Registers IPC event listener that must be cleaned up
    */
-  onServiceStarted: createSafeListener<{ service: 'texlab' | 'tinymist' }>(
+  onServiceStarted: createSafeListener<{ service: 'texlab' | 'tinymist' | 'marksman' }>(
     IpcChannel.LSP_ServiceStarted
   ),
   /**
@@ -107,15 +109,15 @@ export const lspApi = {
    * @returns Unsubscribe function
    * @sideeffect Registers IPC event listener that must be cleaned up
    */
-  onServiceStopped: createSafeListener<{ service: 'texlab' | 'tinymist' }>(
+  onServiceStopped: createSafeListener<{ service: 'texlab' | 'tinymist' | 'marksman' }>(
     IpcChannel.LSP_ServiceStopped
   ),
   /**
-   * Listen to LSP service restarted event (when TexLab/Tinymist crashes and restarts individually)
+   * Listen to LSP service restarted event (when TexLab/Tinymist/Marksman crashes and restarts individually)
    * @returns Unsubscribe function
    * @sideeffect Registers IPC event listener that must be cleaned up
    */
-  onServiceRestarted: createSafeListener<{ service: 'texlab' | 'tinymist' }>(
+  onServiceRestarted: createSafeListener<{ service: 'texlab' | 'tinymist' | 'marksman' }>(
     IpcChannel.LSP_ServiceRestarted
   ),
 
@@ -173,11 +175,16 @@ export const lspApi = {
   isTinymistAvailable: (): Promise<boolean> =>
     ipcRenderer.invoke(IpcChannel.LSP_IsTinymistAvailable),
 
+  isMarksmanAvailable: (): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannel.LSP_IsMarksmanAvailable),
+
   checkAvailability: (): Promise<{
     texlab: boolean;
     tinymist: boolean;
+    marksman: boolean;
     texlabVersion?: string;
     tinymistVersion?: string;
+    marksmanVersion?: string;
   }> => ipcRenderer.invoke(IpcChannel.LSP_CheckAvailability),
 
   getTexLabVersion: (): Promise<string | undefined> =>
@@ -186,14 +193,17 @@ export const lspApi = {
   getTinymistVersion: (): Promise<string | undefined> =>
     ipcRenderer.invoke(IpcChannel.LSP_GetTinymistVersion),
 
+  getMarksmanVersion: (): Promise<string | undefined> =>
+    ipcRenderer.invoke(IpcChannel.LSP_GetMarksmanVersion),
+
   /**
    * Start all LSP services and return detailed results
-   * @sideeffect Spawns both TexLab and Tinymist processes
+   * @sideeffect Spawns TexLab, Tinymist, and Marksman processes
    */
   startAll: (
     rootPath: string,
     options?: { virtual?: boolean }
-  ): Promise<{ texlab: boolean; tinymist: boolean }> =>
+  ): Promise<{ texlab: boolean; tinymist: boolean; marksman: boolean }> =>
     ipcRenderer.invoke(IpcChannel.LSP_StartAll, rootPath, options),
 
   /**
@@ -209,6 +219,13 @@ export const lspApi = {
    */
   startTinymist: (rootPath: string, options?: { virtual?: boolean }): Promise<boolean> =>
     ipcRenderer.invoke(IpcChannel.LSP_StartTinymist, rootPath, options),
+
+  /**
+   * Start Marksman individually
+   * @sideeffect Spawns Marksman process
+   */
+  startMarksman: (rootPath: string, options?: { virtual?: boolean }): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannel.LSP_StartMarksman, rootPath, options),
 
   /**
    * Export Typst PDF (Tinymist)

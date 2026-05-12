@@ -251,11 +251,11 @@ export function useEmitter<T>(): {
  *
  * @example
  * ```tsx
- * function KnowledgePanel() {
+ * function ExamplePanel() {
  *   useIpcEvent(
- *     api.knowledge.onTaskProgress,
+ *     api.chat.onStream,
  *     (event) => {
- *       console.log('Task progress:', event.progress);
+ *       console.log('Stream event:', event);
  *     }
  *   );
  *

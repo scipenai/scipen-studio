@@ -44,7 +44,7 @@ export const SelectionTab: React.FC = () => {
           setConfig(result);
         }
       } catch (err) {
-        console.error('[SelectionTab] 加载配置失败:', err);
+        console.error('[SelectionTab] Failed to load config:', err);
         setError(t('selectionSettings.loadConfigFailed'));
       } finally {
         setIsLoading(false);
@@ -70,7 +70,7 @@ export const SelectionTab: React.FC = () => {
           setError(result.error || t('selectionSettings.saveFailed'));
         }
       } catch (err) {
-        console.error('[SelectionTab] 更新配置失败:', err);
+        console.error('[SelectionTab] Failed to update config:', err);
         setError(`${t('selectionSettings.saveFailed')}: ${String(err)}`);
       } finally {
         setIsSaving(false);
@@ -90,7 +90,7 @@ export const SelectionTab: React.FC = () => {
           setError(result?.error || t('selectionSettings.enableDisableFailed'));
         }
       } catch (err) {
-        console.error('[SelectionTab] 切换启用状态失败:', err);
+        console.error('[SelectionTab] Failed to toggle enabled state:', err);
         setError(`${t('selectionSettings.enableDisableFailed')}: ${String(err)}`);
       }
     },

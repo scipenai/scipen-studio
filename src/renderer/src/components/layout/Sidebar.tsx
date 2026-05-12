@@ -1,132 +1,134 @@
 /**
- * @file Sidebar.tsx - Main Sidebar Navigation
- * @description App main navigation bar with file, chat, knowledge base entry icons
+ * @file Sidebar.tsx - Conversation sidebar
+ * @description Manus/Codex-inspired left navigation with new chat, history, files, and settings
  */
 
-import { clsx } from 'clsx';
-import { motion } from 'framer-motion';
+import { FolderKanban, MessageSquare, Settings } from 'lucide-react';
 import type React from 'react';
 import { memo } from 'react';
 import logoS from '../../assets/logo-s.svg';
+import { useTranslation } from '../../locales';
 import { getUIService } from '../../services/core/ServiceRegistry';
-import { ViewLocation } from '../../services/core/ViewRegistry';
-import { useProjectPath, useSidebarTab, useViews } from '../../services/core/hooks';
+import { useProjectPath, useSidebarTab } from '../../services/core/hooks';
 
-interface SidebarItemProps {
+const RailAction = memo(function RailAction({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
   icon: React.ReactNode;
   label: string;
-  isActive: boolean;
+  active?: boolean;
   onClick: () => void;
-}
-
-// Use memo to optimize: only re-render when isActive changes
-const SidebarItem: React.FC<SidebarItemProps> = memo(({ icon, label, isActive, onClick }) => (
-  <button
-    onClick={onClick}
-    className={clsx(
-      'group relative w-12 h-12 flex items-center justify-center rounded-xl transition-all duration-200 cursor-pointer',
-      isActive
-        ? 'text-[var(--color-accent)]'
-        : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'
-    )}
-    style={{
-      background: isActive ? 'var(--color-accent-muted)' : undefined,
-      border: isActive ? '1px solid var(--color-border)' : '1px solid transparent',
-    }}
-    title={label}
-  >
-    {/* Icon with consistent styling */}
-    <span
-      className={clsx(
-        'transition-all duration-200 flex items-center justify-center',
-        isActive && 'drop-shadow-[0_0_6px_var(--color-accent)]'
-      )}
-    >
-      {icon}
-    </span>
-
-    {/* Active state indicator - gradient bar */}
-    <motion.div
-      initial={false}
-      animate={{
-        opacity: isActive ? 1 : 0,
-        scaleY: isActive ? 1 : 0,
-        x: isActive ? 0 : -8,
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className="flex h-11 w-11 items-center justify-center rounded-2xl border transition-all duration-200"
+      style={
+        active
+          ? {
+              borderColor: 'color-mix(in srgb, var(--color-accent) 24%, transparent)',
+              background: 'var(--color-accent-muted)',
+              color: 'var(--color-accent)',
+              boxShadow: '0 10px 24px color-mix(in srgb, var(--color-accent) 14%, transparent)',
+            }
+          : {
+              borderColor: 'transparent',
+              background: 'color-mix(in srgb, var(--color-bg-elevated) 88%, transparent)',
+              color: 'var(--color-text-muted)',
+            }
+      }
+      onMouseEnter={(event) => {
+        if (active) return;
+        event.currentTarget.style.borderColor = 'var(--color-border-subtle)';
+        event.currentTarget.style.background =
+          'color-mix(in srgb, var(--color-bg-primary) 92%, transparent)';
+        event.currentTarget.style.color = 'var(--color-text-primary)';
       }}
-      transition={{ duration: 0.2, ease: 'easeOut' }}
-      className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-7 rounded-r-full"
-      style={{
-        background: 'var(--gradient-accent)',
-        boxShadow: isActive ? '0 0 12px var(--welcome-glow-primary)' : 'none',
-      }}
-    />
-
-    {/* Tooltip */}
-    <div
-      className="absolute left-full ml-3 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap
-                    opacity-0 invisible group-hover:opacity-100 group-hover:visible
-                    transition-all duration-200 pointer-events-none z-50"
-      style={{
-        background: 'var(--color-bg-elevated)',
-        border: '1px solid var(--color-border)',
-        color: 'var(--color-text-primary)',
-        boxShadow: 'var(--shadow-lg)',
+      onMouseLeave={(event) => {
+        if (active) return;
+        event.currentTarget.style.borderColor = 'transparent';
+        event.currentTarget.style.background =
+          'color-mix(in srgb, var(--color-bg-elevated) 88%, transparent)';
+        event.currentTarget.style.color = 'var(--color-text-muted)';
       }}
     >
-      {label}
-      {/* Arrow */}
-      <div
-        className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1 w-2 h-2 rotate-45"
-        style={{
-          background: 'var(--color-bg-elevated)',
-          borderLeft: '1px solid var(--color-border)',
-          borderBottom: '1px solid var(--color-border)',
-        }}
-      />
-    </div>
-  </button>
-));
+      <span className="flex h-5 w-5 items-center justify-center">{icon}</span>
+    </button>
+  );
+});
 
 export const Sidebar: React.FC = () => {
-  const sidebarTab = useSidebarTab();
+  const uiService = getUIService();
+  const { t } = useTranslation();
   const projectPath = useProjectPath();
+  const sidebarTab = useSidebarTab();
 
-  // Get views from ViewRegistry (dynamically registered)
-  const views = useViews(ViewLocation.Sidebar);
-
-  // Hide border on welcome screen (no project loaded)
-  const isWelcomeScreen = !projectPath;
+  if (!projectPath) {
+    return null;
+  }
 
   return (
-    <div
-      className={clsx('w-16 flex flex-col items-center py-4', isWelcomeScreen && 'bg-transparent')}
+    <aside
+      className="flex w-[72px] flex-col items-center border-r px-3 py-4"
       style={{
-        background: isWelcomeScreen ? 'transparent' : 'var(--color-bg-void)',
-        borderRight: isWelcomeScreen ? 'none' : '1px solid var(--color-border-subtle)',
+        borderRightColor: 'var(--color-border-subtle)',
+        background: 'color-mix(in srgb, var(--color-bg-primary) 96%, transparent)',
       }}
     >
-      {/* Logo */}
-      <motion.div className="mb-6" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-        <div className="w-11 h-11 flex items-center justify-center cursor-pointer">
-          <img src={logoS} alt="SciPen" className="w-7 h-7" />
-        </div>
-      </motion.div>
+      <div
+        className="flex h-12 w-12 items-center justify-center rounded-[20px] border"
+        style={{
+          borderColor: 'var(--color-border-subtle)',
+          background: 'color-mix(in srgb, var(--color-bg-elevated) 92%, transparent)',
+          boxShadow: 'var(--shadow-sm)',
+        }}
+      >
+        <img src={logoS} alt="SciPen" className="h-6 w-6" />
+      </div>
 
-      {/* Navigation items - dynamically retrieved from ViewRegistry */}
-      <nav className="flex-1 flex flex-col gap-2">
-        {views.map((view) => {
-          const IconComponent = view.icon;
-          return (
-            <SidebarItem
-              key={view.id}
-              icon={<IconComponent size={22} />}
-              label={view.name}
-              isActive={sidebarTab === view.id}
-              onClick={() => getUIService().setSidebarTab(view.id)}
-            />
-          );
-        })}
-      </nav>
-    </div>
+      <div className="mt-6 flex flex-1 flex-col items-center gap-3">
+        <RailAction
+          icon={<MessageSquare size={17} />}
+          label={t('workspaceSidebar.imTab')}
+          active={sidebarTab === 'im'}
+          onClick={() => {
+            uiService.setSidebarTab('im');
+            uiService.setResearchLayoutFocus('chat');
+          }}
+        />
+        <RailAction
+          icon={<FolderKanban size={17} />}
+          label={t('workspaceSidebar.filesTab')}
+          active={sidebarTab === 'files'}
+          onClick={() => {
+            uiService.setSidebarTab('files');
+            uiService.setResearchLayoutFocus('files');
+          }}
+        />
+      </div>
+
+      <div
+        className="flex flex-col items-center gap-3 border-t pt-3"
+        style={{ borderTopColor: 'var(--color-border-subtle)' }}
+      >
+        <RailAction
+          icon={<Settings size={17} />}
+          label={t('workspaceSidebar.settingsTab')}
+          active={sidebarTab === 'settings'}
+          onClick={() => {
+            uiService.setSidebarTab('settings');
+          }}
+        />
+        <div className="text-[10px] leading-4 text-[var(--color-text-muted)] text-center">
+          {t('workspaceSidebar.subtitle')}
+        </div>
+      </div>
+    </aside>
   );
 };

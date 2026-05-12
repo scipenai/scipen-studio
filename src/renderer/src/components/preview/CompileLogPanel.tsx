@@ -11,15 +11,44 @@ import {
   ChevronRight,
   FileText,
   Info,
-  Sparkles,
   X,
 } from 'lucide-react';
 import type React from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import { useTranslation } from '../../locales';
-import { type AskAIAboutErrorRequest, getUIService } from '../../services/core';
 import type { ParsedLogEntry } from '../../types';
+
+function normalizeParsedEntry(entry: ParsedLogEntry, fallbackMessage: string): ParsedLogEntry {
+  const normalizeText = (value: unknown, fallback = ''): string => {
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (value && typeof value === 'object') {
+      const objectValue = value as Record<string, unknown>;
+      if (typeof objectValue.message === 'string') {
+        return objectValue.message;
+      }
+      try {
+        return JSON.stringify(objectValue);
+      } catch {
+        return fallback || String(value);
+      }
+    }
+    if (value == null) {
+      return fallback;
+    }
+    return String(value);
+  };
+
+  return {
+    ...entry,
+    file: entry.file ? normalizeText(entry.file) : '',
+    message: normalizeText(entry.message, fallbackMessage),
+    content: normalizeText(entry.content, ''),
+    raw: normalizeText(entry.raw, ''),
+  };
+}
 
 interface CompileLogPanelProps {
   errors?: ParsedLogEntry[];
@@ -27,10 +56,8 @@ interface CompileLogPanelProps {
   info?: ParsedLogEntry[];
   onJumpToLine?: (file: string, line: number) => void;
   onClose?: () => void;
-  /** Compiler type (for AI error analysis) */
-  compilerType?: 'LaTeX' | 'Typst';
-  /** Callback to get source code context */
-  getSourceContext?: (file: string, line: number) => string | undefined;
+  embedded?: boolean;
+  showHeader?: boolean;
 }
 
 type LogFilter = 'all' | 'errors' | 'warnings' | 'info';
@@ -44,26 +71,37 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
   info = [],
   onJumpToLine,
   onClose,
-  compilerType = 'LaTeX',
-  getSourceContext,
+  embedded = false,
+  showHeader = true,
 }) => {
   const [filter, setFilter] = useState<LogFilter>('all');
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const { t } = useTranslation();
-  const uiService = getUIService();
-
+  const unknownLogFallback = t('compileLog.unknownLog');
+  const normalizedErrors = useMemo(
+    () => errors.map((e) => normalizeParsedEntry(e, unknownLogFallback)),
+    [errors, unknownLogFallback]
+  );
+  const normalizedWarnings = useMemo(
+    () => warnings.map((e) => normalizeParsedEntry(e, unknownLogFallback)),
+    [warnings, unknownLogFallback]
+  );
+  const normalizedInfo = useMemo(
+    () => info.map((e) => normalizeParsedEntry(e, unknownLogFallback)),
+    [info, unknownLogFallback]
+  );
   const filteredItems = useMemo(() => {
     switch (filter) {
       case 'errors':
-        return errors;
+        return normalizedErrors;
       case 'warnings':
-        return warnings;
+        return normalizedWarnings;
       case 'info':
-        return info;
+        return normalizedInfo;
       default:
-        return [...errors, ...warnings, ...info];
+        return [...normalizedErrors, ...normalizedWarnings, ...normalizedInfo];
     }
-  }, [filter, errors, warnings, info]);
+  }, [filter, normalizedErrors, normalizedWarnings, normalizedInfo]);
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedItems((prev) => {
@@ -88,26 +126,6 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
     [onJumpToLine]
   );
 
-  const handleAskAI = useCallback(
-    (entry: ParsedLogEntry) => {
-      const file = entry.file?.startsWith('./') ? entry.file.slice(2) : entry.file;
-      const sourceContext =
-        file && entry.line && getSourceContext ? getSourceContext(file, entry.line) : undefined;
-
-      const request: AskAIAboutErrorRequest = {
-        errorMessage: entry.message,
-        errorContent: entry.content?.trim(),
-        file: file || undefined,
-        line: entry.line || undefined,
-        compilerType,
-        sourceContext,
-      };
-
-      uiService.requestAIErrorAnalysis(request);
-    },
-    [compilerType, getSourceContext, uiService]
-  );
-
   const getLevelIcon = useCallback((level: string) => {
     switch (level) {
       case 'error':
@@ -130,7 +148,7 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
     }
   }, []);
 
-  const totalCount = errors.length + warnings.length + info.length;
+  const totalCount = normalizedErrors.length + normalizedWarnings.length + normalizedInfo.length;
 
   const renderLogItem = useCallback(
     (index: number, entry: ParsedLogEntry) => {
@@ -199,20 +217,6 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
               <p className="text-sm text-[var(--color-text-secondary)] mt-1 break-words">
                 {entry.message}
               </p>
-
-              {entry.level === 'error' && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleAskAI(entry);
-                  }}
-                  className="mt-2 flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors bg-[var(--color-accent-muted)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white"
-                  title={t('compileLog.aiAnalyze')}
-                >
-                  <Sparkles size={12} />
-                  <span>Ask AI</span>
-                </button>
-              )}
             </div>
           </div>
 
@@ -226,7 +230,7 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
         </div>
       );
     },
-    [expandedItems, getLevelColor, getLevelIcon, handleJumpToLine, handleAskAI, toggleExpand, t]
+    [expandedItems, getLevelColor, getLevelIcon, handleJumpToLine, toggleExpand]
   );
 
   if (totalCount === 0) {
@@ -236,59 +240,75 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
   const useVirtualization = filteredItems.length > VIRTUALIZATION_THRESHOLD;
 
   return (
-    <div className="bg-[var(--color-bg-secondary)] border-t border-[var(--color-border)] flex flex-col max-h-64">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/50">
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-[var(--color-text-secondary)]">
-            {t('compileLog.log')}
-          </span>
+    <div
+      className={clsx(
+        'flex flex-col max-h-64',
+        embedded
+          ? 'bg-transparent border-0'
+          : 'bg-[var(--color-bg-secondary)] border-t border-[var(--color-border)]'
+      )}
+    >
+      {showHeader && (
+        <div
+          className={clsx(
+            'flex items-center justify-between px-3 py-2',
+            embedded
+              ? 'border-b border-[rgba(15,23,42,0.06)] bg-transparent'
+              : 'border-b border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/50'
+          )}
+        >
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-medium text-[var(--color-text-secondary)]">
+              {t('compileLog.log')}
+            </span>
 
-          <div className="flex items-center gap-1">
-            <FilterButton
-              active={filter === 'all'}
-              onClick={() => setFilter('all')}
-              count={totalCount}
-              label={t('compileLog.all')}
-            />
-            {errors.length > 0 && (
+            <div className="flex items-center gap-1">
               <FilterButton
-                active={filter === 'errors'}
-                onClick={() => setFilter('errors')}
-                count={errors.length}
-                label={t('compileLog.errors')}
-                color="text-[var(--color-error)]"
+                active={filter === 'all'}
+                onClick={() => setFilter('all')}
+                count={totalCount}
+                label={t('compileLog.all')}
               />
-            )}
-            {warnings.length > 0 && (
-              <FilterButton
-                active={filter === 'warnings'}
-                onClick={() => setFilter('warnings')}
-                count={warnings.length}
-                label={t('compileLog.warnings')}
-                color="text-[var(--color-warning)]"
-              />
-            )}
-            {info.length > 0 && (
-              <FilterButton
-                active={filter === 'info'}
-                onClick={() => setFilter('info')}
-                count={info.length}
-                label={t('compileLog.info')}
-                color="text-[var(--color-info)]"
-              />
-            )}
+              {errors.length > 0 && (
+                <FilterButton
+                  active={filter === 'errors'}
+                  onClick={() => setFilter('errors')}
+                  count={errors.length}
+                  label={t('compileLog.errors')}
+                  color="text-[var(--color-error)]"
+                />
+              )}
+              {warnings.length > 0 && (
+                <FilterButton
+                  active={filter === 'warnings'}
+                  onClick={() => setFilter('warnings')}
+                  count={warnings.length}
+                  label={t('compileLog.warnings')}
+                  color="text-[var(--color-warning)]"
+                />
+              )}
+              {info.length > 0 && (
+                <FilterButton
+                  active={filter === 'info'}
+                  onClick={() => setFilter('info')}
+                  count={info.length}
+                  label={t('compileLog.info')}
+                  color="text-[var(--color-info)]"
+                />
+              )}
+            </div>
           </div>
-        </div>
 
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="p-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
-          >
-            <X size={14} />
-          </button>
-        )}
-      </div>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="flex-1 overflow-hidden" style={{ height: 200 }}>
         {filteredItems.length === 0 ? (

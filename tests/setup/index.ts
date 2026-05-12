@@ -16,7 +16,6 @@ export {
   createMockFileSystemService,
   createMockSyncTeXService,
   createMockOverleafService,
-  createMockKnowledgeService,
   createMockCompilerRegistry,
   // Utilities
   resetServiceMocks,
@@ -27,6 +26,5 @@ export {
   type MockFileSystemServiceOptions,
   type MockSyncTeXServiceOptions,
   type MockOverleafServiceOptions,
-  type MockKnowledgeServiceOptions,
   type MockFn,
 } from './MockServiceContainer';

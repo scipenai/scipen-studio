@@ -13,16 +13,25 @@ const logger = createLogger('ServiceRegistry');
 // ====== Service Factory Imports ======
 
 import { createAIService } from './AIService';
-import { createAgentService } from './AgentService';
 import { createConfigManager } from './ConfigManager';
 import { createFileSystemService } from './FileSystemService';
 import { getLSPProcessClient } from './LSPProcessClient';
 import { LaTeXCompiler } from './LaTeXCompiler';
 import { SelectionService } from './SelectionService';
 import { createSyncTeXService } from './SyncTeXService';
+import { StudioIMService } from './StudioIMService';
+import { StudioOTService } from './StudioOTService';
+import { StudioOverleafLiveService } from './StudioOverleafLiveService';
+import { ProjectBindingService } from './ProjectBindingService';
+import { ProjectConversationService } from './ProjectConversationService';
+import { ReplicaWritebackService } from './ReplicaWritebackService';
+import { ExternalChangeDetector } from './ExternalChangeDetector';
+import { OfflineOpsStore } from './OfflineOpsStore';
+import { OfflineOpsManager } from './OfflineOpsManager';
+
 import { TraceService } from './TraceService';
 import { ChatOrchestrator } from './chat';
-import type { IAgentService, IConfigManager } from './interfaces';
+import type { IConfigManager } from './interfaces';
 import type {
   IAIService,
   IFileSystemService,
@@ -37,8 +46,6 @@ import { compileWorkerClient } from '../workers/CompileWorkerClient';
 import { getFileWorkerClient } from '../workers/FileWorkerClient';
 import { getLogParserClient } from '../workers/LogParserClient';
 import { getPDFWorkerClient } from '../workers/PDFWorkerClient';
-import { getSQLiteWorkerClient } from '../workers/SQLiteWorkerClient';
-import { getVectorSearchClient } from '../workers/VectorSearchClient';
 
 // ====== Service Registration ======
 
@@ -68,11 +75,7 @@ export function registerServices(): void {
   // ====== AI Services ======
 
   container.registerSingleton<IAIService>(ServiceNames.AI, () => createAIService());
-  // Agent tools: PDF2LaTeX, Paper2Beamer, Reviewer
-  container.registerSingleton<IAgentService>(ServiceNames.AGENT, () =>
-    createAgentService(container.get<IConfigManager>(ServiceNames.CONFIG))
-  );
-  // Chat orchestrator for Ask mode
+  // Chat orchestrator for conversation mode
   container.registerSingleton<IChatOrchestrator>(
     ServiceNames.CHAT_ORCHESTRATOR,
     () =>
@@ -85,6 +88,31 @@ export function registerServices(): void {
     ServiceNames.SELECTION,
     () => new SelectionService()
   );
+  container.registerSingleton(ServiceNames.STUDIO_IM, () => new StudioIMService());
+  container.registerSingleton(ServiceNames.STUDIO_OT, () => new StudioOTService());
+  container.registerSingleton(
+    ServiceNames.STUDIO_OVERLEAF_LIVE,
+    () => new StudioOverleafLiveService()
+  );
+  container.registerSingleton(ServiceNames.PROJECT_BINDING, () => new ProjectBindingService());
+  container.registerSingleton(
+    ServiceNames.PROJECT_CONVERSATION,
+    () => new ProjectConversationService()
+  );
+  container.registerSingleton(ServiceNames.REPLICA_WRITEBACK, () => new ReplicaWritebackService());
+  container.registerSingleton(
+    ServiceNames.EXTERNAL_CHANGE_DETECTOR,
+    () => new ExternalChangeDetector()
+  );
+  container.registerSingleton(ServiceNames.OFFLINE_OPS_STORE, () => new OfflineOpsStore());
+  container.registerSingleton(
+    ServiceNames.OFFLINE_OPS_MANAGER,
+    () =>
+      new OfflineOpsManager(
+        container.get<StudioOTService>(ServiceNames.STUDIO_OT),
+        container.get<OfflineOpsStore>(ServiceNames.OFFLINE_OPS_STORE)
+      )
+  );
 
   // ====== LSP Services ======
 
@@ -92,9 +120,6 @@ export function registerServices(): void {
   container.registerInstance(ServiceNames.LSP_MANAGER, getLSPProcessClient());
 
   // ====== Worker Clients ======
-
-  container.registerInstance(ServiceNames.VECTOR_SEARCH_CLIENT, getVectorSearchClient());
-  container.registerInstance(ServiceNames.SQLITE_WORKER_CLIENT, getSQLiteWorkerClient());
 
   logger.info(
     '[ServiceRegistry] Services registered:',
@@ -121,14 +146,13 @@ export async function warmupServices(): Promise<void> {
 
 /**
  * Gracefully shutdown all services and workers.
- * @sideeffect Persists HNSW index, closes DB connections, terminates workers
+ * @sideeffect Closes DB connections, terminates workers
  */
 export async function shutdownServices(): Promise<void> {
   const container = getServiceContainer();
 
   logger.info('[ServiceRegistry] Shutting down services...');
 
-  // Workers must be closed first to allow state persistence (e.g., HNSW index)
   logger.info('[ServiceRegistry] Closing worker clients...');
 
   const workerShutdownPromises: Promise<void>[] = [];
@@ -158,22 +182,6 @@ export async function shutdownServices(): Promise<void> {
     workerShutdownPromises.push(logParserClient.terminate());
   } catch {
     logger.error('[ServiceRegistry] Failed to close LogParserClient');
-  }
-
-  // Critical: VectorSearchClient must persist HNSW index before termination
-  try {
-    const vectorSearchClient = getVectorSearchClient();
-    workerShutdownPromises.push(vectorSearchClient.terminate());
-  } catch {
-    logger.error('[ServiceRegistry] Failed to close VectorSearchClient');
-  }
-
-  // Critical: SQLiteWorkerClient must close DB connections properly
-  try {
-    const sqliteWorkerClient = getSQLiteWorkerClient();
-    workerShutdownPromises.push(sqliteWorkerClient.terminate());
-  } catch {
-    logger.error('[ServiceRegistry] Failed to close SQLiteWorkerClient');
   }
 
   try {
@@ -223,10 +231,6 @@ export function getAIService(): IAIService {
   return getServiceContainer().get<IAIService>(ServiceNames.AI);
 }
 
-export function getAgentService(): IAgentService {
-  return getServiceContainer().get<IAgentService>(ServiceNames.AGENT);
-}
-
 export function getSyncTeXServiceFromContainer(): ISyncTeXService {
   return getServiceContainer().get<ISyncTeXService>(ServiceNames.SYNCTEX);
 }
@@ -237,4 +241,40 @@ export function getSelectionServiceFromContainer(): ISelectionService {
 
 export function getChatOrchestrator(): IChatOrchestrator {
   return getServiceContainer().get<IChatOrchestrator>(ServiceNames.CHAT_ORCHESTRATOR);
+}
+
+export function getStudioIMService(): StudioIMService {
+  return getServiceContainer().get<StudioIMService>(ServiceNames.STUDIO_IM);
+}
+
+export function getStudioOverleafLiveService(): StudioOverleafLiveService {
+  return getServiceContainer().get<StudioOverleafLiveService>(ServiceNames.STUDIO_OVERLEAF_LIVE);
+}
+
+export function getStudioOTService(): StudioOTService {
+  return getServiceContainer().get<StudioOTService>(ServiceNames.STUDIO_OT);
+}
+
+export function getProjectBindingService(): ProjectBindingService {
+  return getServiceContainer().get<ProjectBindingService>(ServiceNames.PROJECT_BINDING);
+}
+
+export function getProjectConversationService(): ProjectConversationService {
+  return getServiceContainer().get<ProjectConversationService>(ServiceNames.PROJECT_CONVERSATION);
+}
+
+export function getReplicaWritebackService(): ReplicaWritebackService {
+  return getServiceContainer().get<ReplicaWritebackService>(ServiceNames.REPLICA_WRITEBACK);
+}
+
+export function getExternalChangeDetector(): ExternalChangeDetector {
+  return getServiceContainer().get<ExternalChangeDetector>(ServiceNames.EXTERNAL_CHANGE_DETECTOR);
+}
+
+export function getOfflineOpsStore(): OfflineOpsStore {
+  return getServiceContainer().get<OfflineOpsStore>(ServiceNames.OFFLINE_OPS_STORE);
+}
+
+export function getOfflineOpsManager(): OfflineOpsManager {
+  return getServiceContainer().get<OfflineOpsManager>(ServiceNames.OFFLINE_OPS_MANAGER);
 }

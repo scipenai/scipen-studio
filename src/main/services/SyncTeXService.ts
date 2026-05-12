@@ -22,7 +22,7 @@ import path from 'path';
 import zlib from 'zlib';
 import { augmentedEnv } from '../utils/shellEnv';
 import type { ForwardSyncResult, ISyncTeXService, InverseSyncResult } from './interfaces';
-import fs from './knowledge/utils/fsCompat';
+import fs from 'fs-extra';
 
 // Re-export types for backward compatibility
 export type { ForwardSyncResult, InverseSyncResult } from './interfaces';
@@ -82,11 +82,19 @@ export class SyncTeXService implements ISyncTeXService {
         output += data.toString();
       });
 
+      const timeout = setTimeout(() => {
+        proc.kill();
+        console.warn('SyncTeX forward timed out after 10s');
+        resolve(null);
+      }, 10_000);
+
       proc.on('close', () => {
+        clearTimeout(timeout);
         resolve(this.parseViewOutput(output));
       });
 
       proc.on('error', (error: NodeJS.ErrnoException) => {
+        clearTimeout(timeout);
         if (error.code === 'ENOENT') {
           console.warn('SyncTeX not found. Install TeX Live or MiKTeX.');
         } else {
@@ -136,7 +144,14 @@ export class SyncTeXService implements ISyncTeXService {
         output += data.toString();
       });
 
+      const timeout = setTimeout(() => {
+        proc.kill();
+        console.warn('SyncTeX backward timed out after 10s');
+        resolve(null);
+      }, 10_000);
+
       proc.on('close', () => {
+        clearTimeout(timeout);
         const result = this.parseEditOutput(output);
         if (result) {
           // Normalize relative file path to absolute.
@@ -148,6 +163,7 @@ export class SyncTeXService implements ISyncTeXService {
       });
 
       proc.on('error', (error: NodeJS.ErrnoException) => {
+        clearTimeout(timeout);
         if (error.code === 'ENOENT') {
           console.warn('SyncTeX not found. Install TeX Live or MiKTeX.');
         } else {

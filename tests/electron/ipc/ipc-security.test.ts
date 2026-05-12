@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { IpcChannel } from '../../../shared/ipc/channels';
 
+import { z } from 'zod';
 import { channelSchemas } from '../../../src/main/ipc/typedIpc';
 
 // ====== Test Data Preparation ======
@@ -42,23 +43,18 @@ const EXEMPT_FROM_SCHEMA = new Set<string>([
   IpcChannel.LSP_GetTinymistVersion,
   IpcChannel.LSP_IsTexLabAvailable,
   IpcChannel.LSP_IsTinymistAvailable,
-  IpcChannel.Overleaf_Login,
-  IpcChannel.Overleaf_IsLoggedIn,
-  IpcChannel.Overleaf_GetProjects,
-  IpcChannel.Overleaf_GetCookies,
+  IpcChannel.OverleafAuth_Login,
+  IpcChannel.OverleafAuth_IsLoggedIn,
+  IpcChannel.OverleafProject_GetProjects,
+  IpcChannel.OverleafAuth_GetCookies,
   IpcChannel.AI_IsConfigured,
   IpcChannel.AI_TestConnection,
   IpcChannel.AI_StopGeneration,
-  IpcChannel.Knowledge_GetLibraries,
   IpcChannel.Typst_Available,
-  IpcChannel.LocalReplica_GetConfig,
-  IpcChannel.LocalReplica_IsWatching,
 
   // Event channels (not invoke, no schema needed)
   IpcChannel.Window_OpenProject,
   IpcChannel.Window_OpenFile,
-  IpcChannel.Knowledge_Event,
-  IpcChannel.Knowledge_TaskProgress,
   IpcChannel.AI_StreamChunk,
   IpcChannel.Message_FromMain,
   IpcChannel.FileWatcher_Changed,
@@ -75,7 +71,6 @@ const EXEMPT_FROM_SCHEMA = new Set<string>([
   IpcChannel.Settings_AIConfigChanged,
   IpcChannel.Config_Changed,
   IpcChannel.Selection_TextCaptured,
-  IpcChannel.LocalReplica_SyncProgress,
 
   // Simple parameter channels (single primitive type, low risk)
   IpcChannel.Config_Get,
@@ -83,15 +78,7 @@ const EXEMPT_FROM_SCHEMA = new Set<string>([
   IpcChannel.Dialog_Message,
   IpcChannel.File_Select,
   IpcChannel.Folder_Create,
-  IpcChannel.Knowledge_GetLibrary,
-  IpcChannel.Knowledge_CreateLibrary,
-  IpcChannel.Knowledge_DeleteLibrary,
-  IpcChannel.Knowledge_GetDocuments,
-  IpcChannel.Knowledge_GetDocument,
-  IpcChannel.Knowledge_DeleteDocument,
-  IpcChannel.Knowledge_Search,
-  IpcChannel.Knowledge_GetTask,
-  IpcChannel.Overleaf_GetProjectDetails,
+  IpcChannel.OverleafProject_GetDetails,
 ]);
 
 // ====== Test Cases ======
@@ -189,8 +176,6 @@ describe('IPC Security - Path-Related Channels', () => {
     IpcChannel.LSP_StartTinymist,
     IpcChannel.LSP_ExportTypstPdf,
     IpcChannel.LSP_FormatTypst,
-    IpcChannel.Knowledge_AddDocument,
-    IpcChannel.LocalReplica_Init,
     IpcChannel.Compile_LaTeX,
     IpcChannel.Compile_Typst,
     IpcChannel.SyncTeX_Forward,
@@ -220,8 +205,8 @@ describe('IPC Security - URL-Related Channels', () => {
    */
   const URL_CHANNELS = [
     IpcChannel.App_OpenExternal,
-    IpcChannel.Overleaf_TestConnection,
-    IpcChannel.Overleaf_Login,
+    IpcChannel.OverleafAuth_TestConnection,
+    IpcChannel.OverleafAuth_Login,
   ];
 
   it('all URL-related channels should have schema definitions', () => {
@@ -246,9 +231,7 @@ describe('IPC Security - AI/User Input Channels', () => {
    * Channels handling large user input must have size limits
    */
   const USER_INPUT_CHANNELS = [
-    IpcChannel.AI_Chat,
     IpcChannel.AI_ChatStream,
-    IpcChannel.AI_Polish,
     IpcChannel.AI_UpdateConfig,
     IpcChannel.Compile_LaTeX,
     IpcChannel.Compile_Typst,
@@ -302,5 +285,49 @@ describe('IPC Security - Coverage Report', () => {
     console.log('\n');
 
     expect(Number(coverage)).toBeGreaterThan(70);
+  });
+});
+
+describe('IPC Security - OT Large File Payloads', () => {
+  it('ot:open-local-project should accept single text files up to 8MB', () => {
+    const schema = channelSchemas.get(IpcChannel.OT_OpenLocalProject);
+    expect(schema).toBeDefined();
+
+    const payload = [
+      {
+        root_path: 'D:/demo',
+        name: 'demo',
+        files: [
+          {
+            file_path: 'chapters/large.tex',
+            content: 'a'.repeat(3 * 1024 * 1024),
+          },
+        ],
+        folders: ['chapters'],
+      },
+    ];
+
+    expect(() => schema!.parse(payload)).not.toThrow();
+  });
+
+  it('ot:open-local-project should still reject files larger than 8MB', () => {
+    const schema = channelSchemas.get(IpcChannel.OT_OpenLocalProject);
+    expect(schema).toBeDefined();
+
+    const payload = [
+      {
+        root_path: 'D:/demo',
+        name: 'demo',
+        files: [
+          {
+            file_path: 'chapters/too-large.tex',
+            content: 'a'.repeat(9 * 1024 * 1024),
+          },
+        ],
+        folders: ['chapters'],
+      },
+    ];
+
+    expect(() => schema!.parse(payload)).toThrow(z.ZodError);
   });
 });

@@ -73,6 +73,7 @@ export const fileApi = {
   selectFiles: (options?: {
     filters?: Array<{ name: string; extensions: string[] }>;
     multiple?: boolean;
+    directory?: boolean;
   }) => ipcRenderer.invoke(IpcChannel.File_Select, options),
   getClipboardFiles: () => ipcRenderer.invoke(IpcChannel.Clipboard_GetFiles),
 

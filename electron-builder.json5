@@ -2,29 +2,33 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "com.scipen.studio",
-  "icon": "resources/icon.png",
   "asar": true,
   "asarUnpack": [
     "node_modules/better-sqlite3/**/*",
-    "node_modules/@napi-rs/canvas/**/*",
     "node_modules/pdfjs-dist/**/*",
     "node_modules/bindings/**/*",
-    "node_modules/file-uri-to-path/**/*"
+    "node_modules/file-uri-to-path/**/*",
+    "node_modules/@parcel/watcher/**/*",
+    "node_modules/@anthropic-ai/**/*"
   ],
   "productName": "SciPen Studio",
+  "publish": {
+    "provider": "github",
+    "owner": "scipenai",
+    "repo": "scipen-studio"
+  },
   "directories": {
     "output": "release"
   },
   "files": [
     "out",
     "node_modules/better-sqlite3/**/*",
-    "node_modules/@napi-rs/canvas/**/*",
     "node_modules/pdfjs-dist/**/*",
     "node_modules/bindings/**/*",
     "node_modules/file-uri-to-path/**/*"
   ],
   "extraResources": [
-    // 应用图标
+    // Application icon.
     {
       "from": "resources/icon.png",
       "to": "icon.png"
@@ -34,30 +38,43 @@
       "to": "better-sqlite3/build",
       "filter": ["**/*"]
     },
-    // LSP 二进制文件 (tinymist, texlab)
-    // 用户需要将对应平台的二进制文件放到 resources/bin/ 目录
+    // LSP binaries (tinymist, texlab, marksman) — populated by `npm run download:lsp` before build.
     {
       "from": "resources/bin",
       "to": "bin",
       "filter": ["**/*"]
     },
+  ],
+  "fileAssociations": [
     {
-      "from": "cli_tools/scipen_pdf2tex/dist",
-      "to": "cli/scipen-pdf2tex",
-      "filter": ["**/*.js", "**/*.json"]
+      "ext": "tex",
+      "name": "LaTeX Document",
+      "description": "LaTeX Source File",
+      "mimeType": "text/x-tex",
+      "role": "Editor"
     },
     {
-      "from": "cli_tools/scipen-reviewer/dist",
-      "to": "cli/scipen-reviewer",
-      "filter": ["**/*.js", "**/*.json", "**/templates/**/*.typ", "**/*.wasm", "**/*.mjs", "**/vendor/**/*"]
+      "ext": "bib",
+      "name": "BibTeX Database",
+      "description": "BibTeX Bibliography File",
+      "mimeType": "text/x-bibtex",
+      "role": "Editor"
     },
     {
-      "from": "cli_tools/scipen-beamer/dist",
-      "to": "cli/scipen-beamer",
-      "filter": ["**/*.js", "**/*.json", "**/*.wasm", "**/*.mjs", "**/vendor/**/*"]
+      "ext": "sty",
+      "name": "LaTeX Style",
+      "description": "LaTeX Style File",
+      "role": "Editor"
+    },
+    {
+      "ext": "cls",
+      "name": "LaTeX Class",
+      "description": "LaTeX Document Class",
+      "role": "Editor"
     }
   ],
   "mac": {
+    "icon": "build/icon.png",
     "target": [
       {
         "target": "dmg",
@@ -73,6 +90,7 @@
     "identity": null
   },
   "win": {
+    "icon": "build/icon.ico",
     "target": [
       {
         "target": "nsis",
@@ -83,8 +101,7 @@
         "arch": ["x64"]
       }
     ],
-    "artifactName": "${productName}-Windows-${version}.${ext}",
-    "signAndEditExecutable": false
+    "artifactName": "${productName}-Windows-${version}.${ext}"
   },
   "nsis": {
     "oneClick": false,
@@ -95,6 +112,7 @@
     "createStartMenuShortcut": true
   },
   "linux": {
+    "icon": "build/icon.png",
     "target": [
       "AppImage",
       "deb"

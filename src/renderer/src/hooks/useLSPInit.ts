@@ -40,9 +40,6 @@ export function useLSPInit() {
       return;
     }
 
-    const isOverleafProject =
-      projectPath.startsWith('overleaf://') || projectPath.startsWith('overleaf:');
-
     /**
      * Why retry: Main process IPC handlers register after window creation.
      * Renderer may attempt calls before handlers are ready - retry handles this race.
@@ -54,13 +51,10 @@ export function useLSPInit() {
           if (available) {
             logger.info('LSP service available');
 
-            const configured = await LSPService.start(projectPath, { virtual: isOverleafProject });
+            const configured = await LSPService.start(projectPath);
             if (configured) {
               lspConfiguredRef.current = true;
-              logger.info(
-                'LSP Manager configured (lazy mode)',
-                isOverleafProject ? '- virtual mode' : '- local mode'
-              );
+              logger.info('LSP Manager configured (lazy mode)');
               logger.info('Services will start on-demand when .tex/.typ files are opened');
             }
           } else {

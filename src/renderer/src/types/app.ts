@@ -3,7 +3,7 @@
  * @description Defines core data structures such as file nodes, editor state, and application configuration
  */
 
-import type { AIProvider, EmbeddingProvider, VLMProvider, WhisperProvider } from './ai';
+import type { AIProvider, VLMProvider, WhisperProvider } from './ai';
 
 /** File node type */
 export interface FileNode {
@@ -20,6 +20,7 @@ export interface FileNode {
    */
   isResolved?: boolean;
   _id?: string;
+  projectId?: string;
   isFileRef?: boolean;
   isRemote?: boolean;
 }
@@ -31,23 +32,9 @@ export interface EditorTab {
   isDirty: boolean;
   language: string;
   _id?: string;
+  projectId?: string;
   isRemote?: boolean;
   needsReload?: boolean;
-}
-
-/**
- * KnowledgeBase
- *
- * Note: createdAt and updatedAt are now in ISO 8601 string format
- * Example: "2024-01-10T12:00:00.000Z"
- */
-export interface KnowledgeBase {
-  id: string;
-  name: string;
-  description?: string;
-  documentCount: number;
-  createdAt: string; // ISO 8601 string
-  updatedAt: string; // ISO 8601 string
 }
 
 export interface ParsedLogEntry {
@@ -91,13 +78,58 @@ export interface CompilationLog {
   details?: string;
 }
 
-export type LaTeXEngine = 'tectonic' | 'pdflatex' | 'xelatex' | 'lualatex' | 'overleaf';
+export interface MarkdownTocItem {
+  depth: number;
+  text: string;
+  id: string;
+  line?: number;
+}
+
+export interface MarkdownRenderDiagnostic {
+  type: 'asset-not-found' | 'blocked-protocol' | 'sanitized-html';
+  message: string;
+  value?: string;
+  line?: number;
+}
+
+export interface MarkdownFrontmatterField {
+  key: string;
+  value: string;
+}
+
+export interface MarkdownRenderInput {
+  markdown: string;
+  filePath: string | null;
+  projectPath: string | null;
+  theme: UITheme;
+}
+
+export interface MarkdownRenderResult {
+  html: string;
+  toc: MarkdownTocItem[];
+  diagnostics: MarkdownRenderDiagnostic[];
+  frontmatter: MarkdownFrontmatterField[];
+}
+
+export interface FilePdfPreviewState {
+  filePath: string;
+  pdfPath: string | null;
+  pdfData: ArrayBuffer | null;
+  isStale: boolean;
+  updatedAt: number;
+}
+
+export type LaTeXEngine =
+  | 'tectonic'
+  | 'pdflatex'
+  | 'xelatex'
+  | 'lualatex'
+  | 'wasm-pdftex'
+  | 'wasm-xetex';
 
 export type TypstEngine = 'typst' | 'tinymist';
 
 export type CompilerEngine = LaTeXEngine | TypstEngine;
-
-export type OverleafCompiler = 'pdflatex' | 'xelatex' | 'lualatex';
 
 export type UITheme = 'dark' | 'light' | 'system';
 
@@ -110,17 +142,7 @@ export type CursorBlinking = 'blink' | 'smooth' | 'phase' | 'expand' | 'solid';
 export type WhitespaceMode = 'none' | 'boundary' | 'selection' | 'all';
 
 export type LineHighlightMode = 'none' | 'gutter' | 'line' | 'all';
-
-export type RerankProvider =
-  | 'dashscope'
-  | 'openai'
-  | 'cohere'
-  | 'jina'
-  | 'local'
-  | 'siliconflow'
-  | 'aihubmix'
-  | 'custom';
-
+export type AssistantRuntime = 'openclaw' | 'builtin';
 export interface AppSettings {
   ai: {
     provider: AIProvider;
@@ -147,13 +169,6 @@ export interface AppSettings {
     apiKey: string;
     baseUrl: string;
     language: string;
-    timeout: number;
-  };
-  embedding: {
-    provider: EmbeddingProvider;
-    model: string;
-    apiKey: string;
-    baseUrl: string;
     timeout: number;
   };
   editor: {
@@ -187,33 +202,11 @@ export interface AppSettings {
     outputDirectory: string;
     cleanAuxFiles: boolean;
     stopOnFirstError: boolean;
+    texliveEndpoint: string;
     overleaf: {
       serverUrl: string;
       cookies: string;
       projectId: string;
-      remoteCompiler: OverleafCompiler;
-    };
-  };
-  rag: {
-    enabled: boolean;
-    maxResults: number;
-    scoreThreshold: number;
-    local: {
-      chunkSize: number;
-      chunkOverlap: number;
-      useHybridSearch: boolean;
-      bm25Weight: number;
-      vectorWeight: number;
-    };
-    advanced: {
-      enableQueryRewrite: boolean;
-      enableRerank: boolean;
-      enableContextRouting: boolean;
-      enableBilingualSearch: boolean;
-      rerankProvider?: RerankProvider;
-      rerankModel?: string;
-      rerankApiKey?: string;
-      rerankBaseUrl?: string;
     };
   };
   ui: {
@@ -222,13 +215,6 @@ export interface AppSettings {
     previewWidth: number;
     rightPanelWidth: number;
     sidebarPosition: 'left' | 'right';
-  };
-  agents: {
-    syncVLMConfig: boolean;
-    timeout: number;
-    pdf2latex: {
-      maxConcurrentPages: number;
-    };
   };
   upload: {
     maxSizePlainText: number;
@@ -241,17 +227,27 @@ export interface AppSettings {
     compile: string;
     save: string;
     commandPalette: string;
-    aiPolish: string;
-    aiChat: string;
+    chatWithSelection: string;
     togglePreview: string;
     newWindow: string;
   };
-  knowledge: {
+  im: {
+    serverUrl: string;
+    token: string;
+  };
+  collaboration: {
     enabled: boolean;
-    embeddingModel: string;
-    chunkSize: number;
-    chunkOverlap: number;
-    maxResults: number;
-    scoreThreshold: number;
+    serverUrl: string;
+    token: string;
+  };
+  assistant: {
+    runtime: AssistantRuntime;
+    autoFixCompileErrors: boolean;
+    maxAutoFixRetries: number;
+    openclaw: {
+      endpoint?: string;
+      mode?: 'daemon';
+      workspaceId?: string;
+    };
   };
 }

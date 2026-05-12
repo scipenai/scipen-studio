@@ -2,11 +2,6 @@
  * @file LaTeXLogParser.test.ts
  * @description Tests for LaTeX log parsing - extracts errors and warnings from compilation output
  * @depends vitest
- *
- * Why these tests matter:
- * - Log parsing is fragile - different TeX distributions may have slightly different output formats
- * - Line number extraction is critical for user problem diagnosis
- * - Regression tests ensure new LaTeX versions don't break parsing logic
  */
 
 import { describe, expect, it } from 'vitest';
@@ -162,13 +157,13 @@ error: cannot find input file: missing.tex
   });
 
   describe('Edge Cases', () => {
-    it('empty log should return default error', () => {
+    it('should return default error for empty log', () => {
       const errors = parseErrors('');
       expect(errors).toHaveLength(1);
       expect(errors[0]).toBe('Compilation failed with unknown error');
     });
 
-    it('successful log (no errors) should return default error', () => {
+    it('should return default error for successful log (no errors)', () => {
       const log = `
 This is pdfTeX, Version 3.14159265
 Output written on document.pdf (1 page, 12345 bytes).
@@ -250,12 +245,12 @@ Overfull \\hbox (5.0pt too wide)
   });
 
   describe('Edge Cases', () => {
-    it('empty log should return empty array', () => {
+    it('should return empty array for empty log', () => {
       const warnings = parseWarnings('');
       expect(warnings).toHaveLength(0);
     });
 
-    it('successful log with no warnings should return empty array', () => {
+    it('should return empty array for successful log with no warnings', () => {
       const log = `
 This is pdfTeX, Version 3.14159265
 Output written on document.pdf
@@ -268,7 +263,7 @@ Output written on document.pdf
 
 describe('Error Message Humanization', () => {
   // Tests error message mapping logic
-  it('common errors should have explanations', () => {
+  it('should have explanations for common errors', () => {
     // These tests verify the humanizeError function mapping logic
     const commonErrors = [
       { input: 'Undefined control sequence', expected: '未定义的命令' },

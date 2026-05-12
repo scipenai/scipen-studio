@@ -19,13 +19,6 @@ export interface CompilerOptions {
   engine?: string;
   mainFile?: string;
   projectPath?: string;
-  overleaf?: {
-    serverUrl: string;
-    projectId: string;
-    email?: string;
-    cookies?: string;
-    remoteCompiler?: string;
-  };
   activeTab?: EditorTab;
 }
 
@@ -39,6 +32,7 @@ export interface CompilerProvider {
   compile(filePath: string, content: string, options: CompilerOptions): Promise<CompileResult>;
 
   canHandle?(filePath: string, options?: CompilerOptions): boolean;
+  cancel?(): void;
 }
 
 interface ProviderEntry<T> {

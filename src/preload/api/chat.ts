@@ -55,8 +55,7 @@ export const chatApi = {
    * Create a new chat session
    * @sideeffect Creates new session record in database
    */
-  createSession: (knowledgeBaseId?: string): Promise<ChatSession> =>
-    ipcRenderer.invoke(IpcChannel.Chat_CreateSession, knowledgeBaseId),
+  createSession: (): Promise<ChatSession> => ipcRenderer.invoke(IpcChannel.Chat_CreateSession),
 
   /**
    * Listen to streaming events

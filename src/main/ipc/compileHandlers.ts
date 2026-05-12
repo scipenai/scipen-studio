@@ -16,10 +16,34 @@ import { createLogger } from '../services/LoggerService';
 import { type PathAccessMode, checkPathSecurity } from '../services/PathSecurityService';
 import type { TypstCompiler } from '../services/TypstCompiler';
 import { CompilerRegistry } from '../services/compiler/CompilerRegistry';
+import type { CompileMessage } from '../services/compiler/interfaces/ICompiler';
 import type { ISyncTeXService } from '../services/interfaces';
 import { createTypedHandlers } from './typedIpc';
 
 const logger = createLogger('CompileHandlers');
+
+function toParsedLogEntries(
+  messages: CompileMessage[] | undefined,
+  level: 'error' | 'warning' | 'info'
+): Array<{
+  line: number | null;
+  file?: string;
+  level: 'error' | 'warning' | 'info';
+  message: string;
+  content?: string;
+  raw?: string;
+}> {
+  return (messages ?? [])
+    .filter((entry) => entry.level === level)
+    .map((entry) => ({
+      line: entry.line ?? null,
+      file: entry.file,
+      level,
+      message: entry.message,
+      content: entry.message,
+      raw: entry.message,
+    }));
+}
 
 // ====== Security Helpers ======
 
@@ -85,7 +109,8 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
               }
             : undefined;
           const result = await latexCompiler.compile(content, compilationOptions);
-          // Convert errors format: string[] -> LaTeXError[]
+          // The IPC contract still requires LaTeXError[] / LaTeXWarning[].
+          // Renderer-side already normalizes defensively, so keep the protocol backward-compatible.
           const errors = result.errors?.map((msg) => ({
             message: msg,
             line: 0,
@@ -174,13 +199,18 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
               }
             : undefined;
           const result = await typstCompiler.compile(content, compilationOptions);
+          const parsedErrors = toParsedLogEntries(result.messages, 'error');
+          const parsedWarnings = toParsedLogEntries(result.messages, 'warning');
           return {
             success: result.success,
             pdfPath: result.outputPath,
             pdfData: result.outputData, // @deprecated - kept for backward compatibility
             pdfBuffer: result.outputBuffer, // High-perf: binary zero-copy transfer
             errors: result.errors || [],
-            warnings: result.warnings,
+            warnings: result.warnings || [],
+            parsedErrors,
+            parsedWarnings,
+            parsedInfo: [],
             log: result.log,
             duration: result.duration,
           };
@@ -189,6 +219,18 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
           return {
             success: false,
             errors: [error instanceof Error ? error.message : 'Unknown error'],
+            warnings: [],
+            parsedErrors: toParsedLogEntries(
+              [
+                {
+                  level: 'error',
+                  message: error instanceof Error ? error.message : 'Unknown error',
+                },
+              ],
+              'error'
+            ),
+            parsedWarnings: [],
+            parsedInfo: [],
           };
         }
       },

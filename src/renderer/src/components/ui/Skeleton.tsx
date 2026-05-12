@@ -58,6 +58,7 @@ export const FileTreeSkeleton: React.FC<{ rows?: number }> = ({ rows = 8 }) => {
     <div className="space-y-2 p-3">
       {Array.from({ length: rows }).map((_, i) => (
         <div
+          // eslint-disable-next-line react/no-array-index-key -- static skeleton placeholders, no real data identity
           key={`file-skeleton-${i}`}
           className="flex items-center gap-2"
           style={{ paddingLeft: `${(i % 3) * 12}px` }}
@@ -100,6 +101,7 @@ export const ListItemSkeleton: React.FC<{ withIcon?: boolean; rows?: number }> =
   return (
     <div className="space-y-2 p-2">
       {Array.from({ length: rows }).map((_, i) => (
+        // eslint-disable-next-line react/no-array-index-key -- static skeleton placeholders, no real data identity
         <div key={`list-skeleton-${i}`} className="flex items-center gap-3 p-2">
           {withIcon && <Skeleton width={20} height={20} rounded="sm" />}
           <div className="flex-1 space-y-1.5">

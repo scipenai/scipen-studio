@@ -6,18 +6,33 @@
 
 import { Disposable, Emitter, Event } from '../../../../../shared/utils';
 import { api } from '../../api';
+import { t } from '../../locales';
 import type { FileNode } from '../../types';
 import { findAvailableFileName } from '../../utils/fileNaming';
+import { triggerOverleafNewFileSync } from '../../utils/overleaf-sync-helper';
+import { isSameOrChildPath, isSamePath } from '../../utils/pathComparison';
+import { getOTService } from './OTService';
+import { getProjectRuntimeContext, getProjectService, getSettingsService } from './ServiceRegistry';
 
 // ====== Type Definitions ======
 
 export interface FileOperationResult {
   success: boolean;
   error?: string;
+  entityId?: string;
+  transferred?: ClipboardTransfer[];
+  warnings?: string[];
 }
 
 export interface ClipboardItem {
   path: string;
+  type: 'file' | 'directory';
+  operation: 'copy' | 'cut';
+}
+
+export interface ClipboardTransfer {
+  sourcePath: string;
+  destPath: string;
   type: 'file' | 'directory';
   operation: 'copy' | 'cut';
 }
@@ -60,6 +75,21 @@ class FileExplorerService extends Disposable {
    */
   private _batchOperationInProgress = false;
   private _pendingBatchEvents: FileNode[] = [];
+
+  private getCollaborationContext(): { projectPath: string; projectId: string } | null {
+    const settings = getSettingsService().settings;
+    const runtime = getProjectRuntimeContext();
+    const projectPath = getProjectService().projectPath;
+    if (
+      !projectPath ||
+      !settings.collaboration.enabled ||
+      !runtime.projectId ||
+      !isSamePath(runtime.rootPath, projectPath)
+    ) {
+      return null;
+    }
+    return { projectPath, projectId: runtime.projectId };
+  }
 
   private constructor() {
     super();
@@ -148,9 +178,18 @@ class FileExplorerService extends Disposable {
 
     this._isRefreshing = true;
     try {
+      const collaboration = this.getCollaborationContext();
+      if (collaboration && isSamePath(collaboration.projectPath, projectPath)) {
+        const tree = await getOTService().getProjectTree(projectPath, collaboration.projectId);
+        this._fireFileTreeChanged(tree);
+        getProjectService().setProject(projectPath, tree, { rebuildIndex: false });
+        return tree;
+      }
+
       const result = await api.file.refreshTree(projectPath);
       if (result.success && result.fileTree) {
         this._fireFileTreeChanged(result.fileTree);
+        getProjectService().setProject(projectPath, result.fileTree, { rebuildIndex: false });
         return result.fileTree;
       }
       return null;
@@ -167,6 +206,18 @@ class FileExplorerService extends Disposable {
   async createFile(parentPath: string, fileName: string): Promise<FileOperationResult> {
     const newPath = `${parentPath}/${fileName}`;
     try {
+      const collaboration = this.getCollaborationContext();
+      if (collaboration && isSameOrChildPath(newPath, collaboration.projectPath)) {
+        const file = await getOTService().createProjectFile(
+          collaboration.projectId,
+          collaboration.projectPath,
+          parentPath,
+          fileName
+        );
+        await api.file.create(newPath, '');
+        return { success: true, entityId: file.id };
+      }
+
       await api.file.create(newPath, '');
       return { success: true };
     } catch (error) {
@@ -179,6 +230,18 @@ class FileExplorerService extends Disposable {
   async createFolder(parentPath: string, folderName: string): Promise<FileOperationResult> {
     const newPath = `${parentPath}/${folderName}`;
     try {
+      const collaboration = this.getCollaborationContext();
+      if (collaboration && isSameOrChildPath(newPath, collaboration.projectPath)) {
+        const folder = await getOTService().createProjectFolder(
+          collaboration.projectId,
+          collaboration.projectPath,
+          parentPath,
+          folderName
+        );
+        await api.file.createFolder(newPath);
+        return { success: true, entityId: folder.id };
+      }
+
       await api.file.createFolder(newPath);
       return { success: true };
     } catch (error) {
@@ -210,6 +273,26 @@ class FileExplorerService extends Disposable {
     }
 
     try {
+      const collaboration = this.getCollaborationContext();
+      if (
+        collaboration &&
+        node._id &&
+        isSameOrChildPath(node.path, collaboration.projectPath) &&
+        (entityType === 'file' || entityType === 'folder')
+      ) {
+        await getOTService().deleteProjectEntry(
+          collaboration.projectId,
+          node._id,
+          entityType === 'folder' ? 'directory' : 'file'
+        );
+        if (node.type === 'directory') {
+          await api.file.delete(node.path);
+        } else {
+          await api.file.trash(node.path);
+        }
+        return { success: true };
+      }
+
       if (entityType && node._id) {
         await api.file.delete(node.path, entityType, node._id);
       } else {
@@ -253,6 +336,11 @@ class FileExplorerService extends Disposable {
     }
 
     try {
+      const collaboration = this.getCollaborationContext();
+      if (collaboration && isSameOrChildPath(node.path, collaboration.projectPath)) {
+        return this.deleteNode(node, node.type === 'directory' ? 'folder' : 'file');
+      }
+
       await api.file.trash(node.path);
       return { success: true };
     } catch (error) {
@@ -292,11 +380,30 @@ class FileExplorerService extends Disposable {
       lastSlashIndex > 0 ? normalizedPath.substring(0, lastSlashIndex) : normalizedPath;
     const newPath = `${parentPath}/${newName}`;
 
-    if (oldPath === newPath) {
+    if (isSamePath(oldPath, newPath)) {
       return { success: true };
     }
 
     try {
+      const collaboration = this.getCollaborationContext();
+      if (
+        collaboration &&
+        entityId &&
+        isSameOrChildPath(oldPath, collaboration.projectPath) &&
+        (entityType === 'file' || entityType === 'folder')
+      ) {
+        await getOTService().renameProjectEntry(
+          collaboration.projectId,
+          collaboration.projectPath,
+          entityId,
+          entityType === 'folder' ? 'directory' : 'file',
+          oldPath,
+          newName
+        );
+        await api.file.rename(oldPath, newPath);
+        return { success: true };
+      }
+
       if (entityType && entityId) {
         await api.file.rename(oldPath, newPath, entityType, entityId);
       } else {
@@ -347,11 +454,13 @@ class FileExplorerService extends Disposable {
     }
 
     const errors: string[] = [];
+    const warnings: string[] = [];
     const usedNames: string[] = [];
+    const transferred: ClipboardTransfer[] = [];
 
     try {
       for (const item of this._clipboard) {
-        const originalFileName = item.path.split('/').pop() || item.path.split('\\').pop() || '';
+        const originalFileName = item.path.split(/[/\\]/).pop() || '';
         const isFolder = item.type === 'directory';
 
         let existingNames: string[] = [];
@@ -381,10 +490,25 @@ class FileExplorerService extends Disposable {
         try {
           if (item.operation === 'copy') {
             await api.file.copy(item.path, destPath);
+            const syncResult = await triggerOverleafNewFileSync(destPath, isFolder);
+            if (!syncResult.success && !syncResult.skipped) {
+              warnings.push(
+                t('fileOperation.overleafNewNotSynced', {
+                  name: finalFileName,
+                  error: syncResult.error || '',
+                })
+              );
+            }
           } else {
             await api.file.move(item.path, destPath);
           }
           usedNames.push(finalFileName);
+          transferred.push({
+            sourcePath: item.path,
+            destPath,
+            type: item.type,
+            operation: item.operation,
+          });
         } catch (error) {
           errors.push(`${originalFileName}: ${error}`);
         }
@@ -405,7 +529,11 @@ class FileExplorerService extends Disposable {
       return { success: false, error: message };
     }
 
-    return { success: true };
+    return {
+      success: true,
+      transferred,
+      warnings: warnings.length > 0 ? warnings : undefined,
+    };
   }
 
   // ====== System Clipboard ======
@@ -433,10 +561,11 @@ class FileExplorerService extends Disposable {
       }
 
       const errors: string[] = [];
+      const warnings: string[] = [];
       const usedNames: string[] = [];
 
       for (const srcPath of result.files) {
-        const originalFileName = srcPath.split('/').pop() || srcPath.split('\\').pop() || '';
+        const originalFileName = srcPath.split(/[/\\]/).pop() || '';
 
         let isFolder = false;
         try {
@@ -458,6 +587,15 @@ class FileExplorerService extends Disposable {
 
         try {
           await api.file.copy(srcPath, destPath);
+          const syncResult = await triggerOverleafNewFileSync(destPath, isFolder);
+          if (!syncResult.success && !syncResult.skipped) {
+            warnings.push(
+              t('fileOperation.overleafNewNotSynced', {
+                name: finalFileName,
+                error: syncResult.error || '',
+              })
+            );
+          }
           usedNames.push(finalFileName);
         } catch (error) {
           errors.push(`${originalFileName}: ${error}`);
@@ -465,11 +603,18 @@ class FileExplorerService extends Disposable {
       }
 
       if (errors.length > 0) {
-        return { success: false, error: errors.join('\n') };
+        return {
+          success: false,
+          error: errors.join('\n'),
+          warnings: warnings.length > 0 ? warnings : undefined,
+        };
       }
-      return { success: true };
+      return {
+        success: true,
+        warnings: warnings.length > 0 ? warnings : undefined,
+      };
     } catch (error) {
-      return { success: false, error: `Paste failed: ${error}` };
+      return { success: false, error: t('fileOperation.pasteFailed', { error: String(error) }) };
     }
   }
 
@@ -549,8 +694,4 @@ export function getFileExplorerService(): FileExplorerService {
     fileExplorerService = FileExplorerService.getInstance();
   }
   return fileExplorerService;
-}
-
-export function useFileExplorerService(): FileExplorerService {
-  return getFileExplorerService();
 }

@@ -13,12 +13,6 @@ export enum ConfigKeys {
   AIProviders = 'ai.providers',
   AISelectedModels = 'ai.selectedModels',
 
-  // ====== Knowledge Base Configuration ======
-  KnowledgeStoragePath = 'knowledge.storagePath',
-  KnowledgeEmbeddingModel = 'knowledge.embeddingModel',
-  KnowledgeEmbeddingApiKey = 'knowledge.embeddingApiKey',
-  KnowledgeEmbeddingBaseUrl = 'knowledge.embeddingBaseUrl',
-
   // ====== Editor Configuration ======
   EditorFontSize = 'editor.fontSize',
   EditorFontFamily = 'editor.fontFamily',
@@ -46,7 +40,6 @@ export enum ConfigKeys {
   SelectionEnabled = 'selection.enabled',
   SelectionTriggerMode = 'selection.triggerMode',
   SelectionShortcutKey = 'selection.shortcutKey',
-  SelectionDefaultLibraryId = 'selection.defaultLibraryId',
 
   // ====== Miscellaneous ======
   RecentProjects = 'recentProjects',

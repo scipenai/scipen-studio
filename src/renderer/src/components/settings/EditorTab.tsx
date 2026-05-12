@@ -36,6 +36,9 @@ export const EditorTab: React.FC = () => {
           onChange={(e) => settingsService.updateEditor({ fontFamily: e.target.value })}
           className={selectClassName}
         >
+          <option value='"JetBrains Mono", "Fira Code", Consolas, "Courier New", monospace'>
+            JetBrains Mono
+          </option>
           <option value='Consolas, "Courier New", monospace'>
             {t('editor.settings.consolasRecommended')}
           </option>

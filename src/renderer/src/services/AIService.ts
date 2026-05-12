@@ -30,33 +30,6 @@ class AIServiceClass {
   }
 
   /**
-   * AI text polishing (supports RAG enhancement)
-   * Uses polishModel (high-quality model, e.g., gpt-4o)
-   * @param text Text to polish
-   * @param knowledgeBaseId Optional knowledge base ID for RAG enhancement
-   */
-  async polishText(text: string, knowledgeBaseId?: string): Promise<string> {
-    const result = await api.ai.polish(text, knowledgeBaseId);
-    if (!result?.success) {
-      throw new Error(result?.error || 'AI polishing failed');
-    }
-
-    return result.content || '';
-  }
-
-  /**
-   * AI chat
-   */
-  async chat(messages: AIMessage[]): Promise<string> {
-    const result = await api.ai.chat(messages);
-    if (!result?.success) {
-      throw new Error(result?.error || 'AI chat failed');
-    }
-
-    return result.content || '';
-  }
-
-  /**
    * AI chat with streaming output
    * @param messages Message history
    * @param callbacks Callback functions
@@ -132,30 +105,6 @@ class AIServiceClass {
       signal?.removeEventListener('abort', abortHandler);
       cleanup?.();
     }
-  }
-
-  /**
-   * Generate LaTeX formula
-   */
-  async generateFormula(description: string): Promise<string> {
-    const result = await api.ai.generateFormula(description);
-    if (!result?.success) {
-      throw new Error(result?.error || 'Formula generation failed');
-    }
-
-    return result.content || '';
-  }
-
-  /**
-   * AI document review
-   */
-  async reviewDocument(content: string): Promise<string> {
-    const result = await api.ai.review(content);
-    if (!result?.success) {
-      throw new Error(result?.error || 'AI review failed');
-    }
-
-    return result.content || '';
   }
 
   /**

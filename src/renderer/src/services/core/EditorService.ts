@@ -27,7 +27,7 @@ export interface ContentChangeEvent {
   readonly path: string;
   readonly content: string;
   readonly isDirty: boolean;
-  /** Programmatic replacement (e.g., polish, refactor) - forces Monaco Editor update */
+  /** Programmatic replacement (e.g., refactor) - forces Monaco Editor update */
   readonly forceUpdate?: boolean;
 }
 
@@ -219,7 +219,7 @@ export class EditorService implements IDisposable {
     if (existingTab) {
       if (!existingTab.isDirty && tab.content !== existingTab.content) {
         // Tab not dirty but content differs: update from disk (external modification)
-        console.log('[EditorService] Tab exists, updating content from disk:', tab.path);
+        console.info('[EditorService] Tab exists, updating content from disk:', tab.path);
         existingTab.content = tab.content;
 
         // Sync to WorkingCopyService
@@ -291,6 +291,64 @@ export class EditorService implements IDisposable {
     this._onDidChangeActiveTab.fire(this._cachedActiveTab);
   }
 
+  moveTabPath(oldPath: string, newPath: string): boolean {
+    if (oldPath === newPath) return true;
+
+    const tab = this._tabsById.get(oldPath);
+    if (!tab || this._tabsById.has(newPath)) return false;
+
+    const updatedTab: EditorTab = {
+      ...tab,
+      path: newPath,
+      name: newPath.split(/[/\\]/).pop() || tab.name,
+    };
+
+    this._tabsById.delete(oldPath);
+    this._tabsById.set(newPath, updatedTab);
+
+    const tabIndex = this._tabOrder.indexOf(oldPath);
+    if (tabIndex !== -1) {
+      this._tabOrder[tabIndex] = newPath;
+    }
+
+    const diagnostics = this._diagnosticsById.get(oldPath);
+    if (diagnostics) {
+      this._diagnosticsById.delete(oldPath);
+      this._diagnosticsById.set(newPath, diagnostics);
+    }
+
+    const version = this._contentVersions.get(oldPath);
+    if (version !== undefined) {
+      this._contentVersions.delete(oldPath);
+      this._contentVersions.set(newPath, version);
+    }
+
+    const savingVersion = this._savingVersions.get(oldPath);
+    if (savingVersion !== undefined) {
+      this._savingVersions.delete(oldPath);
+      this._savingVersions.set(newPath, savingVersion);
+    }
+
+    const mtime = this._fileMtimes.get(oldPath);
+    if (mtime !== undefined) {
+      this._fileMtimes.delete(oldPath);
+      this._fileMtimes.set(newPath, mtime);
+    }
+
+    getWorkingCopyService().move(oldPath, newPath);
+
+    if (this._activeTabPath === oldPath) {
+      this._activeTabPath = newPath;
+      this._updateActiveTabCache();
+      this._setupActiveEditorRelays();
+      this._onDidChangeActiveTab.fire(this._cachedActiveTab);
+    }
+
+    this._updateTabsCache();
+    this._onDidAddTab.fire({ tab: updatedTab, type: 'updated' });
+    return true;
+  }
+
   closeAllTabs(): void {
     const tabs = [...this._tabsById.values()];
     const projectPath = getProjectService().projectPath;
@@ -330,6 +388,16 @@ export class EditorService implements IDisposable {
 
   // ====== Content Operations ======
 
+  /**
+   * Sync tab.content only (called after remote OT op). Does not mark dirty or trigger backup/compile.
+   * Ensures active_file_content sent to AI reflects the latest content.
+   */
+  syncRemoteContent(path: string, content: string): void {
+    const tab = this._tabsById.get(path);
+    if (!tab) return;
+    tab.content = content;
+  }
+
   updateContent(path: string, content: string): void {
     const tab = this._tabsById.get(path);
     if (!tab) return;
@@ -362,7 +430,7 @@ export class EditorService implements IDisposable {
   }
 
   /**
-   * Programmatic content replacement (e.g., polish, refactor).
+   * Programmatic content replacement (e.g., refactor).
    * @remarks Unlike updateContent, sets forceUpdate=true to trigger Monaco Editor refresh
    */
   replaceContent(path: string, content: string): void {
@@ -495,6 +563,15 @@ export class EditorService implements IDisposable {
     this._onDidMarkClean.fire(path);
 
     return true;
+  }
+
+  /**
+   * Finalize the save transaction while keeping dirty state.
+   * Used when the local disk save succeeds but a downstream sync (OT / remote) fails,
+   * so saving state does not leak yet tab switches still prefer local dirty content.
+   */
+  finalizeSaveKeepingDirty(path: string): void {
+    this._savingVersions.delete(path);
   }
 
   /** @deprecated Use beginSave + completeSave to avoid race conditions */

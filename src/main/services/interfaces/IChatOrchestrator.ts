@@ -1,6 +1,6 @@
 /**
  * @file IChatOrchestrator - Chat orchestration contract
- * @description Core interface for Ask (RAG) mode messaging and session lifecycle
+ * @description Core interface for chat messaging and session lifecycle
  * @depends ChatOrchestrator
  */
 
@@ -18,7 +18,7 @@ export interface IChatOrchestrator extends IDisposable {
    * Sends a message and streams responses via WebContents.
    * @param sessionId Session id (null to create new)
    * @param content Message content
-   * @param options Send options (knowledge context)
+   * @param options Send options
    * @param webContents WebContents for streaming
    * @returns Session id and user message id
    * @sideeffect Persists message and emits streaming updates
@@ -41,10 +41,9 @@ export interface IChatOrchestrator extends IDisposable {
 
   /**
    * Creates a new session.
-   * @param knowledgeBaseId Optional knowledge base id
    * @returns Newly created session
    */
-  createSession(knowledgeBaseId?: string): ChatSession;
+  createSession(): ChatSession;
 
   /**
    * Returns all sessions (sorted by last update).

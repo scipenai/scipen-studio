@@ -8,7 +8,7 @@
 import path from 'path';
 import { IpcChannel } from '@shared/ipc/channels';
 import log from 'electron-log';
-import fs from './knowledge/utils/fsCompat';
+import fs from 'fs-extra';
 
 // ====== Types ======
 

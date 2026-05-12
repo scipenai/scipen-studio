@@ -37,11 +37,6 @@ const mockElectronAPI = {
   compile: vi.fn().mockResolvedValue({ success: true }),
   compileTypst: vi.fn().mockResolvedValue({ success: true }),
 
-  knowledgeGetLibraries: vi.fn().mockResolvedValue([]),
-  knowledgeCreateLibrary: vi.fn().mockResolvedValue({ id: 'test-id' }),
-  knowledgeDeleteLibrary: vi.fn().mockResolvedValue(true),
-  knowledgeSearch: vi.fn().mockResolvedValue([]),
-
   getWindowId: vi.fn().mockReturnValue(1),
   createWindow: vi.fn().mockResolvedValue(2),
   focusWindow: vi.fn(),

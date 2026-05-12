@@ -83,7 +83,7 @@ const DEFAULT_OPTIONS: Required<AtMentionProcessorOptions> = {
   maxFiles: 10,
   maxFileChars: 50000,
   maxTotalChars: 100000,
-  respectGitIgnore: true,
+  respectGitIgnore: false, // not implemented; defaults to off to avoid misleading semantics
   allowAbsolutePath: false,
   includeHiddenFiles: true, // Default: allow referencing hidden files
 };

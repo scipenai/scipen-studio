@@ -17,11 +17,11 @@ import {
   shell,
 } from 'electron';
 import log from 'electron-log';
-import fs from './services/knowledge/utils/fsCompat';
+import fs from 'fs-extra';
+import { runMigrations } from './database';
 
 import {
   getAIService,
-  getAgentService,
   getChatOrchestrator,
   getFileSystemService,
   getSelectionServiceFromContainer,
@@ -30,16 +30,11 @@ import {
   shutdownServices,
   warmupServices,
 } from './services/ServiceRegistry';
-// ====== Service Registry (DI Pattern) ======
-import { getKnowledgeService } from './services/knowledge';
+import { getCollaborationOwnerRegistry } from './services/CollaborationOwnerRegistry';
+import { OverleafAuthService } from './services/OverleafAuthService';
+import type { OverleafProjectMetaService } from './services/OverleafProjectMetaService';
 
-import { createLocalReplicaService } from './services/LocalReplicaService';
-import { createOverleafFileSystemService } from './services/OverleafFileSystemService';
-import type {
-  ILocalReplicaService,
-  IOverleafFileSystemService,
-  IOverleafService,
-} from './services/interfaces';
+import type { IOverleafFileSystemService } from './services/interfaces';
 
 import { initAllowedDirs, setupCSP } from './security';
 import {
@@ -55,24 +50,25 @@ import { initializeLSPRegistry } from './services/lsp/setup';
 // ====== IPC Handlers ======
 import {
   registerAIHandlers,
-  registerAgentHandlers,
   registerChatHandlers,
   registerCompileHandlers,
   registerConfigHandlers,
   registerDialogHandlers,
   registerFileHandlers,
-  registerKnowledgeHandlers,
   registerLSPHandlers,
   registerOverleafHandlers,
+  registerOverleafLiveHandlers,
   registerSelectionHandlers,
+  registerIMHandlers,
+  registerCollaborationOwnerHandlers,
+  registerOTHandlers,
+  registerProjectBindingHandlers,
+  registerProjectConversationHandlers,
   registerSettingsHandlers,
+  registerUpdateHandlers,
   registerWindowHandlers,
-  setupKnowledgeEventForwarding,
 } from './ipc';
-import {
-  registerLocalReplicaHandlers,
-  setupLocalReplicaEventForwarding,
-} from './ipc/localReplicaHandlers';
+import { UpdateService } from './services/UpdateService';
 
 const Dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -103,7 +99,7 @@ crashReporter.start({
 log.info('[Main] Crash reporter started');
 
 // ====== GPU Acceleration ======
-// Why: Early GPU channel establishment improves startup time
+// Pre-establish GPU channels to reduce startup latency.
 app.commandLine.appendSwitch(
   'enable-features',
   'EarlyEstablishGpuChannel,EstablishGpuChannelAsync'
@@ -224,11 +220,11 @@ let mainWindow: BrowserWindow | null = null;
 let windowIdCounter = 0;
 
 // ====== Stateful Services ======
-// Why: Overleaf services maintain login state and cookies, so they must be created dynamically
-// Other services are obtained from ServiceContainer via DI
-let overleafCompiler: IOverleafService | null = null;
+// Overleaf services are created dynamically because they hold login state and cookies.
+// Other services come from ServiceContainer via DI.
+const overleafAuthService = new OverleafAuthService();
+let overleafProjectMetaService: OverleafProjectMetaService | null = null;
 let overleafFileSystem: IOverleafFileSystemService | null = null;
-let localReplicaService: ILocalReplicaService | null = null;
 
 // ====== Recent Projects ======
 const recentProjectsFile = path.join(app.getPath('userData'), 'recent-projects.json');
@@ -244,7 +240,7 @@ async function loadRecentProjects(): Promise<
 > {
   try {
     if (await fs.pathExists(recentProjectsFile)) {
-      const data = await fs.readJson<{
+      const data = (await fs.readJson(recentProjectsFile)) as {
         projects?: Array<{
           id: string;
           name: string;
@@ -252,7 +248,7 @@ async function loadRecentProjects(): Promise<
           lastOpened: string;
           isRemote?: boolean;
         }>;
-      }>(recentProjectsFile);
+      };
       return data.projects || [];
     }
   } catch (error) {
@@ -278,6 +274,12 @@ async function saveRecentProjects(
 }
 
 async function addRecentProject(projectPath: string, isRemote?: boolean): Promise<void> {
+  // Overleaf Local-First 副本不记入最近项目（用户通过 Overleaf 面板打开）
+  const { OVERLEAF_PROJECTS_DIR } = await import('./services/OverleafProjectMetaStore');
+  const normalized = projectPath.replace(/\\/g, '/');
+  const normalizedOverleaf = OVERLEAF_PROJECTS_DIR.replace(/\\/g, '/');
+  if (normalized.startsWith(normalizedOverleaf)) return;
+
   const projects = await loadRecentProjects();
   const projectName = path.basename(projectPath);
   const projectId = Buffer.from(projectPath).toString('base64');
@@ -327,7 +329,7 @@ function createWindow(options?: { projectPath?: string }): number {
     minWidth: 800,
     minHeight: 600,
     icon: iconPath,
-    // Why: macOS uses hidden inset title bar for native feel; Windows/Linux need standard title bar for menu
+    // macOS uses a hidden inset title bar for native feel; Windows/Linux keep the standard bar for the menu.
     ...(isMac
       ? {
           titleBarStyle: 'hiddenInset',
@@ -339,7 +341,7 @@ function createWindow(options?: { projectPath?: string }): number {
       preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
-      // Why: sandbox=false required because electron-vite compiles preload as ESM
+      // sandbox=false is required because electron-vite compiles the preload as ESM (sandbox is incompatible).
       sandbox: false,
       webSecurity: true,
       devTools: !app.isPackaged,
@@ -354,12 +356,13 @@ function createWindow(options?: { projectPath?: string }): number {
 
   newWindow.on('closed', () => {
     windows.delete(windowId);
+    getCollaborationOwnerRegistry().clearWindow(windowId);
     if (mainWindow === newWindow) {
       mainWindow = windows.size > 0 ? (windows.values().next().value ?? null) : null;
     }
 
-    // Why: SelectionService's hidden windows (ActionWindow/ToolbarWindow) prevent
-    // Electron's window-all-closed event from firing, so we manually trigger quit
+    // SelectionService's hidden windows (ActionWindow/ToolbarWindow) suppress
+    // Electron's window-all-closed event, so quit is triggered manually here.
     if (windows.size === 0 && process.platform !== 'darwin') {
       log.info('[Main] All main windows closed, triggering app.quit()');
       app.quit();
@@ -443,7 +446,9 @@ app.whenReady().then(async () => {
   setupCSP();
   initAllowedDirs();
 
-  // Why: Custom protocol for efficient loading of large files (PDFs)
+  await runMigrations();
+
+  // Custom protocol for efficient streaming of large files (PDFs).
   registerLocalFileProtocol();
 
   registerServices();
@@ -452,22 +457,11 @@ app.whenReady().then(async () => {
   initializeCompilerRegistry();
   initializeLSPRegistry();
 
-  // Why: createWindow() must precede registerIpcHandlers() because AI SDK imports zod,
-  // which fails if loaded before Electron is fully initialized
-  createWindow();
+  // IPC handlers 必须在 createWindow 之前注册，确保 renderer 加载时所有通道已就绪
   registerIpcHandlers();
-  setupApplicationMenu();
-
-  // Why: Initialize knowledge service after window creation so startup isn't blocked by failures
-  try {
-    const knowledgeService = getKnowledgeService();
-    await knowledgeService.initialize({});
-    log.info('[Main] Knowledge service initialized successfully');
-  } catch (error) {
-    log.error('[Main] Failed to initialize knowledge service:', error);
-  }
 
   // ====== Renderer Unresponsive Detection ======
+  // web-contents-created 必须在 createWindow 之前注册，否则首窗口事件会错过
   app.on('web-contents-created', (_event, webContents) => {
     let isHandlingUnresponsive = false;
 
@@ -517,6 +511,9 @@ app.whenReady().then(async () => {
       log.info('[Main] Renderer process became responsive again');
     });
   });
+
+  createWindow();
+  setupApplicationMenu();
 
   // Async warmup - doesn't block startup
   warmupServices().catch((err) => {
@@ -723,43 +720,21 @@ function registerIpcHandlers() {
   const fileSystemService = getFileSystemService();
   const aiService = getAIService();
   const syncTeXService = getSyncTeXServiceFromContainer();
-  const knowledgeService = getKnowledgeService();
 
   // Getter functions for dependency injection
   const getMainWindow = () => mainWindow;
   const getWindows = () => windows;
-  const getOverleafCompiler = () => overleafCompiler;
-  const getOverleafFileSystem = () => overleafFileSystem;
-  const getLocalReplicaService = () => localReplicaService;
-  const setOverleafCompiler = (compiler: IOverleafService | null) => {
-    overleafCompiler = compiler;
-    if (compiler) {
-      overleafFileSystem = createOverleafFileSystemService(compiler);
-      // Why: Inject fileSystemService so LocalReplica writes update mtime cache,
-      // preventing false positives on external modification detection
-      localReplicaService = createLocalReplicaService(
-        compiler,
-        overleafFileSystem,
-        fileSystemService
-      );
-      setupLocalReplicaEventForwarding(localReplicaService, getMainWindow);
-    } else {
-      if (localReplicaService) {
-        localReplicaService.dispose();
-      }
-      localReplicaService = null;
-      if (overleafFileSystem) {
-        overleafFileSystem.dispose();
-      }
-      overleafFileSystem = null;
-    }
+  const getProjectMetaService = () => overleafProjectMetaService;
+  const setProjectMetaService = (svc: OverleafProjectMetaService | null) => {
+    overleafProjectMetaService = svc;
   };
-
+  const getOverleafFileSystem = () => overleafFileSystem;
+  const setOverleafFileSystem = (fs: IOverleafFileSystemService | null) => {
+    overleafFileSystem = fs;
+  };
   // ====== Register File Handlers ======
   registerFileHandlers({
     fileSystemService,
-    getOverleafCompiler,
-    getOverleafFileSystem,
     getMainWindow,
     getWindows,
     addRecentProject,
@@ -767,46 +742,12 @@ function registerIpcHandlers() {
   });
 
   // ====== Register AI Handlers ======
-  // Type assertion: MultimodalKnowledgeService implements IKnowledgeService core methods
   registerAIHandlers({
     aiService,
-    getKnowledgeService: () =>
-      knowledgeService as unknown as import('./services/interfaces').IKnowledgeService,
   });
-
-  // ====== Register Agent Handlers (PDF2LaTeX, Paper2Beamer, Reviewer) ======
-  registerAgentHandlers({
-    agentService: getAgentService(),
-    getMainWindow,
-  });
-
   // ====== Register Compile Handlers ======
   registerCompileHandlers({
     syncTeXService,
-  });
-
-  // ====== Register Knowledge Handlers ======
-  registerKnowledgeHandlers({
-    getKnowledgeService: () =>
-      knowledgeService as unknown as import('./services/interfaces').IKnowledgeService,
-    getMainWindow,
-  });
-
-  setupKnowledgeEventForwarding(
-    knowledgeService as unknown as import('./services/interfaces').IKnowledgeService,
-    getMainWindow
-  );
-
-  // ====== Register Overleaf Handlers ======
-  registerOverleafHandlers({
-    getOverleafCompiler,
-    setOverleafCompiler,
-  });
-
-  // ====== Register Local Replica Handlers ======
-  registerLocalReplicaHandlers({
-    getLocalReplicaService,
-    getMainWindow,
   });
 
   // ====== Register Window Handlers ======
@@ -830,13 +771,31 @@ function registerIpcHandlers() {
   registerConfigHandlers();
   registerDialogHandlers();
   registerSettingsHandlers();
+  registerIMHandlers();
+  registerCollaborationOwnerHandlers();
+  registerOTHandlers();
+  registerProjectConversationHandlers();
+  registerOverleafHandlers({
+    getProjectMetaService,
+    setProjectMetaService,
+    getOverleafFileSystem,
+    setOverleafFileSystem,
+    getAuthService: () => overleafAuthService,
+  });
+  registerOverleafLiveHandlers({ getAuthService: () => overleafAuthService });
+  registerProjectBindingHandlers();
+
+  // ====== Register Update Handlers ======
+  const updateService = new UpdateService();
+  registerUpdateHandlers({
+    getWindows: () => windows,
+    getUpdateService: () => updateService,
+  });
 
   // ====== Register Selection Handlers ======
   const selectionService = getSelectionServiceFromContainer();
   registerSelectionHandlers({
     getSelectionService: () => selectionService,
-    getKnowledgeService: () =>
-      knowledgeService as unknown as import('./services/interfaces').IKnowledgeService,
     getMainWindow,
   });
 

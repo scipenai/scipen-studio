@@ -67,6 +67,7 @@ interface ILSPManager {
     includeDeclaration?: boolean
   ): Promise<unknown[]>;
   getDocumentSymbols(filePath: string): Promise<unknown[]>;
+  getSemanticTokens(filePath: string): Promise<unknown>;
   build(filePath: string): Promise<{ status: string }>;
   forwardSearch(filePath: string, line: number): Promise<{ status: string }>;
   exportTypstPdf(filePath: string): Promise<{ success: boolean; pdfPath?: string; error?: string }>;
@@ -250,6 +251,8 @@ class LSPProcess {
         );
       case 'getDocumentSymbols':
         return manager.getDocumentSymbols(p.filePath as string);
+      case 'getSemanticTokens':
+        return manager.getSemanticTokens(p.filePath as string);
 
       // Special features
       case 'build':

@@ -10,7 +10,6 @@ import { TypstCompiler } from '../TypstCompiler';
 import { CompilerRegistry } from './CompilerRegistry';
 
 const logger = createLogger('CompilerSetup');
-// Note: OverleafCompiler requires configuration to initialize, not auto-registered here
 
 /**
  * Initialize and register all local compilers
@@ -54,21 +53,6 @@ export function initializeCompilerRegistry(): void {
   logger.info(
     '[Compiler Setup] Registered compiler IDs:',
     CompilerRegistry.getRegisteredIds().join(', ')
-  );
-}
-
-/**
- * Register Overleaf remote compiler
- *
- * Overleaf compiler requires configuration to use, so registration function is provided separately
- *
- * @param overleafCompiler Overleaf compiler instance
- */
-export function registerOverleafCompiler(_overleafCompiler: unknown): void {
-  // Note: OverleafCompiler doesn't implement ICompiler interface yet
-  // This is just a reserved extension point
-  logger.info(
-    '[Compiler Setup] Overleaf compiler registration (needs ICompiler interface implementation)'
   );
 }
 

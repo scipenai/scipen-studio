@@ -31,19 +31,6 @@ export interface FileConflict {
   hasUnsavedChanges: boolean;
 }
 
-export interface PolishRequest {
-  originalText: string;
-  polishedText: string | null;
-  isPolishing: boolean;
-  selectionRange: {
-    startLine: number;
-    startColumn: number;
-    endLine: number;
-    endColumn: number;
-  } | null;
-  filePath: string | null;
-}
-
 export interface PDFHighlight {
   page: number;
   x: number;

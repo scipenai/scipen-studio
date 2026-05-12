@@ -12,7 +12,7 @@ export function useLocaleSync() {
 
   useEffect(() => {
     if (language && (language === 'zh-CN' || language === 'en-US')) {
-      console.log('[useLocaleSync] Setting locale to:', language);
+      console.info('[useLocaleSync] Setting locale to:', language);
       setLocale(language);
     }
   }, [language]);

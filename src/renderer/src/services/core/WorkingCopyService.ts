@@ -92,7 +92,7 @@ export class WorkingCopyService implements IDisposable {
     let copy = this._workingCopies.get(path);
 
     if (copy) {
-      copy.originalContent = content;
+      // Already registered: only update content, keep originalContent to preserve dirty tracking
       copy.content = content;
       copy.lastModified = Date.now();
       return copy;
@@ -114,6 +114,23 @@ export class WorkingCopyService implements IDisposable {
       this._workingCopies.delete(path);
       this._onDidUnregister.fire(copy);
     }
+  }
+
+  move(oldPath: string, newPath: string): void {
+    if (oldPath === newPath) return;
+
+    const copy = this._workingCopies.get(oldPath);
+    if (!copy) return;
+
+    this._workingCopies.delete(oldPath);
+    this._onDidUnregister.fire(copy);
+
+    const next = new WorkingCopyImpl(newPath, copy.content);
+    next.originalContent = copy.originalContent;
+    next.lastModified = copy.lastModified;
+
+    this._workingCopies.set(newPath, next);
+    this._onDidRegister.fire(next);
   }
 
   /**

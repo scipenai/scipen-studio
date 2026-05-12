@@ -17,33 +17,8 @@ import type {
   LaTeXWarning,
   SyncTeXForwardResult,
   SyncTeXBackwardResult,
-  KnowledgeBaseInfo,
   OverleafConfig,
-  OverleafProject,
-  OverleafCompileOptions,
-  OverleafCompileResult,
-  MediaType,
-  ProcessStatus,
-  RetrieverType,
-  EmbeddingProvider,
-  ChunkingConfig,
-  EmbeddingConfig,
-  RetrievalConfig,
-  KnowledgeLibrary,
-  KnowledgeDocument,
-  ChunkMetadata,
-  KnowledgeSearchResult,
-  KnowledgeCitation,
-  KnowledgeRAGResponse,
-  AdvancedRetrievalConfig,
-  RewrittenQuery,
-  ContextDecision,
-  EnhancedSearchResult,
-  KnowledgeInitOptions,
-  KnowledgeTaskStatus,
-  KnowledgeQueueStats,
-  KnowledgeDiagnostics,
-  KnowledgeEvent,
+  OverleafProjectDTO,
 } from '../shared/ipc/types';
 
 export type {
@@ -57,33 +32,8 @@ export type {
   LaTeXWarning,
   SyncTeXForwardResult,
   SyncTeXBackwardResult,
-  KnowledgeBaseInfo,
   OverleafConfig,
-  OverleafProject,
-  OverleafCompileOptions,
-  OverleafCompileResult,
-  MediaType,
-  ProcessStatus,
-  RetrieverType,
-  EmbeddingProvider,
-  ChunkingConfig,
-  EmbeddingConfig,
-  RetrievalConfig,
-  KnowledgeLibrary,
-  KnowledgeDocument,
-  ChunkMetadata,
-  KnowledgeSearchResult,
-  KnowledgeCitation,
-  KnowledgeRAGResponse,
-  AdvancedRetrievalConfig,
-  RewrittenQuery,
-  ContextDecision,
-  EnhancedSearchResult,
-  KnowledgeInitOptions,
-  KnowledgeTaskStatus,
-  KnowledgeQueueStats,
-  KnowledgeDiagnostics,
-  KnowledgeEvent,
+  OverleafProjectDTO,
 };
 
 // ==================== ElectronAPI Interface Definitions ====================
@@ -105,7 +55,7 @@ interface ElectronAPI {
   openProjectByPath: (path: string) => Promise<{ projectPath: string; fileTree: FileTreeNode } | null>;
 
   // ============ File Operations ============
-  readFile: (filePath: string) => Promise<string>;
+  readFile: (filePath: string) => Promise<{ content: string; mtime: number }>;
   /** Read binary file (efficient transfer for PDF, images, etc.) */
   readFileBinary: (filePath: string) => Promise<ArrayBuffer>;
   writeFile: (filePath: string, content: string) => Promise<void>;
@@ -164,6 +114,12 @@ interface ElectronAPI {
   getHomeDir: () => Promise<string>;
   getAppDataDir: () => Promise<string>;
 
+  // ============ Auto Update ============
+  checkUpdate: () => Promise<import('../../../../shared/ipc/app-contract').UpdateStatus>;
+  downloadUpdate: () => Promise<void>;
+  installUpdate: () => Promise<void>;
+  onUpdateStatus: (callback: (status: import('../../../../shared/ipc/app-contract').UpdateStatus) => void) => () => void;
+
   // ============ Multi-Window Management ============
   window: {
     newWindow: (options?: { projectPath?: string }) => Promise<{ success: boolean; windowId: number }>;
@@ -185,127 +141,8 @@ interface ElectronAPI {
     getCookies: () => Promise<string | null>;
     
     // Project management
-    getProjects: () => Promise<{ success: boolean; projects?: OverleafProject[]; message?: string }>;
+    getProjects: () => Promise<{ success: boolean; projects?: OverleafProjectDTO[]; message?: string }>;
     getProjectDetails: (projectId: string) => Promise<{ success: boolean; details?: any; error?: string }>;
-    updateSettings: (projectId: string, settings: { compiler?: string; rootDocId?: string }) => Promise<{ success: boolean; error?: string }>;
-    
-    // Compilation
-    compile: (projectId: string, options?: OverleafCompileOptions) => Promise<OverleafCompileResult>;
-    stopCompile: (projectId: string) => Promise<boolean>;
-    getBuildId: () => Promise<string | null>;
-    
-    // SyncTeX sync
-    syncCode: (projectId: string, file: string, line: number, column: number, buildId: string) => Promise<Array<{ page: number; h: number; v: number; width: number; height: number }> | null>;
-    syncPdf: (projectId: string, page: number, h: number, v: number, buildId: string) => Promise<Array<{ file: string; line: number; column: number }> | null>;
-    
-    // Document operations
-    getDoc: (projectId: string, docIdOrPath: string, isPath?: boolean) => Promise<{ success: boolean; content?: string; docId?: string; error?: string }>;
-    updateDoc: (projectId: string, docId: string, content: string) => Promise<{ success: boolean; error?: string }>;
-
-    // Optimized document operations (debounced + cached)
-    updateDocDebounced: (projectId: string, docId: string, content: string) => Promise<{ success: boolean; error?: string }>;
-    flushUpdates: (projectId?: string) => Promise<{ success: boolean; error?: string }>;
-    getDocCached: (projectId: string, docId: string) => Promise<{ success: boolean; content?: string; fromCache: boolean }>;
-    clearCache: (projectId?: string, docId?: string) => Promise<{ success: boolean }>;
-  };
-
-  // ============ Multimodal Knowledge Base API (V2) ============
-  knowledge: {
-    // Initialization
-    initialize: (options: KnowledgeInitOptions) => Promise<boolean>;
-    updateConfig: (options: Partial<KnowledgeInitOptions>) => Promise<{ success: boolean; error?: string }>;
-
-    // Knowledge base management
-    createLibrary: (params: {
-      name: string;
-      description?: string;
-      chunkingConfig?: Partial<ChunkingConfig>;
-      embeddingConfig?: Partial<EmbeddingConfig>;
-      retrievalConfig?: Partial<RetrievalConfig>;
-    }) => Promise<KnowledgeLibrary>;
-    getLibraries: () => Promise<KnowledgeLibrary[]>;
-    getLibrary: (id: string) => Promise<KnowledgeLibrary | null>;
-    updateLibrary: (id: string, updates: Partial<KnowledgeLibrary>) => Promise<boolean>;
-    deleteLibrary: (id: string) => Promise<boolean>;
-
-    // Document management
-    addDocument: (libraryId: string, filePath: string, options?: {
-      bibKey?: string;
-      citationText?: string;
-      metadata?: Record<string, unknown>;
-      processImmediately?: boolean;
-    }) => Promise<KnowledgeDocument & { taskId?: string }>;
-    addText: (libraryId: string, content: string, options?: {
-      title?: string;
-      mediaType?: MediaType;
-      bibKey?: string;
-      metadata?: Record<string, unknown>;
-    }) => Promise<KnowledgeDocument & { taskId?: string }>;
-    getDocument: (id: string) => Promise<KnowledgeDocument | null>;
-    getDocuments: (libraryId: string) => Promise<KnowledgeDocument[]>;
-    deleteDocument: (id: string) => Promise<boolean>;
-    reprocessDocument: (documentId: string) => Promise<{ success: boolean; taskId?: string }>;
-
-    // Retrieval
-    search: (options: {
-      query: string;
-      libraryIds?: string[];
-      topK?: number;
-      scoreThreshold?: number;
-      retrieverType?: RetrieverType;
-    }) => Promise<KnowledgeSearchResult[]>;
-    query: (question: string, libraryIds?: string[], options?: {
-      topK?: number;
-      includeContext?: boolean;
-    }) => Promise<KnowledgeRAGResponse>;
-
-    // Task management
-    getTask: (taskId: string) => Promise<KnowledgeTaskStatus | undefined>;
-    getQueueStats: () => Promise<KnowledgeQueueStats>;
-
-    // Testing
-    testEmbedding: () => Promise<{ success: boolean; message: string; dimensions?: number }>;
-
-    // Advanced retrieval configuration
-    getAdvancedConfig: () => Promise<AdvancedRetrievalConfig>;
-    setAdvancedConfig: (config: Partial<AdvancedRetrievalConfig>) => Promise<{ success: boolean }>;
-
-    // Enhanced search
-    searchEnhanced: (options: {
-      query: string;
-      libraryIds?: string[];
-      topK?: number;
-      scoreThreshold?: number;
-      retrieverType?: RetrieverType;
-      enableQueryRewrite?: boolean;
-      enableRerank?: boolean;
-      enableContextRouting?: boolean;
-      conversationHistory?: Array<{ role: string; content: string }>;
-    }) => Promise<EnhancedSearchResult>;
-
-    // File selection
-    selectFiles: (options?: {
-      mediaTypes?: MediaType[];
-      multiple?: boolean;
-    }) => Promise<string[] | null>;
-
-    // Diagnostics and debugging
-    getDiagnostics: (libraryId?: string) => Promise<KnowledgeDiagnostics>;
-    rebuildFTSIndex: () => Promise<{ success: boolean; recordCount: number }>;
-    generateMissingEmbeddings: (libraryId?: string) => Promise<{ success: boolean; generated: number; errors: number }>;
-
-    // Event listeners
-    onEvent: (callback: (event: KnowledgeEvent) => void) => () => void;
-    
-    // Task progress listener - for upload/delete progress UI
-    onTaskProgress: (callback: (event: {
-      taskId: string;
-      progress: number;
-      status: string;
-      message?: string;
-      filename?: string;
-      taskType?: 'upload' | 'delete';
-    }) => void) => () => void;
   };
 
   // ============ AI API (Main Process Secure Calls) ============
@@ -318,16 +155,11 @@ interface ElectronAPI {
       temperature: number;
       maxTokens: number;
       completionModel?: string;
-      polishModel?: string;
     }) => Promise<{ success: boolean }>;
     isConfigured: () => Promise<boolean>;
     completion: (context: string) => Promise<{ success: boolean; result?: string; error?: string }>;
-    polish: (text: string, knowledgeBaseId?: string) => Promise<{ success: boolean; result?: string; error?: string }>;
-    chat: (messages: Array<{ role: string; content: string }>) => Promise<{ success: boolean; result?: string; error?: string }>;
     chatStream: (messages: Array<{ role: string; content: string }>) => Promise<{ success: boolean; error?: string }>;
     onStreamChunk: (callback: (chunk: { type: string; content?: string; error?: string }) => void) => () => void;
-    generateFormula: (description: string) => Promise<{ success: boolean; result?: string; error?: string }>;
-    review: (content: string) => Promise<{ success: boolean; result?: string; error?: string }>;
     testConnection: () => Promise<{ success: boolean; message: string }>;
     stopGeneration: () => Promise<{ success: boolean }>;
     isGenerating: () => Promise<boolean>;
@@ -375,9 +207,8 @@ interface ElectronAPI {
     /** Get texlab version */
     getVersion: () => Promise<string | null>;
     /** Start LSP server
-     * @param rootPath Project root path (local mode) or virtual root identifier (virtual mode)
+     * @param rootPath Project root path
      * @param options Startup options
-     * @param options.virtual Whether virtual mode (for remote projects like Overleaf)
      */
     start: (rootPath: string, options?: { virtual?: boolean }) => Promise<boolean>;
     /** Stop LSP server */
@@ -446,6 +277,12 @@ interface ElectronAPI {
       selectionRange: { start: { line: number; character: number }; end: { line: number; character: number } };
       children?: any[];
     }>>;
+    /** Get semantic tokens */
+    getSemanticTokens: (filePath: string) => Promise<{
+      resultId?: string | null;
+      data: number[];
+      legend: { tokenTypes: string[]; tokenModifiers: string[] };
+    } | null>;
 
     // Build
     /** Build project */
@@ -469,12 +306,12 @@ interface ElectronAPI {
     /** Listen for exit event */
     onExit: (callback: (data: { code: number | null; signal: string | null }) => void) => () => void;
     /** Listen for LSP service start event (lazy loading) */
-    onServiceStarted: (callback: (data: { service: 'texlab' | 'tinymist' }) => void) => () => void;
+    onServiceStarted: (callback: (data: { service: 'texlab' | 'tinymist' | 'marksman' }) => void) => () => void;
     /** Listen for LSP service stop event (auto-sleep) */
-    onServiceStopped: (callback: (data: { service: 'texlab' | 'tinymist' }) => void) => () => void;
-    /** Listen for LSP service restart event (TexLab/Tinymist individual crash recovery) */
+    onServiceStopped: (callback: (data: { service: 'texlab' | 'tinymist' | 'marksman' }) => void) => () => void;
+    /** Listen for LSP service restart event (TexLab/Tinymist/Marksman individual crash recovery) */
     onServiceRestarted: (
-      callback: (data: { service: 'texlab' | 'tinymist' }) => void
+      callback: (data: { service: 'texlab' | 'tinymist' | 'marksman' }) => void
     ) => () => void;
 
     // ============ High-Performance MessagePort Direct Connection API ============
@@ -504,16 +341,16 @@ interface ElectronAPI {
     /**
      * Show confirmation dialog using Electron native dialog (prevents focus loss)
      * @param message Dialog message
-     * @param title 对话框标题（可选）
-     * @returns 用户是否确认
+     * @param title Dialog title (optional)
+     * @returns Whether the user confirmed
      */
     confirm: (message: string, title?: string) => Promise<boolean>;
-    
+
     /**
      * Show message dialog
      * @param message Message content
-     * @param type 类型：info, warning, error
-     * @param title 标题（可选）
+     * @param type Type: info, warning, error
+     * @param title Title (optional)
      */
     message: (message: string, type?: 'info' | 'warning' | 'error', title?: string) => Promise<void>;
   };

@@ -32,19 +32,6 @@ Requirements:
 4. Keep the content academically rigorous
 5. Return only the continuation, not the original context`;
 
-const POLISH_SYSTEM_PROMPT = `You are a professional academic writing editor. Your task is to polish and improve scientific document content while preserving its meaning.
-
-You support both LaTeX and Typst formats:
-- Preserve all LaTeX commands (\\command{}) and environments
-- Preserve all Typst syntax (#functions, = headings, etc.)
-
-Requirements:
-1. Improve clarity and readability
-2. Fix grammar and spelling errors
-3. Enhance academic tone
-4. Preserve all markup commands and structure
-5. Return only the polished text`;
-
 const CHAT_SYSTEM_PROMPT = `You are SciPen AI, a professional scientific writing assistant specializing in LaTeX, Typst, and academic writing.
 
 Capabilities:
@@ -59,34 +46,6 @@ LaTeX uses: \\command{}, \\begin{env}...\\end{env}, $math$, \\cite{key}
 Typst uses: #function(), = headings, $math$, @cite
 
 Always provide clear, concise, and academically appropriate responses.`;
-
-const FORMULA_SYSTEM_PROMPT = `You are a mathematical formula expert for scientific writing. Generate accurate formulas based on descriptions.
-
-You support both LaTeX and Typst:
-- LaTeX: Use standard LaTeX math syntax (\\frac{}{}, \\sum, \\int, etc.)
-- Typst: Use Typst math syntax (frac(), sum, integral, etc.)
-
-Requirements:
-1. Use correct syntax for the requested format
-2. Choose appropriate math environments
-3. Ensure formulas are complete and compilable
-4. Return only the code without explanations
-
-For LaTeX, use $...$ for inline and \\[...\\] for display formulas.
-For Typst, use $...$ for both inline and display math.`;
-
-const REVIEW_SYSTEM_PROMPT = `You are an experienced academic reviewer. Provide constructive feedback on scientific documents.
-
-You can review both LaTeX and Typst documents:
-- Check LaTeX commands and environments usage
-- Check Typst functions and syntax usage
-
-Focus on:
-1. Document structure and organization
-2. Technical accuracy
-3. Writing clarity and style
-4. Markup best practices (LaTeX or Typst)
-5. Specific improvement suggestions`;
 
 // ====== AIService Implementation ======
 /**
@@ -175,14 +134,17 @@ export class AIService implements IAIService {
 
   /** Update AI configuration */
   updateConfig(config: AIConfig): void {
-    if (!config.apiKey) {
+    // Require at least one API key (main key or completion-only key)
+    if (!config.apiKey && !config.completionApiKey) {
       console.warn('[AIService] API Key not configured');
       this.currentConfig = null;
       return;
     }
 
     this.currentConfig = config;
-    logger.info(`[AIService] Config updated: ${config.provider} ${config.baseUrl} ${config.model}`);
+    logger.info(
+      `[AIService] Config updated: ${config.provider} ${config.baseUrl} model=${config.model} completionModel=${config.completionModel || '(same)'}`
+    );
   }
 
   /** Get current configuration */
@@ -192,7 +154,8 @@ export class AIService implements IAIService {
 
   /** Check if AI is configured */
   isConfigured(): boolean {
-    return this.currentConfig !== null && !!this.currentConfig.apiKey;
+    if (!this.currentConfig) return false;
+    return !!(this.currentConfig.apiKey || this.currentConfig.completionApiKey);
   }
 
   /**
@@ -218,40 +181,7 @@ export class AIService implements IAIService {
     }
   }
 
-  /**
-   * Polish text with AI, supports RAG context enhancement.
-   */
-  async polishText(text: string, ragContext?: string): Promise<string> {
-    const model = this.createModel();
-
-    logger.info('[AIService] Polishing text, RAG context:', ragContext ? 'yes' : 'no');
-    if (ragContext) {
-      logger.info(`[AIService] RAG context length: ${ragContext.length} chars`);
-    }
-
-    let systemPrompt = POLISH_SYSTEM_PROMPT;
-    if (ragContext) {
-      systemPrompt += `\n\nReference materials from knowledge base:\n${ragContext}\n\nUse the above reference materials to improve the text quality and ensure academic accuracy. If relevant, you may incorporate information from the references.`;
-    }
-
-    try {
-      const { text: result } = await generateText({
-        model,
-        system: systemPrompt,
-        prompt: `Please polish the following text:\n\n${text}`,
-        maxOutputTokens: this.currentConfig?.maxTokens || 4096,
-        temperature: 0.3,
-      });
-
-      logger.info(`[AIService] Polish complete, result length: ${result.length} chars`);
-      return result;
-    } catch (error) {
-      console.error('[AIService] Polish failed:', error);
-      throw error;
-    }
-  }
-
-  /** AI chat (non-streaming) */
+  /** AI chat (non-streaming, used internally by ChatOrchestrator) */
   async chat(messages: AIMessage[]): Promise<string> {
     const model = this.createModel();
 
@@ -387,77 +317,6 @@ export class AIService implements IAIService {
   /** Check if generation is in progress */
   isGenerating(): boolean {
     return this._isStreaming;
-  }
-
-  /**
-   * Generate mathematical formula (supports LaTeX and Typst).
-   * @param format Output format, defaults to 'latex'
-   */
-  async generateFormula(description: string, format: 'latex' | 'typst' = 'latex'): Promise<string> {
-    const model = this.createModel();
-
-    const formatInstructions =
-      format === 'typst'
-        ? 'Return Typst math syntax. Use $...$ for math mode. Example: $frac(a, b)$, $sum_(i=1)^n$'
-        : 'Return LaTeX math syntax. Use $...$ for inline, \\[...\\] for display. Example: $\\frac{a}{b}$, $\\sum_{i=1}^{n}$';
-
-    const prompt = `Generate a mathematical formula based on the following description. Return only the ${format.toUpperCase()} code without any explanatory text.
-
-Description: ${description}
-
-${formatInstructions}
-
-Requirements:
-1. Return complete ${format.toUpperCase()} mathematical formula code
-2. Use appropriate math syntax for ${format.toUpperCase()}
-3. Ensure correct syntax that compiles properly`;
-
-    try {
-      const { text } = await generateText({
-        model,
-        system: FORMULA_SYSTEM_PROMPT,
-        prompt,
-        maxOutputTokens: 500,
-        temperature: 0.3,
-      });
-
-      return text.trim();
-    } catch (error) {
-      console.error('[AIService] Formula generation failed:', error);
-      throw error;
-    }
-  }
-
-  /** Review document with AI (supports LaTeX and Typst) */
-  async reviewDocument(content: string): Promise<string> {
-    const model = this.createModel();
-
-    const prompt = `Please review the following scientific document and provide detailed, constructive feedback:
-
-${content}
-
-Provide your review in the following format:
-1. **Overall Assessment**: Brief summary of the document quality
-2. **Structure & Organization**: Feedback on logical flow and structure
-3. **Technical Content**: Accuracy and clarity of technical content
-4. **Language & Style**: Grammar, clarity, and academic writing quality
-5. **Markup Usage**: Correct usage of LaTeX/Typst syntax and best practices
-6. **Specific Suggestions**: Line-by-line suggestions for improvement`;
-
-    try {
-      const { text } = await generateText({
-        model,
-        system: REVIEW_SYSTEM_PROMPT,
-        prompt,
-        maxOutputTokens: this.currentConfig?.maxTokens || 4096,
-        temperature: 0.5,
-      });
-
-      return text;
-    } catch (error) {
-      console.error('[AIService] Review failed:', error);
-      throw error;
-    }
   }
 
   /** Test AI connection */

@@ -35,7 +35,7 @@ export class ChatSessionStore implements IDisposable {
   /**
    * Create new session
    */
-  createSession(knowledgeBaseId?: string): InternalChatSession {
+  createSession(): InternalChatSession {
     const now = Date.now();
     const sessionId = randomUUID();
 
@@ -43,7 +43,6 @@ export class ChatSessionStore implements IDisposable {
       id: sessionId,
       title: 'New Conversation',
       status: 'idle',
-      knowledgeBaseId,
       createdAt: now,
       updatedAt: now,
       messageCount: 0,
@@ -275,7 +274,6 @@ export class ChatSessionStore implements IDisposable {
       id: session.id,
       title: session.title,
       status: session.status,
-      knowledgeBaseId: session.knowledgeBaseId,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       messageCount: session.messageCount,
@@ -292,6 +290,13 @@ export class ChatSessionStore implements IDisposable {
       return cleaned;
     }
     return `${cleaned.slice(0, maxLength)}...`;
+  }
+
+  /**
+   * Preview the heuristic title generation without mutating session state.
+   */
+  peekGeneratedTitle(content: string): string {
+    return this.generateTitle(content);
   }
 
   // ============ IDisposable ============

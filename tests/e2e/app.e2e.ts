@@ -266,9 +266,9 @@ test.describe
 
     test('keyboard shortcut functionality verification', async () => {
       const shortcuts = [
-        { keys: 'Control+S', name: '保存' },
-        { keys: 'Control+Z', name: '撤销' },
-        { keys: 'Control+F', name: '查找' },
+        { keys: 'Control+S', name: 'Save' },
+        { keys: 'Control+Z', name: 'Undo' },
+        { keys: 'Control+F', name: 'Find' },
       ];
 
       for (const { keys, name } of shortcuts) {

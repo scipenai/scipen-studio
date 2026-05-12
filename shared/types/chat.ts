@@ -1,32 +1,59 @@
 /**
  * @file Unified Chat Types
- * @description Type definitions for the RAG-enabled chat system
+ * @description Type definitions for the chat system
  * @depends None (pure type definitions)
  */
 
-// ====== Citation (RAG Feature) ======
+export type ThinkingStepStatus = 'pending' | 'running' | 'completed' | 'error';
 
-export interface Citation {
-  documentId: string;
-  documentName: string;
-  snippet: string;
-  /** Relevance score (0-1) */
-  score: number;
-
-  // PDF-specific
-  page?: number;
-  section?: string;
-
-  // Audio-specific
-  startTime?: number;
-  endTime?: number;
-  speaker?: string;
-
-  // Image-specific
-  caption?: string;
-
-  highlights?: Array<{ start: number; end: number }>;
+export interface ThinkingStep {
+  id: string;
+  label: string;
+  status: ThinkingStepStatus;
 }
+
+export interface ArtifactSummary {
+  id: string;
+  path: string;
+  title: string;
+  kind: 'file';
+  language?: string;
+  summary?: string;
+  charCount?: number;
+  source?: 'openclaw' | 'builtin' | 'local';
+}
+
+export interface MarkdownChatBlock {
+  type: 'markdown';
+  content: string;
+}
+
+export interface ThinkingChatBlock {
+  type: 'thinking';
+  title: string;
+  steps: ThinkingStep[];
+  collapsed?: boolean;
+}
+
+export interface ArtifactChatBlock {
+  type: 'artifact';
+  artifact: ArtifactSummary;
+}
+
+export interface StatusChatBlock {
+  type: 'status';
+  status: 'info' | 'running' | 'success' | 'warning' | 'error';
+  title: string;
+  message: string;
+  attempt?: number;
+  actionLabel?: string;
+}
+
+export type ChatMessageBlock =
+  | MarkdownChatBlock
+  | ThinkingChatBlock
+  | ArtifactChatBlock
+  | StatusChatBlock;
 
 // ====== Unified Message ======
 
@@ -38,9 +65,7 @@ export interface ChatMessage {
   role: ChatMessageRole;
   content: string;
   timestamp: number;
-  citations?: Citation[];
-  /** RAG search time (ms) */
-  searchTime?: number;
+  blocks?: ChatMessageBlock[];
 }
 
 // ====== Session ======
@@ -51,7 +76,6 @@ export interface ChatSession {
   id: string;
   title: string;
   status: ChatSessionStatus;
-  knowledgeBaseId?: string;
   createdAt: number;
   updatedAt: number;
   messageCount: number;
@@ -60,7 +84,10 @@ export interface ChatSession {
 // ====== Send Message Options ======
 
 export interface SendMessageOptions {
-  knowledgeBaseId?: string;
+  workspace?: {
+    projectPath?: string | null;
+    activeFilePath?: string | null;
+  };
 }
 
 // ====== Stream Events ======
@@ -78,15 +105,47 @@ export interface ReferencedFileFailed {
 
 export type ChatStreamEvent =
   | { type: 'session_created'; sessionId: string }
-  | { type: 'message_start'; messageId: string; role: ChatMessageRole }
-  | { type: 'text_delta'; content: string }
-  | { type: 'message_complete'; messageId: string }
-  | { type: 'files_referenced'; files: ReferencedFile[]; failed: ReferencedFileFailed[] }
-  | { type: 'rag_search_start' }
-  | { type: 'rag_search_complete'; citations: Citation[]; searchTime?: number }
-  | { type: 'done' }
-  | { type: 'error'; error: { code: string; message: string } }
-  | { type: 'cancelled' };
+  | { type: 'session_updated'; session: ChatSession }
+  | { type: 'message_start'; messageId: string; role: ChatMessageRole; sessionId?: string }
+  | { type: 'text_delta'; content: string; sessionId?: string }
+  | {
+      type: 'thinking_update';
+      title: string;
+      steps: ThinkingStep[];
+      collapsed?: boolean;
+      sessionId?: string;
+    }
+  | {
+      type: 'artifact_upsert';
+      artifact: ArtifactSummary;
+      sessionId?: string;
+    }
+  | {
+      type: 'compile_update';
+      status: StatusChatBlock['status'];
+      title: string;
+      message: string;
+      attempt?: number;
+      actionLabel?: string;
+      sessionId?: string;
+    }
+  | {
+      type: 'agent_state';
+      status: 'running' | 'idle' | 'error';
+      tool?: string;
+      message: string;
+      sessionId?: string;
+    }
+  | { type: 'message_complete'; messageId: string; sessionId?: string }
+  | {
+      type: 'files_referenced';
+      files: ReferencedFile[];
+      failed: ReferencedFileFailed[];
+      sessionId?: string;
+    }
+  | { type: 'done'; sessionId?: string }
+  | { type: 'error'; error: { code: string; message: string }; sessionId?: string }
+  | { type: 'cancelled'; sessionId?: string };
 
 // ====== IPC Request/Response Types ======
 

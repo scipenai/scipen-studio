@@ -19,14 +19,12 @@ export type ProviderId =
   | 'custom'
   | `custom-${string}`;
 
-export type ModelType = 'chat' | 'completion' | 'vision' | 'embedding' | 'rerank' | 'tts' | 'stt';
+export type ModelType = 'chat' | 'completion' | 'vision' | 'tts' | 'stt';
 
 export interface ModelCapabilities {
   chat?: boolean;
   completion?: boolean;
   vision?: boolean;
-  embedding?: boolean;
-  rerank?: boolean;
   tts?: boolean;
   stt?: boolean;
   functionCall?: boolean;
@@ -87,8 +85,6 @@ export interface SelectedModels {
   chat: ModelSelection | null;
   completion: ModelSelection | null;
   vision: ModelSelection | null;
-  embedding: ModelSelection | null;
-  rerank: ModelSelection | null;
   tts: ModelSelection | null;
   stt: ModelSelection | null;
 }
@@ -97,8 +93,6 @@ export const DEFAULT_SELECTED_MODELS: SelectedModels = {
   chat: null,
   completion: null,
   vision: null,
-  embedding: null,
-  rerank: null,
   tts: null,
   stt: null,
 };

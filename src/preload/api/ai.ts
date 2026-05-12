@@ -1,6 +1,6 @@
 /**
  * @file AI API - AI Service API Module
- * @description Provides IPC interfaces for AI configuration, chat, polishing, completion
+ * @description Provides IPC interfaces for AI configuration, chat, completion
  * @depends electron.ipcRenderer
  */
 
@@ -25,32 +25,12 @@ export const aiApi = {
 
   completion: (context: string) => ipcRenderer.invoke(IpcChannel.AI_Completion, context),
 
-  /**
-   * Polish text with optional RAG enhancement from knowledge base
-   * @sideeffect May trigger knowledge base search if knowledgeBaseId is provided
-   */
-  polish: (text: string, knowledgeBaseId?: string) =>
-    ipcRenderer.invoke(IpcChannel.AI_Polish, text, knowledgeBaseId),
-
-  chat: (messages: Array<{ role: string; content: string }>) =>
-    ipcRenderer.invoke(IpcChannel.AI_Chat, messages),
-
   chatStream: (messages: Array<{ role: string; content: string }>) =>
     ipcRenderer.invoke(IpcChannel.AI_ChatStream, messages),
 
-  /**
-   * Listen to streaming response chunks
-   * @returns Unsubscribe function
-   * @sideeffect Registers IPC event listener that must be cleaned up
-   */
   onStreamChunk: createSafeListener<{ type: string; content?: string; error?: string }>(
     IpcChannel.AI_StreamChunk
   ),
-
-  generateFormula: (description: string) =>
-    ipcRenderer.invoke(IpcChannel.AI_GenerateFormula, description),
-
-  review: (content: string) => ipcRenderer.invoke(IpcChannel.AI_Review, content),
 
   testConnection: () => ipcRenderer.invoke(IpcChannel.AI_TestConnection),
 

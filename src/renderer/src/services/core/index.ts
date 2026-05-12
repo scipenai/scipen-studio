@@ -13,14 +13,6 @@ export type {
   SelectionChangeEvent,
 } from './EditorService';
 
-export { AIService } from './AIService';
-export type {
-  SessionEntity,
-  SessionChangeEvent,
-  MessageChangeEvent,
-  PolishRequest,
-} from './AIService';
-
 export { ProjectService } from './ProjectService';
 export type { FileConflict, ProjectChangeEvent } from './ProjectService';
 
@@ -35,6 +27,19 @@ export type {
 } from './UIService';
 
 export { SettingsService, defaultSettings } from './SettingsService';
+export { ConversationScopeService } from './ConversationScopeService';
+export {
+  OTService,
+  getOTService,
+  buildFileTreeFromSnapshot,
+  toRelativeProjectPath,
+} from './OTService';
+export { OverleafLiveService, getOverleafLiveService } from './OverleafLiveService';
+
+export { MarkdownRenderService } from './MarkdownRenderService';
+
+export { ProjectRuntimeContext } from './ProjectRuntimeContext';
+export type { ProjectRuntimeState, BootstrapState } from './ProjectRuntimeContext';
 
 // Compile service
 export { CompileService, getCompileService } from './CompileService';
@@ -47,40 +52,24 @@ export type {
 } from './CompileService';
 
 // File explorer service
-export { getFileExplorerService, useFileExplorerService } from './FileExplorerService';
+export { getFileExplorerService } from './FileExplorerService';
 export type { FileOperationResult, ClipboardItem } from './FileExplorerService';
-
-// Knowledge base service
-export { getKnowledgeBaseService, useKnowledgeBaseService } from './KnowledgeBaseService';
-export type { DocumentInfo, UploadTask, OperationResult } from './KnowledgeBaseService';
-
-// Agent tools service
-export { getAgentToolsService, useAgentToolsService } from './AgentToolsService';
 
 // Service registry
 export {
   ServiceRegistry,
   getServices,
   getEditorService,
-  getAIService,
   getProjectService,
   getUIService,
   getSettingsService,
+  getConversationScopeService,
   getCommandService,
   getKeybindingService,
-  getViewRegistry,
+  getMarkdownRenderService,
+  getProjectRuntimeContext,
 } from './ServiceRegistry';
 export type { IServiceRegistry } from './ServiceRegistry';
-
-// View registry
-export { ViewRegistry, ViewLocation } from './ViewRegistry';
-export type {
-  ViewDescriptor,
-  ViewRegistrationEvent,
-  ViewDeregistrationEvent,
-} from './ViewRegistry';
-export { BuiltinViews, registerBuiltinViews } from './ViewContribution';
-export type { BuiltinViewId } from './ViewContribution';
 
 // Commands and shortcuts
 export { Commands } from '../CommandService';

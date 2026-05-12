@@ -12,7 +12,6 @@ import {
   type IDisposable,
   Throttler,
 } from '../../../../../shared/utils';
-import { api } from '../../api';
 import { createLogger } from '../LogService';
 import { ElectronFileSystem, type IFileSystem } from './FileSystemService';
 import { getWorkingCopyService } from './WorkingCopyService';
@@ -63,8 +62,6 @@ export class BackupService implements IDisposable {
 
   private _suspended = false;
 
-  private _appDataDir: string | null = null;
-
   // ====== Event Definitions ======
 
   private readonly _onDidBackup = new Emitter<string>();
@@ -81,17 +78,6 @@ export class BackupService implements IDisposable {
     this._disposables.add(this._onDidBackup);
     this._disposables.add(this._onDidRestore);
     this._disposables.add(this._onDidDiscard);
-
-    this._initAppDataDir();
-  }
-
-  private async _initAppDataDir(): Promise<void> {
-    try {
-      this._appDataDir = await api.app.getAppDataDir();
-      logger.debug(`AppDataDir initialized: ${this._appDataDir}`);
-    } catch (error) {
-      logger.warn('Failed to get appDataDir, remote backups will be disabled', error);
-    }
   }
 
   // ====== Core Methods ======
@@ -273,25 +259,8 @@ export class BackupService implements IDisposable {
 
   // ====== Helper Methods ======
 
-  private _isRemotePath(path: string): boolean {
-    return path.startsWith('overleaf://') || path.startsWith('overleaf:');
-  }
-
   private _getBackupPath(path: string, projectPath: string): string | null {
     const hash = this._hashPath(path);
-
-    if (this._isRemotePath(projectPath)) {
-      if (!this._appDataDir) {
-        logger.debug('AppDataDir not initialized, skipping remote backup');
-        return null;
-      }
-      const projectId = projectPath
-        .replace(/^overleaf:\/\//, '')
-        .replace(/^overleaf:/, '')
-        .split('/')[0];
-      return `${this._appDataDir}/remote-backups/${projectId}/${hash}.backup`;
-    }
-
     return `${projectPath}/${this._backupDir}/${hash}.backup`;
   }
 

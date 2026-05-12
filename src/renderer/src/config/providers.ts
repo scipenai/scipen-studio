@@ -53,9 +53,6 @@ const SILICONFLOW_MODELS: ModelInfo[] = [
     contextLength: 32768,
   },
   { id: 'Qwen/Qwen2-VL-72B-Instruct', name: 'Qwen2 VL 72B', type: 'vision', contextLength: 32768 },
-  { id: 'BAAI/bge-m3', name: 'BGE M3', type: 'embedding' },
-  { id: 'BAAI/bge-large-zh-v1.5', name: 'BGE Large ZH', type: 'embedding' },
-  { id: 'BAAI/bge-reranker-v2-m3', name: 'BGE Reranker M3', type: 'rerank' },
   { id: 'FunAudioLLM/SenseVoiceSmall', name: 'SenseVoice', type: 'stt' },
 ];
 
@@ -85,13 +82,8 @@ const AIHUBMIX_MODELS: ModelInfo[] = [
   { id: 'DeepSeek-V3.1-Fast', name: 'DeepSeek V3.1 Fast', type: 'chat', contextLength: 65536 },
   { id: 'gpt-4o-image', name: 'GPT-4o Vision', type: 'vision', contextLength: 128000 },
   { id: 'deepseek-ai/deepseek-vl2', name: 'DeepSeek VL2', type: 'vision', contextLength: 32768 },
-  { id: 'text-embedding-3-small', name: 'Embedding 3 Small', type: 'embedding' },
-  { id: 'text-embedding-3-large', name: 'Embedding 3 Large', type: 'embedding' },
-  { id: 'jina-embeddings-v3', name: 'Jina Embeddings V3', type: 'embedding' },
   { id: 'whisper-1', name: 'Whisper 1', type: 'stt' },
   { id: 'whisper-large-v3', name: 'Whisper Large V3', type: 'stt' },
-  { id: 'jina-reranker-v3', name: 'Jina Reranker V3', type: 'rerank' },
-  { id: 'gte-rerank-v2', name: 'GTE Rerank V2', type: 'rerank' },
 ];
 
 // ============ System Provider Configuration ============

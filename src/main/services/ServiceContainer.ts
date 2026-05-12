@@ -214,20 +214,19 @@ export const ServiceNames = {
   TEXLAB: 'texlab',
   TINYMIST: 'tinymist',
 
-  KNOWLEDGE: 'knowledge',
-  EMBEDDING: 'embedding',
-  VECTOR_STORE: 'vectorStore',
-  DOCUMENT_STORE: 'documentStore',
-  HYBRID_RETRIEVER: 'hybridRetriever',
-  RERANKER: 'reranker',
   SELECTION: 'selection',
+  STUDIO_IM: 'studioIM',
+  STUDIO_OT: 'studioOT',
+  STUDIO_OVERLEAF_LIVE: 'studioOverleafLive',
+  PROJECT_CONVERSATION: 'projectConversation',
+  PROJECT_BINDING: 'projectBinding',
+  REPLICA_WRITEBACK: 'replicaWriteback',
+  EXTERNAL_CHANGE_DETECTOR: 'externalChangeDetector',
+  OFFLINE_OPS_STORE: 'offlineOpsStore',
+  OFFLINE_OPS_MANAGER: 'offlineOpsManager',
 
   AI: 'ai',
-  AGENT: 'agent',
   CHAT_ORCHESTRATOR: 'chatOrchestrator',
-
-  VECTOR_SEARCH_CLIENT: 'vectorSearchClient',
-  SQLITE_WORKER_CLIENT: 'sqliteWorkerClient',
 } as const;
 
 /** Union of all service name values. */

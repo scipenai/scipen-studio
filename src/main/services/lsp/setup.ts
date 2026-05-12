@@ -5,6 +5,7 @@
  */
 
 import { createLogger } from '../LoggerService';
+import { MarkmanService } from '../MarkmanService';
 import { TexLabService } from '../TexLabService';
 import { TinymistService } from '../TinymistService';
 import { LSPRegistry } from './LSPRegistry';
@@ -34,6 +35,15 @@ export function initializeLSPRegistry(): void {
     priority: 10,
     languageIds: ['typst'],
     extensions: ['.typ'],
+  });
+
+  LSPRegistry.register({
+    id: 'marksman',
+    server: MarkmanService,
+    enabled: true,
+    priority: 10,
+    languageIds: ['markdown'],
+    extensions: ['.md', '.markdown', '.mdx'],
   });
 
   logger.info('[LSP Setup] LSP Registry initialized (servers instantiate on first use)');

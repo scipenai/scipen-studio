@@ -24,14 +24,38 @@ export function isLSPProvidersRegistered(): boolean {
  */
 export function registerLSPProviders(monacoInstance: Monaco): void {
   if (IsRegistered) {
-    console.log('[LSPProviderRegistry] Already registered, skipping');
+    console.info('[LSPProviderRegistry] Already registered, skipping');
     return;
   }
 
   IsRegistered = true;
-  console.log('[LSPProviderRegistry] Registering LSP providers...');
+  console.info('[LSPProviderRegistry] Registering LSP providers...');
 
-  const languages = ['latex', 'typst'];
+  const languages = ['latex', 'typst', 'markdown'];
+
+  // Markdown semantic tokens provider (Marksman)
+  monacoInstance.languages.registerDocumentSemanticTokensProvider('markdown', {
+    getLegend() {
+      return {
+        tokenTypes: ['class', 'class', 'enumMember'],
+        tokenModifiers: [],
+      };
+    },
+    async provideDocumentSemanticTokens(model: monaco.editor.ITextModel) {
+      if (!LSPService.isRunning()) return { data: new Uint32Array() };
+      const filePath = normalizeModelPath(model.uri.path);
+      if (!isLSPSupportedFile(filePath)) return { data: new Uint32Array() };
+
+      try {
+        const tokens = await LSPService.getSemanticTokens(filePath);
+        return { data: new Uint32Array(tokens?.data || []) };
+      } catch (error) {
+        console.error('[LSP] Semantic tokens error:', error);
+        return { data: new Uint32Array() };
+      }
+    },
+    releaseDocumentSemanticTokens() {},
+  });
 
   for (const languageId of languages) {
     // Hover Provider
@@ -103,7 +127,7 @@ export function registerLSPProviders(monacoInstance: Monaco): void {
     });
   }
 
-  console.log('[LSPProviderRegistry] LSP providers registered for:', languages.join(', '));
+  console.info('[LSPProviderRegistry] LSP providers registered for:', languages.join(', '));
 }
 
 /**

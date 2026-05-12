@@ -5,16 +5,27 @@ import { resolve } from 'path'
 const isDev = process.env.NODE_ENV === 'development'
 const isProd = process.env.NODE_ENV === 'production'
 
+const scipenBundleDeps = [
+  '@scipen/im-adapter-electron-main',
+  '@scipen/ot-adapter-electron-main',
+  '@scipen/im-core',
+  '@scipen/im-protocol',
+  '@scipen/ot-core',
+  '@scipen/ot-protocol',
+  'ws'
+]
+
 // Worker 文件通过 scripts/build-workers.js 构建
 // package.json 的 "dev" 和 "build" 脚本已配置先运行 build:workers
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: scipenBundleDeps })],
     resolve: {
       alias: {
         '@main': resolve('src/main'),
-        '@shared': resolve('shared')
+        '@shared': resolve('shared'),
+        ws: resolve(__dirname, 'node_modules/ws/wrapper.mjs')
       }
     },
     build: {
@@ -23,13 +34,12 @@ export default defineConfig({
       rollupOptions: {
         external: [
           'better-sqlite3',
-          'hnswlib-node',
           'pdf-parse',
-          'fluent-ffmpeg',
-          '@ffmpeg-installer/ffmpeg',
           'fs-extra',
           'electron-store',
-          'selection-hook'
+          'selection-hook',
+          'bufferutil',
+          'utf-8-validate'
         ],
         output: {
           // Disable code splitting for main process - bundle into single file for faster IO
@@ -61,6 +71,7 @@ export default defineConfig({
     plugins: [react()],
     root: 'src/renderer',
     publicDir: '../../public',
+    assetsInclude: ['**/*.wasm'],
     resolve: {
       alias: {
         '@': resolve('src/renderer/src'),
@@ -68,20 +79,26 @@ export default defineConfig({
         '@services': resolve('src/renderer/src/services'),
         '@store': resolve('src/renderer/src/store'),
         '@utils': resolve('src/renderer/src/utils'),
-        '@shared': resolve('shared')
-      }
+        '@shared': resolve('shared'),
+        react: resolve(__dirname, 'node_modules/react'),
+        'react-dom': resolve(__dirname, 'node_modules/react-dom'),
+        'react/jsx-runtime': resolve(__dirname, 'node_modules/react/jsx-runtime.js'),
+        'react/jsx-dev-runtime': resolve(__dirname, 'node_modules/react/jsx-dev-runtime.js')
+      },
+      dedupe: ['react', 'react-dom']
     },
     optimizeDeps: {
-      include: ['react', 'react-dom', 'zustand', 'clsx'],
+      include: ['react', 'react-dom', 'clsx'],
       exclude: ['pdfjs-dist']
+    },
+    worker: {
+      format: 'es'
     },
     build: {
       target: 'esnext',
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
-          selectionAction: resolve(__dirname, 'src/renderer/selectionAction.html'),
-          selectionToolbar: resolve(__dirname, 'src/renderer/selectionToolbar.html')
         },
         output: {
           /**
@@ -137,11 +154,11 @@ export default defineConfig({
               return 'vendor-katex'
             }
             
-            // 状态管理
-            if (id.includes('node_modules/zustand/')) {
-              return 'vendor-state'
+            // Typst WASM 编译器
+            if (id.includes('node_modules/@myriaddreamin/typst')) {
+              return 'vendor-typst'
             }
-            
+
             // 其他小型工具库打包在一起
             if (id.includes('node_modules/clsx/') ||
                 id.includes('node_modules/react-resizable-panels/')) {

@@ -7,10 +7,12 @@
 import { useCallback, useMemo } from 'react';
 import { api } from '../api';
 import { createLogger } from '../services/LogService';
+import { t } from '../locales';
+import { triggerOverleafSyncAfterSave } from '../utils/overleaf-sync-helper';
 import {
   getEditorService,
+  getOTService,
   getProjectService,
-  getSettingsService,
   getUIService,
   parseShortcutString,
 } from '../services/core';
@@ -21,7 +23,7 @@ const logger = createLogger('Shortcuts');
 
 /**
  * Checks if focus is currently within Monaco editor.
- * Why: Monaco has its own shortcut handling - we skip global handling to avoid double-fire.
+ * Monaco has its own shortcut handling — skip global handling to avoid double-fire.
  */
 function isMonacoEditorFocused(): boolean {
   const activeElement = document.activeElement;
@@ -64,7 +66,6 @@ export function useGlobalShortcuts() {
    */
   const saveCurrentFile = useCallback(async () => {
     const editorService = getEditorService();
-    const settingsService = getSettingsService();
     const activeTabPath = editorService.activeTabPath;
 
     if (!activeTabPath) return;
@@ -72,69 +73,84 @@ export function useGlobalShortcuts() {
     if (!activeTab || !activeTab.isDirty) return;
 
     try {
-      const isRemoteFile =
-        activeTabPath.startsWith('overleaf://') || activeTabPath.startsWith('overleaf:');
+      // Local-first: every file saves locally first, then syncs to Overleaf if configured.
+      const saveInfo = editorService.beginSave(activeTabPath);
+      if (!saveInfo) {
+        // null means save already in progress or tab doesn't exist
+        return;
+      }
 
-      if (isRemoteFile) {
-        // Overleaf has its own conflict resolution mechanism
-        const projectId = settingsService.compiler.overleaf?.projectId;
-        if (!projectId) throw new Error('Remote project ID not found');
+      const result = await api.file.write(activeTabPath, saveInfo.content, saveInfo.mtime);
 
-        const docId = activeTab._id;
-        if (!docId) throw new Error('Document ID not found');
+      if (result?.conflict) {
+        logger.warn('Save conflict: file modified externally', { path: activeTabPath });
+        getProjectService().setFileConflict({
+          path: activeTabPath,
+          type: 'change',
+          hasUnsavedChanges: true,
+        });
+        uiService.addCompilationLog({
+          type: 'warning',
+          message: t('syncTeX.saveConflict', { name: activeTab.name }),
+        });
+        return;
+      }
 
-        const result =
-          (await api.overleaf.updateDocDebounced(projectId, docId, activeTab.content)) ||
-          (await api.overleaf.updateDoc(projectId, docId, activeTab.content));
-        if (!result?.success) throw new Error(result?.error || 'Failed to save remote file');
-        editorService.markClean(activeTabPath);
-        logger.info(`Remote file saved: ${activeTab.name}`);
-        uiService.addCompilationLog({ type: 'success', message: `Saved: ${activeTab.name}` });
-      } else {
-        // Local file: versioned save with VSCode-style conflict detection
-        const saveInfo = editorService.beginSave(activeTabPath);
-        if (!saveInfo) {
-          // null means save already in progress or tab doesn't exist
-          return;
-        }
+      if (result?.currentMtime) {
+        editorService.updateFileMtime(activeTabPath, result.currentMtime);
+      }
 
-        const result = await api.file.write(activeTabPath, saveInfo.content, saveInfo.mtime);
-
-        if (result?.conflict) {
-          logger.warn('Save conflict: file modified externally', { path: activeTabPath });
-          getProjectService().setFileConflict({
-            path: activeTabPath,
-            type: 'change',
-            hasUnsavedChanges: true,
-          });
-          uiService.addCompilationLog({
-            type: 'warning',
-            message: `Save conflict: ${activeTab.name} was modified externally`,
-          });
-          return;
-        }
-
-        if (result?.currentMtime) {
-          editorService.updateFileMtime(activeTabPath, result.currentMtime);
-        }
-
-        const wasClean = editorService.completeSave(activeTabPath, saveInfo.version);
-        logger.info(`File saved: ${activeTabPath}`);
-
-        if (wasClean) {
-          uiService.addCompilationLog({ type: 'success', message: `Saved: ${activeTab.name}` });
-        } else {
-          uiService.addCompilationLog({
-            type: 'info',
-            message: `Saved: ${activeTab.name} (has new unsaved edits)`,
-          });
+      let otSynced = true;
+      if (activeTab._id) {
+        const otProjectId = activeTab.projectId || getOTService().getProjectId();
+        if (otProjectId) {
+          otSynced = await getOTService().syncSavedContent(
+            otProjectId,
+            activeTab._id,
+            saveInfo.content
+          );
         }
       }
+
+      let wasClean = false;
+      if (otSynced) {
+        wasClean = editorService.completeSave(activeTabPath, saveInfo.version);
+      } else {
+        editorService.finalizeSaveKeepingDirty(activeTabPath);
+      }
+      logger.info(`File saved: ${activeTabPath}`);
+
+      if (!otSynced) {
+        uiService.addCompilationLog({
+          type: 'warning',
+          message: t('syncTeX.savedOtPending', { name: activeTab.name }),
+        });
+      } else if (wasClean) {
+        uiService.addCompilationLog({
+          type: 'success',
+          message: t('syncTeX.savedLocal', { name: activeTab.name }),
+        });
+      } else {
+        uiService.addCompilationLog({
+          type: 'info',
+          message: t('syncTeX.savedLocalWithEdits', { name: activeTab.name }),
+        });
+      }
+
+      // Overleaf local-first: sync the just-saved file to Overleaf.
+      triggerOverleafSyncAfterSave({
+        filePath: activeTabPath,
+        content: saveInfo.content,
+        fileName: activeTab.name,
+        addLog: (type, message) => uiService.addCompilationLog({ type, message }),
+      });
     } catch (error) {
       logger.error('Failed to save file:', error);
       uiService.addCompilationLog({
         type: 'error',
-        message: `Save failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        message: t('syncTeX.saveFailedDetail', {
+          error: error instanceof Error ? error.message : t('syncTeX.saveFailedUnknown'),
+        }),
       });
     }
   }, [uiService]);
@@ -166,16 +182,9 @@ export function useGlobalShortcuts() {
       return;
     }
 
-    if (!monacoFocused && matchesShortcut(e, shortcuts.aiPolish)) {
+    if (!monacoFocused && matchesShortcut(e, shortcuts.chatWithSelection)) {
       e.preventDefault();
-      window.dispatchEvent(new CustomEvent('trigger-ai-polish'));
-      return;
-    }
-
-    if (!monacoFocused && matchesShortcut(e, shortcuts.aiChat)) {
-      e.preventDefault();
-      uiService.setSidebarTab('ai');
-      uiService.setSidebarCollapsed(false);
+      uiService.requestChatWithText('', 'editor');
       return;
     }
 

@@ -1,24 +1,25 @@
 /**
  * @file ChatOrchestrator - Chat session orchestration service
- * @description Coordinates AI service, RAG retrieval, and @ file references for chat sessions.
+ * @description Coordinates AI service and @ file references for chat sessions.
  * @depends IAIService, IFileSystemService, ChatSessionStore, AtMentionProcessor
  * @implements IChatOrchestrator, IDisposable
  */
 
+import path from 'node:path';
 import type { WebContents } from 'electron';
 import { IpcChannel } from '../../../../shared/ipc/channels';
 import type {
+  ChatMessageBlock,
   ChatMessage,
   ChatSession,
   ChatStreamEvent,
-  Citation,
   SendMessageOptions,
+  ThinkingStep,
 } from '../../../../shared/types/chat';
 import { createLogger } from '../LoggerService';
 import type { AIMessage, IAIService } from '../interfaces/IAIService';
 import type { IChatOrchestrator } from '../interfaces/IChatOrchestrator';
 import type { IFileSystemService } from '../interfaces/IFileSystemService';
-import { getKnowledgeService } from '../knowledge/MultimodalKnowledgeService';
 import { AtMentionProcessor } from './AtMentionProcessor';
 import { ChatSessionStore, type InternalChatSession } from './ChatSessionStore';
 
@@ -41,22 +42,47 @@ Typst uses: #function(), = headings, $math$, @cite
 
 Always provide clear, concise, and academically appropriate responses.`;
 
+const FILE_WRITE_SYSTEM_PROMPT = `You are SciPen Research Assistant.
+
+The user wants you to produce the full contents of a single research document file.
+
+Rules:
+1. Return ONLY the complete file content.
+2. Do NOT wrap the answer in code fences.
+3. Do NOT explain what you changed.
+4. Make the file immediately usable and reasonably complete.
+5. Respect the target format inferred from the file extension.
+6. If the target is Typst, return valid Typst source.
+7. If the target is LaTeX, return valid LaTeX source.
+8. If existing file content is provided, revise it instead of ignoring it.`;
+
+const DEFAULT_SESSION_TITLE = 'New Conversation';
+
+type FileWriteTask = {
+  absolutePath: string;
+  displayPath: string;
+  fileName: string;
+  language: string;
+};
+
 // ====== Implementation ======
 
 export class ChatOrchestrator implements IChatOrchestrator {
   private readonly sessionStore: ChatSessionStore;
   private readonly atMentionProcessor: AtMentionProcessor;
+  private readonly fileService: IFileSystemService;
 
   constructor(
     private readonly aiService: IAIService,
     fileService: IFileSystemService
   ) {
+    this.fileService = fileService;
     this.sessionStore = new ChatSessionStore();
     this.atMentionProcessor = new AtMentionProcessor(fileService, {
       maxFiles: 10,
       maxFileChars: 50000,
       maxTotalChars: 100000,
-      respectGitIgnore: true,
+      respectGitIgnore: false, // not implemented; keep explicitly off
     });
 
     logger.info('[ChatOrchestrator] Initialized');
@@ -85,7 +111,7 @@ export class ChatOrchestrator implements IChatOrchestrator {
         logger.info(`[ChatOrchestrator] Cancelled session ${session.id} to start new request`);
       }
     } else {
-      session = this.sessionStore.createSession(options.knowledgeBaseId);
+      session = this.sessionStore.createSession();
     }
 
     // Add user message
@@ -104,7 +130,7 @@ export class ChatOrchestrator implements IChatOrchestrator {
     this.sessionStore.setAbortController(session.id, abortController);
     this.sessionStore.updateSessionStatus(session.id, 'running');
 
-    // Run Ask mode (simple RAG chat with @file references)
+    // Run Ask mode (chat with @file references)
     this.runAskMode(session, content, options, webContents, abortController.signal).catch((err) => {
       logger.error('[ChatOrchestrator] Ask mode error:', err);
       this.emit(webContents, {
@@ -117,7 +143,7 @@ export class ChatOrchestrator implements IChatOrchestrator {
     return { sessionId: session.id, userMessageId: userMessage.id };
   }
 
-  // ====== Ask Mode (RAG Chat with @file references) ======
+  // ====== Ask Mode (Chat with @file references) ======
 
   private async runAskMode(
     session: InternalChatSession,
@@ -126,6 +152,14 @@ export class ChatOrchestrator implements IChatOrchestrator {
     webContents: WebContents,
     signal: AbortSignal
   ): Promise<void> {
+    const fileTask = this.detectFileWriteTask(content, options);
+    if (fileTask) {
+      await this.runFileWriteMode(session, content, fileTask, webContents, signal);
+      return;
+    }
+
+    const send = this.emitFor(webContents, session.id);
+
     // 1. Process @ mentions in user content (with error handling)
     let cleanedContent = content;
     let fileContext = '';
@@ -139,7 +173,7 @@ export class ChatOrchestrator implements IChatOrchestrator {
         logger.info(
           `[ChatOrchestrator] @ reference resolved: ${atResult.files.length} files, ${atResult.failed.length} failed`
         );
-        this.emit(webContents, {
+        send({
           type: 'files_referenced',
           files: atResult.files.map((f) => ({
             path: f.relativePath,
@@ -154,74 +188,12 @@ export class ChatOrchestrator implements IChatOrchestrator {
       // Continue with original content if @ processing fails
     }
 
-    // 2. Build RAG context if knowledge base is selected
-    let ragContext = '';
-    let citations: Citation[] = [];
-    let searchTime: number | undefined;
-
-    if (options.knowledgeBaseId) {
-      this.emit(webContents, { type: 'rag_search_start' });
-      const searchStartTime = Date.now();
-
-      try {
-        const knowledgeService = getKnowledgeService();
-        if (knowledgeService) {
-          const results = await knowledgeService.search({
-            query: cleanedContent,
-            libraryIds: [options.knowledgeBaseId],
-            topK: 5,
-            scoreThreshold: 0.5,
-          });
-
-          searchTime = Date.now() - searchStartTime;
-
-          if (results.length > 0) {
-            ragContext = results.map((r, i) => `[${i + 1}] ${r.content}`).join('\n\n');
-
-            citations = results.map((r) => ({
-              documentId: r.documentId,
-              documentName: r.filename || 'Unknown',
-              snippet: r.content.slice(0, 200),
-              score: r.score,
-              // PDF
-              page: r.chunkMetadata?.page,
-              section: r.chunkMetadata?.section,
-              // Audio metadata
-              startTime: r.chunkMetadata?.startTime,
-              endTime: r.chunkMetadata?.endTime,
-              speaker: r.chunkMetadata?.speaker,
-              // Image metadata
-              caption: r.chunkMetadata?.caption,
-            }));
-          }
-        }
-      } catch (err) {
-        searchTime = Date.now() - searchStartTime;
-        logger.warn('[ChatOrchestrator] RAG retrieval failed:', err);
-      }
-
-      this.emit(webContents, { type: 'rag_search_complete', citations, searchTime });
-    }
-
-    // 3. Build system prompt with all contexts
+    // 2. Build system prompt with file contexts
     let systemPrompt = ASK_SYSTEM_PROMPT;
 
     // Add @ mentioned file contents
     if (fileContext) {
       systemPrompt += `\n\n${fileContext}`;
-    }
-
-    // Add RAG context with detailed citation guidelines
-    if (ragContext) {
-      systemPrompt += `\n\n## Reference Materials from Knowledge Base
-${ragContext}
-
-## Response Requirements
-1. Prioritize using information from the reference materials to answer questions
-2. When citing reference materials, mark the citation after the relevant content, e.g., [1], [2]
-3. If reference materials are insufficient to fully answer the question, supplement with your knowledge but indicate this
-4. Keep responses accurate, professional, and concise
-5. Use Markdown format, including LaTeX for mathematical formulas`;
     }
 
     // Get message history (filter out tool/system messages, and override latest user content)
@@ -232,11 +204,9 @@ ${ragContext}
     const assistantMessage = this.sessionStore.addMessage(session.id, {
       role: 'assistant',
       content: '',
-      citations: citations.length > 0 ? citations : undefined,
-      searchTime,
     });
 
-    this.emit(webContents, {
+    send({
       type: 'message_start',
       messageId: assistantMessage.id,
       role: 'assistant',
@@ -249,35 +219,42 @@ ${ragContext}
 
       for await (const chunk of stream) {
         if (signal.aborted) {
-          this.emit(webContents, { type: 'cancelled' });
+          send({ type: 'cancelled' });
           return;
         }
 
         if (chunk.type === 'chunk' && chunk.content) {
           fullResponse += chunk.content;
-          this.emit(webContents, { type: 'text_delta', content: chunk.content });
+          send({ type: 'text_delta', content: chunk.content });
         } else if (chunk.type === 'error') {
           throw new Error(chunk.error ?? 'Stream error');
         }
       }
     } catch (err) {
       if (signal.aborted) {
-        this.emit(webContents, { type: 'cancelled' });
+        send({ type: 'cancelled' });
         return;
       }
       throw err;
     }
 
-    // Update message with full content
     this.sessionStore.updateMessage(session.id, assistantMessage.id, {
       content: fullResponse,
+      blocks: [
+        {
+          type: 'markdown',
+          content: fullResponse,
+        } satisfies ChatMessageBlock,
+      ],
     });
 
-    this.emit(webContents, { type: 'message_complete', messageId: assistantMessage.id });
-    this.emit(webContents, { type: 'done' });
+    send({ type: 'message_complete', messageId: assistantMessage.id });
+    send({ type: 'done' });
 
     this.sessionStore.updateSessionStatus(session.id, 'idle');
     this.sessionStore.clearAbortController(session.id);
+    const heuristicTitle = this.sessionStore.peekGeneratedTitle(content);
+    this.emitSessionTitleIfUpdated(session.id, heuristicTitle, webContents);
   }
 
   // ====== Control Methods ======
@@ -292,13 +269,12 @@ ${ragContext}
 
   // ====== Session Management ======
 
-  createSession(knowledgeBaseId?: string): ChatSession {
-    const session = this.sessionStore.createSession(knowledgeBaseId);
+  createSession(): ChatSession {
+    const session = this.sessionStore.createSession();
     return {
       id: session.id,
       title: session.title,
       status: session.status,
-      knowledgeBaseId: session.knowledgeBaseId,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       messageCount: session.messageCount,
@@ -316,7 +292,6 @@ ${ragContext}
       id: session.id,
       title: session.title,
       status: session.status,
-      knowledgeBaseId: session.knowledgeBaseId,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       messageCount: session.messageCount,
@@ -350,6 +325,231 @@ ${ragContext}
     if (!webContents.isDestroyed()) {
       webContents.send(IpcChannel.Chat_Stream, event);
     }
+  }
+
+  /** Creates an emitter bound to a sessionId; injects sessionId into events that allow it. */
+  private emitFor(webContents: WebContents, sessionId: string) {
+    return (event: ChatStreamEvent) => {
+      // Only inject for event types that declare a sessionId field
+      const enriched = 'sessionId' in event ? event : ({ ...event, sessionId } as ChatStreamEvent);
+      this.emit(webContents, enriched);
+    };
+  }
+
+  private emitSessionTitleIfUpdated(
+    sessionId: string,
+    nextTitle: string,
+    webContents: WebContents
+  ): void {
+    const session = this.sessionStore.getSession(sessionId);
+    if (!session) return;
+
+    if (session.title !== nextTitle && session.title !== DEFAULT_SESSION_TITLE) {
+      return;
+    }
+
+    if (!this.sessionStore.renameSession(sessionId, nextTitle)) {
+      return;
+    }
+
+    const updated = this.sessionStore.getSession(sessionId);
+    if (!updated) return;
+
+    this.emit(webContents, {
+      type: 'session_updated',
+      session: {
+        id: updated.id,
+        title: updated.title,
+        status: updated.status,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+        messageCount: updated.messageCount,
+      },
+    });
+  }
+
+  private detectFileWriteTask(content: string, options: SendMessageOptions): FileWriteTask | null {
+    const patterns = [
+      /(?:在|把|向)\s*([\w./\\-]+\.(?:typ|tex|md|txt))\s*(?:里|中)?(?:写|创建|生成|起草|撰写|编辑|修改)/i,
+      /(?:write|create|draft|generate|edit|update)\b[\s\S]{0,80}?\b(?:in|to)\s+([\w./\\-]+\.(?:typ|tex|md|txt))/i,
+    ];
+
+    const matched = patterns
+      .map((pattern) => content.match(pattern)?.[1])
+      .find((value): value is string => Boolean(value));
+
+    if (!matched) return null;
+
+    const projectPath = options.workspace?.projectPath ?? undefined;
+    const activeFilePath = options.workspace?.activeFilePath ?? undefined;
+    const baseDir = projectPath || (activeFilePath ? path.dirname(activeFilePath) : undefined);
+
+    if (!baseDir && !path.isAbsolute(matched)) {
+      return null;
+    }
+
+    const absolutePath = path.isAbsolute(matched)
+      ? path.normalize(matched)
+      : path.normalize(path.join(baseDir || '', matched));
+    const fileName = path.basename(absolutePath);
+    const language = this.detectArtifactLanguage(fileName);
+
+    return {
+      absolutePath,
+      displayPath: projectPath ? path.relative(projectPath, absolutePath) || fileName : fileName,
+      fileName,
+      language,
+    };
+  }
+
+  private async runFileWriteMode(
+    session: InternalChatSession,
+    content: string,
+    task: FileWriteTask,
+    webContents: WebContents,
+    signal: AbortSignal
+  ): Promise<void> {
+    const send = this.emitFor(webContents, session.id);
+
+    const assistantMessage = this.sessionStore.addMessage(session.id, {
+      role: 'assistant',
+      content: '',
+      blocks: [],
+    });
+
+    send({
+      type: 'message_start',
+      messageId: assistantMessage.id,
+      role: 'assistant',
+    });
+
+    const steps: ThinkingStep[] = [
+      { id: 'plan', label: '规划文档结构', status: 'completed' },
+      { id: 'write', label: `写入 ${task.fileName}`, status: 'running' },
+      { id: 'deliver', label: '整理可直接打开的制品', status: 'pending' },
+    ];
+
+    send({
+      type: 'agent_state',
+      status: 'running',
+      tool: 'writer',
+      message: `正在写入 ${task.fileName}…`,
+    });
+    send({
+      type: 'thinking_update',
+      title: 'OpenClaw 正在处理',
+      steps,
+      collapsed: false,
+    });
+
+    let existingContent = '';
+    try {
+      const existing = await this.fileService.readFile(task.absolutePath);
+      existingContent = existing.content;
+    } catch {
+      existingContent = '';
+    }
+
+    const aiMessages: AIMessage[] = [
+      {
+        role: 'system',
+        content: `${FILE_WRITE_SYSTEM_PROMPT}\n\nTarget file: ${task.fileName}\nTarget language: ${task.language}`,
+      },
+      {
+        role: 'user',
+        content: `${content}\n\n${existingContent ? `Existing file content:\n\n${existingContent}` : 'No existing file content. Create it from scratch.'}`,
+      },
+    ];
+
+    const generated = await this.aiService.chat(aiMessages);
+    if (signal.aborted) {
+      send({ type: 'cancelled' });
+      return;
+    }
+
+    const sanitizedContent = this.stripCodeFences(generated).trim();
+    await this.fileService.writeFile(task.absolutePath, sanitizedContent, { ensureDir: true });
+
+    const completedSteps: ThinkingStep[] = [
+      { id: 'plan', label: '规划文档结构', status: 'completed' },
+      { id: 'write', label: `写入 ${task.fileName}`, status: 'completed' },
+      { id: 'deliver', label: '整理可直接打开的制品', status: 'completed' },
+    ];
+
+    const summary = `我已经把内容写入 \`${task.displayPath}\`，你可以直接打开编辑器或快速编译。`;
+    const artifact = {
+      id: `${session.id}:${task.absolutePath}`,
+      path: task.absolutePath,
+      title: task.fileName,
+      kind: 'file' as const,
+      language: task.language,
+      summary: this.buildArtifactSummary(sanitizedContent),
+      charCount: sanitizedContent.length,
+      source: 'builtin' as const,
+    };
+    const blocks: ChatMessageBlock[] = [
+      {
+        type: 'thinking',
+        title: 'OpenClaw 正在处理',
+        steps: completedSteps,
+        collapsed: true,
+      },
+      {
+        type: 'artifact',
+        artifact,
+      },
+      {
+        type: 'markdown',
+        content: summary,
+      },
+    ];
+
+    this.sessionStore.updateMessage(session.id, assistantMessage.id, {
+      content: summary,
+      blocks,
+    });
+
+    send({
+      type: 'thinking_update',
+      title: 'OpenClaw 正在处理',
+      steps: completedSteps,
+      collapsed: true,
+    });
+    send({ type: 'artifact_upsert', artifact });
+    send({ type: 'text_delta', content: summary });
+    send({
+      type: 'agent_state',
+      status: 'idle',
+      tool: 'writer',
+      message: `${task.fileName} 已生成`,
+    });
+    send({ type: 'message_complete', messageId: assistantMessage.id });
+    send({ type: 'done' });
+
+    this.sessionStore.updateSessionStatus(session.id, 'idle');
+    this.sessionStore.clearAbortController(session.id);
+    const heuristicTitle = this.sessionStore.peekGeneratedTitle(content);
+    this.emitSessionTitleIfUpdated(session.id, heuristicTitle, webContents);
+  }
+
+  private detectArtifactLanguage(fileName: string): string {
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith('.typ')) return 'Typst';
+    if (lower.endsWith('.tex') || lower.endsWith('.ltx')) return 'LaTeX';
+    if (lower.endsWith('.md')) return 'Markdown';
+    return 'Text';
+  }
+
+  private stripCodeFences(content: string): string {
+    const trimmed = content.trim();
+    const match = trimmed.match(/^```[\w-]*\n([\s\S]*?)\n```$/);
+    return match ? match[1] : trimmed;
+  }
+
+  private buildArtifactSummary(content: string): string {
+    const compact = content.replace(/\s+/g, ' ').trim();
+    if (!compact) return '新生成的研究文档';
+    return compact.length > 120 ? `${compact.slice(0, 117)}...` : compact;
   }
 
   private buildHistoryMessages(sessionId: string, overrideUserContent?: string): AIMessage[] {

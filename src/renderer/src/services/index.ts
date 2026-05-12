@@ -34,8 +34,6 @@ export {
   ThemeService,
   ThemeServiceImpl,
   BuiltinThemes,
-  useTheme,
-  useThemeColor,
   type ThemeMode,
   type ThemeColors,
   type ThemeDefinition,

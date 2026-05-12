@@ -28,12 +28,12 @@ SciPen Studio is an Electron application with strict process separation:
 │                           MAIN PROCESS                                  │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────┐ │
 │  │ ServiceContainer │  │  IPC Handlers   │  │    Worker Threads       │ │
-│  │   (DI System)    │──│ (Type-Safe)     │  │ ┌─────┐┌─────┐┌─────┐  │ │
-│  │                  │  │                 │  │ │ PDF ││ SQL ││ Vec │  │ │
-│  │ ┌──────────────┐ │  │ ┌─────────────┐ │  │ └─────┘└─────┘└─────┘  │ │
-│  │ │ AIService    │ │  │ │ aiHandlers  │ │  │ ┌─────┐┌─────┐┌─────┐  │ │
-│  │ │ FileService  │ │  │ │ fileHandlers│ │  │ │Comp.││File ││ Log │  │ │
-│  │ │ Knowledge... │ │  │ │ ...         │ │  │ └─────┘└─────┘└─────┘  │ │
+│  │   (DI System)    │──│ (Type-Safe)     │  │ ┌─────┐┌─────┐         │ │
+│  │                  │  │                 │  │ │ PDF ││Comp.│         │ │
+│  │ ┌──────────────┐ │  │ ┌─────────────┐ │  │ └─────┘└─────┘         │ │
+│  │ │ AIService    │ │  │ │ aiHandlers  │ │  │ ┌─────┐┌─────┐         │ │
+│  │ │ FileSystem   │ │  │ │ fileHandlers│ │  │ │File ││ Log │         │ │
+│  │ │ Compiler ... │ │  │ │ ...         │ │  │ └─────┘└─────┘         │ │
 │  │ └──────────────┘ │  │ └─────────────┘ │  └─────────────────────────┘ │
 │  └─────────────────┘  └─────────────────┘                               │
 └───────────────────────────────┬─────────────────────────────────────────┘
@@ -70,41 +70,41 @@ Services are registered in `src/main/services/ServiceRegistry.ts`:
 
 ```typescript
 // src/main/services/ServiceRegistry.ts
-import { ServiceContainer } from './ServiceContainer';
-import { ServiceNames } from './ServiceNames';
-import { AIService } from './AIService';
+import { ServiceContainer, ServiceNames } from './ServiceContainer';
+import { createAIService } from './AIService';
 import type { IAIService } from './interfaces/IAIService';
+import type { ISyncTeXService } from './interfaces/ISyncTeXService';
+import { createSyncTeXService } from './SyncTeXService';
 
 export function registerServices(container: ServiceContainer): void {
-  // Singleton: Same instance for all requests
+  // Singleton: same instance for all requests
   container.registerSingleton<IAIService>(
-    ServiceNames.AI, 
-    () => new AIService()
+    ServiceNames.AI,
+    () => createAIService()
   );
-  
-  // Lazy: Created on first use, then cached
-  container.registerLazy<IKnowledgeService>(
-    ServiceNames.Knowledge,
-    () => new MultimodalKnowledgeService(/* deps */)
+
+  // Lazy: created on first use, then cached
+  container.registerLazy<ISyncTeXService>(
+    ServiceNames.SYNCTEX,
+    () => createSyncTeXService()
   );
-  
-  // Transient: New instance every time
-  container.registerTransient<ILogger>(
-    ServiceNames.Logger,
-    () => new ConsoleLogger()
-  );
+
+  // Transient: a new instance per resolution (rarely used in this codebase)
+  // container.registerTransient<ILogger>(ServiceNames.LOGGER, () => new ConsoleLogger());
 }
 ```
+
+> Service-name constants live in `ServiceContainer.ts` (`export const ServiceNames`) and use `SCREAMING_SNAKE_CASE` (`AI`, `FILE_SYSTEM`, `SYNCTEX`, `LATEX_COMPILER`, `OVERLEAF_FILE_SYSTEM`, …).
 
 #### Service Usage (Correct Way)
 
 ```typescript
 // ✅ CORRECT: IPC handlers receive dependencies via function arguments
 export function registerAIHandlers(deps: AIHandlersDeps): void {
-  const { aiService, knowledgeService } = deps;
-  
-  ipcMain.handle(IpcChannel.AI_Chat, async (_, messages) => {
-    return await aiService.chat(messages);
+  const { aiService } = deps;
+
+  ipcMain.handle(IpcChannel.AI_Completion, async (_, context: string) => {
+    return await aiService.getCompletion(context);
   });
 }
 
@@ -112,17 +112,20 @@ export function registerAIHandlers(deps: AIHandlersDeps): void {
 import { aiService } from '../services/AIService'; // FORBIDDEN!
 ```
 
+> Real handlers in `src/main/ipc/aiHandlers.ts` use `createTypedHandlers` / `registerTypedHandler` from `typedIpc.ts` instead of bare `ipcMain.handle` — the typed wrapper applies Zod validation automatically. The plain form above is shown only for illustration.
+
 #### Interface Definition
 
 All services must have an interface in `src/main/services/interfaces/`:
 
 ```typescript
 // src/main/services/interfaces/IAIService.ts
-export interface IAIService extends IDisposable {
+export interface IAIService extends Partial<IDisposable> {
   isConfigured(): boolean;
-  chat(messages: ChatMessage[]): Promise<string>;
-  polishText(text: string): Promise<string>;
-  // ... other methods
+  getCompletion(context: string): Promise<string>;
+  chat(messages: AIMessage[]): Promise<string>;
+  chatStream(messages: AIMessage[]): AsyncGenerator<StreamChunk>;
+  // ... other methods (updateConfig, getConfig, testConnection, stopGeneration, isGenerating)
 }
 ```
 
@@ -130,15 +133,15 @@ export interface IAIService extends IDisposable {
 
 ```typescript
 // src/main/index.ts
-import { serviceContainer } from './services/ServiceContainer';
+import { getServiceContainer, ServiceNames } from './services/ServiceContainer';
 import { registerAIHandlers } from './ipc/aiHandlers';
 
 // Get services from container
-const aiService = serviceContainer.getService<IAIService>(ServiceNames.AI);
-const knowledgeService = serviceContainer.getService<IKnowledgeService>(ServiceNames.Knowledge);
+const container = getServiceContainer();
+const aiService = container.get<IAIService>(ServiceNames.AI);
 
 // Pass to handlers
-registerAIHandlers({ aiService, knowledgeService });
+registerAIHandlers({ aiService });
 ```
 
 ---
@@ -147,65 +150,62 @@ registerAIHandlers({ aiService, knowledgeService });
 
 ### Overview
 
-Heavy operations run in isolated Worker Threads to prevent Main Process blocking:
+Heavy operations run in isolated Worker Threads to keep the main process responsive:
 
 | Worker | File | Purpose | Transfer Method |
 |--------|------|---------|-----------------|
-| **Vector Search** | `vectorSearch.worker.ts` | HNSW index operations | `Transferable` (Zero-copy) |
-| **SQLite** | `sqlite.worker.ts` | Database operations | `Transferable` for embeddings |
-| **PDF Parser** | `pdf.worker.ts` | PDF text extraction | Structured Clone |
-| **File System** | `file.worker.ts` | File watching (chokidar) | Structured Clone + Batching |
-| **Compile** | `compile.worker.ts` | LaTeX/Typst compilation | Structured Clone |
-| **Log Parser** | `logParser.worker.ts` | Compile log parsing | Structured Clone |
+| **Compile** | `compile.worker.ts` | LaTeX / Typst compilation (Tectonic, Tinymist) | Structured Clone |
+| **PDF Parser** | `pdf.worker.ts` | PDF text extraction (`pdf-parse`) | Structured Clone |
+| **File System** | `file.worker.ts` | Recursive file watching (chokidar) | Structured Clone + Batching |
+| **Log Parser** | `logParser.worker.ts` | LaTeX / Typst compile log parsing | Structured Clone |
 
-### Zero-Copy Transfer (Transferable Objects)
+### Transfer strategy
 
-For large binary data (e.g., embedding vectors), we use `Transferable` objects:
+Most worker payloads are plain objects (file paths, compile options, log chunks) and use structured clone. For large binary data — notably PDF rendering output — prefer `Transferable` (`ArrayBuffer` / typed arrays) to avoid copying:
 
 ```typescript
-// src/main/workers/VectorSearchClient.ts
+// Structured clone — copies the whole array
+this.worker.postMessage({ kind: 'render', pdfBytes: uint8 });
 
-// ✅ CORRECT: Zero-copy transfer of Float32Array
-async search(embedding: number[]): Promise<SearchResult[]> {
-  // Convert to typed array
-  const float32 = new Float32Array(embedding);
-  
-  // Transfer buffer ownership (no copy!)
-  const buffer = float32.buffer;
-  return this.sendMessage('search', { embedding: buffer }, [buffer]);
-}
-
-// ❌ WRONG: Structured clone copies the entire array
-return this.sendMessage('search', { embedding: embedding }); // Copies data!
+// Transferable — zero-copy, transfers buffer ownership to the worker
+const buffer = uint8.buffer;
+this.worker.postMessage({ kind: 'render', pdfBytes: uint8 }, [buffer]);
 ```
 
-**When to use which:**
+Rule of thumb:
 
 | Data Type | Transfer Method | Example |
 |-----------|-----------------|---------|
-| Float32Array, ArrayBuffer | `Transferable` | Embeddings, PDF binary |
-| Plain objects, strings | Structured Clone | Metadata, file paths |
-| Large JSON arrays | Consider batching | File tree, search results |
+| `ArrayBuffer`, typed arrays | `Transferable` | PDF bytes, compile output |
+| Plain objects, strings, small JSON | Structured Clone | File paths, compile options |
+| Very large JSON arrays | Consider batching | Large file-tree scans |
 
 ### Worker Client Pattern
 
-Each worker has a corresponding client class:
+Each worker has a corresponding client class under `src/main/workers/`:
 
 ```typescript
-// src/main/workers/VectorSearchClient.ts
-export class VectorSearchClient {
-  private worker: Worker;
-  private requestMap = new Map<number, { resolve, reject }>();
-  
-  async search(options: SearchOptions): Promise<SearchResult[]> {
-    return this.sendMessage<SearchResult[]>('search', options, [transferables]);
+// src/main/workers/PDFWorkerClient.ts (shape simplified for illustration)
+export class PDFWorkerClient {
+  private worker: Worker | null = null;
+  private requestId = 0;
+  private pending = new Map<string, { resolve: Function; reject: Function }>();
+
+  async parsePDF(
+    filePath: string,
+    options?: PDFProcessOptions,
+    chunkingConfig?: Partial<ChunkingConfig>,
+    abortId?: string
+  ): Promise<PDFParseResult> {
+    return this.sendRequest('parse', { filePath, options, chunkingConfig, abortId });
   }
-  
-  private sendMessage<T>(type: string, payload: any, transfer?: Transferable[]): Promise<T> {
-    const id = this.nextRequestId++;
+
+  private sendRequest<T>(type: string, payload: unknown, timeout?: number): Promise<T> {
+    const id = `pdf-${++this.requestId}`;
     return new Promise((resolve, reject) => {
-      this.requestMap.set(id, { resolve, reject });
-      this.worker.postMessage({ id, type, payload }, transfer || []);
+      this.pending.set(id, { resolve, reject });
+      this.worker!.postMessage({ id, type, payload });
+      // ... timeout handling, abort, etc.
     });
   }
 }
@@ -221,9 +221,12 @@ We use the VS Code event pattern for state management:
 
 ```typescript
 // shared/utils/event.ts
-export interface Event<T> {
-  (listener: (e: T) => void): IDisposable;
-}
+export type IEvent<T> = (
+  listener: (e: T) => unknown,
+  thisArgs?: unknown,
+  disposables?: IDisposable[] | DisposableStore
+) => IDisposable;
+export type Event<T> = IEvent<T>; // alias
 
 export class Emitter<T> {
   private listeners: ((e: T) => void)[] = [];
@@ -246,26 +249,27 @@ export class Emitter<T> {
 Use `useServiceEvent` hook to subscribe to events:
 
 ```typescript
-// src/renderer/src/hooks/useEvent.ts
-export function useServiceEvent<T>(event: Event<T>, initialValue: T): T {
-  const [value, setValue] = useState(initialValue);
-  
-  useEffect(() => {
-    const disposable = event((newValue) => setValue(newValue));
-    return () => disposable.dispose();
-  }, [event]);
-  
-  return value;
+// src/renderer/src/services/core/hooks.ts
+// useSyncExternalStore-style: pass a getSnapshot callback so React can re-read state
+// whenever the event fires, instead of caching an initial value.
+export function useServiceEvent<T, E = unknown>(
+  event: Event<E>,
+  getSnapshot: () => T
+): T {
+  // ... uses useSyncExternalStore internally
 }
 
 // Usage in component
 function CompileStatus() {
-  const isCompiling = useServiceEvent(compileService.onIsCompiling, false);
-  const progress = useServiceEvent(compileService.onProgress, 0);
-  
-  return <StatusBar isCompiling={isCompiling} progress={progress} />;
+  const isCompiling = useServiceEvent(
+    compileService.onIsCompilingChange,
+    () => compileService.isCompiling
+  );
+  return <StatusBar isCompiling={isCompiling} />;
 }
 ```
+
+> Lower-level hooks (`useEvent`, `useEventValue`, `useEmitter`, `useIpcEvent`) live in `src/renderer/src/hooks/useEvent.ts` and use the initial-value `useState` pattern for one-off event listening. `useServiceEvent` is the service-layer wrapper that always reads fresh state from the service.
 
 ### DisposableStore Pattern
 
@@ -293,47 +297,66 @@ useEffect(() => {
 
 ### Type-Safe IPC Contract
 
-All IPC channels are defined in `shared/api-types.ts`:
+IPC channels are defined by domain under `shared/ipc/`:
+
+```
+shared/ipc/
+├── channels.ts          # IpcChannel enum (every channel name)
+├── index.ts             # Aggregates IPCApiContract from all domain contracts
+├── ai-contract.ts       # IPCAiContract
+├── app-contract.ts      # IPCAppContract
+├── compile-contract.ts  # IPCCompileContract
+├── file-contract.ts     # IPCFileContract
+├── im-contract.ts       # IPCImContract
+├── lsp-contract.ts      # IPCLspContract
+├── ot-contract.ts       # IPCOtContract
+├── overleaf-contract.ts # IPCOverleafContract
+└── project-contract.ts  # IPCProjectContract
+```
+
+Channel names live in `channels.ts`, and each domain contract maps channels to `{ args, result }` shapes:
 
 ```typescript
-// shared/api-types.ts
+// shared/ipc/channels.ts
 export enum IpcChannel {
-  // File operations
-  File_Read = 'file:read',
-  File_Write = 'file:write',
-  
-  // AI operations
-  AI_Chat = 'ai:chat',
-  AI_Polish = 'ai:polish',
-  
+  File_Read = 'read-file',
+  File_Write = 'write-file',
+  AI_Completion = 'ai:completion',
+  AI_ChatStream = 'ai:chat-stream',
   // ...
 }
 
-export interface IPCApiContract {
+// shared/ipc/file-contract.ts
+export interface IPCFileContract {
   [IpcChannel.File_Read]: {
     args: [filePath: string];
-    return: { content: string } | null;
+    result: { content: string; mtime: number };
   };
-  [IpcChannel.AI_Chat]: {
-    args: [messages: ChatMessage[], options?: ChatOptions];
-    return: string;
+  [IpcChannel.File_Write]: {
+    args: [filePath: string, content: string, expectedMtime?: number];
+    result: { success: boolean; conflict?: boolean; currentMtime?: number };
   };
 }
+
+// shared/ipc/index.ts aggregates: IPCApiContract = IPCFileContract & IPCAiContract & ...
 ```
+
+> Channel string values follow two patterns: file/window/OT channels use kebab-case verbs (`'read-file'`, `'write-file'`), while newer domains (AI / IM / Overleaf) use `'domain:action'` colons (`'ai:completion'`). Both are valid Electron channel names — the convention is historical, don't try to normalize them.
 
 ### Zod Validation
 
-All IPC inputs are validated with Zod schemas:
+All IPC inputs are validated with Zod schemas. The schema registry lives in `src/main/ipc/ipcSchemas.ts`; `src/main/ipc/typedIpc.ts` wires schemas into the `ipcMain.handle` pipeline:
 
 ```typescript
-// src/main/ipc/typedIpc.ts
+// src/main/ipc/ipcSchemas.ts
 import { z } from 'zod';
 
-// Path validation - prevents path traversal
+// Path validation — blocks path traversal and null bytes
 const safePathSchema = z.string()
   .min(1)
   .max(4096)
-  .refine(p => !p.includes('..'), 'Path traversal not allowed');
+  .refine(p => !p.includes('..'), 'Path traversal not allowed')
+  .refine(p => !p.includes('\0'), 'Null bytes not allowed');
 
 export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.File_Read, z.tuple([safePathSchema])],
@@ -341,7 +364,7 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
     safePathSchema,
     z.string().max(50 * 1024 * 1024) // 50MB limit
   ])],
-  [IpcChannel.AI_Chat, z.tuple([
+  [IpcChannel.AI_ChatStream, z.tuple([
     z.array(z.object({
       role: z.enum(['user', 'assistant', 'system']),
       content: z.string().min(1)
@@ -356,41 +379,51 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
 
 ### Adding a New IPC Channel
 
-1. **Define in shared types:**
+1. **Declare the channel name** in `shared/ipc/channels.ts`:
    ```typescript
-   // shared/api-types.ts
    export enum IpcChannel {
      MyFeature_DoSomething = 'myfeature:do-something',
    }
    ```
 
-2. **Add Zod schema:**
+2. **Add or extend a domain contract** (e.g. create `shared/ipc/myfeature-contract.ts` or extend an existing one):
    ```typescript
-   // src/main/ipc/typedIpc.ts
+   export interface IPCMyFeatureContract {
+     [IpcChannel.MyFeature_DoSomething]: {
+       args: [input: string, options: { flag: boolean }];
+       result: { ok: boolean };
+     };
+   }
+   ```
+   Then merge it into `IPCApiContract` in `shared/ipc/index.ts`.
+
+3. **Add Zod schema** in `src/main/ipc/ipcSchemas.ts`:
+   ```typescript
    channelSchemas.set(IpcChannel.MyFeature_DoSomething, z.tuple([
      z.string(),
-     z.object({ option: z.boolean() })
+     z.object({ flag: z.boolean() })
    ]));
    ```
 
-3. **Implement handler with DI:**
+4. **Implement handler with DI:**
    ```typescript
    // src/main/ipc/myFeatureHandlers.ts
    export interface MyFeatureHandlersDeps {
      myService: IMyService;
    }
-   
+
    export function registerMyFeatureHandlers(deps: MyFeatureHandlersDeps): void {
-     ipcMain.handle(IpcChannel.MyFeature_DoSomething, async (_, arg1, options) => {
-       return await deps.myService.doSomething(arg1, options);
+     ipcMain.handle(IpcChannel.MyFeature_DoSomething, async (_, input, options) => {
+       return await deps.myService.doSomething(input, options);
      });
    }
    ```
 
-4. **Wire in main:**
+5. **Wire in main:**
    ```typescript
-   // src/main/index.ts
-   const myService = container.getService<IMyService>(ServiceNames.MyService);
+   // src/main/index.ts — add the service to ServiceNames first,
+   // register it in ServiceRegistry.ts, then resolve it here.
+   const myService = container.get<IMyService>(ServiceNames.MY_FEATURE);
    registerMyFeatureHandlers({ myService });
    ```
 
@@ -434,8 +467,6 @@ describe('AIHandlers', () => {
 ```typescript
 createMockAIService(overrides?)
 createMockFileSystemService(overrides?)
-createMockKnowledgeService(overrides?)
-createMockAgentService(overrides?)
 createMockCompilerRegistry(overrides?)
 createMockOverleafService(overrides?)
 createMockSyncTeXService(overrides?)
@@ -461,32 +492,15 @@ npm run test:e2e
 
 ## Security
 
-### 1. Command Execution Whitelist
+### 1. External Process Execution
 
-Only approved commands can be executed:
-
-```typescript
-// src/main/services/AgentService.ts
-private static readonly ALLOWED_COMMANDS = new Set([
-  'scipen-pdf2tex',
-  'scipen-review', 
-  'scipen-beamer'
-]);
-
-async executeCommand(command: string, args: string[]): Promise<Result> {
-  if (!this.isAllowedCommand(command)) {
-    return { success: false, message: 'Command not allowed' };
-  }
-  
-  // shell: false prevents injection
-  spawn(command, args, { shell: false });
-}
-```
+The app only spawns vetted binaries shipped under `resources/bin` (TexLab, Tinymist, Marksman) and user-configured TeX engines (Tectonic / pdfLaTeX / XeLaTeX / LuaLaTeX). All spawns go through `LSPService` / `CompilerProviders`, never `shell: true`, and arguments are constructed from validated inputs — never interpolated from raw user strings.
 
 ### 2. Path Traversal Prevention
 
 ```typescript
-// src/main/ipc/typedIpc.ts
+// src/main/ipc/ipcSchemas.ts — the real definition has whitelist + blacklist
+// + null-byte / traversal checks; the snippet below is the conceptual core.
 const safePathSchema = z.string()
   .refine(p => !p.includes('..'), 'Path traversal blocked')
   .refine(p => !p.includes('\0'), 'Null bytes blocked');
@@ -508,8 +522,9 @@ if (!safePath.startsWith(allowedDir + path.sep)) {
   z.string().max(10 * 1024 * 1024)
 ])]
 
-// Knowledge base documents: 50MB max
-[IpcChannel.Knowledge_AddDocument, z.tuple([
+// File write: 50MB max
+[IpcChannel.File_Write, z.tuple([
+  safePathSchema,
   z.string().max(50 * 1024 * 1024)
 ])]
 ```
@@ -528,9 +543,10 @@ if (!safePath.startsWith(allowedDir + path.sep)) {
 
 1. **Run quality checks:**
    ```bash
-   npm run lint        # OxLint + ESLint + Biome
-   npm run typecheck   # TypeScript strict mode
-   npm run test:run    # All unit tests
+   npm run lint:check   # OxLint
+   npm run format:check # Biome (format + lint)
+   npm run typecheck:all # tsc --noEmit (renderer + node)
+   npm run test:run     # Vitest unit tests
    ```
 
 2. **Follow DI pattern:**
@@ -546,10 +562,10 @@ if (!safePath.startsWith(allowedDir + path.sep)) {
 
 ### Code Style
 
-- Formatting: Biome (auto-formatted on save)
-- Linting: OxLint + ESLint + Biome
-- No unused imports (enforced)
-- No `any` types (enforced)
+- Formatting: Biome (`biome format` + `biome lint`, run via `npm run format`)
+- Linting: OxLint (`npm run lint:check`)
+- TypeScript `strict: true`; no unused imports
+- Avoid `any`; prefer `unknown` + narrowing at boundaries
 
 ### Commit Message Format
 
@@ -561,7 +577,7 @@ if (!safePath.startsWith(allowedDir + path.sep)) {
 
 Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
 
-Example: `feat(knowledge): add hybrid retrieval with RRF fusion`
+Example: `feat(compile): add WASM XeTeX engine fallback`
 
 ---
 
@@ -569,28 +585,41 @@ Example: `feat(knowledge): add hybrid retrieval with RRF fusion`
 
 ### Service Names
 
+Constants are defined in `ServiceContainer.ts` as `SCREAMING_SNAKE_CASE`:
+
 ```typescript
-ServiceNames.AI           // IAIService
-ServiceNames.Knowledge    // IKnowledgeService  
-ServiceNames.FileSystem   // IFileSystemService
-ServiceNames.SyncTeX      // ISyncTeXService
-ServiceNames.Overleaf     // IOverleafService
-ServiceNames.Compiler     // ICompilerRegistry
+ServiceNames.AI                    // IAIService
+ServiceNames.CHAT_ORCHESTRATOR     // IChatOrchestrator
+ServiceNames.FILE_SYSTEM           // IFileSystemService
+ServiceNames.SYNCTEX               // ISyncTeXService
+ServiceNames.LATEX_COMPILER        // ICompilerRegistry
+ServiceNames.OVERLEAF_FILE_SYSTEM  // IOverleafFileSystemService
+ServiceNames.OVERLEAF_COMPILER     // OverleafCompileService
+ServiceNames.STUDIO_IM             // StudioIMService
+ServiceNames.STUDIO_OT             // StudioOTService
+ServiceNames.STUDIO_OVERLEAF_LIVE  // StudioOverleafLiveService
+ServiceNames.SELECTION             // ISelectionService
+ServiceNames.PROJECT_BINDING       // IProjectBindingService
+ServiceNames.PROJECT_CONVERSATION  // ProjectConversationService
+ServiceNames.CONFIG                // IConfigManager
 ```
 
 ### Important Files
 
 | Purpose | Location |
 |---------|----------|
-| DI Container | `src/main/services/ServiceContainer.ts` |
+| DI Container & ServiceNames | `src/main/services/ServiceContainer.ts` |
 | Service Registration | `src/main/services/ServiceRegistry.ts` |
-| IPC Channels | `shared/api-types.ts` |
-| Zod Validation | `src/main/ipc/typedIpc.ts` |
+| IPC Channel Enum | `shared/ipc/channels.ts` |
+| IPC Domain Contracts | `shared/ipc/*-contract.ts` |
+| Zod Schemas | `src/main/ipc/ipcSchemas.ts` |
+| Typed IPC Wrapper | `src/main/ipc/typedIpc.ts` |
 | Event System | `shared/utils/event.ts` |
 | Lifecycle Utils | `shared/utils/lifecycle.ts` |
 | Test Mocks | `tests/setup/MockServiceContainer.ts` |
 
 ---
 
-*Last updated: January 2026*
+## StellarLatex WASM artifacts
 
+Prebuilt `stellarlatex*.js` / `.wasm` files under `public/wasm/` are version-controlled and used directly at runtime — no source checkout or build toolchain is required for normal development, build, or runtime. To refresh, replace the files in place with new artifacts.

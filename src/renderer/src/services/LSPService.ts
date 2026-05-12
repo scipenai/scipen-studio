@@ -13,7 +13,8 @@ import { TaskPriority, cancelIdleTask, scheduleIdleTask } from './core/IdleTaskS
 
 const LATEX_EXTENSIONS = ['.tex', '.latex', '.ltx', '.sty', '.cls', '.bib'];
 const TYPST_EXTENSIONS = ['.typ'];
-const ALL_LSP_EXTENSIONS = [...LATEX_EXTENSIONS, ...TYPST_EXTENSIONS];
+const MARKDOWN_EXTENSIONS = ['.md', '.markdown', '.mdx'];
+const ALL_LSP_EXTENSIONS = [...LATEX_EXTENSIONS, ...TYPST_EXTENSIONS, ...MARKDOWN_EXTENSIONS];
 
 /**
  * Check if file is supported by LSP
@@ -40,11 +41,20 @@ export function isTypstFile(filePath: string): boolean {
 }
 
 /**
+ * Check if file is Markdown
+ */
+export function isMarkdownFile(filePath: string): boolean {
+  const ext = filePath.match(/\.[^.]+$/)?.[0]?.toLowerCase() || '';
+  return MARKDOWN_EXTENSIONS.includes(ext);
+}
+
+/**
  * Get language ID for file
  */
 export function getLanguageId(filePath: string): string {
   if (isLatexFile(filePath)) return 'latex';
   if (isTypstFile(filePath)) return 'typst';
+  if (isMarkdownFile(filePath)) return 'markdown';
   return 'plaintext';
 }
 
@@ -55,12 +65,6 @@ export function getLanguageId(filePath: string): string {
  */
 export function normalizeModelPath(uriPath: string): string {
   const normalized = uriPath.replace(/\\/g, '/');
-  const withoutLeading = normalized.replace(/^\/+/, '');
-
-  // Overleaf virtual paths
-  if (withoutLeading.startsWith('overleaf://') || withoutLeading.startsWith('overleaf:')) {
-    return withoutLeading;
-  }
 
   // Windows drive letter pattern: /C:/ or /D:/
   if (/^\/[A-Za-z]:/.test(normalized)) {
@@ -124,6 +128,12 @@ export interface LSPDocumentSymbol {
   range: LSPRange;
   selectionRange: LSPRange;
   children?: LSPDocumentSymbol[];
+}
+
+export interface LSPSemanticTokens {
+  resultId?: string | null;
+  data: number[];
+  legend: { tokenTypes: string[]; tokenModifiers: string[] };
 }
 
 // ====== Monaco Conversion Utilities ======
@@ -260,7 +270,7 @@ class LSPServiceClass {
       this.available = (await api.lsp.isAvailable()) ?? false;
       if (this.available) {
         this.version = (await api.lsp.getVersion()) ?? null;
-        console.log('[LSP] TexLab available, version:', this.version);
+        console.info('[LSP] TexLab available, version:', this.version);
       }
       return this.available;
     } catch (error) {
@@ -296,7 +306,7 @@ class LSPServiceClass {
       const success = (await api.lsp.start(rootPath, options)) ?? false;
       if (success) {
         this.initialized = true;
-        console.log(
+        console.info(
           '[LSP] Started successfully',
           this.virtualMode ? '(virtual mode)' : '(local mode)'
         );
@@ -345,7 +355,7 @@ class LSPServiceClass {
       this.initialized = false;
       this.virtualMode = false;
       this.cleanupEventListeners();
-      console.log('[LSP] Stopped');
+      console.info('[LSP] Stopped');
     } catch (error) {
       console.error('[LSP] Failed to stop:', error);
     }
@@ -378,19 +388,19 @@ class LSPServiceClass {
     if (cleanupDiagnostics) this.cleanupFunctions.push(cleanupDiagnostics);
 
     const cleanupInitialized = api.lsp.onInitialized(() => {
-      console.log('[LSP] Server initialized');
+      console.info('[LSP] Server initialized');
     });
     if (cleanupInitialized) this.cleanupFunctions.push(cleanupInitialized);
 
     const cleanupExit = api.lsp.onExit((data) => {
-      console.log('[LSP] Server exited:', data);
+      console.info('[LSP] Server exited:', data);
       this.initialized = false;
     });
     if (cleanupExit) this.cleanupFunctions.push(cleanupExit);
 
     // Recovery event - UtilityProcess auto-restart completed after crash
     const cleanupRecovered = api.lsp.onRecovered(() => {
-      console.log('[LSP] UtilityProcess recovered after crash');
+      console.info('[LSP] UtilityProcess recovered after crash');
       this.initialized = true;
       this.resyncOpenDocuments();
     });
@@ -398,7 +408,7 @@ class LSPServiceClass {
 
     // Service restart event - TexLab/Tinymist auto-restart completed after crash
     const cleanupServiceRestarted = api.lsp.onServiceRestarted((data) => {
-      console.log(`[LSP] Service ${data.service} restarted after crash`);
+      console.info(`[LSP] Service ${data.service} restarted after crash`);
       // Resync documents after restart, otherwise LSP won't know about open files
       this.resyncOpenDocuments();
     });
@@ -423,14 +433,14 @@ class LSPServiceClass {
           const languageId = getLanguageId(filePath);
           await this.openDocument(filePath, model.getValue(), languageId);
           resyncCount++;
-          console.log(`[LSP] Resynced document: ${filePath} (${languageId})`);
+          console.info(`[LSP] Resynced document: ${filePath} (${languageId})`);
         } catch (error) {
           console.error(`[LSP] Failed to resync document: ${filePath}`, error);
         }
       }
 
       if (resyncCount > 0) {
-        console.log(`[LSP] Successfully resynced ${resyncCount} document(s)`);
+        console.info(`[LSP] Successfully resynced ${resyncCount} document(s)`);
       }
     } catch (error) {
       console.error('[LSP] Failed to resync documents:', error);
@@ -964,6 +974,17 @@ class LSPServiceClass {
     }
   }
 
+  async getSemanticTokens(filePath: string): Promise<LSPSemanticTokens | null> {
+    if (!this.initialized) return null;
+
+    try {
+      return (await api.lsp.getSemanticTokens(filePath)) as LSPSemanticTokens | null;
+    } catch (error) {
+      console.error('[LSP] Semantic tokens error:', error);
+      return null;
+    }
+  }
+
   /**
    * Convert document symbols
    */
@@ -1006,7 +1027,7 @@ class LSPServiceClass {
     }
 
     let filePath = uri.replace(/^file:\/\/\/?/, '');
-    if (process.platform === 'win32' && filePath.startsWith('/')) {
+    if (window.electron?.platform === 'win32' && filePath.startsWith('/')) {
       filePath = filePath.slice(1);
     }
     return filePath.replace(/\//g, '\\');

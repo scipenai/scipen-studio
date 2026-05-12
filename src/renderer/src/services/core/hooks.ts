@@ -5,14 +5,17 @@
 
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import type { Event, IDisposable } from '../../../../../shared/utils';
+import type { LatestPendingReviewSource, PendingReview } from './DiffReviewService';
+import type { ProjectRuntimeState } from './ProjectRuntimeContext';
 import {
-  getAIService,
+  getConversationScopeService,
   getEditorService,
+  getProjectRuntimeContext,
   getProjectService,
   getSettingsService,
   getUIService,
-  getViewRegistry,
 } from './ServiceRegistry';
+import { getDiffReviewService, normalizeReviewPath } from './DiffReviewService';
 
 // ============ Generic Event Subscription Hooks ============
 
@@ -66,6 +69,88 @@ export function useActiveTabPath() {
   return useServiceEvent(service.onDidChangeActiveTab, () => service.activeTabPath);
 }
 
+/** Returns whether the active tab has a pending AI diff review. */
+export function useHasPendingReviewForActiveTab() {
+  const editorService = getEditorService();
+  const reviewService = getDiffReviewService();
+  return useServiceEvents(
+    [
+      editorService.onDidChangeActiveTab,
+      reviewService.onDidAddReview,
+      reviewService.onDidRemoveReview,
+      reviewService.onDidUpdateReview,
+    ],
+    () => {
+      const activeFileId =
+        editorService.activeTab?._id ||
+        (editorService.activeTab?.path ? normalizeReviewPath(editorService.activeTab.path) : null);
+      return activeFileId ? Boolean(reviewService.getReviewForFile(activeFileId)) : false;
+    }
+  );
+}
+
+export function usePendingReviews(): PendingReview[] {
+  const reviewService = getDiffReviewService();
+  const previousValueRef = useRef<PendingReview[] | null>(null);
+  return useServiceEvents(
+    [
+      reviewService.onDidAddReview,
+      reviewService.onDidRemoveReview,
+      reviewService.onDidUpdateReview,
+    ],
+    () => {
+      const next = reviewService.getPendingReviews();
+      const previous = previousValueRef.current;
+
+      if (
+        previous &&
+        previous.length === next.length &&
+        previous.every((review, index) => review === next[index])
+      ) {
+        return previous;
+      }
+
+      previousValueRef.current = next;
+      return next;
+    }
+  );
+}
+
+export function useLatestPendingReviewSource(): LatestPendingReviewSource | null {
+  const reviewService = getDiffReviewService();
+  const previousValueRef = useRef<LatestPendingReviewSource | null>(null);
+  return useServiceEvents(
+    [
+      reviewService.onDidAddReview,
+      reviewService.onDidRemoveReview,
+      reviewService.onDidUpdateReview,
+    ],
+    () => {
+      const next = reviewService.getLatestPendingReviewSource();
+      const previous = previousValueRef.current;
+
+      if (
+        previous &&
+        next &&
+        previous.reviewId === next.reviewId &&
+        previous.messageId === next.messageId &&
+        previous.normalizedFilePath === next.normalizedFilePath &&
+        previous.reviewKey === next.reviewKey
+      ) {
+        return previous;
+      }
+
+      if (!next) {
+        previousValueRef.current = null;
+        return null;
+      }
+
+      previousValueRef.current = next;
+      return next;
+    }
+  );
+}
+
 /** Returns current cursor position. */
 export function useCursorPosition() {
   const service = getEditorService();
@@ -76,49 +161,6 @@ export function useCursorPosition() {
 export function useSelection() {
   const service = getEditorService();
   return useServiceEvent(service.onDidChangeSelection, () => service.selection);
-}
-
-// ============ AI Hooks ============
-
-/** Returns all AI chat sessions. */
-export function useAISessions() {
-  const service = getAIService();
-  return useServiceEvents(
-    [service.onDidCreateSession, service.onDidDeleteSession, service.onDidRenameSession],
-    () => service.sessions
-  );
-}
-
-/** Returns the current AI session. */
-export function useCurrentSession() {
-  const service = getAIService();
-  return useServiceEvent(service.onDidSwitchSession, () => service.currentSession);
-}
-
-/** Returns messages for current session. */
-export function useCurrentMessages() {
-  const service = getAIService();
-  return useServiceEvents(
-    [
-      service.onDidAddMessage,
-      service.onDidUpdateMessage,
-      service.onDidClearMessages,
-      service.onDidSwitchSession,
-    ],
-    () => service.getCurrentMessages()
-  );
-}
-
-/** Returns AI loading state. */
-export function useAILoading() {
-  const service = getAIService();
-  return useServiceEvent(service.onDidChangeLoading, () => service.isLoading);
-}
-
-/** Returns current polish request. */
-export function usePolishRequest() {
-  const service = getAIService();
-  return useServiceEvent(service.onDidChangePolish, () => service.polishRequest);
 }
 
 // ============ Project Hooks ============
@@ -136,24 +178,6 @@ export function useFileTree() {
     [service.onDidChangeProject, service.onDidChangeFileTree],
     () => service.fileTree
   );
-}
-
-/** Returns knowledge base list. */
-export function useKnowledgeBases() {
-  const service = getProjectService();
-  return useServiceEvent(service.onDidChangeKnowledgeBases, () => service.knowledgeBases);
-}
-
-/** Returns selected knowledge base ID. */
-export function useSelectedKnowledgeBaseId() {
-  const service = getProjectService();
-  return useServiceEvent(service.onDidChangeSelectedKB, () => service.selectedKnowledgeBaseId);
-}
-
-/** Returns completion knowledge base ID. */
-export function useCompletionKnowledgeBaseId() {
-  const service = getProjectService();
-  return useServiceEvent(service.onDidChangeCompletionKB, () => service.completionKnowledgeBaseId);
 }
 
 /** Returns file conflict state. */
@@ -227,6 +251,14 @@ export function usePdfData() {
   return useServiceEvent(service.onDidChangePdf, () => service.pdfData);
 }
 
+/** Returns file-scoped PDF preview state. */
+export function useFilePdfPreview(filePath: string | null) {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangeFilePdfPreview, () =>
+    service.getFilePdfPreview(filePath)
+  );
+}
+
 /** Returns current PDF URL. */
 export function usePdfUrl() {
   const service = getUIService();
@@ -243,6 +275,72 @@ export function usePdfHighlight() {
 export function useAgentState() {
   const service = getUIService();
   return useServiceEvent(service.onDidChangeAgentState, () => service.agentState);
+}
+
+/** Returns current preview mode (pdf/markdown/typst/none). */
+export function usePreviewMode() {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangePreviewMode, () => service.previewMode);
+}
+
+/** Returns current research workspace mode. */
+export function useWorkspaceMode() {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangeWorkspaceMode, () => service.workspaceMode);
+}
+
+/** Returns current research layout focus. */
+export function useResearchLayoutFocus() {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangeResearchLayoutFocus, () => service.researchLayoutFocus);
+}
+
+/** Returns current artifact path. */
+export function useActiveArtifactPath() {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangeActiveArtifactPath, () => service.activeArtifactPath);
+}
+
+/** Returns current project/global conversation scope. */
+export function useConversationScope() {
+  const service = getConversationScopeService();
+  return useServiceEvent(service.onDidChangeScope, () => service.scope);
+}
+
+/** Returns current active project/global conversation binding. */
+export function useActiveProjectConversation() {
+  const service = getConversationScopeService();
+  return useServiceEvent(service.onDidChangeActiveBinding, () => service.activeBinding);
+}
+
+/** Returns current active IM conversation id resolved from scope bindings. */
+export function useActiveConversationId() {
+  const service = getConversationScopeService();
+  return useServiceEvent(service.onDidChangeActiveBinding, () => service.activeConversationId);
+}
+
+/** Returns the latest conversation scope resolution error, if any. */
+export function useConversationScopeError() {
+  const service = getConversationScopeService();
+  return useServiceEvent(service.onDidChangeLastError, () => service.lastError);
+}
+
+/** Returns current artifact id. */
+export function useActiveArtifactId() {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangeActiveArtifactId, () => service.activeArtifactId);
+}
+
+/** Returns log surface mode. */
+export function useLogsSurface() {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangeLogsSurface, () => service.logsSurface);
+}
+
+/** Returns preview visibility flag. */
+export function usePreviewVisible() {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangePreviewVisible, () => service.isPreviewVisible);
 }
 
 // ============ Settings Hooks ============
@@ -327,12 +425,16 @@ export function useCompilationLogs() {
   return useServiceEvent(service.onDidAddCompilationLog, () => service.compilationLogs);
 }
 
-// ============ View Hooks ============
+// ============ Project Runtime Hooks ============
 
-import type { ViewDescriptor, ViewLocation } from './ViewRegistry';
+/** Returns full project runtime context snapshot. */
+export function useProjectRuntime(): Readonly<ProjectRuntimeState> {
+  const ctx = getProjectRuntimeContext();
+  return useServiceEvent(ctx.onDidChange, () => ctx.state);
+}
 
-/** Returns view descriptors for a location. */
-export function useViews(location: ViewLocation): ViewDescriptor[] {
-  const registry = getViewRegistry();
-  return useServiceEvent(registry.onDidChangeViews, () => registry.getViews(location));
+/** Returns IM bot user id. */
+export function useRuntimeBotUserId(): string {
+  const ctx = getProjectRuntimeContext();
+  return useServiceEvent(ctx.onDidChange, () => ctx.botUserId);
 }

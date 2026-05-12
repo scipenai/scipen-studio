@@ -173,7 +173,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
       lg: 'text-base px-4 py-3',
     };
 
-    const handleInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    const handleInput: NonNullable<TextareaProps['onInput']> = (e) => {
       if (autoResize) {
         const target = e.currentTarget;
         target.style.height = 'auto';

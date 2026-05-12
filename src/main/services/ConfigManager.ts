@@ -102,7 +102,6 @@ class ConfigManagerImpl implements IConfigManager {
     const sensitiveKeys = [
       ConfigKeys.AIProviders,
       ConfigKeys.AISelectedModels,
-      ConfigKeys.KnowledgeEmbeddingApiKey,
       ConfigKeys.OverleafCookies,
     ];
     return sensitiveKeys.includes(key as ConfigKeys) || key.toLowerCase().includes('apikey');

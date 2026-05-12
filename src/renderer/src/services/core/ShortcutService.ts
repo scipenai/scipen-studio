@@ -15,8 +15,7 @@ export type ShortcutAction =
   | 'save'
   | 'compile'
   | 'commandPalette'
-  | 'aiPolish'
-  | 'aiChat'
+  | 'chatWithSelection'
   | 'togglePreview'
   | 'newWindow';
 
@@ -303,8 +302,7 @@ export class ShortcutService extends Disposable {
       ['save', shortcuts.save],
       ['compile', shortcuts.compile],
       ['commandPalette', shortcuts.commandPalette],
-      ['aiPolish', shortcuts.aiPolish],
-      ['aiChat', shortcuts.aiChat],
+      ['chatWithSelection', shortcuts.chatWithSelection],
       ['togglePreview', shortcuts.togglePreview],
       ['newWindow', shortcuts.newWindow],
     ];
@@ -335,26 +333,6 @@ export class ShortcutService extends Disposable {
 
       this._actionDisposables.push(disposable);
     }
-  }
-
-  /**
-   * Update single shortcut
-   * @deprecated Use registerShortcuts to batch update shortcuts
-   */
-  updateShortcut(
-    action: ShortcutAction,
-    _shortcutStr: string,
-    handler?: () => void | Promise<void>
-  ): boolean {
-    if (handler) {
-      this._handlers.set(action, handler);
-    }
-
-    // addAction cannot update individually, must re-register all shortcuts
-    console.warn(
-      '[ShortcutService] updateShortcut is deprecated, use registerShortcuts to batch update shortcuts'
-    );
-    return true;
   }
 
   override dispose(): void {

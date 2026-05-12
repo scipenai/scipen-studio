@@ -6,7 +6,12 @@
 import type React from 'react';
 import { Suspense, lazy } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import { useIsRightPanelCollapsed } from '../../services/core/hooks';
+import {
+  useIsRightPanelCollapsed,
+  usePreviewVisible,
+  usePreviewMode,
+  useResearchLayoutFocus,
+} from '../../services/core/hooks';
 import { useTranslation } from '../../locales';
 import { PanelErrorBoundary } from '../ErrorBoundary';
 import { EditorLoadingFallback, PreviewLoadingFallback } from '../LoadingFallback';
@@ -18,13 +23,157 @@ const EditorPane = lazy(() =>
   import('../editor/EditorPane').then((module) => ({ default: module.EditorPane }))
 );
 
-const PreviewPane = lazy(() =>
-  import('../preview/PreviewPane').then((module) => ({ default: module.PreviewPane }))
+const PreviewController = lazy(() =>
+  import('../preview/PreviewController').then((module) => ({ default: module.PreviewController }))
 );
 
-export const MainLayout: React.FC = () => {
+function usePreviewTitle(): string {
+  const { t } = useTranslation();
+  const previewMode = usePreviewMode();
+
+  switch (previewMode) {
+    case 'pdf':
+      return t('mainLayout.pdfPreview');
+    case 'markdown':
+      return t('mainLayout.markdownPreview');
+    case 'typst':
+      return t('mainLayout.typstPreview');
+    default:
+      return t('mainLayout.preview');
+  }
+}
+
+interface MainLayoutProps {
+  immersive?: boolean;
+}
+
+const WorkspaceResizeHandle = () => (
+  <PanelResizeHandle className="group relative w-2 bg-transparent transition-colors">
+    <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--color-border-subtle)] transition-colors group-hover:bg-[var(--color-accent)]" />
+  </PanelResizeHandle>
+);
+
+function RightPanelContent({
+  previewTitle,
+  immersive = false,
+}: {
+  previewTitle: string;
+  immersive?: boolean;
+}) {
+  const { t } = useTranslation();
+  const shouldUseInlinePdfHeader = immersive && previewTitle === t('mainLayout.pdfPreview');
+
+  return (
+    <div
+      className="h-full flex flex-col overflow-hidden"
+      style={{
+        background: 'var(--color-bg-secondary)',
+      }}
+    >
+      {!shouldUseInlinePdfHeader && (
+        <div
+          className="flex items-center border-b px-3 py-2.5"
+          style={{
+            borderBottomColor: immersive ? 'var(--color-border-subtle)' : 'var(--color-border)',
+            background: immersive
+              ? 'color-mix(in srgb, var(--color-bg-elevated) 92%, transparent)'
+              : 'var(--color-bg-primary)',
+          }}
+        >
+          <div
+            className="flex items-center gap-2 rounded-full px-4 py-2 text-sm"
+            style={
+              immersive
+                ? {
+                    background: 'var(--color-accent-muted)',
+                    color: 'var(--color-accent)',
+                    border: '1px solid color-mix(in srgb, var(--color-accent) 18%, transparent)',
+                  }
+                : { color: 'var(--color-text-primary)' }
+            }
+          >
+            {previewTitle}
+          </div>
+        </div>
+      )}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <PanelErrorBoundary panelName={previewTitle}>
+          <Suspense fallback={<PreviewLoadingFallback />}>
+            <PreviewController />
+          </Suspense>
+        </PanelErrorBoundary>
+      </div>
+    </div>
+  );
+}
+
+export const MainLayout: React.FC<MainLayoutProps> = ({ immersive = false }) => {
   const { t } = useTranslation();
   const isRightPanelCollapsed = useIsRightPanelCollapsed();
+  const isPreviewVisible = usePreviewVisible();
+  const previewTitle = usePreviewTitle();
+  const layoutFocus = useResearchLayoutFocus();
+  const showRightPanel = immersive
+    ? !isRightPanelCollapsed && isPreviewVisible
+    : !isRightPanelCollapsed;
+  const previewWidth =
+    layoutFocus === 'preview'
+      ? '44%'
+      : layoutFocus === 'chat'
+        ? '34%'
+        : layoutFocus === 'files'
+          ? '40%'
+          : '38%';
+
+  if (immersive) {
+    return (
+      <div
+        className="h-full w-full overflow-hidden"
+        style={{ background: 'var(--color-bg-secondary)' }}
+      >
+        <PanelGroup
+          direction="horizontal"
+          autoSaveId="research-editor-preview-layout"
+          className="h-full"
+        >
+          <Panel
+            id="research-editor-pane"
+            order={1}
+            defaultSize={100 - Number.parseInt(previewWidth, 10)}
+            minSize={28}
+            className="min-w-0 overflow-hidden"
+            style={{ background: 'var(--color-bg-primary)' }}
+          >
+            <PanelErrorBoundary panelName={t('mainLayout.editor')}>
+              <Suspense fallback={<EditorLoadingFallback />}>
+                <EditorPane />
+              </Suspense>
+            </PanelErrorBoundary>
+          </Panel>
+
+          {showRightPanel && (
+            <>
+              <WorkspaceResizeHandle />
+              <Panel
+                id="research-preview-pane"
+                order={2}
+                defaultSize={Number.parseInt(previewWidth, 10)}
+                minSize={22}
+                maxSize={60}
+                className="min-w-0 overflow-hidden border-l"
+                style={{
+                  borderLeftColor: 'var(--color-border-subtle)',
+                  background: 'var(--color-bg-secondary)',
+                }}
+              >
+                <RightPanelContent previewTitle={previewTitle} immersive />
+              </Panel>
+            </>
+          )}
+        </PanelGroup>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full w-full flex flex-col overflow-hidden">
@@ -42,26 +191,13 @@ export const MainLayout: React.FC = () => {
             <PanelResizeHandle className="w-1 bg-[var(--color-border)] hover:bg-[var(--color-accent)]/50 transition-colors duration-150 cursor-col-resize" />
 
             <Panel defaultSize={40} minSize={20}>
-              <div className="h-full flex flex-col bg-[var(--color-bg-secondary)]">
-                <div className="flex items-center border-b border-[var(--color-border)] bg-[var(--color-bg-primary)]">
-                  <div className="flex items-center gap-2 px-4 py-2.5 text-sm text-[var(--color-text-primary)] border-b-2 border-[var(--color-accent)] bg-[var(--color-bg-hover)]">
-                    {t('mainLayout.pdfPreview')}
-                  </div>
-                </div>
-                <div className="flex-1 overflow-hidden">
-                  <PanelErrorBoundary panelName={t('mainLayout.pdfPreview')}>
-                    <Suspense fallback={<PreviewLoadingFallback />}>
-                      <PreviewPane />
-                    </Suspense>
-                  </PanelErrorBoundary>
-                </div>
-              </div>
+              <RightPanelContent previewTitle={previewTitle} />
             </Panel>
           </>
         )}
       </PanelGroup>
 
-      <PanelErrorBoundary panelName="日志面板">
+      <PanelErrorBoundary panelName={t('mainLayout.logPanel')}>
         <LogPanel />
       </PanelErrorBoundary>
     </div>

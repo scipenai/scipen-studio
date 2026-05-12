@@ -6,6 +6,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { randomUUID } from 'crypto';
 import path from 'path';
 import {
   type FileChangeEvent,
@@ -16,7 +17,7 @@ import {
 import { getFileCacheService } from './FileCacheService';
 import { createLogger } from './LoggerService';
 import type { IFileSystemService } from './interfaces';
-import fs from './knowledge/utils/fsCompat';
+import fs from 'fs-extra';
 
 const logger = createLogger('FileSystemService');
 
@@ -113,7 +114,7 @@ export class FileSystemService extends EventEmitter implements IFileSystemServic
       await fs.ensureDir(path.dirname(filePath));
     }
 
-    const tempPath = `${filePath}.tmp.${Date.now()}`;
+    const tempPath = `${filePath}.tmp.${randomUUID().slice(0, 8)}`;
     await fs.writeFile(tempPath, content, 'utf-8');
     await fs.rename(tempPath, filePath);
 

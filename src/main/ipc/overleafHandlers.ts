@@ -1,32 +1,32 @@
 /**
  * @file Overleaf IPC handlers (Type-Safe)
- * @description Handles Overleaf project import, sync, and remote compilation.
- * @depends IOverleafService (stateful - created on login, destroyed on logout)
+ * @description Handles Overleaf project import and sync.
+ * @depends OverleafProjectMetaService (project metadata), OverleafAuthService (auth)
  * @security Cookies encrypted via safeStorage; actual cookie values never exposed via IPC
- *
- * Note: Overleaf service is stateful (login state, cookies).
- * Uses getter/setter pattern instead of direct DI injection.
  */
 
 import { IpcChannel } from '@shared/ipc/channels';
 import { createLogger } from '../services/LoggerService';
-import { OverleafCompiler } from '../services/OverleafCompiler';
-import type { IOverleafService, OverleafConfig } from '../services/interfaces';
-import type {
-  OverleafCompileOptions as OverleafCompileOpts,
-  OverleafProjectSettings,
-} from '../types/ipc';
+import { OverleafProjectMetaService } from '../services/OverleafProjectMetaService';
+import { OverleafFileSystemService } from '../services/OverleafFileSystemService';
+import { OverleafProjectDownloader } from '../services/OverleafProjectDownloader';
+import * as MetaStore from '../services/OverleafProjectMetaStore';
+import { OverleafSyncService } from '../services/OverleafSyncService';
+import { getStudioOverleafLiveService } from '../services/ServiceRegistry';
+import type { OverleafAuthService } from '../services/OverleafAuthService';
+import type { IOverleafFileSystemService } from '../services/interfaces';
 import { createTypedHandlers } from './typedIpc';
-
-import { toOverleafCompileResultDTO, toOverleafProjectDTOList } from '../utils/mappers';
 
 const logger = createLogger('OverleafHandlers');
 
 // ====== Types ======
 
 export interface OverleafHandlersDeps {
-  getOverleafCompiler: () => IOverleafService | null;
-  setOverleafCompiler: (compiler: IOverleafService | null) => void;
+  getProjectMetaService: () => OverleafProjectMetaService | null;
+  setProjectMetaService: (svc: OverleafProjectMetaService | null) => void;
+  getOverleafFileSystem: () => IOverleafFileSystemService | null;
+  setOverleafFileSystem: (fs: IOverleafFileSystemService | null) => void;
+  getAuthService: () => OverleafAuthService;
 }
 
 // ====== Handler Registration ======
@@ -36,63 +36,100 @@ export interface OverleafHandlersDeps {
  * @sideeffect Registers handlers on ipcMain for Overleaf operations
  */
 export function registerOverleafHandlers(deps: OverleafHandlersDeps): void {
-  const { getOverleafCompiler, setOverleafCompiler } = deps;
+  const { getProjectMetaService, setProjectMetaService, setOverleafFileSystem, getAuthService } =
+    deps;
+
+  /** Dispose previous dependent service instances */
+  function disposeOldServices(): void {
+    const oldMeta = getProjectMetaService();
+    if (oldMeta) oldMeta.dispose();
+    // OverleafFileSystemService is stateless; just null it out
+    setOverleafFileSystem(null);
+    setProjectMetaService(null);
+  }
+
+  /** Create all dependent services after a successful login */
+  function createDependentServices(
+    authService: OverleafAuthService,
+    metaService: OverleafProjectMetaService
+  ): void {
+    const liveService = getStudioOverleafLiveService();
+    // LiveService holds an AuthService reference so it can establish the bridge connection on its own
+    liveService.setAuthService(authService);
+    const fs = new OverleafFileSystemService(metaService, liveService, authService);
+    setOverleafFileSystem(fs);
+  }
 
   const handlers = createTypedHandlers(
     {
-      [IpcChannel.Overleaf_Init]: async (config) => {
-        setOverleafCompiler(
-          new OverleafCompiler(config as OverleafConfig) as unknown as IOverleafService
+      [IpcChannel.OverleafAuth_Init]: async (config) => {
+        const authService = getAuthService();
+        const result = await authService.login(
+          config as { serverUrl: string; email?: string; password?: string; cookies?: string }
         );
+        if (!result.success) {
+          return { success: false, message: result.message };
+        }
+        // Only dispose old services and create new instances after a successful login
+        disposeOldServices();
+        const liveService = getStudioOverleafLiveService();
+        const metaService = new OverleafProjectMetaService(authService, liveService);
+        setProjectMetaService(metaService);
+        createDependentServices(authService, metaService);
         return { success: true };
       },
 
-      // Test Overleaf connection
-      [IpcChannel.Overleaf_TestConnection]: async (serverUrl) => {
-        const tempCompiler = new OverleafCompiler({ serverUrl });
-        return tempCompiler.testConnection();
+      [IpcChannel.OverleafAuth_TestConnection]: async (serverUrl) => {
+        return getAuthService().testConnection(serverUrl);
       },
 
-      [IpcChannel.Overleaf_Login]: async (config) => {
-        const compiler = new OverleafCompiler(config as OverleafConfig);
-        setOverleafCompiler(compiler as unknown as IOverleafService);
-        return compiler.login();
+      [IpcChannel.OverleafAuth_Login]: async (config) => {
+        const authService = getAuthService();
+        const result = await authService.login(
+          config as { serverUrl: string; email?: string; password?: string; cookies?: string }
+        );
+        if (!result.success) {
+          return result;
+        }
+        // Only dispose old services and create new instances after a successful login
+        disposeOldServices();
+        const liveService = getStudioOverleafLiveService();
+        const metaService = new OverleafProjectMetaService(authService, liveService);
+        setProjectMetaService(metaService);
+        createDependentServices(authService, metaService);
+        return result;
       },
 
-      [IpcChannel.Overleaf_IsLoggedIn]: () => {
-        const overleafCompiler = getOverleafCompiler();
-        return overleafCompiler?.isLoggedIn() || false;
+      [IpcChannel.OverleafAuth_IsLoggedIn]: () => {
+        return getAuthService().isLoggedIn();
       },
 
-      // Cookies stored encrypted via safeStorage; never expose actual values
-      // Use Overleaf_IsLoggedIn to check login status instead
-      [IpcChannel.Overleaf_GetCookies]: () => {
-        const overleafCompiler = getOverleafCompiler();
-        const hasCookies = overleafCompiler?.isLoggedIn() ?? false;
-        return hasCookies ? '[encrypted]' : null;
+      // Cookies are never exposed to the renderer — only report presence
+      [IpcChannel.OverleafAuth_GetCookies]: () => {
+        return getAuthService().isLoggedIn() ? '[encrypted]' : null;
       },
 
-      [IpcChannel.Overleaf_GetProjects]: async () => {
-        const overleafCompiler = getOverleafCompiler();
-        if (!overleafCompiler) {
+      [IpcChannel.OverleafProject_GetProjects]: async () => {
+        const metaService = getProjectMetaService();
+        if (!metaService) {
           return [];
         }
         try {
-          const projects = await overleafCompiler.getProjects();
-          return toOverleafProjectDTOList(projects);
+          // getProjects() returns {id, name, lastUpdated: string}, already matching the DTO shape
+          return await metaService.getProjects();
         } catch {
           return [];
         }
       },
 
       // Get project details
-      [IpcChannel.Overleaf_GetProjectDetails]: async (projectId) => {
-        const overleafCompiler = getOverleafCompiler();
-        if (!overleafCompiler) {
+      [IpcChannel.OverleafProject_GetDetails]: async (projectId) => {
+        const metaService = getProjectMetaService();
+        if (!metaService) {
           return { success: false, error: 'Please login to Overleaf first' };
         }
         try {
-          const details = await overleafCompiler.getProjectDetails(projectId);
+          const details = await metaService.getProjectDetailsCached(projectId);
           if (details) {
             return { success: true, details };
           }
@@ -105,214 +142,140 @@ export function registerOverleafHandlers(deps: OverleafHandlersDeps): void {
         }
       },
 
-      // Update project settings
-      [IpcChannel.Overleaf_UpdateSettings]: async (projectId, settings) => {
-        const overleafCompiler = getOverleafCompiler();
-        if (!overleafCompiler) {
-          return { success: false };
+      // ====== Project download (local-first) ======
+
+      [IpcChannel.OverleafProject_Download]: async (projectId, projectName) => {
+        const authService = getAuthService();
+        if (!authService.isLoggedIn()) {
+          return { success: false, error: 'Please login first' };
+        }
+        const liveService = getStudioOverleafLiveService();
+        const overleafFS = deps.getOverleafFileSystem();
+        if (!overleafFS) {
+          return { success: false, error: 'OverleafFileSystemService not available' };
         }
         try {
-          const result = await overleafCompiler.updateProjectSettings(
+          const downloader = new OverleafProjectDownloader(liveService, overleafFS);
+          const result = await downloader.downloadProject(
             projectId,
-            settings as OverleafProjectSettings
+            projectName,
+            authService.getServerUrl()!
           );
-          return { success: result };
-        } catch {
-          return { success: false };
+          return {
+            success: true,
+            localPath: result.localPath,
+            files: result.files,
+            folders: result.folders,
+            meta: result.meta,
+          };
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          const stack = error instanceof Error ? error.stack : undefined;
+          logger.error(`OverleafProject_Download failed: ${msg}`, stack || error);
+          return { success: false, error: msg };
         }
       },
 
-      // Compile with Overleaf (uses Mapper)
-      [IpcChannel.Overleaf_Compile]: async (projectId, options) => {
-        const overleafCompiler = getOverleafCompiler();
-        if (!overleafCompiler) {
-          return { success: false, status: 'error', errors: ['Please login to Overleaf first'] };
-        }
+      [IpcChannel.OverleafProject_FindLocalPath]: async (projectId) => {
+        return await MetaStore.findLocalPath(projectId);
+      },
 
+      [IpcChannel.OverleafProject_GetMeta]: async (localPath) => {
+        return await MetaStore.getProjectMeta(localPath);
+      },
+
+      [IpcChannel.OverleafProject_UpdateDocIdMap]: async (localPath, docIdMap) => {
+        await MetaStore.updateDocIdMap(localPath, docIdMap);
+        return true;
+      },
+
+      [IpcChannel.OverleafProject_SyncFile]: async (
+        overleafProjectId,
+        docId,
+        localContent,
+        baseCachePath
+      ) => {
+        const liveService = getStudioOverleafLiveService();
+        const syncService = new OverleafSyncService(liveService);
         try {
-          const result = await overleafCompiler.compile(projectId, options as OverleafCompileOpts);
-          const resultDTO = toOverleafCompileResultDTO(result);
+          return await syncService.syncFile(overleafProjectId, docId, localContent, baseCachePath);
+        } finally {
+          syncService.dispose();
+        }
+      },
 
-          if (result.success && result.pdfUrl) {
-            // Download PDF data
-            const pdfArrayBuffer = await overleafCompiler.downloadPdf(result.pdfUrl);
-            if (pdfArrayBuffer) {
-              // Convert Node Buffer/ArrayBuffer to pure Uint8Array
-              // Reason: Electron IPC serialization may be inconsistent for Node Buffer
-              // Pure Uint8Array is a Web standard type, more reliable for IPC transfer
-              const pdfBuffer = new Uint8Array(pdfArrayBuffer);
-              logger.info(
-                `[Overleaf_Compile] PDF downloaded, size: ${(pdfBuffer.length / 1024).toFixed(1)} KB`
+      [IpcChannel.OverleafProject_SyncProject]: async (overleafProjectId, docIdMap, localRoot) => {
+        const liveService = getStudioOverleafLiveService();
+        const syncService = new OverleafSyncService(liveService);
+        try {
+          const results = await syncService.syncProject(overleafProjectId, docIdMap, localRoot);
+          // Map → plain object (for IPC serialization)
+          const serialized: Record<
+            string,
+            { status: string; remoteContent?: string; error?: string }
+          > = {};
+          for (const [k, v] of results) {
+            serialized[k] = v;
+          }
+          return serialized;
+        } finally {
+          syncService.dispose();
+        }
+      },
+
+      [IpcChannel.OverleafProject_SyncFileByPath]: async (
+        overleafProjectId,
+        relativePath,
+        localContent,
+        localRoot,
+        docIdMapJson
+      ) => {
+        const liveService = getStudioOverleafLiveService();
+        const metaService = deps.getProjectMetaService();
+        const syncService = new OverleafSyncService(liveService, metaService);
+        try {
+          const result = await syncService.syncFileByPath(
+            overleafProjectId,
+            relativePath,
+            localContent,
+            localRoot,
+            docIdMapJson || {}
+          );
+          // After a new file is created, persist newDocId into .overleaf/project.json
+          if (result.newDocId && localRoot) {
+            const meta = await MetaStore.getProjectMeta(localRoot);
+            if (meta) {
+              meta.docIdMap[relativePath] = result.newDocId;
+              await MetaStore.updateDocIdMap(localRoot, meta.docIdMap).catch((err) =>
+                logger.warn(`Failed to persist docIdMap: ${err}`)
               );
-              return {
-                ...resultDTO,
-                pdfBuffer, // Return pure Uint8Array, not Node Buffer
-              };
             }
           }
-
-          // Download and parse compile log
-          if (result.logUrl && result.buildId) {
-            const log = await overleafCompiler.downloadLog(result.logUrl);
-            if (log) {
-              resultDTO.errors = resultDTO.errors || [];
-              const errorLines = log
-                .split('\n')
-                .filter(
-                  (line) => line.includes('Error:') || line.includes('!') || line.includes('error:')
-                );
-              resultDTO.errors.push(...errorLines.slice(0, 10));
-            }
-          }
-
-          return resultDTO;
-        } catch (error) {
-          return {
-            success: false,
-            status: 'error',
-            errors: [error instanceof Error ? error.message : 'Compile failed'],
-          };
+          return result;
+        } finally {
+          syncService.dispose();
         }
       },
 
-      // Stop Overleaf compile
-      [IpcChannel.Overleaf_StopCompile]: async (projectId) => {
-        const overleafCompiler = getOverleafCompiler();
-        if (!overleafCompiler) return { success: false };
-        const result = await overleafCompiler.stopCompile(projectId);
-        return { success: result };
-      },
-
-      // Get last build ID
-      [IpcChannel.Overleaf_GetBuildId]: () => {
-        const overleafCompiler = getOverleafCompiler();
-        return overleafCompiler?.getLastBuildId() || null;
-      },
-
-      // SyncTeX forward sync (code -> PDF)
-      [IpcChannel.Overleaf_SyncCode]: async (projectId, file, line, column, buildId) => {
-        const overleafCompiler = getOverleafCompiler();
-        if (!overleafCompiler) return null;
+      [IpcChannel.OverleafProject_CreateAndSync]: async (
+        overleafProjectId,
+        fileName,
+        parentFolderId,
+        localContent,
+        baseCachePath
+      ) => {
+        const liveService = getStudioOverleafLiveService();
+        const syncService = new OverleafSyncService(liveService);
         try {
-          const result = await overleafCompiler.syncCode(projectId, file, line, column, buildId);
-          if (!result || result.length === 0) return null;
-          return result.map((pos) => ({
-            page: pos.page,
-            h: pos.h,
-            v: pos.v,
-            width: pos.width || 50,
-            height: pos.height || 20,
-          }));
-        } catch {
-          return null;
-        }
-      },
-
-      // SyncTeX backward sync (PDF -> code)
-      [IpcChannel.Overleaf_SyncPdf]: async (projectId, page, h, v, buildId) => {
-        const overleafCompiler = getOverleafCompiler();
-        if (!overleafCompiler) return null;
-        try {
-          const result = await overleafCompiler.syncPdf(projectId, page, h, v, buildId);
-          if (!result) return null;
-          return { file: result.file, line: result.line, column: result.column };
-        } catch {
-          return null;
-        }
-      },
-
-      // Get document content
-      [IpcChannel.Overleaf_GetDoc]: async (projectId, docIdOrPath, isPath) => {
-        const overleafCompiler = getOverleafCompiler();
-        if (!overleafCompiler) {
-          return { success: false, error: 'Please login to Overleaf first' };
-        }
-        try {
-          let content: string | null = null;
-          let docId: string | undefined;
-
-          if (isPath || !docIdOrPath || docIdOrPath.includes('/') || docIdOrPath.includes('.')) {
-            const result = await overleafCompiler.getDocByPathWithId(projectId, docIdOrPath);
-            if (result) {
-              content = result.content;
-              docId = result.docId;
-            }
-          } else {
-            docId = docIdOrPath;
-            content = await overleafCompiler.getDocViaSocket(projectId, docIdOrPath);
-            if (content === null) {
-              content = await overleafCompiler.getDocContent(projectId, docIdOrPath);
-            }
-          }
-
-          if (content !== null) {
-            return { success: true, content, docId };
-          }
-          return { success: false, error: 'Document content is empty' };
-        } catch (error) {
-          return {
-            success: false,
-            error: error instanceof Error ? error.message : 'Failed to read document',
-          };
-        }
-      },
-
-      // Update document content
-      [IpcChannel.Overleaf_UpdateDoc]: async (projectId, docId, content) => {
-        const overleafCompiler = getOverleafCompiler();
-        if (!overleafCompiler) {
-          return { success: false };
-        }
-        try {
-          // updateDocContent returns { success: boolean } directly
-          return await overleafCompiler.updateDocContent(projectId, docId, content);
-        } catch {
-          return { success: false };
-        }
-      },
-
-      // Update document content with debounce
-      [IpcChannel.Overleaf_UpdateDocDebounced]: async (projectId, docId, content) => {
-        const overleafCompiler = getOverleafCompiler();
-        if (!overleafCompiler) {
-          return { success: false };
-        }
-        try {
-          // updateDocDebounced returns { success: boolean }
-          return await overleafCompiler.updateDocDebounced(projectId, docId, content);
-        } catch {
-          return { success: false };
-        }
-      },
-
-      // Flush pending updates
-      [IpcChannel.Overleaf_FlushUpdates]: async (projectId) => {
-        const overleafCompiler = getOverleafCompiler();
-        if (!overleafCompiler) {
-          return { success: false };
-        }
-        try {
-          await overleafCompiler.flushUpdates(projectId);
-          return { success: true };
-        } catch {
-          return { success: false };
-        }
-      },
-
-      // Get document from cache
-      [IpcChannel.Overleaf_GetDocCached]: async (projectId, docId) => {
-        const overleafCompiler = getOverleafCompiler();
-        if (!overleafCompiler) {
-          return null;
-        }
-        return overleafCompiler.getDocCached(projectId, docId);
-      },
-
-      // Clear document cache
-      [IpcChannel.Overleaf_ClearCache]: (projectId, docId) => {
-        const overleafCompiler = getOverleafCompiler();
-        if (overleafCompiler) {
-          overleafCompiler.clearCache(projectId, docId);
+          return await syncService.createAndSyncNewFile(
+            overleafProjectId,
+            fileName,
+            parentFolderId,
+            localContent,
+            baseCachePath
+          );
+        } finally {
+          syncService.dispose();
         }
       },
     },

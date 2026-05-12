@@ -7,7 +7,7 @@ import { BrowserWindow, app, dialog, shell } from 'electron';
 import log from 'electron-log';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import { createLogger } from '../services/LoggerService';
-import fs from '../services/knowledge/utils/fsCompat';
+import fs from 'fs-extra';
 import { createTypedHandlers, registerTypedHandler } from './typedIpc';
 
 const logger = createLogger('WindowHandlers');
@@ -135,7 +135,7 @@ export function registerWindowHandlers(deps: WindowHandlersDeps): void {
 
           return result.filePath;
         } catch (error) {
-          log.error('导出诊断报告失败:', error);
+          log.error('Failed to export diagnostics report:', error);
           return '';
         }
       },
@@ -146,10 +146,10 @@ export function registerWindowHandlers(deps: WindowHandlersDeps): void {
           const logFile = log.transports.file.getFile();
           if (logFile?.path && (await fs.pathExists(logFile.path))) {
             await fs.writeFile(logFile.path, '');
-            log.info('[Main] 日志文件已清除');
+            log.info('[Main] Log file cleared');
           }
         } catch (error) {
-          log.error('清除日志失败:', error);
+          log.error('Failed to clear log file:', error);
         }
       },
 

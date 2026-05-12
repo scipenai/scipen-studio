@@ -1,6 +1,6 @@
 /**
  * @file workflow.e2e.ts - E2E workflow tests for SciPen Studio
- * @description Complete end-to-end tests simulating real user behavior. Run with: npm run test:e2e or npx playwright test tests/e2e/workflow.e2e.ts. Scenarios: PDF import -> AI Q&A -> citation jump; new LaTeX -> edit -> compile -> preview -> SyncTeX; destructive tests: offline, large files, special characters.
+ * @description Complete end-to-end tests simulating real user behavior. Run with: npm run test:e2e or npx playwright test tests/e2e/workflow.e2e.ts. Scenarios: AI Q&A; new LaTeX -> edit -> compile -> preview -> SyncTeX; destructive tests: offline, large files, special characters.
  * @depends Playwright, Electron
  */
 
@@ -117,7 +117,7 @@ test.describe
       }
     });
 
-    // ====== Core Path 1: PDF Knowledge Base + AI Q&A ======
+    // ====== Core Path 1: PDF Import + AI Q&A ======
 
     test('1.1 application should start and display home page', async () => {
       const windows = electronApp.windows();
@@ -127,15 +127,15 @@ test.describe
       await expect(body).toBeVisible();
     });
 
-    test('1.2 switch to knowledge base panel', async () => {
-      const knowledgeTab = page
-        .locator('[data-testid="knowledge-tab"]')
-        .or(page.locator('button:has-text("知识库")'))
-        .or(page.locator('[title*="知识库"]'));
+    test('1.2 switch to AI panel', async () => {
+      const aiTab = page
+        .locator('[data-testid="ai-tab"]')
+        .or(page.locator('button:has-text("AI")'))
+        .or(page.locator('[title*="AI"]'));
 
-      const count = await knowledgeTab.count();
+      const count = await aiTab.count();
       if (count > 0) {
-        await knowledgeTab.first().click();
+        await aiTab.first().click();
         await page.waitForTimeout(500);
       }
     });
@@ -346,9 +346,9 @@ Hello, LaTeX!
 
     test('5.1 keyboard shortcut functionality verification', async () => {
       const shortcuts = [
-        { keys: 'Control+S', name: '保存' },
-        { keys: 'Control+Z', name: '撤销' },
-        { keys: 'Control+F', name: '查找' },
+        { keys: 'Control+S', name: 'Save' },
+        { keys: 'Control+Z', name: 'Undo' },
+        { keys: 'Control+F', name: 'Find' },
       ];
 
       for (const { keys, name } of shortcuts) {

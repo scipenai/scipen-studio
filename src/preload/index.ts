@@ -11,7 +11,6 @@ import { IpcChannel } from '../../shared/ipc/channels';
 import {
   ALLOWED_EVENT_CHANNELS,
   ALLOWED_INVOKE_CHANNELS,
-  agentApi,
   aiApi,
   appApi,
   chatApi,
@@ -21,24 +20,27 @@ import {
   dialogApi,
   fileApi,
   fileWatcherApi,
-  knowledgeApi,
   logApi,
   lspApi,
-  overleafApi,
+  overleafLiveApi,
   projectApi,
   selectionApi,
   settingsApi,
   traceApi,
   windowApi,
+  imApi,
+  otApi,
+  projectBindingApi,
+  projectConversationApi,
 } from './api';
 
-try {
+function createElectronApi() {
   /**
    * API exposed to renderer process
    *
    * Structure:
    * - Top-level: Common operations (project, file, compile)
-   * - Namespaced: Domain-specific APIs (ai, knowledge, lsp, etc.)
+   * - Namespaced: Domain-specific APIs (ai, lsp, etc.)
    */
   const api = {
     // ====== Project Management ======
@@ -87,9 +89,6 @@ try {
     // ====== Namespaced APIs ======
     window: windowApi,
     chat: chatApi,
-    agent: agentApi,
-    overleaf: overleafApi,
-    knowledge: knowledgeApi,
     ai: aiApi,
     fileWatcher: fileWatcherApi,
     log: logApi,
@@ -99,6 +98,11 @@ try {
     dialog: dialogApi,
     settings: settingsApi,
     selection: selectionApi,
+    im: imApi,
+    ot: otApi,
+    overleafLive: overleafLiveApi,
+    projectBinding: projectBindingApi,
+    projectConversation: projectConversationApi,
 
     // Event listeners
     onMessage: createSafeListener<string>(IpcChannel.Message_FromMain),
@@ -141,9 +145,14 @@ try {
     platform: process.platform,
   };
 
-  // Expose protected methods that allow the renderer process to use
-  // the ipcRenderer without exposing the entire object
+  return api;
+}
+
+try {
+  const api = createElectronApi();
   contextBridge.exposeInMainWorld('electron', api);
 } catch (error) {
   console.error('[Preload] Failed to expose electron API:', error);
 }
+
+export type ElectronAPI = ReturnType<typeof createElectronApi>;

@@ -7,7 +7,7 @@
 import { createHash } from 'crypto';
 import path from 'path';
 import { createLogger } from './LoggerService';
-import fs from './knowledge/utils/fsCompat';
+import fs from 'fs-extra';
 
 const logger = createLogger('FileCacheService');
 

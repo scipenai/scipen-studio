@@ -42,6 +42,14 @@ export const appApi = {
   getAppVersion: () => ipcRenderer.invoke(IpcChannel.App_GetVersion),
   getHomeDir: () => ipcRenderer.invoke(IpcChannel.App_GetHomeDir),
   getAppDataDir: () => ipcRenderer.invoke(IpcChannel.App_GetAppDataDir),
+  checkUpdate: () => ipcRenderer.invoke(IpcChannel.App_CheckUpdate),
+  downloadUpdate: () => ipcRenderer.invoke(IpcChannel.App_DownloadUpdate),
+  installUpdate: () => ipcRenderer.invoke(IpcChannel.App_InstallUpdate),
+  onUpdateStatus: (callback: (status: unknown) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: unknown) => callback(status);
+    ipcRenderer.on(IpcChannel.App_UpdateStatus, handler);
+    return () => ipcRenderer.removeListener(IpcChannel.App_UpdateStatus, handler);
+  },
 };
 
 // ====== Logging API ======
