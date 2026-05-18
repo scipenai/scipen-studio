@@ -4,7 +4,6 @@
  */
 
 export { useEditorEvents } from './useEditorEvents';
-export { useOTCollaboration } from './useOTCollaboration';
 export { useDiffReview } from './useDiffReview';
 export { useCompilation } from './useCompilation';
 export { useSyncTeX } from './useSyncTeX';

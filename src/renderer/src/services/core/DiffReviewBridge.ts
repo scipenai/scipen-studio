@@ -11,9 +11,8 @@ import type { IDisposable } from '../../../../../shared/utils';
 import type { CollaborationReviewKey } from './DiffReviewService';
 import { createLogger } from '../LogService';
 import { getDiffReviewService } from './DiffReviewService';
-import { getOTService } from './OTService';
 import { getOverleafLiveService } from './OverleafLiveService';
-import { getEditorService, getProjectRuntimeContext } from './ServiceRegistry';
+import { getEditorService } from './ServiceRegistry';
 
 const logger = createLogger('DiffReviewBridge');
 
@@ -41,22 +40,6 @@ export class DiffReviewBridge implements IDisposable {
   private gcTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
-    // Remote OT bot edit (non-active file)
-    this.disposables.push(
-      getOTService().onDidReceiveRemoteOp((update) => {
-        const botUserId = getProjectRuntimeContext().botUserId;
-        if (!update.userId || !botUserId || update.userId !== botUserId) return;
-        this.handleRemoteBotEdit({
-          backend: 'scipen-ot',
-          projectId: update.projectId,
-          fileId: update.fileId,
-          content: update.content,
-          version: update.version,
-          source: 'OT',
-        });
-      })
-    );
-
     // Remote Overleaf bot edit (non-active file)
     this.disposables.push(
       getOverleafLiveService().onDidReceiveRemotePatch((update) => {

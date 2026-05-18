@@ -24,7 +24,6 @@ import { createLogger } from '../../../services/LogService';
 import { getSyncTeXService } from '../../../services/SyncTeXService';
 import {
   getEditorService,
-  getOTService,
   getSettingsService,
   getShortcutService,
   getUIService,
@@ -122,22 +121,6 @@ export function setupContentChangeTracking(
         text: change.text,
       }));
       LSPService.updateDocumentIncremental(filePath, changes);
-    }
-
-    // Forward changes to OT service when collaboration is active
-    const otService = getOTService();
-
-    if (otService.isActive) {
-      const changes = event.changes.map((change) => ({
-        rangeOffset: change.rangeOffset,
-        rangeLength: change.rangeLength,
-        text: change.text,
-      }));
-      // modelValueLengthBefore = content length before changes
-      // event.changes describe what changed in the original text, so baseLength = current - net delta
-      const netDelta = event.changes.reduce((sum, c) => sum + c.text.length - c.rangeLength, 0);
-      const baseLength = content.length - netDelta;
-      otService.applyLocalChange(changes, baseLength);
     }
 
     resetPartialAccept();
@@ -314,41 +297,14 @@ async function handleSaveCommand(): Promise<void> {
 
     await api.file.write(path, saveInfo.content);
 
-    let otSynced = true;
-    if (currentTab._id) {
-      const otProjectId = currentTab.projectId || getOTService().getProjectId();
-      if (otProjectId) {
-        otSynced = await getOTService().syncSavedContent(
-          otProjectId,
-          currentTab._id,
-          saveInfo.content
-        );
-      }
-    }
+    const wasClean = editorService.completeSave(path, saveInfo.version);
 
-    let wasClean = false;
-    if (otSynced) {
-      wasClean = editorService.completeSave(path, saveInfo.version);
-    } else {
-      editorService.finalizeSaveKeepingDirty(path);
-    }
-
-    if (!otSynced) {
-      uiService.addCompilationLog({
-        type: 'warning',
-        message: t('syncTeX.savedLocalWithEdits', { name: currentTab.name }),
-      });
-    } else if (wasClean) {
-      uiService.addCompilationLog({
-        type: 'success',
-        message: t('syncTeX.savedLocal', { name: currentTab.name }),
-      });
-    } else {
-      uiService.addCompilationLog({
-        type: 'info',
-        message: t('syncTeX.savedLocalWithEdits', { name: currentTab.name }),
-      });
-    }
+    uiService.addCompilationLog({
+      type: wasClean ? 'success' : 'info',
+      message: t(wasClean ? 'syncTeX.savedLocal' : 'syncTeX.savedLocalWithEdits', {
+        name: currentTab.name,
+      }),
+    });
 
     // Overleaf local-first: push the saved content to Overleaf
     triggerOverleafSyncAfterSave({

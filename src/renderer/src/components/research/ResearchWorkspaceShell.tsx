@@ -7,15 +7,10 @@ import { api } from '../../api';
 import { useEvent } from '../../hooks/useEvent';
 import { useChatService } from '../../hooks/useChatService';
 import {
-  getConversationScopeService,
   getUIService,
   useActiveArtifactPath,
-  useActiveConversationId,
-  useActiveProjectConversation,
   useActiveTabPath,
   useCompilationResult,
-  useConversationScope,
-  useConversationScopeError,
   usePreviewVisible,
   useProjectPath,
   useProjectRuntime,
@@ -25,8 +20,6 @@ import {
 } from '../../services/core';
 import { getChatService } from '../../services/core/ChatService';
 import { t } from '../../locales';
-import { useProposalProcessor } from '../../hooks/useProposalProcessor';
-import { useNativeIM } from '../im/useNativeIM';
 import { MainLayout } from '../layout/MainLayout';
 import { ChatSidebar } from '../chat';
 import { ResearchConversationPane } from './ResearchConversationPane';
@@ -37,8 +30,6 @@ import {
   buildWorkspaceInputPlaceholder,
   findLatestArtifact,
   getChatPanelDefaultSize,
-  getConversationScopeBadge,
-  getOpenClawStatus,
   WorkspaceResizeHandle,
 } from './researchWorkspaceHelpers';
 import type { PendingErrorDraftContext } from './researchWorkspaceHelpers';
@@ -59,27 +50,8 @@ export const ResearchWorkspaceShell: React.FC = () => {
   const settings = useSettings();
   const runtime = useProjectRuntime();
   const chatServiceState = useChatService();
-  const activeConversationId = useActiveConversationId();
-  const activeProjectConversation = useActiveProjectConversation();
-  const conversationScope = useConversationScope();
-  const conversationScopeError = useConversationScopeError();
-  const conversationScopeService = getConversationScopeService();
   const isPreviewVisible = usePreviewVisible();
-  const isOpenClawRuntime = settings.assistant.runtime === 'openclaw';
   const isSnacaRuntime = settings.assistant.runtime === 'snaca';
-  const hasIMConfig = Boolean(settings.im.serverUrl && settings.im.token);
-  const isBootstrapReady = runtime.bootstrapState === 'ready';
-  const imState = useNativeIM({
-    baseUrl: settings.im.serverUrl || '',
-    token: settings.im.token || '',
-    conversationId: activeConversationId || '',
-  });
-  const isOpenClawReady = Boolean(
-    hasIMConfig && activeConversationId && isBootstrapReady && imState.isConnected
-  );
-
-  // Auto-process AI proposals: IM message proposals -> Diff Review
-  useProposalProcessor(imState.snapshot.messages, runtime.botUserId || undefined, projectPath);
 
   const [inputValue, setInputValue] = useState('');
   const [chatError, setChatError] = useState<string | null>(null);
@@ -89,35 +61,12 @@ export const ResearchWorkspaceShell: React.FC = () => {
 
   const showFilesDrawer = sidebarTab === 'files';
   const showEditorPane = workspaceMode !== 'chat';
-  const sessionTitle = isOpenClawRuntime
-    ? activeProjectConversation?.title ||
-      (projectPath
-        ? projectPath.replace(/\\/g, '/').split('/').pop() || 'SciPenClaw'
-        : 'SciPenClaw')
-    : chatServiceState.currentSession?.title || t('research.newConversation');
+  const sessionTitle =
+    chatServiceState.currentSession?.title || t('research.newConversation');
   const chatDefaultSize = getChatPanelDefaultSize(workspaceMode);
   const editorDefaultSize = 100 - chatDefaultSize;
-  const builtinMessages = useMemo(
-    () => (isOpenClawRuntime ? [] : chatServiceState.messages),
-    [chatServiceState.messages, isOpenClawRuntime]
-  );
-  const isGenerating = isOpenClawRuntime
-    ? (imState.snapshot.typingUserIds?.length ?? 0) > 0
-    : chatServiceState.isGenerating;
-  const openClawStatus = getOpenClawStatus({
-    hasIMConfig,
-    hasActiveConversation: Boolean(activeConversationId),
-    isConnected: imState.isConnected,
-    isConnecting: imState.isLoading,
-    connectionState: imState.snapshot.state,
-    isHydrating: conversationScopeService.isHydrating,
-    desiredProjectScope: conversationScope.scopeType === 'project',
-    activeConversationScope: activeProjectConversation?.scopeType ?? null,
-    scopeError: conversationScopeError,
-  });
-  const scopeBadge = getConversationScopeBadge(
-    activeProjectConversation?.scopeType ?? conversationScope.scopeType ?? null
-  );
+  const builtinMessages = chatServiceState.messages;
+  const isGenerating = chatServiceState.isGenerating;
   const latestArtifact = useMemo(
     () =>
       activeArtifactPath && builtinMessages.length > 0
@@ -140,11 +89,6 @@ export const ResearchWorkspaceShell: React.FC = () => {
   // ─── Actions hook ────────────────────────────────
   const actions = useResearchWorkspaceActions({
     uiService,
-    conversationScopeService,
-    isOpenClawRuntime,
-    isOpenClawReady,
-    openClawStatusText: openClawStatus.text,
-    imSendMessage: imState.sendMessage,
     chatSendMessage: chatServiceState.sendMessage,
     projectPath,
     activeTabPath,
@@ -158,31 +102,12 @@ export const ResearchWorkspaceShell: React.FC = () => {
     setChatError,
   });
 
-  // Scope activation: project scope is activated explicitly by bootstrapProject()
-  // (FileOpenService/WelcomeScreen). This effect only handles the global scope when
-  // no project is open.
-  useEffect(() => {
-    if (!isOpenClawRuntime || projectPath) {
-      return;
-    }
-    void conversationScopeService.activateGlobalScope({
-      workspaceId: settings.assistant.openclaw.workspaceId || null,
-      title: 'SciPen Global',
-    });
-  }, [
-    conversationScopeService,
-    isOpenClawRuntime,
-    projectPath,
-    settings.assistant.openclaw.workspaceId,
-  ]);
-
   useEffect(() => {
     if (hasInitializedLayoutRef.current) {
       return;
     }
     hasInitializedLayoutRef.current = true;
     uiService.setSidebarTab('im');
-    // workspaceMode is restored from storage; do not overwrite unconditionally here.
     uiService.setRightPanelCollapsed(true);
     uiService.setPreviewVisible(false);
     if (uiService.rightPanelTab !== 'preview') {
@@ -237,20 +162,18 @@ export const ResearchWorkspaceShell: React.FC = () => {
   );
 
   useEffect(() => {
-    if (!isOpenClawRuntime) {
-      const latestAssistantWithContent =
-        [...builtinMessages]
-          .reverse()
-          .find(
-            (message) =>
-              message.role === 'assistant' &&
-              (message.content.trim() || (message.blocks?.length ?? 0) > 0)
-          ) ?? null;
-      if (latestAssistantWithContent) {
-        setChatError(null);
-      }
+    const latestAssistantWithContent =
+      [...builtinMessages]
+        .reverse()
+        .find(
+          (message) =>
+            message.role === 'assistant' &&
+            (message.content.trim() || (message.blocks?.length ?? 0) > 0)
+        ) ?? null;
+    if (latestAssistantWithContent) {
+      setChatError(null);
     }
-  }, [builtinMessages, isOpenClawRuntime]);
+  }, [builtinMessages]);
 
   return (
     <div className="h-full overflow-hidden p-2" style={{ background: 'var(--color-bg-void)' }}>
@@ -269,42 +192,17 @@ export const ResearchWorkspaceShell: React.FC = () => {
           }}
         >
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="truncate text-[17px] font-medium tracking-[-0.03em] text-[var(--color-text-primary)]">
-                {sessionTitle}
-              </h2>
-              {isOpenClawRuntime && (
-                <span
-                  className="rounded-full px-2.5 py-1 text-[11px] font-medium"
-                  style={{
-                    background: 'var(--color-success-muted)',
-                    color: 'var(--color-success)',
-                  }}
-                >
-                  {scopeBadge}
-                </span>
-              )}
-            </div>
+            <h2 className="truncate text-[17px] font-medium tracking-[-0.03em] text-[var(--color-text-primary)]">
+              {sessionTitle}
+            </h2>
             <div className="mt-1.5 flex items-center gap-2 text-[12px] text-[var(--color-text-muted)]">
               <span className="inline-flex items-center gap-2">
                 <span
                   className={`h-2.5 w-2.5 rounded-full ${
-                    isOpenClawRuntime
-                      ? openClawStatus.tone === 'success'
-                        ? 'bg-emerald-500'
-                        : openClawStatus.tone === 'info'
-                          ? 'bg-sky-500'
-                          : 'bg-amber-500'
-                      : isGenerating
-                        ? 'bg-sky-500'
-                        : 'bg-emerald-500'
+                    isGenerating ? 'bg-sky-500' : 'bg-emerald-500'
                   }`}
                 />
-                {isOpenClawRuntime
-                  ? openClawStatus.text
-                  : isGenerating
-                    ? t('research.scipenReplying')
-                    : t('research.startNewConversation')}
+                {isGenerating ? t('research.scipenReplying') : t('research.startNewConversation')}
               </span>
               {latestArtifact && (
                 <span
@@ -441,26 +339,16 @@ export const ResearchWorkspaceShell: React.FC = () => {
                 />
               ) : (
                 <ResearchConversationPane
-                  isOpenClawRuntime={isOpenClawRuntime}
-                  openClawStatus={openClawStatus}
-                  hasIMConfig={hasIMConfig}
-                  conversationScopeError={conversationScopeError}
-                  isOpenClawReady={isOpenClawReady}
                   builtinMessages={builtinMessages}
-                  imMessages={imState.snapshot.messages}
-                  imLoading={imState.isLoading || false}
                   isGenerating={isGenerating}
                   chatError={chatError}
                   inputValue={inputValue}
                   inputPlaceholder={inputPlaceholder}
                   onInputChange={setInputValue}
                   onSend={actions.handleSendStable}
-                  onRetryConnection={actions.handleRetryConnection}
                   onOpenSettings={actions.handleOpenSettings}
                   onOpenArtifact={actions.handleOpenArtifactStable}
                   onCompileArtifact={actions.handleCompileArtifactStable}
-                  onOpenIMFile={actions.handleOpenIMFile}
-                  onCompileIMFile={actions.handleCompileIMFile}
                   onAcceptAutoFix={actions.handleAcceptAutoFixStable}
                   autoFixLabel={autoFixLabel}
                   botUserId={runtime.botUserId || undefined}

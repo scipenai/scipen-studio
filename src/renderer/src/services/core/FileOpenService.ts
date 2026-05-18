@@ -10,17 +10,11 @@ import type { FileNode } from '../../types';
 import { getLanguageForFile } from '../../utils';
 import { isSameOrChildPath, isSamePath } from '../../utils/pathComparison';
 import {
-  getConversationScopeService,
   getEditorService,
   getProjectRuntimeContext,
   getProjectService,
   getSettingsService,
 } from './ServiceRegistry';
-import {
-  ensureCollaboration,
-  activateProjectConversationScope,
-  clearActiveCollaborationProjectState,
-} from './CollaborationBootstrapService';
 
 const logger = createLogger('FileOpenService');
 
@@ -42,14 +36,13 @@ export interface BootstrapProjectOptions {
 }
 
 /**
- * Single entry point for project-level bootstrap: collaboration → scope activation →
- * Overleaf metadata restore/cleanup.
+ * Single entry point for project-level bootstrap: project setup + Overleaf metadata restore/cleanup.
  *
  * Called by openFileInEditor / WelcomeScreen and the other open flows.
  * Do not re-implement this pipeline elsewhere.
  *
  * @param projectPath - Local project root path
- * @param fileTree - Local file tree (uploaded when creating the remote project for the first time)
+ * @param fileTree - Local file tree
  * @param options - Optional overrides
  * @returns bootstrap result (final projectPath, fileTree, projectId)
  */
@@ -61,37 +54,11 @@ export async function bootstrapProject(
   const projectService = getProjectService();
   const settingsService = getSettingsService();
 
-  // ── 0. Clear prior state and enter booting ──
-  clearActiveCollaborationProjectState();
-  getConversationScopeService().clearActiveBinding();
-  // Restore baseline rootPath immediately after reset — IM-only mode relies on it for context
+  // ── 0. Reset runtime + load file tree ──
   getProjectRuntimeContext().update({ bootstrapState: 'booting', rootPath: projectPath });
   projectService.setProject(projectPath, fileTree);
 
-  // ── 1. Collaboration bootstrap (OT connection + binding resolve/create) ──
-  let collabResult: Awaited<ReturnType<typeof ensureCollaboration>>;
-  try {
-    collabResult = await ensureCollaboration(projectPath, fileTree);
-  } catch (error) {
-    logger.error('ensureCollaboration failed:', error);
-    getProjectRuntimeContext().update({ bootstrapState: 'failed' });
-    throw error;
-  }
-  if (collabResult) {
-    projectService.setProject(collabResult.projectPath, collabResult.fileTree);
-  }
-
-  const finalProjectPath = collabResult?.projectPath ?? projectPath;
-  const finalFileTree = collabResult?.fileTree ?? fileTree;
-  const projectId = collabResult?.projectId ?? null;
-
-  // Collaboration may have changed projectPath (Overleaf download, etc.) — sync rootPath
-  getProjectRuntimeContext().update({ rootPath: finalProjectPath });
-
-  // ── 2. Scope activation ──
-  await activateProjectConversationScope(finalProjectPath, projectId);
-
-  // ── 3. Overleaf metadata restore/cleanup ──
+  // ── 1. Overleaf metadata restore/cleanup ──
   // Prefer caller-provided override (e.g. freshly downloaded metadata); otherwise restore from disk
   let isOverleaf = false;
   const ovr = options?.overleafOverride;
@@ -111,7 +78,7 @@ export async function bootstrapProject(
     });
   } else {
     try {
-      const meta = await api.overleaf.getProjectMeta(finalProjectPath);
+      const meta = await api.overleaf.getProjectMeta(projectPath);
       if (meta?.overleafProjectId) {
         isOverleaf = true;
         getProjectRuntimeContext().update({
@@ -140,10 +107,10 @@ export async function bootstrapProject(
     });
   }
 
-  // ── 4. Bootstrap done — mark ready ──
+  // ── 2. Bootstrap done — mark ready ──
   getProjectRuntimeContext().update({ bootstrapState: 'ready' });
 
-  return { projectPath: finalProjectPath, fileTree: finalFileTree, projectId };
+  return { projectPath, fileTree, projectId: null };
 }
 
 // ====== File Open ======

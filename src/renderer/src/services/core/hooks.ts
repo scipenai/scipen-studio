@@ -8,7 +8,6 @@ import type { Event, IDisposable } from '../../../../../shared/utils';
 import type { LatestPendingReviewSource, PendingReview } from './DiffReviewService';
 import type { ProjectRuntimeState } from './ProjectRuntimeContext';
 import {
-  getConversationScopeService,
   getEditorService,
   getProjectRuntimeContext,
   getProjectService,
@@ -299,30 +298,6 @@ export function useResearchLayoutFocus() {
 export function useActiveArtifactPath() {
   const service = getUIService();
   return useServiceEvent(service.onDidChangeActiveArtifactPath, () => service.activeArtifactPath);
-}
-
-/** Returns current project/global conversation scope. */
-export function useConversationScope() {
-  const service = getConversationScopeService();
-  return useServiceEvent(service.onDidChangeScope, () => service.scope);
-}
-
-/** Returns current active project/global conversation binding. */
-export function useActiveProjectConversation() {
-  const service = getConversationScopeService();
-  return useServiceEvent(service.onDidChangeActiveBinding, () => service.activeBinding);
-}
-
-/** Returns current active IM conversation id resolved from scope bindings. */
-export function useActiveConversationId() {
-  const service = getConversationScopeService();
-  return useServiceEvent(service.onDidChangeActiveBinding, () => service.activeConversationId);
-}
-
-/** Returns the latest conversation scope resolution error, if any. */
-export function useConversationScopeError() {
-  const service = getConversationScopeService();
-  return useServiceEvent(service.onDidChangeLastError, () => service.lastError);
 }
 
 /** Returns current artifact id. */

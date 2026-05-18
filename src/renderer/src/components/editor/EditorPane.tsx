@@ -3,7 +3,7 @@
 /**
  * @file EditorPane.tsx - Code Editor Pane (Shell Component)
  * @description Monaco Editor based LaTeX/Typst editor with syntax highlighting and intelligent completion.
- *              Logic extracted into focused hooks: useOTCollaboration, useDiffReview, useCompilation, useSyncTeX, useDiagnostics.
+ *              Logic extracted into focused hooks: useDiffReview, useCompilation, useSyncTeX, useDiagnostics.
  * @depends monaco-editor, api, LSPService, services/core
  */
 
@@ -30,7 +30,6 @@ import {
   useEditorTabs,
   useIsCompiling,
   usePdfData,
-  useProjectPath,
   useProjectRuntime,
   useSettings,
   useWorkspaceMode,
@@ -46,7 +45,6 @@ import {
   setupShortcuts,
   setupSyncTexClick,
   useEditorEvents,
-  useOTCollaboration,
   useDiffReview,
   useCompilation,
   useSyncTeX,
@@ -78,7 +76,6 @@ export const EditorPane: React.FC = React.memo(() => {
 
   const openTabs = useEditorTabs();
   const activeTabPath = useActiveTabPath();
-  const projectPath = useProjectPath();
   const isCompiling = useIsCompiling();
   const pdfData = usePdfData();
   const settings = useSettings();
@@ -87,7 +84,6 @@ export const EditorPane: React.FC = React.memo(() => {
   const editorSettings = settings.editor;
   const uiTheme = settings.ui.theme;
   const compilerEngine = settings.compiler.engine;
-  const collaborationConfig = settings.collaboration;
   const runtime = useProjectRuntime();
 
   const activeTab = useMemo(() => {
@@ -113,14 +109,6 @@ export const EditorPane: React.FC = React.memo(() => {
     (activeTab?.path ? normalizeReviewPath(activeTab.path) : null);
 
   // ====== Extracted Hooks ======
-
-  useOTCollaboration({
-    collaborationConfig,
-    runtime,
-    projectPath,
-    activeTab,
-    activeReviewKey,
-  });
 
   const {
     displayReview,

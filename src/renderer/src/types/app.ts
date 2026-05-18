@@ -142,7 +142,7 @@ export type CursorBlinking = 'blink' | 'smooth' | 'phase' | 'expand' | 'solid';
 export type WhitespaceMode = 'none' | 'boundary' | 'selection' | 'all';
 
 export type LineHighlightMode = 'none' | 'gutter' | 'line' | 'all';
-export type AssistantRuntime = 'openclaw' | 'builtin' | 'snaca';
+export type AssistantRuntime = 'builtin' | 'snaca';
 export interface AppSettings {
   ai: {
     provider: AIProvider;
@@ -232,23 +232,9 @@ export interface AppSettings {
     newWindow: string;
     inlineEdit: string;
   };
-  im: {
-    serverUrl: string;
-    token: string;
-  };
-  collaboration: {
-    enabled: boolean;
-    serverUrl: string;
-    token: string;
-  };
   assistant: {
     runtime: AssistantRuntime;
     autoFixCompileErrors: boolean;
     maxAutoFixRetries: number;
-    openclaw: {
-      endpoint?: string;
-      mode?: 'daemon';
-      workspaceId?: string;
-    };
   };
 }

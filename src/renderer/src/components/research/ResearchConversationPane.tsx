@@ -1,20 +1,12 @@
 import type React from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
-import type { StudioIMMessageDTO } from '../../../../../shared/api-types';
 import type { ArtifactSummary, ChatMessage } from '../../../../../shared/types/chat';
 import { useTranslation } from '../../locales';
-import { useLatestPendingReviewSource } from '../../services/core/hooks';
 import { ChatInput } from '../chat';
 import type { ChatInputContextBadge } from '../chat/ChatInput';
-import {
-  AssistantTaskCard,
-  EmptyState,
-  OpenClawConfigNotice,
-  UserMessageBubble,
-} from './AssistantTaskCard';
-import { IMTaskCard } from './IMTaskCard';
-import { humanizeAgentError, isBotMessage } from './conversationHelpers';
+import { AssistantTaskCard, EmptyState, UserMessageBubble } from './AssistantTaskCard';
+import { humanizeAgentError } from './conversationHelpers';
 
 // ====== Virtuoso static components (module-level constants, avoid rebuilding per render) ======
 
@@ -30,104 +22,30 @@ const VIRTUOSO_COMPONENTS = {
   ),
 };
 
-// ====== Message list (isolated memo; does not depend on inputValue so keystrokes don't re-render) ======
+// ====== Message list ======
 
 interface MessageListProps {
-  isOpenClawRuntime: boolean;
-  hasIMConfig: boolean;
-  conversationScopeError: string | null;
-  isOpenClawReady: boolean;
   builtinMessages: ChatMessage[];
-  imMessages: StudioIMMessageDTO[];
-  imLoading: boolean;
   isGenerating: boolean;
   chatError: string | null;
-  onRetryConnection: () => void;
-  onOpenSettings: () => void;
   onOpenArtifact: (artifact: ArtifactSummary) => void;
   onCompileArtifact: (artifact: ArtifactSummary) => void;
-  onOpenIMFile: (filePath: string) => void;
-  onCompileIMFile: (filePath: string) => void;
   onAcceptAutoFix: () => void;
   autoFixLabel?: string;
-  botUserId?: string;
 }
 
 const MessageList: React.FC<MessageListProps> = memo(
   ({
-    isOpenClawRuntime,
-    hasIMConfig,
-    conversationScopeError,
-    isOpenClawReady,
     builtinMessages,
-    imMessages,
-    imLoading,
     isGenerating,
     chatError,
-    onRetryConnection,
-    onOpenSettings,
     onOpenArtifact,
     onCompileArtifact,
-    onOpenIMFile,
-    onCompileIMFile,
     onAcceptAutoFix,
     autoFixLabel,
-    botUserId,
   }) => {
-    const { t } = useTranslation();
     const virtuosoRef = useRef<VirtuosoHandle>(null);
-    const latestPendingReviewSource = useLatestPendingReviewSource();
-    const friendlyAgentError = useMemo(
-      () => humanizeAgentError(conversationScopeError || chatError),
-      [chatError, conversationScopeError]
-    );
-    const expandedIMMessageIds = useMemo(() => {
-      const ids = new Set<string>();
-      for (let index = imMessages.length - 1; index >= 0; index -= 1) {
-        const message = imMessages[index];
-        if (!isBotMessage(message, botUserId)) continue;
-        ids.add(message.id);
-        if (ids.size >= 2) break;
-      }
-      return ids;
-    }, [imMessages, botUserId]);
-
-    const showBuiltinEmpty = !isOpenClawRuntime && builtinMessages.length === 0;
-    const showIMEmpty = isOpenClawRuntime && !isOpenClawReady;
-
-    const renderIMMessage = useCallback(
-      (index: number) => {
-        const message = imMessages[index];
-        const showPendingReviewBanner = Boolean(
-          message.id === latestPendingReviewSource?.messageId &&
-            (!message.metadata?.proposals || message.metadata.proposals.length === 0)
-        );
-        return (
-          <div className="pb-5">
-            <IMTaskCard
-              message={message}
-              botUserId={botUserId}
-              onOpenFile={onOpenIMFile}
-              onCompileFile={onCompileIMFile}
-              onAcceptAutoFix={onAcceptAutoFix}
-              autoFixLabel={autoFixLabel}
-              showPendingReviewBanner={showPendingReviewBanner}
-              isHistorical={!expandedIMMessageIds.has(message.id)}
-            />
-          </div>
-        );
-      },
-      [
-        imMessages,
-        botUserId,
-        onOpenIMFile,
-        onCompileIMFile,
-        onAcceptAutoFix,
-        autoFixLabel,
-        latestPendingReviewSource,
-        expandedIMMessageIds,
-      ]
-    );
+    const friendlyAgentError = useMemo(() => humanizeAgentError(chatError), [chatError]);
 
     const renderBuiltinMessage = useCallback(
       (index: number) => {
@@ -149,18 +67,10 @@ const MessageList: React.FC<MessageListProps> = memo(
           </div>
         );
       },
-      [
-        builtinMessages,
-        isGenerating,
-        onOpenArtifact,
-        onCompileArtifact,
-        onAcceptAutoFix,
-        autoFixLabel,
-      ]
+      [builtinMessages, isGenerating, onOpenArtifact, onCompileArtifact, onAcceptAutoFix, autoFixLabel]
     );
 
-    const messageCount = isOpenClawRuntime ? imMessages.length : builtinMessages.length;
-    const renderMessage = isOpenClawRuntime ? renderIMMessage : renderBuiltinMessage;
+    const messageCount = builtinMessages.length;
 
     const initialScrollDoneRef = useRef(false);
     useEffect(() => {
@@ -179,53 +89,18 @@ const MessageList: React.FC<MessageListProps> = memo(
     const footerContent = useCallback(
       () => (
         <>
-          {isOpenClawRuntime && imLoading && imMessages.length === 0 && (
-            <div
-              className="rounded-[24px] border px-5 py-4 text-sm mb-5"
-              style={{
-                borderColor: 'color-mix(in srgb, var(--color-accent) 24%, transparent)',
-                background:
-                  'color-mix(in srgb, var(--color-info-muted) 72%, var(--color-bg-elevated) 28%)',
-                color: 'var(--color-accent)',
-              }}
-            >
-              {t('research.connectingOpenClaw')}
-            </div>
-          )}
-          {conversationScopeError && !chatError && (
-            <div className="rounded-[24px] border border-[var(--color-warning)]/20 bg-[var(--color-warning-muted)] px-5 py-4 text-sm text-[var(--color-warning)] mb-5">
-              {conversationScopeError}
-            </div>
-          )}
           {chatError && (
             <div className="my-2 flex max-w-[85%] items-start gap-2 rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-600 mb-5">
               <span className="mt-0.5">⚠️</span>
-              <p>{chatError}</p>
+              <p>{friendlyAgentError.description || chatError}</p>
             </div>
           )}
         </>
       ),
-      [isOpenClawRuntime, imLoading, imMessages.length, conversationScopeError, chatError, t]
+      [chatError, friendlyAgentError]
     );
 
-    if (showIMEmpty) {
-      return (
-        <div className="h-full overflow-y-auto">
-          <div className="mx-auto w-full max-w-[820px] px-6 py-8">
-            <OpenClawConfigNotice
-              title={!hasIMConfig ? t('research.imNotConfigured') : friendlyAgentError.title}
-              description={
-                !hasIMConfig ? t('research.imNotConfiguredDesc') : friendlyAgentError.description
-              }
-              onRetry={onRetryConnection}
-              onOpenSettings={onOpenSettings}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    if (showBuiltinEmpty) {
+    if (messageCount === 0) {
       return (
         <div className="h-full overflow-y-auto">
           <div className="mx-auto w-full max-w-[820px] px-6 py-8">
@@ -239,7 +114,7 @@ const MessageList: React.FC<MessageListProps> = memo(
       <Virtuoso
         ref={virtuosoRef}
         totalCount={messageCount}
-        itemContent={renderMessage}
+        itemContent={renderBuiltinMessage}
         initialTopMostItemIndex={messageCount > 0 ? messageCount - 1 : 0}
         followOutput="smooth"
         className="h-full"
@@ -258,29 +133,16 @@ MessageList.displayName = 'MessageList';
 // ====== Conversation pane (combines message list + input) ======
 
 export interface ResearchConversationPaneProps {
-  isOpenClawRuntime: boolean;
-  openClawStatus: {
-    tone: 'success' | 'warning' | 'info';
-    text: string;
-  };
-  hasIMConfig: boolean;
-  conversationScopeError: string | null;
-  isOpenClawReady: boolean;
   builtinMessages: ChatMessage[];
-  imMessages: StudioIMMessageDTO[];
-  imLoading: boolean;
   isGenerating: boolean;
   chatError: string | null;
   inputValue: string;
   inputPlaceholder?: string;
   onInputChange: (value: string) => void;
   onSend: () => void;
-  onRetryConnection: () => void;
   onOpenSettings: () => void;
   onOpenArtifact: (artifact: ArtifactSummary) => void;
   onCompileArtifact: (artifact: ArtifactSummary) => void;
-  onOpenIMFile: (filePath: string) => void;
-  onCompileIMFile: (filePath: string) => void;
   onAcceptAutoFix: () => void;
   autoFixLabel?: string;
   botUserId?: string;
@@ -292,28 +154,17 @@ export interface ResearchConversationPaneProps {
 
 export const ResearchConversationPane: React.FC<ResearchConversationPaneProps> = memo(
   ({
-    isOpenClawRuntime,
-    hasIMConfig,
-    conversationScopeError,
-    isOpenClawReady,
     builtinMessages,
-    imMessages,
-    imLoading,
     isGenerating,
     chatError,
     inputValue,
     inputPlaceholder,
     onInputChange,
     onSend,
-    onRetryConnection,
-    onOpenSettings,
     onOpenArtifact,
     onCompileArtifact,
-    onOpenIMFile,
-    onCompileIMFile,
     onAcceptAutoFix,
     autoFixLabel,
-    botUserId,
     draftContextBadges = [],
     inputPulseKey = 0,
     onDismissDraftContextBadge,
@@ -324,24 +175,13 @@ export const ResearchConversationPane: React.FC<ResearchConversationPaneProps> =
       <div className="relative grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden bg-[var(--color-bg-primary)]">
         <div className="min-h-0 flex-1">
           <MessageList
-            isOpenClawRuntime={isOpenClawRuntime}
-            hasIMConfig={hasIMConfig}
-            conversationScopeError={conversationScopeError}
-            isOpenClawReady={isOpenClawReady}
             builtinMessages={builtinMessages}
-            imMessages={imMessages}
-            imLoading={imLoading}
             isGenerating={isGenerating}
             chatError={chatError}
-            onRetryConnection={onRetryConnection}
-            onOpenSettings={onOpenSettings}
             onOpenArtifact={onOpenArtifact}
             onCompileArtifact={onCompileArtifact}
-            onOpenIMFile={onOpenIMFile}
-            onCompileIMFile={onCompileIMFile}
             onAcceptAutoFix={onAcceptAutoFix}
             autoFixLabel={autoFixLabel}
-            botUserId={botUserId}
           />
         </div>
 

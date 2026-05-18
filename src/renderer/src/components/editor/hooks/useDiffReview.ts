@@ -17,7 +17,6 @@ import {
   normalizeReviewPath,
 } from '../../../services/core/DiffReviewService';
 import { getDiffReviewBridge } from '../../../services/core/DiffReviewBridge';
-import { getOTService, type OTRemoteUpdate } from '../../../services/core/OTService';
 import {
   renderDiffReview,
   renderDiffReviewWithSweep,
@@ -25,7 +24,7 @@ import {
   computeTotalChangedLines,
   type DiffDecorationState,
 } from '../DiffReviewRenderer';
-import { computeSingleEdit, opsToMonacoEdits } from '../utils/editorModelHelpers';
+import { computeSingleEdit } from '../utils/editorModelHelpers';
 
 export interface UseDiffReviewParams {
   editorRef: React.RefObject<monaco.editor.IStandaloneCodeEditor | null>;
@@ -64,8 +63,6 @@ export interface UseDiffReviewReturn {
     version: number,
     preApplyOriginal?: string
   ) => void;
-  /** Handle OT remote update with bot-edit detection and diff review */
-  handleOTRemoteUpdate: (update: OTRemoteUpdate) => void;
   /** Restore diff review decorations when switching to a tab (called from tab switch effect) */
   restoreReviewForTab: (
     editor: monaco.editor.IStandaloneCodeEditor,
@@ -80,7 +77,6 @@ export function useDiffReview({
   isProgrammaticUpdateRef,
   activeTab,
   activeReviewKey,
-  runtime,
 }: UseDiffReviewParams): UseDiffReviewReturn {
   const diffStateRef = useRef<DiffDecorationState | null>(null);
   // Suppress content-change events emitted by review-internal edits (reject hunk) so they don't
@@ -435,82 +431,6 @@ export function useDiffReview({
   );
 
   // OT remote update with applyRemoteUpdate inlined
-  const applyRemoteUpdate = useCallback(
-    (
-      editor: monaco.editor.IStandaloneCodeEditor,
-      model: monaco.editor.ITextModel,
-      monacoInstance: Monaco,
-      update: OTRemoteUpdate
-    ) => {
-      if (model.getValue() === update.content) return;
-      const viewState = editor.saveViewState();
-      isProgrammaticUpdateRef.current = true;
-      try {
-        let edits =
-          update.ops && update.ops.length > 0
-            ? opsToMonacoEdits(update.ops, model, monacoInstance)
-            : computeSingleEdit(model.getValue(), update.content, model, monacoInstance);
-        if (edits.length > 0) {
-          model.pushEditOperations([], edits, () => null);
-        }
-        // Fallback: if the ops-based edit didn't land (delete-all + insert-all can silently fail in Monaco),
-        // retry with a plain string diff.
-        if (model.getValue() !== update.content) {
-          edits = computeSingleEdit(model.getValue(), update.content, model, monacoInstance);
-          if (edits.length > 0) {
-            model.pushEditOperations([], edits, () => null);
-          }
-        }
-      } finally {
-        queueMicrotask(() => {
-          isProgrammaticUpdateRef.current = false;
-        });
-      }
-      if (viewState) {
-        editor.restoreViewState(viewState);
-      }
-    },
-    []
-  );
-
-  const handleOTRemoteUpdate = useCallback(
-    (update: OTRemoteUpdate) => {
-      const editor = editorRef.current;
-      const monacoInstance = monacoRef.current;
-      if (!editor || !monacoInstance) return;
-      if (update.projectId !== runtime.projectId || update.fileId !== activeTab?._id) return;
-
-      const model = editor.getModel();
-      if (!model || model.getValue() === update.content) return;
-
-      const isBotEdit =
-        Boolean(update.userId) && Boolean(runtime.botUserId) && update.userId === runtime.botUserId;
-
-      if (isBotEdit) {
-        const originalBeforeApply = model.getValue();
-        applyRemoteUpdate(editor, model, monacoInstance, update);
-        applyBotEditToReview(
-          editor,
-          monacoInstance,
-          {
-            backend: 'scipen-ot',
-            projectId: update.projectId,
-            fileId: update.fileId,
-          },
-          update.fileId,
-          update.content,
-          update.version,
-          originalBeforeApply
-        );
-      } else {
-        applyRemoteUpdate(editor, model, monacoInstance, update);
-      }
-    },
-    [runtime.projectId, runtime.botUserId, activeTab?._id, applyRemoteUpdate, applyBotEditToReview]
-  );
-
-  useEvent(getOTService().onDidReceiveRemoteOp, handleOTRemoteUpdate);
-
   /** Restore diff review decorations when switching to a tab */
   const restoreReviewForTab = useCallback(
     (editor: monaco.editor.IStandaloneCodeEditor, monacoInstance: Monaco, fileId: string) => {
@@ -556,7 +476,6 @@ export function useDiffReview({
     handleRejectHunk,
     handleJumpToReviewHunk,
     applyBotEditToReview,
-    handleOTRemoteUpdate,
     restoreReviewForTab,
   };
 }

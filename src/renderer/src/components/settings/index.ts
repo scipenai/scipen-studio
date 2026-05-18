@@ -9,7 +9,5 @@ export { CompilerTab } from './CompilerTab';
 export { UITab } from './UITab';
 export { ShortcutsTab } from './ShortcutsTab';
 export { SelectionTab } from './SelectionTab';
-export { IMTab } from './IMTab';
-export { CollaborationTab } from './CollaborationTab';
 export { AITab } from './AITab';
 export { UpdateTab } from './UpdateTab';

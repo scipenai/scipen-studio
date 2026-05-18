@@ -15,8 +15,6 @@ import {
   getUIService,
   useFileTree,
   useProjectPath,
-  useProjectRuntime,
-  useSettings,
 } from '../../services/core';
 import { VirtualizedFileTree } from '../VirtualizedFileTree';
 import { useTranslation } from '../../locales';
@@ -35,8 +33,6 @@ import { NoProjectState, LoadingSkeletonState, LoadingState, Toolbar } from './F
 export const FileExplorer: React.FC = () => {
   const fileTree = useFileTree();
   const projectPath = useProjectPath();
-  const settings = useSettings();
-  const runtime = useProjectRuntime();
   const editorService = getEditorService();
   const uiService = getUIService();
   const commandService = getCommandService();
@@ -46,14 +42,6 @@ export const FileExplorer: React.FC = () => {
   // Refs avoid stale closures inside command callbacks registered once on mount.
   const selectedNodeRef = useRef<FileNode | null>(null);
   const projectPathRef = useRef<string | null>(null);
-
-  const collaborationProjectId =
-    settings.collaboration.enabled &&
-    runtime.projectId &&
-    isSamePath(runtime.rootPath, projectPath) &&
-    projectPath
-      ? runtime.projectId
-      : null;
 
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -83,7 +71,6 @@ export const FileExplorer: React.FC = () => {
 
   const { isRefreshing, refreshFileTree, refreshFileTreeRef } = useFileTreeRefresh({
     projectPath,
-    collaborationProjectId,
     scheduleIndexing,
   });
 
@@ -96,7 +83,6 @@ export const FileExplorer: React.FC = () => {
     handleRenameSubmit,
   } = useFileOperations({
     projectPath,
-    collaborationProjectId,
     selectedNodeRef,
     projectPathRef,
     refreshFileTreeRef,
@@ -107,7 +93,6 @@ export const FileExplorer: React.FC = () => {
 
   const { handleFileSelect, handleResolveChildren } = useFileSelection({
     projectPath,
-    collaborationProjectId,
     setSelectedNode,
   });
 

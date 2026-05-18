@@ -1,12 +1,11 @@
 /**
  * @file useResearchWorkspaceActions.ts
  * @description Callback collection extracted from ResearchWorkspaceShell — message sending,
- * artifact operations, and layout toggling. Pure extraction with zero logic changes.
+ * artifact operations, and layout toggling.
  */
 
 import { useCallback } from 'react';
 import type { ArtifactSummary } from '../../../../../shared/types/chat';
-import type { ConversationScopeService } from '../../services/core/ConversationScopeService';
 import type { UIService } from '../../services/core/UIService';
 import { t } from '../../locales';
 import { openFileInEditor } from '../../services/core/FileOpenService';
@@ -16,11 +15,6 @@ import type { PendingErrorDraftContext } from './researchWorkspaceHelpers';
 
 export interface UseResearchWorkspaceActionsParams {
   uiService: UIService;
-  conversationScopeService: ConversationScopeService;
-  isOpenClawRuntime: boolean;
-  isOpenClawReady: boolean;
-  openClawStatusText: string;
-  imSendMessage: (content: string) => Promise<void>;
   chatSendMessage: (
     content: string,
     options: { workspace: { projectPath: string | null; activeFilePath: string | null } }
@@ -45,12 +39,9 @@ export interface ResearchWorkspaceActions {
   handleAcceptAutoFix: () => Promise<void>;
   openArtifactInEditor: (path: string, mode: 'editor' | 'preview') => Promise<void>;
   handleSendStable: () => void;
-  handleRetryConnection: () => void;
   handleOpenSettings: () => void;
   handleOpenArtifactStable: (artifact: ArtifactSummary) => void;
   handleCompileArtifactStable: (artifact: ArtifactSummary) => void;
-  handleOpenIMFile: (filePath: string) => void;
-  handleCompileIMFile: (filePath: string) => void;
   handleAcceptAutoFixStable: () => void;
   handleDismissDraftContextBadge: () => void;
   toggleEditorLayout: () => Promise<void>;
@@ -64,11 +55,6 @@ export function useResearchWorkspaceActions(
 ): ResearchWorkspaceActions {
   const {
     uiService,
-    conversationScopeService,
-    isOpenClawRuntime,
-    isOpenClawReady,
-    openClawStatusText,
-    imSendMessage,
     chatSendMessage,
     projectPath,
     activeTabPath,
@@ -84,25 +70,6 @@ export function useResearchWorkspaceActions(
 
   const sendWithWorkspaceContext = useCallback(
     async (content: string) => {
-      if (isOpenClawRuntime) {
-        if (!isOpenClawReady) {
-          setChatError(openClawStatusText || t('research.imConnecting'));
-          return;
-        }
-        try {
-          await imSendMessage(content);
-          setChatError(null);
-        } catch (error) {
-          console.error('[ResearchWorkspaceShell] Failed to send message to Claw:', error);
-          const message =
-            error instanceof Error && error.message.trim()
-              ? error.message
-              : t('research.sendFailedCheckConfig');
-          setChatError(message);
-        }
-        return;
-      }
-
       try {
         await chatSendMessage(content, {
           workspace: {
@@ -120,16 +87,7 @@ export function useResearchWorkspaceActions(
         setChatError(message);
       }
     },
-    [
-      activeTabPath,
-      chatSendMessage,
-      imSendMessage,
-      isOpenClawReady,
-      isOpenClawRuntime,
-      openClawStatusText,
-      projectPath,
-      setChatError,
-    ]
+    [activeTabPath, chatSendMessage, projectPath, setChatError]
   );
 
   const handleSend = useCallback(async () => {
@@ -195,9 +153,6 @@ export function useResearchWorkspaceActions(
   const handleSendStable = useCallback(() => {
     void handleSend();
   }, [handleSend]);
-  const handleRetryConnection = useCallback(() => {
-    void conversationScopeService.refreshCurrentScope();
-  }, [conversationScopeService]);
   const handleOpenSettings = useCallback(() => {
     uiService.setSidebarTab('settings');
   }, [uiService]);
@@ -212,22 +167,6 @@ export function useResearchWorkspaceActions(
       void handleCompileArtifact(artifact);
     },
     [handleCompileArtifact]
-  );
-  const handleOpenIMFile = useCallback(
-    (filePath: string) => {
-      void openArtifactInEditorCb(filePath, 'editor');
-    },
-    [openArtifactInEditorCb]
-  );
-  const handleCompileIMFile = useCallback(
-    (filePath: string) => {
-      void openArtifactInEditorCb(filePath, 'preview').then(() => {
-        requestAnimationFrame(() => {
-          window.dispatchEvent(new CustomEvent('trigger-compile'));
-        });
-      });
-    },
-    [openArtifactInEditorCb]
   );
   const handleAcceptAutoFixStable = useCallback(() => {
     void handleAcceptAutoFix();
@@ -279,12 +218,9 @@ export function useResearchWorkspaceActions(
     handleAcceptAutoFix,
     openArtifactInEditor: openArtifactInEditorCb,
     handleSendStable,
-    handleRetryConnection,
     handleOpenSettings,
     handleOpenArtifactStable,
     handleCompileArtifactStable,
-    handleOpenIMFile,
-    handleCompileIMFile,
     handleAcceptAutoFixStable,
     handleDismissDraftContextBadge,
     toggleEditorLayout,

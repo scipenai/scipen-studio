@@ -4,17 +4,7 @@
  */
 
 import { clsx } from 'clsx';
-import {
-  Code,
-  FileText,
-  GitBranch,
-  Hand,
-  Keyboard,
-  MessageSquare,
-  Palette,
-  RefreshCw,
-  Sparkles,
-} from 'lucide-react';
+import { Code, FileText, Hand, Keyboard, Palette, RefreshCw, Sparkles } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -23,10 +13,8 @@ import type { TranslationKey } from '../locales';
 import { getStorageService } from '../services/StorageService';
 import {
   AITab,
-  CollaborationTab,
   CompilerTab,
   EditorTab,
-  IMTab,
   SelectionTab,
   ShortcutsTab,
   UITab,
@@ -39,8 +27,6 @@ type SettingsTab =
   | 'selection'
   | 'ui'
   | 'shortcuts'
-  | 'im'
-  | 'collaboration'
   | 'ai'
   | 'update';
 const SETTINGS_PANEL_TAB_KEY = 'ui.settingsPanelTab';
@@ -51,18 +37,6 @@ const tabs: {
   icon: React.ReactNode;
   summaryKey: TranslationKey;
 }[] = [
-  {
-    id: 'im',
-    labelKey: 'settings.tabs.im',
-    icon: <MessageSquare size={14} />,
-    summaryKey: 'settingsPanel.summaries.im',
-  },
-  {
-    id: 'collaboration',
-    labelKey: 'settings.tabs.collaboration',
-    icon: <GitBranch size={14} />,
-    summaryKey: 'settingsPanel.summaries.collaboration',
-  },
   {
     id: 'ai',
     labelKey: 'settings.tabs.ai',
@@ -119,10 +93,6 @@ const TabContent: React.FC<{ activeTab: SettingsTab }> = ({ activeTab }) => {
       return <UITab />;
     case 'shortcuts':
       return <ShortcutsTab />;
-    case 'im':
-      return <IMTab />;
-    case 'collaboration':
-      return <CollaborationTab />;
     case 'ai':
       return <AITab />;
     case 'update':
@@ -134,8 +104,8 @@ const TabContent: React.FC<{ activeTab: SettingsTab }> = ({ activeTab }) => {
 
 export const SettingsPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
-    const storedTab = getStorageService().getString(SETTINGS_PANEL_TAB_KEY, 'im') as SettingsTab;
-    return tabs.some((tab) => tab.id === storedTab) ? storedTab : 'im';
+    const storedTab = getStorageService().getString(SETTINGS_PANEL_TAB_KEY, 'ai') as SettingsTab;
+    return tabs.some((tab) => tab.id === storedTab) ? storedTab : 'ai';
   });
   const { t } = useTranslation();
   const activeMeta = useMemo(
