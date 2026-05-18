@@ -145,7 +145,6 @@ export interface ResearchConversationPaneProps {
   onCompileArtifact: (artifact: ArtifactSummary) => void;
   onAcceptAutoFix: () => void;
   autoFixLabel?: string;
-  botUserId?: string;
   activeTabPath?: string;
   draftContextBadges?: ChatInputContextBadge[];
   inputPulseKey?: number;

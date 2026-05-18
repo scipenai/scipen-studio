@@ -162,32 +162,9 @@ export function getStatusStyles(status: 'info' | 'running' | 'success' | 'warnin
   }
 }
 
-export function humanizeAgentError(error: string | null): {
-  title: string;
-  description: string;
-} {
-  if (!error) {
-    return {
-      title: t('research.cannotConnectAgent'),
-      description: t('research.noSessionAvailableDesc'),
-    };
-  }
-
-  const normalized = error.toLowerCase();
-  if (
-    normalized.includes('fetch failed') ||
-    normalized.includes('error invoking remote method') ||
-    normalized.includes('network') ||
-    normalized.includes('econnrefused')
-  ) {
-    return {
-      title: t('research.cannotConnectAgent'),
-      description: t('research.connectionFailedDesc'),
-    };
-  }
-
-  return {
-    title: t('research.assistantUnavailable'),
-    description: error,
-  };
+export function humanizeAgentError(error: string | null): { description: string } {
+  // Builtin chat surfaces structured errors via ChatService; relay verbatim so
+  // the user sees the original failure (network / timeout / unauthorized / …).
+  if (!error) return { description: '' };
+  return { description: error };
 }

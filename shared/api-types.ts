@@ -18,7 +18,6 @@ export * from './ipc/compile-contract';
 export * from './ipc/lsp-contract';
 export * from './ipc/ai-contract';
 export * from './ipc/overleaf-contract';
-export * from './ipc/project-contract';
 export * from './ipc/app-contract';
 
 // ====== Import sub-contracts for composition ======
@@ -28,7 +27,6 @@ import type { IPCCompileContract } from './ipc/compile-contract';
 import type { IPCLspContract } from './ipc/lsp-contract';
 import type { IPCAiContract } from './ipc/ai-contract';
 import type { IPCOverleafContract } from './ipc/overleaf-contract';
-import type { IPCProjectContract } from './ipc/project-contract';
 import type { IPCAppContract } from './ipc/app-contract';
 
 // ====== Composed IPC API Contract ======
@@ -43,7 +41,6 @@ export interface IPCApiContract
     IPCLspContract,
     IPCAiContract,
     IPCOverleafContract,
-    IPCProjectContract,
     IPCAppContract {}
 
 // ====== Event Contract (cross-domain, stays here) ======

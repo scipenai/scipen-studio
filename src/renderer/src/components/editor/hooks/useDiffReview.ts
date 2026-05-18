@@ -34,7 +34,6 @@ export interface UseDiffReviewParams {
   activeReviewKey: CollaborationReviewKey | null;
   runtime: {
     projectId: string;
-    botUserId?: string;
   };
 }
 

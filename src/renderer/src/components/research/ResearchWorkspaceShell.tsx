@@ -13,7 +13,6 @@ import {
   useCompilationResult,
   usePreviewVisible,
   useProjectPath,
-  useProjectRuntime,
   useSettings,
   useSidebarTab,
   useWorkspaceMode,
@@ -48,7 +47,6 @@ export const ResearchWorkspaceShell: React.FC = () => {
   const workspaceMode = useWorkspaceMode();
   const compilationResult = useCompilationResult();
   const settings = useSettings();
-  const runtime = useProjectRuntime();
   const chatServiceState = useChatService();
   const isPreviewVisible = usePreviewVisible();
   const isSnacaRuntime = settings.assistant.runtime === 'snaca';
@@ -351,7 +349,6 @@ export const ResearchWorkspaceShell: React.FC = () => {
                   onCompileArtifact={actions.handleCompileArtifactStable}
                   onAcceptAutoFix={actions.handleAcceptAutoFixStable}
                   autoFixLabel={autoFixLabel}
-                  botUserId={runtime.botUserId || undefined}
                   draftContextBadges={pendingErrorDraft?.badges ?? []}
                   inputPulseKey={inputPulseKey}
                   onDismissDraftContextBadge={actions.handleDismissDraftContextBadge}

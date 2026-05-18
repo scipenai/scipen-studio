@@ -59,8 +59,6 @@ const safePathSchema = z.string().refine(
 const safeStringSchema = (maxLength: number = 1024 * 1024) =>
   z.string().max(maxLength, { message: `String exceeds maximum length of ${maxLength}` });
 
-const otProjectFileContentSchema = safeStringSchema(8 * 1024 * 1024);
-
 /**
  * 🔒 Safe ID schema (for database IDs, project IDs, etc.)
  */
@@ -69,45 +67,6 @@ const safeIdSchema = z
   .min(1, { message: 'ID cannot be empty' })
   .max(256, { message: 'ID too long' })
   .regex(/^[a-zA-Z0-9_-]+$/, { message: 'ID contains invalid characters' });
-
-const imCollaborationContextSchema = z.object({
-  provider: z.enum(['im-local', 'scipen-ot', 'overleaf']).optional(),
-  mode: z.enum(['im-local', 'ot-project']).optional(),
-  project_id: safeIdSchema.optional(),
-  doc_id: safeIdSchema.optional(),
-  file_id: safeIdSchema.optional(),
-  file_path: safeStringSchema(4000).nullish(),
-  root_path: safeStringSchema(4000).nullish(),
-  project_name: safeStringSchema(500).nullish(),
-  workspace_id: z.string().max(100).nullish(),
-  scope_type: z.enum(['global', 'project']).nullish(),
-  can_collaborate: z.boolean().nullish(),
-  capabilities: z
-    .object({
-      propose_edit: z.boolean(),
-      collaborative_tree: z.boolean(),
-      collaborative_read: z.boolean(),
-      collaborative_edit: z.boolean(),
-    })
-    .optional(),
-  file_tree: z.array(z.string().max(1000)).max(2000).optional(),
-  active_file_content: z.string().max(50000).optional(),
-});
-const imMessageMetadataSchema = z.object({
-  collaboration: imCollaborationContextSchema.nullish(),
-  streaming: z.boolean().optional(),
-  proposals: z
-    .array(
-      z.object({
-        file_path: z.string().max(4000),
-        old_string: z.string().max(200000),
-        new_string: z.string().max(200000),
-        description: z.string().max(2000).optional(),
-      })
-    )
-    .max(200)
-    .optional(),
-});
 
 /**
  * 🔒 Safe URL schema (for server URLs)
@@ -127,12 +86,7 @@ const safeUrlSchema = z
     { message: 'URL must use http or https protocol' }
   );
 
-const projectConversationScopeSchema = z.enum(['global', 'project']);
 const collaborationBackendSchema = z.enum(['scipen-ot', 'overleaf']);
-const imConfigForProjectConversationSchema = z.object({
-  baseUrl: safeUrlSchema,
-  token: z.string().max(512),
-});
 
 // ==================== Channel Schema Registry ====================
 

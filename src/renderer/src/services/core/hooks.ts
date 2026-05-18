@@ -407,9 +407,3 @@ export function useProjectRuntime(): Readonly<ProjectRuntimeState> {
   const ctx = getProjectRuntimeContext();
   return useServiceEvent(ctx.onDidChange, () => ctx.state);
 }
-
-/** Returns IM bot user id. */
-export function useRuntimeBotUserId(): string {
-  const ctx = getProjectRuntimeContext();
-  return useServiceEvent(ctx.onDidChange, () => ctx.botUserId);
-}
