@@ -350,6 +350,19 @@ export const SessionSwitchThreadResultSchema = z.object({
 });
 export type SessionSwitchThreadResult = z.infer<typeof SessionSwitchThreadResultSchema>;
 
+export const ThreadMessageSchema = z.object({
+  role: z.enum(['user', 'assistant', 'system']),
+  text: z.string(),
+  ts: z.string(),
+});
+export type ThreadMessage = z.infer<typeof ThreadMessageSchema>;
+
+export const SessionGetMessagesResultSchema = z.object({
+  messages: z.array(ThreadMessageSchema),
+  total: z.number().int().nonnegative(),
+});
+export type SessionGetMessagesResult = z.infer<typeof SessionGetMessagesResultSchema>;
+
 // ============ Chat / inline_edit / composer ============
 
 export const ChatSendParamsSchema = z.object({

@@ -52,6 +52,7 @@ import {
   MemoryUpdatedParamsSchema,
   PlanConfirmResultSchema,
   PlanUpdateParamsSchema,
+  SessionGetMessagesResultSchema,
   SessionListThreadsResultSchema,
   SessionNewThreadResultSchema,
   SessionOpenResultSchema,
@@ -83,6 +84,7 @@ import {
   type PlanConfirmParams,
   type PlanConfirmResult,
   type PlanUpdateParams,
+  type SessionGetMessagesResult,
   type SessionListThreadsResult,
   type SessionNewThreadResult,
   type SessionOpenParams,
@@ -268,6 +270,18 @@ export class EditorProtocolClient extends Disposable implements IEditorProtocolC
       HostToSnaca.SessionRenameThread,
       { session_id: sessionId, thread_id: threadId, title },
       anonymousSchema<{ renamed: boolean }>()
+    );
+  }
+
+  async sessionGetMessages(
+    sessionId: string,
+    threadId: string,
+    limit?: number
+  ): Promise<SessionGetMessagesResult> {
+    return this.request(
+      HostToSnaca.SessionGetMessages,
+      { session_id: sessionId, thread_id: threadId, limit },
+      SessionGetMessagesResultSchema
     );
   }
 

@@ -7,9 +7,9 @@
 #![allow(dead_code)]
 
 use crate::session::{InflightTurn, Session, ThreadState, TurnKind};
-use snaca_core::Message;
+use snaca_core::{ContentBlock, Message, Role};
 use snaca_editor_protocol::error::{ErrorCode, ProtocolError};
-use snaca_editor_protocol::messages::session::ThreadSummary;
+use snaca_editor_protocol::messages::session::{ThreadMessage, ThreadMessageRole, ThreadSummary};
 use snaca_editor_protocol::types::context::ProjectType;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -320,6 +320,42 @@ impl SessionManager {
             .unwrap_or_default()
     }
 
+    /// Render a thread's history into wire-friendly `ThreadMessage`s for
+    /// `session.get_messages`. Returns `(messages, total)` where total counts
+    /// only renderable messages (system messages and tool calls are skipped
+    /// from history rendering — they were already played live via
+    /// `turn.delta`).
+    pub async fn get_messages(
+        &self,
+        session_id: &str,
+        thread_id: &str,
+        limit: Option<u32>,
+    ) -> Result<(Vec<ThreadMessage>, u32), ProtocolError> {
+        let inner = self.inner.lock().await;
+        let session = inner
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let thread = session
+            .threads
+            .get(thread_id)
+            .ok_or_else(|| ProtocolError::thread_not_found(thread_id))?;
+
+        let rendered: Vec<ThreadMessage> = thread
+            .messages
+            .iter()
+            .filter_map(render_history_message)
+            .collect();
+        let total = rendered.len() as u32;
+        let messages = match limit {
+            Some(n) if (n as usize) < rendered.len() => {
+                rendered.into_iter().rev().take(n as usize).rev().collect()
+            }
+            _ => rendered,
+        };
+        Ok((messages, total))
+    }
+
     /// Cancels the inflight turn matching `turn_id` if any. Returns true on hit.
     pub async fn cancel_turn(&self, turn_id: &str) -> bool {
         let inner = self.inner.lock().await;
@@ -342,3 +378,38 @@ impl SessionManager {
 
 /// Convenience for sharing across tasks.
 pub type SessionManagerArc = Arc<SessionManager>;
+
+/// Convert a `snaca_core::Message` into the flat wire shape returned by
+/// `session.get_messages`. Returns `None` for messages that should not appear
+/// in the rendered history (tool-only, image-only, etc.).
+fn render_history_message(msg: &Message) -> Option<ThreadMessage> {
+    let role = match msg.role {
+        Role::User => ThreadMessageRole::User,
+        Role::Assistant => ThreadMessageRole::Assistant,
+        // System / Tool messages aren't part of the user-visible history —
+        // system prompt was injected by chat.send, tool results were played
+        // live via turn.delta.
+        Role::System | Role::Tool => return None,
+    };
+    let mut text = String::new();
+    for block in &msg.content {
+        if let ContentBlock::Text { text: t } = block {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(t);
+        }
+    }
+    if text.is_empty() {
+        return None;
+    }
+    // snaca_core::Message has no `created_at`; the SQLite persistence layer
+    // owns timestamps. For the in-memory path we fall back to "now" — Studio
+    // only uses ts for relative ordering, and the messages here are already
+    // ordered by Vec position.
+    Some(ThreadMessage {
+        role,
+        text,
+        ts: chrono::Utc::now().to_rfc3339(),
+    })
+}

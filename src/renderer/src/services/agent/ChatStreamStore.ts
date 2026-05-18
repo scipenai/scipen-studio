@@ -9,7 +9,21 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { agentClient } from './AgentClientService';
+import { agentClient, type ThreadMessageDTO } from './AgentClientService';
+
+/**
+ * Per-thread snapshot persisted in memory. Holds the rendered history
+ * `messages` plus the latest `currentTurn` so a quick switch-back doesn't
+ * blink. Tool-call metadata in completed turns is intentionally not cached
+ * — when the user comes back to a thread, prior tool inspection isn't
+ * required for chat continuity.
+ */
+interface ThreadCacheEntry {
+  messages: ChatMessage[];
+  completedTurns: Map<string, ChatTurn>;
+  /** Wall-clock of last activity; used to expire stale cache rows. */
+  touchedAt: number;
+}
 
 export interface ChatTurnUsage {
   inputTokens: number;
@@ -55,13 +69,20 @@ export interface ChatMessage {
 
 type Listener = () => void;
 
+/** Soft cap on cached threads to bound memory; LRU-style eviction by touchedAt. */
+const MAX_CACHED_THREADS = 20;
+
 class ChatStreamStoreImpl {
-  /** Persisted message-level history (visible in chat list). */
+  /** Active thread id (null until ChatSidebar calls setActiveThread). */
+  private activeThreadId: string | null = null;
+  /** Persisted message-level history (visible in chat list) for the active thread. */
   private messages: ChatMessage[] = [];
   /** Live in-flight turn — set when a chat.send is awaiting deltas. */
   private currentTurn: ChatTurn | null = null;
-  /** All completed turn metadata, keyed by id (for "show thinking" inspection). */
+  /** All completed turn metadata for the active thread, keyed by id. */
   private completedTurns = new Map<string, ChatTurn>();
+  /** Per-thread cache keyed by thread_id; swap into active state on switch. */
+  private threadCache = new Map<string, ThreadCacheEntry>();
 
   private listeners = new Set<Listener>();
   private subscribed = false;
@@ -98,7 +119,94 @@ class ChatStreamStoreImpl {
     return this.completedTurns.get(turnId);
   }
 
+  getActiveThreadId(): string | null {
+    return this.activeThreadId;
+  }
+
   // ---- public write API ----
+
+  /**
+   * Stash current thread state into the cache and swap to another. Caller
+   * is responsible for loading messages into the new active thread (see
+   * `replaceMessages`).
+   *
+   * No-op when `threadId === activeThreadId` so React effect double-fires
+   * during StrictMode don't churn.
+   */
+  setActiveThread(threadId: string | null): void {
+    if (this.activeThreadId === threadId) return;
+
+    // Snapshot the outgoing thread (only if it had any content worth keeping).
+    if (this.activeThreadId && (this.messages.length > 0 || this.completedTurns.size > 0)) {
+      this.threadCache.set(this.activeThreadId, {
+        messages: this.messages,
+        completedTurns: new Map(this.completedTurns),
+        touchedAt: Date.now(),
+      });
+      this.evictStaleCache();
+    }
+
+    this.activeThreadId = threadId;
+    this.currentTurn = null;
+
+    if (threadId && this.threadCache.has(threadId)) {
+      const cached = this.threadCache.get(threadId)!;
+      this.messages = cached.messages;
+      this.completedTurns = new Map(cached.completedTurns);
+      cached.touchedAt = Date.now();
+    } else {
+      this.messages = [];
+      this.completedTurns.clear();
+    }
+
+    this.fire();
+  }
+
+  /**
+   * Replace the visible message list — used after a thread switch when
+   * `agentClient.getMessages` returned the history. Wire DTOs are mapped
+   * to in-store `ChatMessage` shape.
+   */
+  replaceMessages(threadId: string, wireMessages: ThreadMessageDTO[]): void {
+    // Defensive: ignore if the user already moved on to a different thread.
+    if (this.activeThreadId !== threadId) return;
+
+    this.messages = wireMessages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        text: m.text,
+        ts: parseRfc3339OrNow(m.ts),
+      }));
+    this.fire();
+  }
+
+  /**
+   * Drop a thread from the in-memory cache (e.g. after `deleteThread`).
+   * Safe to call for non-cached ids.
+   */
+  forgetThread(threadId: string): void {
+    this.threadCache.delete(threadId);
+    if (this.activeThreadId === threadId) {
+      this.activeThreadId = null;
+      this.messages = [];
+      this.currentTurn = null;
+      this.completedTurns.clear();
+      this.fire();
+    }
+  }
+
+  private evictStaleCache(): void {
+    if (this.threadCache.size <= MAX_CACHED_THREADS) return;
+    // Drop the least-recently-touched entries until we're back under the cap.
+    const sorted = Array.from(this.threadCache.entries()).sort(
+      (a, b) => a[1].touchedAt - b[1].touchedAt
+    );
+    while (this.threadCache.size > MAX_CACHED_THREADS && sorted.length > 0) {
+      const [tid] = sorted.shift()!;
+      this.threadCache.delete(tid);
+    }
+  }
 
   /**
    * Record the user message and immediately begin a new pending turn.
@@ -116,13 +224,15 @@ class ChatStreamStoreImpl {
   }
 
   /**
-   * Clear all messages and turns (e.g. on thread switch). The next
-   * inbound delta will start a fresh in-flight turn.
+   * Clear all in-store state including the per-thread cache. Used when the
+   * SNACA session is closed (new project, sidecar restart).
    */
   reset(): void {
+    this.activeThreadId = null;
     this.messages = [];
     this.currentTurn = null;
     this.completedTurns.clear();
+    this.threadCache.clear();
     this.fire();
   }
 
@@ -244,6 +354,12 @@ function makeEmptyTurn(turnId: string): ChatTurn {
     toolCalls: [],
     pending: true,
   };
+}
+
+/** RFC3339 → epoch ms; falls back to "now" on parse failure. */
+function parseRfc3339OrNow(ts: string): number {
+  const n = Date.parse(ts);
+  return Number.isFinite(n) ? n : Date.now();
 }
 
 export const chatStreamStore = new ChatStreamStoreImpl();

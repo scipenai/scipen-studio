@@ -36,6 +36,7 @@ pub mod host_to_snaca {
     pub const SESSION_SWITCH_THREAD: &str = "session.switch_thread";
     pub const SESSION_DELETE_THREAD: &str = "session.delete_thread";
     pub const SESSION_RENAME_THREAD: &str = "session.rename_thread";
+    pub const SESSION_GET_MESSAGES: &str = "session.get_messages";
 
     // Agent surfaces
     pub const CHAT_SEND: &str = "chat.send";

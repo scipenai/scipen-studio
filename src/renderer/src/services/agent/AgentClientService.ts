@@ -85,6 +85,12 @@ export interface ThreadSummary {
   turn_count: number;
 }
 
+export interface ThreadMessageDTO {
+  role: 'user' | 'assistant' | 'system';
+  text: string;
+  ts: string;
+}
+
 export interface AgentClientStartProjectResult {
   sessionId: string;
   threadId: string | null;
@@ -142,6 +148,30 @@ class AgentClientServiceImpl {
 
   listThreads(): Promise<ThreadSummary[]> {
     return this.api.listThreads();
+  }
+
+  /**
+   * Delete a thread. Main side auto-falls-back to the most-recently-active
+   * remaining thread (or spawns a fresh one if none remain) and returns the
+   * id of whatever is active after the delete.
+   */
+  deleteThread(threadId: string): Promise<{ deleted: boolean; activeThreadId: string }> {
+    return this.api.deleteThread(threadId);
+  }
+
+  renameThread(threadId: string, title: string): Promise<{ renamed: boolean }> {
+    return this.api.renameThread(threadId, title);
+  }
+
+  /**
+   * Fetch the rendered history of a thread (P4-A: in-memory in SNACA, so a
+   * sidecar restart clears it; persistence lands in P4-B).
+   */
+  getMessages(
+    threadId: string,
+    limit?: number
+  ): Promise<{ messages: ThreadMessageDTO[]; total: number }> {
+    return this.api.getMessages(threadId, limit);
   }
 
   // ---- chat ----

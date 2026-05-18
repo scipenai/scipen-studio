@@ -530,6 +530,25 @@
     "copyCode": "Copy code",
     "documentLabel": "Markdown Document"
   },
+  "thread": {
+    "newConversation": "New conversation",
+    "newThread": "New thread",
+    "historyTitle": "Threads",
+    "historyEmpty": "No threads yet.",
+    "active": "Active",
+    "rename": "Rename",
+    "renamePlaceholder": "Thread title",
+    "delete": "Delete",
+    "deleteConfirm": "Delete this thread? Its messages will be lost.",
+    "untitled": "Untitled",
+    "loadFailed": "Failed to load thread history",
+    "switchFailed": "Failed to switch thread",
+    "createFailed": "Failed to create thread",
+    "deleteFailed": "Failed to delete thread",
+    "renameFailed": "Failed to rename thread",
+    "turnCount": "{{count}} turns",
+    "noTurns": "No turns yet"
+  },
   "markdownRender": {
     "scrollHint": "Scroll horizontally to see full code",
     "copyCode": "Copy code"

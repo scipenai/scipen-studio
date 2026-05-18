@@ -23,6 +23,7 @@ export const HostToSnaca = {
   SessionSwitchThread: 'session.switch_thread',
   SessionDeleteThread: 'session.delete_thread',
   SessionRenameThread: 'session.rename_thread',
+  SessionGetMessages: 'session.get_messages',
   // Agent surfaces
   ChatSend: 'chat.send',
   InlineEditStart: 'inline_edit.start',

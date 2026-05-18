@@ -530,6 +530,25 @@
     "copyCode": "复制代码",
     "documentLabel": "Markdown 文档"
   },
+  "thread": {
+    "newConversation": "新对话",
+    "newThread": "新建对话",
+    "historyTitle": "历史对话",
+    "historyEmpty": "暂无历史对话。",
+    "active": "当前",
+    "rename": "重命名",
+    "renamePlaceholder": "对话标题",
+    "delete": "删除",
+    "deleteConfirm": "删除这个对话?消息将丢失。",
+    "untitled": "未命名",
+    "loadFailed": "加载历史消息失败",
+    "switchFailed": "切换对话失败",
+    "createFailed": "新建对话失败",
+    "deleteFailed": "删除对话失败",
+    "renameFailed": "重命名对话失败",
+    "turnCount": "{{count}} 轮",
+    "noTurns": "尚无对话内容"
+  },
   "markdownRender": {
     "scrollHint": "可左右滚动查看完整代码",
     "copyCode": "复制代码"

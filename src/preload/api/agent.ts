@@ -20,6 +20,7 @@ import type {
   LogWriteParams,
   MemoryUpdatedParams,
   PlanUpdateParams,
+  SessionGetMessagesResult,
   ThreadSummary,
   ToolApprovalRequestParams,
   ToolConfirmParams,
@@ -101,6 +102,15 @@ export const agentApi = {
 
   listThreads: (): Promise<ThreadSummary[]> =>
     ipcRenderer.invoke(IpcChannel.Agent_ListThreads),
+
+  deleteThread: (threadId: string): Promise<{ deleted: boolean }> =>
+    ipcRenderer.invoke(IpcChannel.Agent_DeleteThread, threadId),
+
+  renameThread: (threadId: string, title: string): Promise<{ renamed: boolean }> =>
+    ipcRenderer.invoke(IpcChannel.Agent_RenameThread, { threadId, title }),
+
+  getMessages: (threadId: string, limit?: number): Promise<SessionGetMessagesResult> =>
+    ipcRenderer.invoke(IpcChannel.Agent_GetMessages, { threadId, limit }),
 
   // ------ Chat ------
 

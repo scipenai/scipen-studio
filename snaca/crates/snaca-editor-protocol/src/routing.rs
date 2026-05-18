@@ -38,6 +38,7 @@ pub enum Method {
     SessionSwitchThread,
     SessionDeleteThread,
     SessionRenameThread,
+    SessionGetMessages,
     ChatSend,
     InlineEditStart,
     ComposerStart,
@@ -76,6 +77,7 @@ impl Method {
             x if x == h::SESSION_SWITCH_THREAD => Method::SessionSwitchThread,
             x if x == h::SESSION_DELETE_THREAD => Method::SessionDeleteThread,
             x if x == h::SESSION_RENAME_THREAD => Method::SessionRenameThread,
+            x if x == h::SESSION_GET_MESSAGES => Method::SessionGetMessages,
             x if x == h::CHAT_SEND => Method::ChatSend,
             x if x == h::INLINE_EDIT_START => Method::InlineEditStart,
             x if x == h::COMPOSER_START => Method::ComposerStart,
@@ -187,6 +189,13 @@ pub trait MessageHandler: Send + Sync {
         _params: SessionRenameThreadParams,
     ) -> Result<SessionRenameThreadResult, ProtocolError> {
         Err(ProtocolError::method_not_found("session.rename_thread"))
+    }
+
+    async fn handle_session_get_messages(
+        &self,
+        _params: SessionGetMessagesParams,
+    ) -> Result<SessionGetMessagesResult, ProtocolError> {
+        Err(ProtocolError::method_not_found("session.get_messages"))
     }
 
     // ---------------- Agent surfaces ----------------
@@ -379,6 +388,14 @@ impl<H: MessageHandler> Dispatcher<H> {
                     self.handler.as_ref(),
                     params,
                     H::handle_session_rename_thread,
+                )
+                .await
+            }
+            Method::SessionGetMessages => {
+                call_typed(
+                    self.handler.as_ref(),
+                    params,
+                    H::handle_session_get_messages,
                 )
                 .await
             }

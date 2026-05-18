@@ -1,26 +1,40 @@
 /**
  * @file ChatSidebar - the right-rail chat panel (Ctrl+L surface).
  *
- * P1 minimal:
- *  - On first mount, calls `agent.startProject(workspaceRoot)` to ensure a
- *    SNACA session exists.
- *  - Renders the persistent message log.
- *  - Renders the in-flight turn with thinking + streaming text.
- *  - Input box with send/cancel.
+ * P4 scope:
+ *  - On mount, calls `agent.startProject(workspaceRoot)` once per workspace
+ *    root. The result seeds the thread list + active thread id.
+ *  - Header surfaces the current thread title (click to open history drawer),
+ *    a "+" new-thread button, and the connection badge.
+ *  - ThreadHistoryDrawer lists every thread; switch / new / rename / delete
+ *    all flow through `agentClient` + `chatStreamStore` here.
+ *  - Per-thread message cache lives in `chatStreamStore`; switch fetches
+ *    history only when the cache misses, so flipping between recently-used
+ *    threads is instant.
  *
- * Project + Settings UI come later; here we accept `workspaceRoot` as a prop
- * and trust the parent to provide it (typically the currently-opened project
- * folder).
+ *  - Delete fallback (matches main-side `Agent_DeleteThread`): main returns
+ *    the post-delete `activeThreadId` (most-recently-active or freshly
+ *    spawned). We trust that value rather than re-listing.
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { agentClient } from '../../services/agent/AgentClientService';
+import { History, Plus } from 'lucide-react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import { useTranslation } from '../../locales';
+import { agentClient, type ThreadSummary } from '../../services/agent/AgentClientService';
 import { buildChatContext } from '../../services/agent/ChatContextBuilder';
 import { chatStreamStore } from '../../services/agent/ChatStreamStore';
 import { AgentChatInput } from './AgentChatInput';
 import { ChatMessage } from './ChatMessage';
+import { ThreadHistoryDrawer } from './ThreadHistoryDrawer';
 
 interface ChatSidebarProps {
   /** Absolute path of the current project root. Required for startProject. */
@@ -36,26 +50,35 @@ type StartupState =
   | { kind: 'error'; message: string };
 
 export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): React.ReactElement {
+  const { t } = useTranslation();
   const [startup, setStartup] = useState<StartupState>({ kind: 'idle' });
+  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [threadError, setThreadError] = useState<string | null>(null);
   const startedFor = useRef<string | null>(null);
 
   // Subscribe to chatStreamStore.
   const _store = useSyncExternalStore(
     (cb) => chatStreamStore.subscribe(cb),
-    () => chatStreamStore.getMessages().length,
+    () => chatStreamStore.getMessages().length + (chatStreamStore.getActiveThreadId() ?? '').length,
     () => 0
   );
   void _store;
 
   const messages = chatStreamStore.getMessages();
   const currentTurn = chatStreamStore.getCurrentTurn();
+  const activeThread = useMemo(
+    () => threads.find((th) => th.thread_id === activeThreadId) ?? null,
+    [threads, activeThreadId]
+  );
 
   // Auto-scroll to bottom on new message / delta.
   const scrollRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length, currentTurn?.text.length, currentTurn?.thinkingText.length]);
+  }, [messages.length, currentTurn?.text.length, currentTurn?.thinkingText.length, activeThreadId]);
 
   // Start the project session once the workspaceRoot is known.
   useEffect(() => {
@@ -64,30 +87,146 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
     startedFor.current = workspaceRoot;
 
     setStartup({ kind: 'starting' });
+    setThreadError(null);
     void agentClient
       .startProject(workspaceRoot, displayName)
-      .then((res) => setStartup({ kind: 'ready', sessionId: res.sessionId }))
+      .then((res) => {
+        setStartup({ kind: 'ready', sessionId: res.sessionId });
+        setThreads(res.threads);
+        setActiveThreadId(res.threadId);
+        // Reset prior store before binding to the fresh session.
+        chatStreamStore.reset();
+        if (res.threadId) {
+          chatStreamStore.setActiveThread(res.threadId);
+          // Eagerly load history for the active thread; ignore errors —
+          // sidecar may not yet support get_messages on older binaries.
+          void hydrateThread(res.threadId);
+        }
+      })
       .catch((err) => {
         setStartup({ kind: 'error', message: extractErrorMessage(err) });
       });
   }, [workspaceRoot, displayName]);
 
-  const busy = currentTurn?.pending === true;
+  // ---- thread RPC helpers ----
 
-  const handleSend = useCallback(async (text: string) => {
+  const refreshThreads = useCallback(async () => {
     try {
-      const context = buildChatContext();
-      const { turnId } = await agentClient.sendChat(text, context);
-      chatStreamStore.beginUserTurn(turnId, text);
+      const list = await agentClient.listThreads();
+      setThreads(list);
     } catch (err) {
-      setStartup({ kind: 'error', message: extractErrorMessage(err) });
+      // Non-fatal — keep the stale list.
+      console.warn('[ChatSidebar] listThreads failed', err);
     }
   }, []);
+
+  const hydrateThread = useCallback(async (threadId: string) => {
+    try {
+      const { messages: wire } = await agentClient.getMessages(threadId);
+      chatStreamStore.replaceMessages(threadId, wire);
+    } catch (err) {
+      setThreadError(`${t('thread.loadFailed')}: ${extractErrorMessage(err)}`);
+    }
+  }, [t]);
+
+  // ---- send / cancel ----
+
+  const busy = currentTurn?.pending === true;
+
+  const handleSend = useCallback(
+    async (text: string) => {
+      try {
+        const context = buildChatContext();
+        const { turnId } = await agentClient.sendChat(text, context);
+        chatStreamStore.beginUserTurn(turnId, text);
+        // sendChat may have auto-created a thread on main side — re-list so
+        // the drawer reflects it. Cheap: usually 1-2 rows.
+        void refreshThreads();
+      } catch (err) {
+        setStartup({ kind: 'error', message: extractErrorMessage(err) });
+      }
+    },
+    [refreshThreads]
+  );
 
   const handleCancel = useCallback(async () => {
     if (!currentTurn) return;
     await agentClient.cancelTurn(currentTurn.turnId);
   }, [currentTurn]);
+
+  // ---- thread actions ----
+
+  const handleSelectThread = useCallback(
+    async (threadId: string) => {
+      if (threadId === activeThreadId) {
+        setDrawerOpen(false);
+        return;
+      }
+      setThreadError(null);
+      try {
+        await agentClient.switchThread(threadId);
+        setActiveThreadId(threadId);
+        chatStreamStore.setActiveThread(threadId);
+        await hydrateThread(threadId);
+        setDrawerOpen(false);
+      } catch (err) {
+        setThreadError(`${t('thread.switchFailed')}: ${extractErrorMessage(err)}`);
+      }
+    },
+    [activeThreadId, hydrateThread, t]
+  );
+
+  const handleCreateThread = useCallback(async () => {
+    setThreadError(null);
+    try {
+      const result = await agentClient.newThread();
+      setActiveThreadId(result.threadId);
+      chatStreamStore.setActiveThread(result.threadId);
+      await refreshThreads();
+      setDrawerOpen(false);
+    } catch (err) {
+      setThreadError(`${t('thread.createFailed')}: ${extractErrorMessage(err)}`);
+    }
+  }, [refreshThreads, t]);
+
+  const handleRenameThread = useCallback(
+    async (threadId: string, title: string) => {
+      setThreadError(null);
+      // Optimistic: update locally first so the drawer feels responsive.
+      setThreads((prev) =>
+        prev.map((th) => (th.thread_id === threadId ? { ...th, title } : th))
+      );
+      try {
+        await agentClient.renameThread(threadId, title);
+      } catch (err) {
+        setThreadError(`${t('thread.renameFailed')}: ${extractErrorMessage(err)}`);
+        // Roll back by re-listing.
+        await refreshThreads();
+      }
+    },
+    [refreshThreads, t]
+  );
+
+  const handleDeleteThread = useCallback(
+    async (threadId: string) => {
+      setThreadError(null);
+      try {
+        const { activeThreadId: nextActive } = await agentClient.deleteThread(threadId);
+        chatStreamStore.forgetThread(threadId);
+        setActiveThreadId(nextActive);
+        if (nextActive && nextActive !== threadId) {
+          chatStreamStore.setActiveThread(nextActive);
+          void hydrateThread(nextActive);
+        }
+        await refreshThreads();
+      } catch (err) {
+        setThreadError(`${t('thread.deleteFailed')}: ${extractErrorMessage(err)}`);
+      }
+    },
+    [hydrateThread, refreshThreads, t]
+  );
+
+  // ---- placeholders / labels ----
 
   const placeholder = useMemo(() => {
     switch (startup.kind) {
@@ -103,22 +242,52 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
     }
   }, [startup]);
 
+  const threadTitle = activeThread?.title || t('thread.newConversation');
+
   return (
-    <div className="flex h-full flex-col bg-[var(--color-bg-secondary)] text-[var(--color-text)]">
+    <div className="relative flex h-full flex-col bg-[var(--color-bg-secondary)] text-[var(--color-text)]">
       <header className="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2">
-        <span className="text-[12px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-          Agent
-        </span>
-        <StartupBadge state={startup} />
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text)]"
+            title={t('thread.historyTitle')}
+            onClick={() => setDrawerOpen((v) => !v)}
+            disabled={startup.kind !== 'ready'}
+          >
+            <History size={14} />
+          </button>
+          <span className="truncate text-[12px] font-medium text-[var(--color-text)]" title={threadTitle}>
+            {threadTitle}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text)] disabled:opacity-40"
+            title={t('thread.newThread')}
+            onClick={handleCreateThread}
+            disabled={startup.kind !== 'ready' || busy}
+          >
+            <Plus size={14} />
+          </button>
+          <StartupBadge state={startup} />
+        </div>
       </header>
+
+      {threadError && (
+        <div className="border-b border-[var(--color-border)] bg-red-500/10 px-3 py-1.5 text-[11px] text-red-400">
+          {threadError}
+        </div>
+      )}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3">
         {messages.length === 0 && !currentTurn ? (
           <EmptyState />
         ) : (
           <>
-            {messages.map((m) => (
-              <ChatMessage key={`${m.role}-${m.ts}-${m.turnId ?? ''}`} message={m} />
+            {messages.map((m, idx) => (
+              <ChatMessage key={`${m.role}-${m.ts}-${m.turnId ?? idx}`} message={m} />
             ))}
             {currentTurn && <ChatMessage message={null} turn={currentTurn} />}
           </>
@@ -131,6 +300,17 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
         placeholder={placeholder}
         onSend={handleSend}
         onCancel={handleCancel}
+      />
+
+      <ThreadHistoryDrawer
+        open={drawerOpen}
+        threads={threads}
+        activeThreadId={activeThreadId}
+        onClose={() => setDrawerOpen(false)}
+        onSelect={handleSelectThread}
+        onCreate={handleCreateThread}
+        onRename={handleRenameThread}
+        onDelete={handleDeleteThread}
       />
     </div>
   );

@@ -266,6 +266,18 @@ impl MessageHandler for EditorHandler {
         Ok(SessionRenameThreadResult { renamed: true })
     }
 
+    async fn handle_session_get_messages(
+        &self,
+        params: SessionGetMessagesParams,
+    ) -> Result<SessionGetMessagesResult, ProtocolError> {
+        self.require_initialized().await?;
+        let (messages, total) = self
+            .sessions
+            .get_messages(&params.session_id, &params.thread_id, params.limit)
+            .await?;
+        Ok(SessionGetMessagesResult { messages, total })
+    }
+
     // ---------------- Agent surfaces ----------------
 
     /// Streams a chat turn from the configured LLM with prior history.

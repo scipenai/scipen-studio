@@ -85,6 +85,14 @@ const sendChatPayloadSchema = z.object({
 const threadTitleSchema = z.string().max(200).optional();
 const threadIdSchema = z.string().min(1).max(128);
 const turnIdSchema = z.string().min(1).max(128);
+const renameThreadPayloadSchema = z.object({
+  threadId: threadIdSchema,
+  title: z.string().min(1).max(200),
+});
+const getMessagesPayloadSchema = z.object({
+  threadId: threadIdSchema,
+  limit: z.number().int().positive().max(1000).optional(),
+});
 
 const resolveEditProposalSchema = z.object({
   proposalId: z.string().min(1).max(128),
@@ -269,6 +277,46 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
     requireSession(state);
     const result = await client.sessionListThreads(state.sessionId!);
     return result.threads;
+  });
+
+  ipcMain.handle(IpcChannel.Agent_DeleteThread, async (_e, rawThreadId: unknown) => {
+    const threadId = parseOrThrow(threadIdSchema, rawThreadId, 'deleteThread threadId');
+    requireSession(state);
+    await client.sessionDeleteThread(state.sessionId!, threadId);
+    // If the caller killed the currently-active thread, fall back to the
+    // most-recently-active remaining one; if none survive, auto-spawn a
+    // fresh default thread so chat.send always has somewhere to go.
+    if (state.threadId === threadId) {
+      const { threads } = await client.sessionListThreads(state.sessionId!);
+      if (threads.length > 0) {
+        state.threadId = threads[0].thread_id;
+      } else {
+        const fresh = await client.sessionNewThread(state.sessionId!, undefined);
+        state.threadId = fresh.thread_id;
+      }
+    }
+    return { deleted: true, activeThreadId: state.threadId };
+  });
+
+  ipcMain.handle(IpcChannel.Agent_RenameThread, async (_e, rawPayload: unknown) => {
+    const { threadId, title } = parseOrThrow(
+      renameThreadPayloadSchema,
+      rawPayload,
+      'renameThread payload'
+    );
+    requireSession(state);
+    await client.sessionRenameThread(state.sessionId!, threadId, title);
+    return { renamed: true };
+  });
+
+  ipcMain.handle(IpcChannel.Agent_GetMessages, async (_e, rawPayload: unknown) => {
+    const { threadId, limit } = parseOrThrow(
+      getMessagesPayloadSchema,
+      rawPayload,
+      'getMessages payload'
+    );
+    requireSession(state);
+    return client.sessionGetMessages(state.sessionId!, threadId, limit);
   });
 
   ipcMain.handle(IpcChannel.Agent_SendChat, async (_e, rawPayload: unknown) => {
