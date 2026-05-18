@@ -32,6 +32,7 @@ import {
   otApi,
   projectBindingApi,
   projectConversationApi,
+  agentApi,
 } from './api';
 
 function createElectronApi() {
@@ -103,6 +104,7 @@ function createElectronApi() {
     overleafLive: overleafLiveApi,
     projectBinding: projectBindingApi,
     projectConversation: projectConversationApi,
+    agent: agentApi,
 
     // Event listeners
     onMessage: createSafeListener<string>(IpcChannel.Message_FromMain),

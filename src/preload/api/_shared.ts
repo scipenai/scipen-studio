@@ -199,6 +199,18 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.OverleafLive_DeleteEntity,
   IpcChannel.OverleafLive_UploadFile,
 
+  // ====== Agent (SNACA sidecar bridge) ======
+  IpcChannel.Agent_GetSidecarState,
+  IpcChannel.Agent_GetSessionState,
+  IpcChannel.Agent_StartProject,
+  IpcChannel.Agent_NewThread,
+  IpcChannel.Agent_SwitchThread,
+  IpcChannel.Agent_ListThreads,
+  IpcChannel.Agent_SendChat,
+  IpcChannel.Agent_CancelTurn,
+  IpcChannel.Agent_ConfirmEdit,
+  IpcChannel.Agent_ConfirmTool,
+
   // ====== Chat ======
   IpcChannel.Chat_SendMessage,
   IpcChannel.Chat_Cancel,
@@ -250,6 +262,19 @@ export const ALLOWED_EVENT_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Window_OpenProject,
   IpcChannel.Window_OpenFile,
   IpcChannel.Chat_Stream,
+
+  // ====== Agent streaming events ======
+  IpcChannel.Agent_SidecarStateChanged,
+  IpcChannel.Agent_TurnDelta,
+  IpcChannel.Agent_EditPropose,
+  IpcChannel.Agent_EditProposeDelta,
+  IpcChannel.Agent_EditProposeComplete,
+  IpcChannel.Agent_PlanUpdate,
+  IpcChannel.Agent_ToolApprovalRequest,
+  IpcChannel.Agent_UsageUpdate,
+  IpcChannel.Agent_MemoryUpdated,
+  IpcChannel.Agent_Error,
+  IpcChannel.Agent_Log,
 
   IpcChannel.App_UpdateStatus,
   IpcChannel.AI_StreamChunk,

@@ -235,6 +235,30 @@ export enum IpcChannel {
   /** Event channel for conversation-binding change notifications. */
   ProjectConversation_BindingChanged = 'project-conversation:binding-changed',
 
+  // ====== Agent (SNACA editor-protocol bridge) ======
+  Agent_GetSidecarState = 'agent:get-sidecar-state',
+  Agent_GetSessionState = 'agent:get-session-state',
+  Agent_StartProject = 'agent:start-project',
+  Agent_NewThread = 'agent:new-thread',
+  Agent_SwitchThread = 'agent:switch-thread',
+  Agent_ListThreads = 'agent:list-threads',
+  Agent_SendChat = 'agent:send-chat',
+  Agent_CancelTurn = 'agent:cancel-turn',
+  Agent_ConfirmEdit = 'agent:confirm-edit',
+  Agent_ConfirmTool = 'agent:confirm-tool',
+  /** Streaming events pushed from main to renderer. */
+  Agent_SidecarStateChanged = 'agent:sidecar-state-changed',
+  Agent_TurnDelta = 'agent:turn-delta',
+  Agent_EditPropose = 'agent:edit-propose',
+  Agent_EditProposeDelta = 'agent:edit-propose-delta',
+  Agent_EditProposeComplete = 'agent:edit-propose-complete',
+  Agent_PlanUpdate = 'agent:plan-update',
+  Agent_ToolApprovalRequest = 'agent:tool-approval-request',
+  Agent_UsageUpdate = 'agent:usage-update',
+  Agent_MemoryUpdated = 'agent:memory-updated',
+  Agent_Error = 'agent:error',
+  Agent_Log = 'agent:log',
+
   // ====== Chat ======
   Chat_SendMessage = 'chat:send-message',
   Chat_Stream = 'chat:stream',

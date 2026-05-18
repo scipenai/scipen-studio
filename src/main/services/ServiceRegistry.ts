@@ -28,6 +28,11 @@ import { ReplicaWritebackService } from './ReplicaWritebackService';
 import { ExternalChangeDetector } from './ExternalChangeDetector';
 import { OfflineOpsStore } from './OfflineOpsStore';
 import { OfflineOpsManager } from './OfflineOpsManager';
+import { createSnacaSidecarService } from './agent/SnacaSidecarService';
+import { createEditorProtocolClient } from './agent/EditorProtocolClient';
+import type { ISnacaSidecarService } from './agent/interfaces/ISnacaSidecarService';
+import path from 'path';
+import { app } from 'electron';
 
 import { TraceService } from './TraceService';
 import { ChatOrchestrator } from './chat';
@@ -114,6 +119,27 @@ export function registerServices(): void {
       )
   );
 
+  // ====== Agent (SNACA sidecar + editor-protocol client) ======
+
+  container.registerLazy(ServiceNames.AGENT_SIDECAR, () =>
+    createSnacaSidecarService({
+      binaryPath: resolveSnacaEditorBinaryPath(),
+      env: {
+        // API key is read from the parent process env at sidecar spawn time.
+        // The sidecar's `snaca.toml` only carries the env variable name,
+        // never the key itself.
+        SNACA_API_KEY: process.env.SNACA_API_KEY ?? '',
+        RUST_LOG: process.env.SNACA_LOG ?? 'snaca_editor=info,info',
+      },
+      autoRestart: true,
+    })
+  );
+  container.registerLazy(ServiceNames.AGENT_PROTOCOL_CLIENT, () =>
+    createEditorProtocolClient({
+      sidecar: container.get<ISnacaSidecarService>(ServiceNames.AGENT_SIDECAR),
+    })
+  );
+
   // ====== LSP Services ======
 
   // LSP runs in a separate UtilityProcess for isolation
@@ -124,6 +150,36 @@ export function registerServices(): void {
   logger.info(
     '[ServiceRegistry] Services registered:',
     container.getRegisteredServices().join(', ')
+  );
+}
+
+/**
+ * Resolve the snaca-editor binary path.
+ *
+ * - In dev: prefer `D:\scipen\snaca\target\debug\snaca-editor.exe` (or the
+ *   parent SNACA workspace's debug build relative to this repo).
+ * - Packaged: `resources/bin/snaca-editor[.exe]` (see electron-builder
+ *   `extraResources`).
+ *
+ * Override via `SNACA_EDITOR_PATH` env if the developer wants a custom build.
+ */
+function resolveSnacaEditorBinaryPath(): string {
+  if (process.env.SNACA_EDITOR_PATH) {
+    return process.env.SNACA_EDITOR_PATH;
+  }
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'bin', `snaca-editor${ext}`);
+  }
+  // Dev: SNACA repo lives at ../../snaca (relative to scipen-studio root) for
+  // now. The next phase moves it inside scipen-studio/ and updates this.
+  return path.join(
+    app.getAppPath(),
+    '..',
+    'snaca',
+    'target',
+    'debug',
+    `snaca-editor${ext}`
   );
 }
 

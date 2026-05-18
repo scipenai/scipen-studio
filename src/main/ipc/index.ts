@@ -23,6 +23,7 @@ export { registerOverleafLiveHandlers } from './overleafLiveHandlers';
 export { registerProjectBindingHandlers } from './projectBindingHandlers';
 export { registerProjectConversationHandlers } from './projectConversationHandlers';
 export { registerUpdateHandlers, type UpdateHandlersDeps } from './updateHandlers';
+export { registerAgentHandlers, type AgentHandlersDeps } from './agentHandlers';
 
 // ====== Type-Safe IPC Utilities ======
 export {

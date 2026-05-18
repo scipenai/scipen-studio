@@ -227,6 +227,11 @@ export const ServiceNames = {
 
   AI: 'ai',
   CHAT_ORCHESTRATOR: 'chatOrchestrator',
+
+  /** SNACA editor sidecar process (spawn / restart / pipe). */
+  AGENT_SIDECAR: 'agentSidecar',
+  /** JSON-RPC editor-protocol client over the sidecar. */
+  AGENT_PROTOCOL_CLIENT: 'agentProtocolClient',
 } as const;
 
 /** Union of all service name values. */

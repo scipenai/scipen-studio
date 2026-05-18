@@ -30,6 +30,7 @@ import {
   shutdownServices,
   warmupServices,
 } from './services/ServiceRegistry';
+import { getServiceContainer, ServiceNames } from './services/ServiceContainer';
 import { getCollaborationOwnerRegistry } from './services/CollaborationOwnerRegistry';
 import { OverleafAuthService } from './services/OverleafAuthService';
 import type { OverleafProjectMetaService } from './services/OverleafProjectMetaService';
@@ -64,6 +65,7 @@ import {
   registerOTHandlers,
   registerProjectBindingHandlers,
   registerProjectConversationHandlers,
+  registerAgentHandlers,
   registerSettingsHandlers,
   registerUpdateHandlers,
   registerWindowHandlers,
@@ -784,6 +786,19 @@ function registerIpcHandlers() {
   });
   registerOverleafLiveHandlers({ getAuthService: () => overleafAuthService });
   registerProjectBindingHandlers();
+
+  // ====== Register Agent Handlers (SNACA sidecar bridge) ======
+  // The sidecar is lazily spawned on first `startProject` call from
+  // renderer — keeps app boot fast and avoids spawning when the user
+  // never opens the chat.
+  {
+    const c = getServiceContainer();
+    registerAgentHandlers({
+      sidecar: c.get(ServiceNames.AGENT_SIDECAR),
+      client: c.get(ServiceNames.AGENT_PROTOCOL_CLIENT),
+      config: c.get(ServiceNames.CONFIG),
+    });
+  }
 
   // ====== Register Update Handlers ======
   const updateService = new UpdateService();

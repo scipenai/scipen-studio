@@ -17,6 +17,7 @@ export { otApi } from './ot';
 export { overleafLiveApi } from './overleafLive';
 export { projectBindingApi } from './projectBinding';
 export { projectConversationApi } from './projectConversation';
+export { agentApi } from './agent';
 
 // Re-export shared utilities for the main preload script
 export {
