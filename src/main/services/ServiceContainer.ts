@@ -227,6 +227,11 @@ export const ServiceNames = {
 
   AI: 'ai',
   CHAT_ORCHESTRATOR: 'chatOrchestrator',
+  /**
+   * Ctrl+K inline edit. Streams a single LLM completion through `AIService`
+   * config; independent of SNACA. See `InlineEditService`.
+   */
+  INLINE_EDIT: 'inlineEdit',
 
   /** SNACA editor sidecar process (spawn / restart / pipe). */
   AGENT_SIDECAR: 'agentSidecar',

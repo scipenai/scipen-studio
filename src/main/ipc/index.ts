@@ -6,6 +6,10 @@
 
 export { registerFileHandlers, type FileHandlersDeps } from './fileHandlers';
 export { registerAIHandlers, type AIHandlersDeps } from './aiHandlers';
+export {
+  registerInlineEditHandlers,
+  type InlineEditHandlersDeps,
+} from './inlineEditHandlers';
 export { registerCompileHandlers, type CompileHandlersDeps } from './compileHandlers';
 export { registerWindowHandlers, type WindowHandlersDeps } from './windowHandlers';
 export { registerChatHandlers, type ChatHandlersDeps } from './chatHandlers';

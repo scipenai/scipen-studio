@@ -15,6 +15,7 @@ const logger = createLogger('ServiceRegistry');
 import { createAIService } from './AIService';
 import { createConfigManager } from './ConfigManager';
 import { createFileSystemService } from './FileSystemService';
+import { createInlineEditService } from './InlineEditService';
 import { getLSPProcessClient } from './LSPProcessClient';
 import { LaTeXCompiler } from './LaTeXCompiler';
 import { SelectionService } from './SelectionService';
@@ -86,6 +87,11 @@ export function registerServices(): void {
   // ====== AI Services ======
 
   container.registerSingleton<IAIService>(ServiceNames.AI, () => createAIService());
+  container.registerLazy(ServiceNames.INLINE_EDIT, () =>
+    createInlineEditService({
+      aiService: container.get<IAIService>(ServiceNames.AI),
+    })
+  );
   // Chat orchestrator for conversation mode
   container.registerSingleton<IChatOrchestrator>(
     ServiceNames.CHAT_ORCHESTRATOR,

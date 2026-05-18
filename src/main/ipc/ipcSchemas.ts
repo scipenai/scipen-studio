@@ -613,6 +613,21 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.AI_IsGenerating, z.tuple([])],
   [IpcChannel.AI_TestConnection, z.tuple([])],
 
+  // Ctrl+K Inline Edit. Selection capped at 100KB to mirror chat message size.
+  [
+    IpcChannel.AI_InlineEditStart,
+    z.tuple([
+      z.object({
+        instruction: safeStringSchema(2000),
+        selectedText: safeStringSchema(100_000),
+        language: z.string().max(64),
+        fileLabel: z.string().max(1024).optional(),
+        surroundingContext: safeStringSchema(20_000).optional(),
+      }),
+    ]),
+  ],
+  [IpcChannel.AI_InlineEditCancel, z.tuple([z.string().min(1).max(128)])],
+
   // ==================== Config (P0 fix) ====================
   // 🔒 Config_Get/Set - can read/write arbitrary configuration
   [IpcChannel.Config_Get, z.tuple([z.string().max(256)])],

@@ -114,6 +114,20 @@ export enum IpcChannel {
   AI_StopGeneration = 'ai:stop-generation',
   AI_IsGenerating = 'ai:is-generating',
   AI_FetchModels = 'ai:fetch-models',
+  /**
+   * Ctrl+K inline edit — start a streaming single-shot replacement.
+   * Renderer → main invoke; returns `{ turnId }`. Deltas / completion /
+   * errors flow back as `AI_InlineEdit{Delta,Complete,Error}` events.
+   */
+  AI_InlineEditStart = 'ai:inline-edit-start',
+  /** Renderer → main: abort a turn started via `AI_InlineEditStart`. */
+  AI_InlineEditCancel = 'ai:inline-edit-cancel',
+  /** Streaming chunk for an inline edit turn. */
+  AI_InlineEditDelta = 'ai:inline-edit-delta',
+  /** Inline edit turn completed cleanly. Payload carries the sanitised full text. */
+  AI_InlineEditComplete = 'ai:inline-edit-complete',
+  /** Inline edit turn failed or was aborted. */
+  AI_InlineEditError = 'ai:inline-edit-error',
 
   // ====== Selection Assistant ======
   Selection_SetEnabled = 'selection:set-enabled',

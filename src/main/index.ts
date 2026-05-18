@@ -56,6 +56,7 @@ import {
   registerConfigHandlers,
   registerDialogHandlers,
   registerFileHandlers,
+  registerInlineEditHandlers,
   registerLSPHandlers,
   registerOverleafHandlers,
   registerOverleafLiveHandlers,
@@ -746,6 +747,9 @@ function registerIpcHandlers() {
   // ====== Register AI Handlers ======
   registerAIHandlers({
     aiService,
+  });
+  registerInlineEditHandlers({
+    inlineEdit: getServiceContainer().get(ServiceNames.INLINE_EDIT),
   });
   // ====== Register Compile Handlers ======
   registerCompileHandlers({

@@ -116,6 +116,8 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.AI_StopGeneration,
   IpcChannel.AI_IsGenerating,
   IpcChannel.AI_FetchModels,
+  IpcChannel.AI_InlineEditStart,
+  IpcChannel.AI_InlineEditCancel,
 
   // ====== Studio IM / OT ======
   IpcChannel.IM_Connect,
@@ -282,6 +284,9 @@ export const ALLOWED_EVENT_CHANNELS: ReadonlySet<string> = new Set([
 
   IpcChannel.App_UpdateStatus,
   IpcChannel.AI_StreamChunk,
+  IpcChannel.AI_InlineEditDelta,
+  IpcChannel.AI_InlineEditComplete,
+  IpcChannel.AI_InlineEditError,
   IpcChannel.Message_FromMain,
   IpcChannel.FileWatcher_Changed,
   IpcChannel.LSP_Diagnostics,
