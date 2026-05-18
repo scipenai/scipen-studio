@@ -52,6 +52,7 @@ import {
   MemoryUpdatedParamsSchema,
   PlanConfirmResultSchema,
   PlanUpdateParamsSchema,
+  SessionDeleteThreadResultSchema,
   SessionGetMessagesResultSchema,
   SessionListThreadsResultSchema,
   SessionNewThreadResultSchema,
@@ -84,6 +85,7 @@ import {
   type PlanConfirmParams,
   type PlanConfirmResult,
   type PlanUpdateParams,
+  type SessionDeleteThreadResult,
   type SessionGetMessagesResult,
   type SessionListThreadsResult,
   type SessionNewThreadResult,
@@ -253,11 +255,11 @@ export class EditorProtocolClient extends Disposable implements IEditorProtocolC
   async sessionDeleteThread(
     sessionId: string,
     threadId: string
-  ): Promise<{ deleted: boolean }> {
+  ): Promise<SessionDeleteThreadResult> {
     return this.request(
       HostToSnaca.SessionDeleteThread,
       { session_id: sessionId, thread_id: threadId },
-      anonymousSchema<{ deleted: boolean }>()
+      SessionDeleteThreadResultSchema
     );
   }
 

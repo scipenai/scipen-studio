@@ -238,17 +238,20 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
 
     const projectId = makeProjectIdFromPath(params.workspaceRoot);
     const metadataRoot = buildMetadataRootFor(projectId);
+    const sharedMetadataRoot = buildSharedMetadataRoot();
 
     const result = await client.sessionOpen({
       project_id: projectId,
       workspace_root: normalizePath(params.workspaceRoot),
       metadata_root: normalizePath(metadataRoot),
+      shared_metadata_root: normalizePath(sharedMetadataRoot),
       display_name: params.displayName ?? params.workspaceRoot,
       project_type: params.projectType ?? 'latex',
     });
 
     state.sessionId = result.session_id;
-    state.threadId = result.threads[0]?.thread_id ?? null;
+    // SNACA is the single source of truth for active thread.
+    state.threadId = result.active_thread_id;
 
     return {
       sessionId: result.session_id,
@@ -282,20 +285,12 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
   ipcMain.handle(IpcChannel.Agent_DeleteThread, async (_e, rawThreadId: unknown) => {
     const threadId = parseOrThrow(threadIdSchema, rawThreadId, 'deleteThread threadId');
     requireSession(state);
-    await client.sessionDeleteThread(state.sessionId!, threadId);
-    // If the caller killed the currently-active thread, fall back to the
-    // most-recently-active remaining one; if none survive, auto-spawn a
-    // fresh default thread so chat.send always has somewhere to go.
-    if (state.threadId === threadId) {
-      const { threads } = await client.sessionListThreads(state.sessionId!);
-      if (threads.length > 0) {
-        state.threadId = threads[0].thread_id;
-      } else {
-        const fresh = await client.sessionNewThread(state.sessionId!, undefined);
-        state.threadId = fresh.thread_id;
-      }
-    }
-    return { deleted: true, activeThreadId: state.threadId };
+    // SNACA picks the most-recently-active surviving thread, or spawns a
+    // fresh "New conversation" when none remain. We trust its choice and
+    // just mirror the returned active_thread_id into Studio state.
+    const result = await client.sessionDeleteThread(state.sessionId!, threadId);
+    state.threadId = result.active_thread_id;
+    return { deleted: result.deleted, activeThreadId: state.threadId };
   });
 
   ipcMain.handle(IpcChannel.Agent_RenameThread, async (_e, rawPayload: unknown) => {
@@ -425,6 +420,19 @@ function buildMetadataRootFor(projectId: string): string {
   const path = require('path') as typeof import('path');
   const root = path.join(app.getPath('userData'), '.snaca', 'local', 'projects', projectId);
   return root;
+}
+
+/**
+ * Build the shared-metadata root — used by SNACA for cross-project user-level
+ * memory (e.g. global skills, persistent preferences). Lives alongside
+ * per-project metadata under `~/.scipen-studio/.snaca/local/shared/`.
+ */
+function buildSharedMetadataRoot(): string {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { app } = require('electron');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const path = require('path') as typeof import('path');
+  return path.join(app.getPath('userData'), '.snaca', 'local', 'shared');
 }
 
 /**

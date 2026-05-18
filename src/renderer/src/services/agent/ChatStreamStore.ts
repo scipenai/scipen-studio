@@ -123,6 +123,16 @@ class ChatStreamStoreImpl {
     return this.activeThreadId;
   }
 
+  /**
+   * Snapshot of every cached thread id (for thread-list views that want a
+   * stable equality reference across re-renders). The set itself isn't
+   * exposed — callers only need length / membership signals via
+   * `useSyncExternalStore` so individual change events are sufficient.
+   */
+  hasCachedThread(threadId: string): boolean {
+    return this.threadCache.has(threadId);
+  }
+
   // ---- public write API ----
 
   /**

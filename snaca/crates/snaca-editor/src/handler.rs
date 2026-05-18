@@ -178,7 +178,7 @@ impl MessageHandler for EditorHandler {
         params: SessionOpenParams,
     ) -> Result<SessionOpenResult, ProtocolError> {
         self.require_initialized().await?;
-        let (session_id, threads) = self
+        let (session_id, active_thread_id, threads) = self
             .sessions
             .open(
                 params.project_id,
@@ -192,6 +192,7 @@ impl MessageHandler for EditorHandler {
         info!(session_id = %session_id, workspace = %params.workspace_root, "session opened");
         Ok(SessionOpenResult {
             session_id,
+            active_thread_id,
             threads,
         })
     }
@@ -249,10 +250,14 @@ impl MessageHandler for EditorHandler {
         params: SessionDeleteThreadParams,
     ) -> Result<SessionDeleteThreadResult, ProtocolError> {
         self.require_initialized().await?;
-        self.sessions
+        let active_thread_id = self
+            .sessions
             .delete_thread(&params.session_id, &params.thread_id)
             .await?;
-        Ok(SessionDeleteThreadResult { deleted: true })
+        Ok(SessionDeleteThreadResult {
+            deleted: true,
+            active_thread_id,
+        })
     }
 
     async fn handle_session_rename_thread(

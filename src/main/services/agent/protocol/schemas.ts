@@ -328,9 +328,17 @@ export type SessionOpenParams = z.infer<typeof SessionOpenParamsSchema>;
 
 export const SessionOpenResultSchema = z.object({
   session_id: z.string().min(1),
+  active_thread_id: z.string().min(1),
   threads: z.array(ThreadSummarySchema),
 });
 export type SessionOpenResult = z.infer<typeof SessionOpenResultSchema>;
+
+export const SessionDeleteThreadResultSchema = z.object({
+  deleted: z.boolean(),
+  /** Guaranteed non-empty: SNACA auto-creates a fresh thread if the deleted one was the last. */
+  active_thread_id: z.string().min(1),
+});
+export type SessionDeleteThreadResult = z.infer<typeof SessionDeleteThreadResultSchema>;
 
 export const SessionListThreadsResultSchema = z.object({
   threads: z.array(ThreadSummarySchema),

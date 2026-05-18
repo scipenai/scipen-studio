@@ -17,6 +17,8 @@ pub struct SessionOpenParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionOpenResult {
     pub session_id: String,
+    /// Id of the bootstrap-default thread; never empty (open always provisions one).
+    pub active_thread_id: String,
     pub threads: Vec<ThreadSummary>,
 }
 
@@ -88,6 +90,10 @@ pub struct SessionDeleteThreadParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionDeleteThreadResult {
     pub deleted: bool,
+    /// Id of the thread that became active after the delete. Guaranteed
+    /// non-empty: when the deleted thread was the last surviving one,
+    /// SNACA auto-provisions a fresh default thread and returns its id.
+    pub active_thread_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

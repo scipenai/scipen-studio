@@ -53,18 +53,19 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
   const { t } = useTranslation();
   const [startup, setStartup] = useState<StartupState>({ kind: 'idle' });
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
   const startedFor = useRef<string | null>(null);
 
-  // Subscribe to chatStreamStore.
-  const _store = useSyncExternalStore(
+  // Subscribe to chatStreamStore — single source of truth for active thread id
+  // plus the rendered message list. Snapshot derives from getActiveThreadId so
+  // a setActiveThread call triggers a re-render even when message count is
+  // unchanged (e.g. switching between empty threads).
+  const activeThreadId = useSyncExternalStore(
     (cb) => chatStreamStore.subscribe(cb),
-    () => chatStreamStore.getMessages().length + (chatStreamStore.getActiveThreadId() ?? '').length,
-    () => 0
+    () => chatStreamStore.getActiveThreadId(),
+    () => null
   );
-  void _store;
 
   const messages = chatStreamStore.getMessages();
   const currentTurn = chatStreamStore.getCurrentTurn();
@@ -93,8 +94,9 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
       .then((res) => {
         setStartup({ kind: 'ready', sessionId: res.sessionId });
         setThreads(res.threads);
-        setActiveThreadId(res.threadId);
-        // Reset prior store before binding to the fresh session.
+        // Reset prior store before binding to the fresh session, then mirror
+        // SNACA's active thread choice into the store (the single source of
+        // truth for activeThreadId on the renderer side).
         chatStreamStore.reset();
         if (res.threadId) {
           chatStreamStore.setActiveThread(res.threadId);
@@ -165,7 +167,6 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
       setThreadError(null);
       try {
         await agentClient.switchThread(threadId);
-        setActiveThreadId(threadId);
         chatStreamStore.setActiveThread(threadId);
         await hydrateThread(threadId);
         setDrawerOpen(false);
@@ -180,7 +181,6 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
     setThreadError(null);
     try {
       const result = await agentClient.newThread();
-      setActiveThreadId(result.threadId);
       chatStreamStore.setActiveThread(result.threadId);
       await refreshThreads();
       setDrawerOpen(false);
@@ -211,11 +211,13 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
     async (threadId: string) => {
       setThreadError(null);
       try {
+        // Main process trusts SNACA's chosen fallback (most-recent surviving
+        // thread, or a freshly auto-spawned one when the deleted thread was
+        // the last). We just mirror the returned active id into the store.
         const { activeThreadId: nextActive } = await agentClient.deleteThread(threadId);
         chatStreamStore.forgetThread(threadId);
-        setActiveThreadId(nextActive);
-        if (nextActive && nextActive !== threadId) {
-          chatStreamStore.setActiveThread(nextActive);
+        chatStreamStore.setActiveThread(nextActive);
+        if (nextActive !== threadId) {
           void hydrateThread(nextActive);
         }
         await refreshThreads();

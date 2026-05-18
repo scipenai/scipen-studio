@@ -35,9 +35,9 @@ impl SessionManager {
         }
     }
 
-    /// Opens a new session. Returns the assigned `session_id` plus a fresh
-    /// default thread (`New conversation`) so the host has something to
-    /// route `chat.send` against immediately.
+    /// Opens a new session. Returns `(session_id, active_thread_id, threads)`
+    /// where `active_thread_id` always points at a freshly bootstrapped
+    /// default thread (so `chat.send` has somewhere to route immediately).
     pub async fn open(
         &self,
         project_id: String,
@@ -46,7 +46,7 @@ impl SessionManager {
         shared_metadata_root: Option<PathBuf>,
         display_name: String,
         project_type: ProjectType,
-    ) -> Result<(String, Vec<ThreadSummary>), ProtocolError> {
+    ) -> Result<(String, String, Vec<ThreadSummary>), ProtocolError> {
         if !workspace_root.exists() {
             return Err(ProtocolError::new(
                 ErrorCode::WorkspaceInvalid,
@@ -81,14 +81,14 @@ impl SessionManager {
         let thread_id = Uuid::new_v4().to_string();
         let thread = ThreadState::new(thread_id.clone(), "New conversation".to_string());
         session.threads.insert(thread_id.clone(), thread);
-        session.active_thread_id = Some(thread_id);
+        session.active_thread_id = Some(thread_id.clone());
 
         let summaries = session.list_thread_summaries();
 
         let mut inner = self.inner.lock().await;
         inner.sessions.insert(session_id.clone(), session);
 
-        Ok((session_id, summaries))
+        Ok((session_id, thread_id, summaries))
     }
 
     pub async fn close(&self, session_id: &str) -> Result<(), ProtocolError> {
@@ -163,11 +163,19 @@ impl SessionManager {
         Ok(session.thread_summary(thread_id).unwrap())
     }
 
+    /// Delete a thread. Returns the id of whatever thread is active **after**
+    /// the delete — guaranteed non-empty:
+    ///   1. If the deleted thread wasn't the active one, the current active id
+    ///      is returned unchanged.
+    ///   2. If it was the active one but other threads survive, the
+    ///      most-recently-active surviving thread is promoted.
+    ///   3. If no threads survive, a fresh "New conversation" is auto-created
+    ///      so callers never have to handle a "session without a thread" state.
     pub async fn delete_thread(
         &self,
         session_id: &str,
         thread_id: &str,
-    ) -> Result<(), ProtocolError> {
+    ) -> Result<String, ProtocolError> {
         let mut inner = self.inner.lock().await;
         let session = inner
             .sessions
@@ -180,11 +188,33 @@ impl SessionManager {
         if removed.is_none() {
             return Err(ProtocolError::thread_not_found(thread_id));
         }
-        if session.active_thread_id.as_deref() == Some(thread_id) {
-            // Promote any other thread as active, or clear.
-            session.active_thread_id = session.threads.keys().next().cloned();
+
+        let was_active = session.active_thread_id.as_deref() == Some(thread_id);
+        if !was_active {
+            // Active is still valid — just return it.
+            return Ok(session.active_thread_id.clone().unwrap_or_default());
         }
-        Ok(())
+
+        // Promote: pick the most-recently-active surviving thread.
+        let next_active = session
+            .threads
+            .values()
+            .max_by_key(|t| t.last_active_at)
+            .map(|t| t.thread_id.clone());
+
+        if let Some(id) = next_active {
+            session.active_thread_id = Some(id.clone());
+            return Ok(id);
+        }
+
+        // No survivors → spawn a fresh default thread.
+        let new_id = Uuid::new_v4().to_string();
+        session.threads.insert(
+            new_id.clone(),
+            ThreadState::new(new_id.clone(), "New conversation".to_string()),
+        );
+        session.active_thread_id = Some(new_id.clone());
+        Ok(new_id)
     }
 
     pub async fn rename_thread(
