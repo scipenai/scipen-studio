@@ -68,6 +68,11 @@
     "shortcutOpenClaw": "Cmd/Ctrl + K to summon OpenClaw",
     "shortcutSearchFile": "Cmd/Ctrl + P to search files",
     "shortcutAIGenerate": "Or let AI generate the first line for you",
+    "inlineEdit": {
+      "placeholder": "Ask AI to edit selection — Enter to submit, Esc to cancel",
+      "generating": "Generating…",
+      "acceptHint": "Tab to accept · Esc to cancel"
+    },
     "settings": {
       "title": "Editor Settings",
       "fontSize": "Font Size",

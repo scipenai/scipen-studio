@@ -628,6 +628,17 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   ],
   [IpcChannel.AI_InlineEditCancel, z.tuple([z.string().min(1).max(128)])],
 
+  // SNACA flush_unsaved reverse-RPC reply (renderer → main).
+  [
+    IpcChannel.Agent_ContextFlushResponse,
+    z.tuple([
+      z.object({
+        requestId: z.string().min(1).max(128),
+        flushedFiles: z.array(z.string().max(4096)).max(512),
+      }),
+    ]),
+  ],
+
   // ==================== Config (P0 fix) ====================
   // 🔒 Config_Get/Set - can read/write arbitrary configuration
   [IpcChannel.Config_Get, z.tuple([z.string().max(256)])],

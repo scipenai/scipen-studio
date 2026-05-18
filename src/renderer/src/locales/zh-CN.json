@@ -68,6 +68,11 @@
     "shortcutOpenClaw": "Cmd/Ctrl + K 召唤 OpenClaw",
     "shortcutSearchFile": "Cmd/Ctrl + P 搜索文件",
     "shortcutAIGenerate": "或让 AI 为你生成第一行代码",
+    "inlineEdit": {
+      "placeholder": "让 AI 改写选区 — Enter 提交,Esc 取消",
+      "generating": "生成中…",
+      "acceptHint": "Tab 接受 · Esc 取消"
+    },
     "settings": {
       "title": "编辑器设置",
       "fontSize": "字号",

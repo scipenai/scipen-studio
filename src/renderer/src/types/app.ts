@@ -230,6 +230,7 @@ export interface AppSettings {
     chatWithSelection: string;
     togglePreview: string;
     newWindow: string;
+    inlineEdit: string;
   };
   im: {
     serverUrl: string;

@@ -189,6 +189,7 @@ export const defaultSettings: AppSettings = {
     chatWithSelection: 'Ctrl+L',
     togglePreview: 'Ctrl+Shift+V',
     newWindow: 'Ctrl+Shift+N',
+    inlineEdit: 'Ctrl+K',
   },
   im: {
     serverUrl: '',

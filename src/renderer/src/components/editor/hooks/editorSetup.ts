@@ -30,6 +30,7 @@ import {
   getUIService,
 } from '../../../services/core';
 import { SyncEventType } from '../../../services/core/PreviewTypes';
+import { inlineEditController } from '../../../services/inlineEdit';
 
 const logger = createLogger('EditorSetup');
 
@@ -245,6 +246,14 @@ export function setupShortcuts(editor: Editor, monacoInstance: Monaco): void {
     const selectedText =
       selection && !selection.isEmpty() && model ? model.getValueInRange(selection) : '';
     getUIService().requestChatWithText(selectedText, 'editor');
+  });
+
+  shortcutService.registerHandler('inlineEdit', () => {
+    const model = editor.getModel();
+    const path = model?.uri.path;
+    // Pass the basename as a label so the LLM prompt is shorter than a full path.
+    const fileLabel = path ? path.split('/').pop() ?? path : undefined;
+    inlineEditController.trigger(editor, { fileLabel });
   });
 
   shortcutService.registerHandler('togglePreview', () => {
