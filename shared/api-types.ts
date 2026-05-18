@@ -29,6 +29,37 @@ import type { IPCAiContract } from './ipc/ai-contract';
 import type { IPCOverleafContract } from './ipc/overleaf-contract';
 import type { IPCAppContract } from './ipc/app-contract';
 
+// ====== Collaboration Owner (window-scoped backend marker) ======
+
+/** Renderer-side claim payload for `CollaborationOwner_SetActive`. */
+export interface CollaborationOwnerClaimDTO {
+  backend: 'scipen-ot' | 'overleaf';
+  projectId?: string | null;
+  rootPath?: string | null;
+  fileId?: string | null;
+}
+
+/** Main-side reply DTO returned by `CollaborationOwner_SetActive`. */
+export interface CollaborationOwnerDTO {
+  backend: 'scipen-ot' | 'overleaf' | 'local';
+  windowId: number;
+  projectId: string | null;
+  rootPath: string | null;
+  fileId: string | null;
+  claimedAt: number;
+}
+
+interface IPCCollaborationOwnerContract {
+  'collaboration-owner:set-active': {
+    args: [owner: CollaborationOwnerClaimDTO];
+    result: CollaborationOwnerDTO;
+  };
+  'collaboration-owner:clear': {
+    args: [params: { backend: 'scipen-ot' | 'overleaf' }];
+    result: void;
+  };
+}
+
 // ====== Composed IPC API Contract ======
 
 /**
@@ -41,7 +72,8 @@ export interface IPCApiContract
     IPCLspContract,
     IPCAiContract,
     IPCOverleafContract,
-    IPCAppContract {}
+    IPCAppContract,
+    IPCCollaborationOwnerContract {}
 
 // ====== Event Contract (cross-domain, stays here) ======
 
