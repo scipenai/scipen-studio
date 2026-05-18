@@ -317,20 +317,25 @@ class InlineEditWidget implements Monaco.editor.IContentWidget {
     switch (state) {
       case 'idle':
         this.statusEl.textContent = '';
-        this.input.disabled = false;
+        this.input.readOnly = false;
         break;
       case 'streaming':
         this.statusEl.textContent = t('editor.inlineEdit.generating');
-        this.input.disabled = true;
+        this.input.readOnly = true;
         this.ghostEl.style.display = 'block';
         break;
       case 'complete':
         this.statusEl.textContent = t('editor.inlineEdit.acceptHint');
-        this.input.disabled = true;
+        this.input.readOnly = true;
         break;
       case 'error':
-        this.input.disabled = false;
+        this.input.readOnly = false;
         break;
+    }
+    // readOnly 不会改变焦点,但跨状态切换时浏览器有时会丢焦点;
+    // 主动确保 input 仍持有焦点,让 Tab/Esc 走 widget 的 keydown。
+    if (document.activeElement !== this.input) {
+      this.input.focus({ preventScroll: true });
     }
   }
 
@@ -376,10 +381,13 @@ class InlineEditWidget implements Monaco.editor.IContentWidget {
       if (value) this.args.onSubmit(value);
       return;
     }
-    if (e.key === 'Tab' && this.state === 'complete') {
+    if (e.key === 'Tab') {
+      // 始终拦截 Tab,防止焦点逃离 widget;只在 complete 状态触发 accept。
       e.preventDefault();
       e.stopPropagation();
-      this.args.onAccept();
+      if (this.state === 'complete') {
+        this.args.onAccept();
+      }
       return;
     }
   };
