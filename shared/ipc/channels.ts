@@ -253,6 +253,13 @@ export enum IpcChannel {
    * is a thin passthrough — this one is the host-applies workflow.
    */
   Agent_ResolveEditProposal = 'agent:resolve-edit-proposal',
+  /**
+   * Renderer's reply to a `Agent_ContextFlushRequest` event (invoke).
+   * Carries `{ requestId, flushedFiles }` so the main-side
+   * `ContextRequestService` can resolve the pending reverse-RPC promise that
+   * blocks SNACA's `context.request { kind: 'flush_unsaved' }`.
+   */
+  Agent_ContextFlushResponse = 'agent:context-flush-response',
   /** Streaming events pushed from main to renderer. */
   Agent_SidecarStateChanged = 'agent:sidecar-state-changed',
   Agent_TurnDelta = 'agent:turn-delta',
@@ -272,6 +279,14 @@ export enum IpcChannel {
    * round-tripping through fs watcher.
    */
   Agent_EditApplied = 'agent:edit-applied',
+  /**
+   * Reverse-RPC from main to renderer: SNACA asked for fresh context (e.g.
+   * `flush_unsaved` before a `Read` tool call). Renderer must do the work
+   * (save dirty tabs) and reply via `Agent_ContextFlushResponse`. If the
+   * renderer fails to respond within the timeout, main auto-replies
+   * `{ ok: false }` to SNACA so the LLM doesn't hang.
+   */
+  Agent_ContextFlushRequest = 'agent:context-flush-request',
 
   // ====== Chat ======
   Chat_SendMessage = 'chat:send-message',

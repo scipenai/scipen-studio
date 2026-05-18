@@ -179,6 +179,19 @@ class AgentClientServiceImpl {
     return this.api.resolveEditProposal(params);
   }
 
+  /**
+   * Reverse-RPC reply: notify main that the renderer has flushed the
+   * requested dirty tabs. Resolves the pending `flush_unsaved` reverse-RPC
+   * back to SNACA. Pass the actual list of files written — if there was
+   * nothing dirty, pass `[]` (still required so main can resolve).
+   */
+  respondContextFlush(payload: {
+    requestId: string;
+    flushedFiles: string[];
+  }): Promise<{ ok: true }> {
+    return this.api.respondContextFlush(payload);
+  }
+
   // ---- event subscriptions (return unsubscribe fn) ----
 
   onTurnDelta(cb: (e: any) => void): () => void {
@@ -224,6 +237,11 @@ class AgentClientServiceImpl {
     }) => void
   ): () => void {
     return this.api.onEditApplied(cb);
+  }
+  onContextFlushRequest(
+    cb: (e: { requestId: string; paths?: string[] }) => void
+  ): () => void {
+    return this.api.onContextFlushRequest(cb);
   }
 }
 

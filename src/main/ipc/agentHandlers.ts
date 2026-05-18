@@ -20,6 +20,7 @@ import type {
   SidecarState,
 } from '../services/agent/interfaces/ISnacaSidecarService';
 import type { IAgentEditApplyService } from '../services/agent/interfaces/IAgentEditApplyService';
+import type { IContextRequestService } from '../services/agent/interfaces/IContextRequestService';
 import { EDITOR_PROTOCOL_VERSION } from '../services/agent/protocol/methods';
 import {
   ChatContextSchema,
@@ -39,6 +40,7 @@ export interface AgentHandlersDeps {
   sidecar: ISnacaSidecarService;
   client: IEditorProtocolClient;
   editApply: IAgentEditApplyService;
+  contextRequest: IContextRequestService;
   config: IConfigManager;
 }
 
@@ -99,6 +101,11 @@ const resolveEditProposalSchema = z.object({
   workspaceRoot: z.string().min(1).max(4096).optional(),
 });
 
+const contextFlushResponseSchema = z.object({
+  requestId: z.string().min(1).max(128),
+  flushedFiles: z.array(z.string().max(4096)).max(512),
+});
+
 /** Throw a friendly error from a Zod failure so the renderer can surface it. */
 function parseOrThrow<T>(schema: z.ZodSchema<T>, value: unknown, label: string): T {
   const result = schema.safeParse(value);
@@ -112,7 +119,7 @@ function parseOrThrow<T>(schema: z.ZodSchema<T>, value: unknown, label: string):
 }
 
 export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore {
-  const { sidecar, client, editApply, config } = deps;
+  const { sidecar, client, editApply, contextRequest, config } = deps;
   const store = new DisposableStore();
 
   /** Per-app singleton session/thread for P1. Multi-project comes later. */
@@ -194,6 +201,10 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
   store.add(client.onError((e) => broadcast(IpcChannel.Agent_Error, e)));
   store.add(client.onLog((e) => broadcast(IpcChannel.Agent_Log, e)));
   store.add(editApply.onEditApplied((e) => broadcast(IpcChannel.Agent_EditApplied, e)));
+
+  // Reverse-RPC: SNACA → host via `context.request`. Bind once; the
+  // disposable is owned by `store` so a handler swap on hot-reload is clean.
+  store.add(client.setContextRequestHandler((req) => contextRequest.handle(req)));
 
   // ----- Request handlers -----
 
@@ -321,6 +332,19 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
     );
     return await client.toolConfirm(params);
   });
+
+  ipcMain.handle(
+    IpcChannel.Agent_ContextFlushResponse,
+    (_e, rawPayload: unknown): { ok: true } => {
+      const payload = parseOrThrow(
+        contextFlushResponseSchema,
+        rawPayload,
+        'contextFlushResponse payload'
+      );
+      contextRequest.completeFlush(payload);
+      return { ok: true };
+    }
+  );
 
   return store;
 }

@@ -797,6 +797,7 @@ function registerIpcHandlers() {
       sidecar: c.get(ServiceNames.AGENT_SIDECAR),
       client: c.get(ServiceNames.AGENT_PROTOCOL_CLIENT),
       editApply: c.get(ServiceNames.AGENT_EDIT_APPLY),
+      contextRequest: c.get(ServiceNames.AGENT_CONTEXT_REQUEST),
       config: c.get(ServiceNames.CONFIG),
     });
   }

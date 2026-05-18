@@ -237,6 +237,12 @@ export const ServiceNames = {
    * via `editConfirm`. Owns the host_applies fs writes.
    */
   AGENT_EDIT_APPLY: 'agentEditApply',
+  /**
+   * Answers SNACA reverse-RPC `context.request` (flush_unsaved /
+   * file_content). Bridges to renderer via webContents.send for the
+   * flush case.
+   */
+  AGENT_CONTEXT_REQUEST: 'agentContextRequest',
 } as const;
 
 /** Union of all service name values. */

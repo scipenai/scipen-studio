@@ -1,0 +1,36 @@
+/**
+ * @file IContextRequestService — answers SNACA's reverse-RPC `context.request`.
+ *
+ * SNACA's tools (notably `Read`) call `context.request` to ask the host for
+ * fresh state before reading disk — most importantly `flush_unsaved`, which
+ * needs the renderer to save dirty Monaco tabs first.
+ *
+ * Implementations bind to `IEditorProtocolClient.setContextRequestHandler`.
+ */
+
+import type { IDisposable } from '@shared/utils/lifecycle';
+import type {
+  ContextRequestParams,
+  ContextRespondParams,
+} from '../protocol/schemas';
+
+export interface ContextFlushResponsePayload {
+  requestId: string;
+  /** Renderer-reported list of files actually flushed (project-relative or absolute). */
+  flushedFiles: string[];
+}
+
+export interface IContextRequestService extends IDisposable {
+  /**
+   * Reverse-RPC dispatcher. Wire this to
+   * `IEditorProtocolClient.setContextRequestHandler` once at registration time.
+   */
+  handle(req: ContextRequestParams): Promise<ContextRespondParams>;
+
+  /**
+   * Called by the IPC layer when the renderer replies to a
+   * `Agent_ContextFlushRequest` with its `flushed_files` list. Resolves the
+   * pending promise that `handle()` is awaiting.
+   */
+  completeFlush(payload: ContextFlushResponsePayload): void;
+}

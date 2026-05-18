@@ -31,10 +31,14 @@ import { OfflineOpsManager } from './OfflineOpsManager';
 import { createSnacaSidecarService } from './agent/SnacaSidecarService';
 import { createEditorProtocolClient } from './agent/EditorProtocolClient';
 import { createAgentEditApplyService } from './agent/AgentEditApplyService';
+import {
+  createContextRequestService,
+  defaultGetRendererWebContents,
+} from './agent/ContextRequestService';
 import type { ISnacaSidecarService } from './agent/interfaces/ISnacaSidecarService';
 import type { IEditorProtocolClient } from './agent/interfaces/IEditorProtocolClient';
 import path from 'path';
-import { app } from 'electron';
+import { app, BrowserWindow } from 'electron';
 
 import { TraceService } from './TraceService';
 import { ChatOrchestrator } from './chat';
@@ -145,6 +149,13 @@ export function registerServices(): void {
   container.registerLazy(ServiceNames.AGENT_EDIT_APPLY, () =>
     createAgentEditApplyService({
       client: container.get<IEditorProtocolClient>(ServiceNames.AGENT_PROTOCOL_CLIENT),
+      fileSystem: container.get<IFileSystemService>(ServiceNames.FILE_SYSTEM),
+    })
+  );
+
+  container.registerLazy(ServiceNames.AGENT_CONTEXT_REQUEST, () =>
+    createContextRequestService({
+      getRendererWebContents: defaultGetRendererWebContents(BrowserWindow),
       fileSystem: container.get<IFileSystemService>(ServiceNames.FILE_SYSTEM),
     })
   );

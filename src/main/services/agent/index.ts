@@ -19,3 +19,8 @@ export {
   createAgentEditApplyService,
   AgentEditApplyService,
 } from './AgentEditApplyService';
+export {
+  createContextRequestService,
+  ContextRequestService,
+  defaultGetRendererWebContents,
+} from './ContextRequestService';

@@ -57,6 +57,19 @@ export interface SendChatParams {
   context: ChatContext;
 }
 
+/** Payload of an inbound `Agent_ContextFlushRequest`. */
+export interface AgentContextFlushRequestPayload {
+  requestId: string;
+  /** Optional whitelist; when omitted, renderer should flush every dirty tab. */
+  paths?: string[];
+}
+
+/** Renderer's reply via `Agent_ContextFlushResponse`. */
+export interface AgentContextFlushResponsePayload {
+  requestId: string;
+  flushedFiles: string[];
+}
+
 export interface SendChatResult {
   turnId: string;
 }
@@ -113,6 +126,14 @@ export const agentApi = {
   ): Promise<AgentResolveEditProposalResult> =>
     ipcRenderer.invoke(IpcChannel.Agent_ResolveEditProposal, params),
 
+  /**
+   * Reply to a `Agent_ContextFlushRequest` event with the list of files the
+   * renderer actually flushed to disk. Main resolves the pending reverse-RPC
+   * back to SNACA.
+   */
+  respondContextFlush: (payload: AgentContextFlushResponsePayload): Promise<{ ok: true }> =>
+    ipcRenderer.invoke(IpcChannel.Agent_ContextFlushResponse, payload),
+
   // ------ Streaming events ------
 
   onSidecarStateChange: createSafeListener<SidecarState>(IpcChannel.Agent_SidecarStateChanged),
@@ -131,4 +152,7 @@ export const agentApi = {
   onError: createSafeListener<ErrorNotificationParams>(IpcChannel.Agent_Error),
   onLog: createSafeListener<LogWriteParams>(IpcChannel.Agent_Log),
   onEditApplied: createSafeListener<AgentEditAppliedPayload>(IpcChannel.Agent_EditApplied),
+  onContextFlushRequest: createSafeListener<AgentContextFlushRequestPayload>(
+    IpcChannel.Agent_ContextFlushRequest
+  ),
 };
