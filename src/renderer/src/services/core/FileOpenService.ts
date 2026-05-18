@@ -137,18 +137,7 @@ export async function openFileInEditor(filePath: string): Promise<void> {
 
   const lastSlashIndex = normalizedPath.lastIndexOf('/');
   const dirPath = lastSlashIndex >= 0 ? normalizedPath.slice(0, lastSlashIndex) : normalizedPath;
-  let targetProjectPath = dirPath;
-
-  // Query only (getByPath): do not trigger resolveBinding's collaboration side effects.
-  // bootstrapProject() below handles collaboration activation uniformly.
-  try {
-    const binding = await api.projectBinding.getByPath(dirPath);
-    if (binding?.localRootPath) {
-      targetProjectPath = binding.localRootPath;
-    }
-  } catch (error) {
-    logger.warn('Failed to find binding for file path, fallback to parent directory:', error);
-  }
+  const targetProjectPath = dirPath;
 
   if (!projectPath || !isSameOrChildPath(filePath, projectPath)) {
     logger.info('Opening file within project root:', targetProjectPath);

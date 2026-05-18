@@ -119,53 +119,9 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.AI_InlineEditStart,
   IpcChannel.AI_InlineEditCancel,
 
-  // ====== Studio IM / OT ======
-  IpcChannel.IM_Connect,
-  IpcChannel.IM_Disconnect,
-  IpcChannel.IM_GetSnapshot,
-  IpcChannel.IM_ListConversations,
-  IpcChannel.IM_CreateConversation,
-  IpcChannel.IM_GetConversationMembers,
-  IpcChannel.IM_GetBotUserId,
-  IpcChannel.IM_SendMessage,
-  IpcChannel.IM_UploadAttachment,
-  IpcChannel.IM_SendTyping,
+  // ====== Collaboration Owner (last-active backend marker) ======
   IpcChannel.CollaborationOwner_SetActive,
   IpcChannel.CollaborationOwner_Clear,
-  IpcChannel.OT_Configure,
-  IpcChannel.OT_SetBotUserId,
-  IpcChannel.OT_Disconnect,
-  IpcChannel.OT_ListProjects,
-  IpcChannel.OT_UpdateProject,
-  IpcChannel.OT_OpenLocalProject,
-  IpcChannel.OT_GetProjectSnapshot,
-  IpcChannel.OT_GetProjectFile,
-  IpcChannel.OT_JoinFile,
-  IpcChannel.OT_SubmitFileOp,
-  IpcChannel.OT_ApplyBotEdit,
-  IpcChannel.OT_CreateFile,
-  IpcChannel.OT_CreateFolder,
-  IpcChannel.OT_RenameFile,
-  IpcChannel.OT_RenameFolder,
-  IpcChannel.OT_DeleteFile,
-  IpcChannel.OT_DeleteFolder,
-
-  // ====== Project Binding ======
-  IpcChannel.ProjectBinding_Import,
-  IpcChannel.ProjectBinding_Unbind,
-  IpcChannel.ProjectBinding_GetByPath,
-  IpcChannel.ProjectBinding_GetByProjectId,
-  IpcChannel.ProjectBinding_Resolve,
-  IpcChannel.ProjectBinding_EnsureBootstrap,
-  IpcChannel.ProjectBinding_SetEnabled,
-  IpcChannel.ProjectBinding_Rebind,
-  IpcChannel.ProjectBinding_Rebuild,
-  IpcChannel.ProjectBinding_ExportSnapshot,
-  IpcChannel.ProjectConversation_Resolve,
-  IpcChannel.ProjectConversation_List,
-  IpcChannel.ProjectConversation_Create,
-  IpcChannel.ProjectConversation_SetDefault,
-  IpcChannel.ExternalChange_Resolve,
 
   // ====== Selection Assistant ======
   IpcChannel.Selection_SetEnabled,
@@ -300,31 +256,15 @@ export const ALLOWED_EVENT_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.LSP_DirectChannelClosed,
   IpcChannel.LSP_Recovered,
   IpcChannel.Settings_AIConfigChanged,
-  IpcChannel.IM_StateChanged,
-  IpcChannel.IM_MessagesChanged,
-  IpcChannel.IM_TypingChanged,
-  IpcChannel.IM_Error,
   IpcChannel.OverleafLive_ConnectionChanged,
   IpcChannel.OverleafLive_StateChanged,
   IpcChannel.OverleafLive_RemotePatch,
   IpcChannel.OverleafLive_TreeChanged,
   IpcChannel.OverleafLive_Error,
-  IpcChannel.OT_StateChanged,
-  IpcChannel.OT_ConnectionChanged,
-  IpcChannel.OT_RemoteUpdate,
-  IpcChannel.OT_FileEvent,
-  IpcChannel.OT_Error,
   // Config
   IpcChannel.Config_Changed,
   // Selection Assistant
   IpcChannel.Selection_TextCaptured,
-  // Project Binding
-  IpcChannel.ProjectBinding_StatusChanged,
-  // External Change Detection
-  IpcChannel.ExternalChange_Detected,
-  IpcChannel.ExternalChange_AutoResolved,
-  // Project Conversation
-  IpcChannel.ProjectConversation_BindingChanged,
 ]);
 
 // ====== Security: Path Validation ======

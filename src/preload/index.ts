@@ -28,10 +28,6 @@ import {
   settingsApi,
   traceApi,
   windowApi,
-  imApi,
-  otApi,
-  projectBindingApi,
-  projectConversationApi,
   agentApi,
 } from './api';
 
@@ -99,11 +95,7 @@ function createElectronApi() {
     dialog: dialogApi,
     settings: settingsApi,
     selection: selectionApi,
-    im: imApi,
-    ot: otApi,
     overleafLive: overleafLiveApi,
-    projectBinding: projectBindingApi,
-    projectConversation: projectConversationApi,
     agent: agentApi,
 
     // Event listeners

@@ -181,73 +181,17 @@ export enum IpcChannel {
   OverleafLive_TreeChanged = 'overleaf-live:tree-changed',
   OverleafLive_Error = 'overleaf-live:error',
 
-  // ====== Studio IM ======
-  IM_Connect = 'im:connect',
-  IM_Disconnect = 'im:disconnect',
-  IM_GetSnapshot = 'im:get-snapshot',
-  IM_ListConversations = 'im:list-conversations',
-  IM_CreateConversation = 'im:create-conversation',
-  IM_GetConversationMembers = 'im:get-conversation-members',
-  IM_SendMessage = 'im:send-message',
-  IM_UploadAttachment = 'im:upload-attachment',
-  IM_SendTyping = 'im:send-typing',
-  IM_StateChanged = 'im:state-changed',
-  IM_MessagesChanged = 'im:messages-changed',
-  IM_TypingChanged = 'im:typing-changed',
-  IM_Error = 'im:error',
-  IM_GetBotUserId = 'im:get-bot-user-id',
+  // ====== Studio IM ====== (removed in P3 cleanup)
 
   // ====== Collaboration Owner ======
   CollaborationOwner_SetActive = 'collaboration-owner:set-active',
   CollaborationOwner_Clear = 'collaboration-owner:clear',
 
-  // ====== Studio OT ======
-  OT_Configure = 'ot:configure',
-  OT_SetBotUserId = 'ot:set-bot-user-id',
-  OT_Disconnect = 'ot:disconnect',
-  OT_OpenLocalProject = 'ot:open-local-project',
-  OT_ListProjects = 'ot:list-projects',
-  OT_UpdateProject = 'ot:update-project',
-  OT_GetProjectSnapshot = 'ot:get-project-snapshot',
-  OT_GetProjectFile = 'ot:get-project-file',
-  OT_JoinFile = 'ot:join-file',
-  OT_SubmitFileOp = 'ot:submit-file-op',
-  OT_ApplyBotEdit = 'ot:apply-bot-edit',
-  OT_CreateFile = 'ot:create-file',
-  OT_CreateFolder = 'ot:create-folder',
-  OT_RenameFile = 'ot:rename-file',
-  OT_RenameFolder = 'ot:rename-folder',
-  OT_DeleteFile = 'ot:delete-file',
-  OT_DeleteFolder = 'ot:delete-folder',
-  OT_StateChanged = 'ot:state-changed',
-  OT_ConnectionChanged = 'ot:connection-changed',
-  OT_RemoteUpdate = 'ot:remote-update',
-  OT_FileEvent = 'ot:file-event',
-  OT_Error = 'ot:error',
+  // ====== Studio OT ====== (removed in P3 cleanup)
 
-  // ====== Project Binding (Cloud Collaboration) ======
-  ProjectBinding_Import = 'project-binding:import',
-  ProjectBinding_Unbind = 'project-binding:unbind',
-  ProjectBinding_GetByPath = 'project-binding:get-by-path',
-  ProjectBinding_GetByProjectId = 'project-binding:get-by-project-id',
-  ProjectBinding_Resolve = 'project-binding:resolve',
-  ProjectBinding_EnsureBootstrap = 'project-binding:ensure-bootstrap',
-  ProjectBinding_SetEnabled = 'project-binding:set-enabled',
-  ProjectBinding_StatusChanged = 'project-binding:status-changed',
-  ExternalChange_Detected = 'external-change:detected',
-  ExternalChange_Resolve = 'external-change:resolve',
-  ExternalChange_AutoResolved = 'external-change:auto-resolved',
-  ProjectBinding_Rebuild = 'project-binding:rebuild',
-  ProjectBinding_Rebind = 'project-binding:rebind',
-  ProjectBinding_ExportSnapshot = 'project-binding:export-snapshot',
+  // ====== Project Binding (Cloud Collaboration) ====== (removed in P3 cleanup)
 
-  // ====== Project Conversation Scope ======
-  ProjectConversation_Resolve = 'project-conversation:resolve',
-  ProjectConversation_List = 'project-conversation:list',
-  ProjectConversation_Create = 'project-conversation:create',
-  ProjectConversation_SetDefault = 'project-conversation:set-default',
-  /** Event channel for conversation-binding change notifications. */
-  ProjectConversation_BindingChanged = 'project-conversation:binding-changed',
+  // ====== Project Conversation Scope ====== (removed in P3 cleanup)
 
   // ====== Agent (SNACA editor-protocol bridge) ======
   Agent_GetSidecarState = 'agent:get-sidecar-state',

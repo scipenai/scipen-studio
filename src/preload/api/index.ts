@@ -12,11 +12,7 @@ export { windowApi, dialogApi } from './window';
 export { projectApi, compileApi, appApi, logApi, configApi, traceApi } from './system';
 export { settingsApi } from './settings';
 export { selectionApi } from './selection';
-export { imApi } from './im';
-export { otApi } from './ot';
 export { overleafLiveApi } from './overleafLive';
-export { projectBindingApi } from './projectBinding';
-export { projectConversationApi } from './projectConversation';
 export { agentApi } from './agent';
 
 // Re-export shared utilities for the main preload script

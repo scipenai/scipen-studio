@@ -18,8 +18,6 @@ export * from './ipc/compile-contract';
 export * from './ipc/lsp-contract';
 export * from './ipc/ai-contract';
 export * from './ipc/overleaf-contract';
-export * from './ipc/im-contract';
-export * from './ipc/ot-contract';
 export * from './ipc/project-contract';
 export * from './ipc/app-contract';
 
@@ -30,8 +28,6 @@ import type { IPCCompileContract } from './ipc/compile-contract';
 import type { IPCLspContract } from './ipc/lsp-contract';
 import type { IPCAiContract } from './ipc/ai-contract';
 import type { IPCOverleafContract } from './ipc/overleaf-contract';
-import type { IPCImContract } from './ipc/im-contract';
-import type { IPCOtContract } from './ipc/ot-contract';
 import type { IPCProjectContract } from './ipc/project-contract';
 import type { IPCAppContract } from './ipc/app-contract';
 
@@ -47,15 +43,12 @@ export interface IPCApiContract
     IPCLspContract,
     IPCAiContract,
     IPCOverleafContract,
-    IPCImContract,
-    IPCOtContract,
     IPCProjectContract,
     IPCAppContract {}
 
 // ====== Event Contract (cross-domain, stays here) ======
 
 import type { LSPDiagnostic } from './ipc/lsp-contract';
-import type { ProjectConversationBindingChangedEvent } from './ipc/im-contract';
 import type { ChatStreamEvent } from './types/chat';
 import type { AIConfigDTO } from './ipc/types';
 
@@ -93,7 +86,6 @@ export interface IPCEventContract {
   [IpcChannel.Window_OpenFile]: string;
   [IpcChannel.Message_FromMain]: string;
   [IpcChannel.Settings_AIConfigChanged]: AIConfigDTO;
-  [IpcChannel.ProjectConversation_BindingChanged]: ProjectConversationBindingChangedEvent;
   [IpcChannel.App_UpdateStatus]: import('./ipc/app-contract').UpdateStatus;
 }
 

@@ -6,9 +6,14 @@
  */
 
 import DiffMatchPatch from 'diff-match-patch';
-import type { CollaborationBackend } from '../../../../../shared/api-types';
 import { Emitter, type Event, type IDisposable } from '../../../../../shared/utils';
 import { getPlatform } from '../../utils';
+
+/**
+ * Backend identifier used to scope a Diff Review entry. P3 removed the
+ * IM/OT remote stack; only Overleaf-bridged and local-only edits remain.
+ */
+export type CollaborationBackend = 'scipen-ot' | 'overleaf' | 'local';
 
 // ====== Data structures ======
 

@@ -4,8 +4,6 @@
  * @depends ipc/channels
  */
 
-import { IpcChannel } from './channels';
-
 // ====== Web Workspace Types ======
 
 export type WorkspaceEntryType = 'file' | 'directory';
@@ -294,54 +292,4 @@ export interface ExternalChangeAutoResolvedDTO {
 
 // ====== Channel Contract ======
 
-export interface IPCProjectContract {
-  // ============ Project Binding ============
-  [IpcChannel.ProjectBinding_Import]: {
-    args: [params: ImportProjectParams];
-    result: ImportProjectResult;
-  };
-  [IpcChannel.ProjectBinding_Unbind]: {
-    args: [projectId: string];
-    result: { success: boolean };
-  };
-  [IpcChannel.ProjectBinding_GetByPath]: {
-    args: [localRootPath: string];
-    result: ProjectBindingDTO | null;
-  };
-  [IpcChannel.ProjectBinding_GetByProjectId]: {
-    args: [projectId: string];
-    result: ProjectBindingDTO | null;
-  };
-  [IpcChannel.ProjectBinding_Resolve]: {
-    args: [localRootPath: string];
-    result: ResolveBindingResult;
-  };
-  [IpcChannel.ProjectBinding_EnsureBootstrap]: {
-    args: [params: EnsureBindingFromBootstrapParams];
-    result: EnsureBindingFromBootstrapResult;
-  };
-  [IpcChannel.ProjectBinding_SetEnabled]: {
-    args: [projectId: string, enabled: boolean];
-    result: { success: boolean };
-  };
-
-  // ============ External Change Detection ============
-  [IpcChannel.ExternalChange_Resolve]: {
-    args: [params: ResolveExternalChangeParams];
-    result: { success: boolean; resolved: number; failed: number; errors: string[] };
-  };
-
-  // ============ Maintenance ============
-  [IpcChannel.ProjectBinding_Rebuild]: {
-    args: [params: RebuildWorkingCopyParams];
-    result: RebuildWorkingCopyResult;
-  };
-  [IpcChannel.ProjectBinding_Rebind]: {
-    args: [params: RebindProjectParams];
-    result: RebindProjectResult;
-  };
-  [IpcChannel.ProjectBinding_ExportSnapshot]: {
-    args: [params: ExportSnapshotParams];
-    result: ExportSnapshotResult;
-  };
-}
+export interface IPCProjectContract {}

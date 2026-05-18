@@ -8,10 +8,8 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import { createElement } from 'react';
-import type { StudioIMMessageDTO } from '../../../../../shared/api-types';
 import type { ArtifactSummary, ChatMessage } from '../../../../../shared/types/chat';
 import { t } from '../../locales';
-import { getProjectRuntimeContext } from '../../services/core';
 
 export function shouldOfferAutoFix(content: string): boolean {
   return /帮你直接改好|帮我直接改好|直接修复|直接改吧|我帮你改好吗|告诉我我帮你直接改好|允许.*自动修复/i.test(
@@ -42,26 +40,8 @@ export function hasVisibleMessageContent(message: ChatMessage): boolean {
 export const DISPLAY_NAME_USER = 'User';
 export const DISPLAY_NAME_BOT = 'SciPenClaw';
 
-/** Check whether a message was sent by the bot by comparing sender_id against botUserId. */
-export function isBotMessage(message: StudioIMMessageDTO, botUserId: string | undefined): boolean {
-  return Boolean(botUserId && message.sender_id === botUserId);
-}
-
-export function buildIMFilePath(message: StudioIMMessageDTO): string | null {
-  const collaboration = message.metadata?.collaboration;
-  if (!collaboration?.file_path) {
-    return null;
-  }
-
-  const rootPath =
-    collaboration.root_path?.replace(/\\/g, '/').replace(/\/+$/, '') ||
-    getProjectRuntimeContext().rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
-  if (!rootPath) {
-    return null;
-  }
-  const relativePath = collaboration.file_path.replace(/\\/g, '/').replace(/^\/+/, '');
-  return `${rootPath}/${relativePath}`;
-}
+// IM-driven helpers (isBotMessage / buildIMFilePath) were removed in the
+// P3 cleanup. Restore from git history if SNACA brings back a similar flow.
 
 export function hasSystemErrorPrefix(content: string): boolean {
   const normalized = content.trim();
