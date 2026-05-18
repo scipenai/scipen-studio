@@ -142,7 +142,7 @@ export type CursorBlinking = 'blink' | 'smooth' | 'phase' | 'expand' | 'solid';
 export type WhitespaceMode = 'none' | 'boundary' | 'selection' | 'all';
 
 export type LineHighlightMode = 'none' | 'gutter' | 'line' | 'all';
-export type AssistantRuntime = 'openclaw' | 'builtin';
+export type AssistantRuntime = 'openclaw' | 'builtin' | 'snaca';
 export interface AppSettings {
   ai: {
     provider: AIProvider;

@@ -103,6 +103,13 @@ export const ChatContextSchema = z.object({
   mentions: z.array(MentionSchema).optional(),
   diagnostics: z.array(DiagnosticItemSchema).optional(),
   project: ProjectMetaSchema.optional(),
+  /**
+   * Free-form markdown summarising project-level intel (documentclass /
+   * packages / macros / current section / content window / last compile /
+   * etc.). Forwarded verbatim into the LLM system prompt by SNACA.
+   * Cap at 8KB to keep prompt budget predictable.
+   */
+  project_intel: z.string().max(8192).optional(),
 });
 export type ChatContext = z.infer<typeof ChatContextSchema>;
 

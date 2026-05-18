@@ -232,6 +232,11 @@ export const ServiceNames = {
   AGENT_SIDECAR: 'agentSidecar',
   /** JSON-RPC editor-protocol client over the sidecar. */
   AGENT_PROTOCOL_CLIENT: 'agentProtocolClient',
+  /**
+   * Bridges renderer's edit-proposal decisions onto disk + back to SNACA
+   * via `editConfirm`. Owns the host_applies fs writes.
+   */
+  AGENT_EDIT_APPLY: 'agentEditApply',
 } as const;
 
 /** Union of all service name values. */

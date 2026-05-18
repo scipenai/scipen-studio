@@ -26,6 +26,11 @@ import type {
   TurnDeltaParams,
   UsageUpdateParams,
 } from '../../main/services/agent/protocol/schemas';
+import type {
+  AgentEditAppliedPayload,
+  AgentResolveEditProposalParams,
+  AgentResolveEditProposalResult,
+} from '../../main/services/agent/interfaces/IAgentEditApplyService';
 import type { SidecarState } from '../../main/services/agent/interfaces/ISnacaSidecarService';
 import { createSafeListener } from './_shared';
 
@@ -98,6 +103,16 @@ export const agentApi = {
   confirmTool: (params: ToolConfirmParams): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke(IpcChannel.Agent_ConfirmTool, params),
 
+  /**
+   * host_applies flow: renderer hands a Diff Review decision to main; main
+   * writes the file then forwards `editConfirm` to SNACA. Returns the apply
+   * outcome (incl. SNACA's confirm reply).
+   */
+  resolveEditProposal: (
+    params: AgentResolveEditProposalParams
+  ): Promise<AgentResolveEditProposalResult> =>
+    ipcRenderer.invoke(IpcChannel.Agent_ResolveEditProposal, params),
+
   // ------ Streaming events ------
 
   onSidecarStateChange: createSafeListener<SidecarState>(IpcChannel.Agent_SidecarStateChanged),
@@ -115,4 +130,5 @@ export const agentApi = {
   onMemoryUpdated: createSafeListener<MemoryUpdatedParams>(IpcChannel.Agent_MemoryUpdated),
   onError: createSafeListener<ErrorNotificationParams>(IpcChannel.Agent_Error),
   onLog: createSafeListener<LogWriteParams>(IpcChannel.Agent_Log),
+  onEditApplied: createSafeListener<AgentEditAppliedPayload>(IpcChannel.Agent_EditApplied),
 };

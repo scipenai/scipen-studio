@@ -24,6 +24,7 @@ import {
 
 import {
   useAIConfigSync,
+  useAgentBridge,
   useFileOpen,
   useFileWatcher,
   useGlobalShortcuts,
@@ -53,6 +54,7 @@ function AppContent() {
   useGlobalShortcuts();
   useMemoryCleanup();
   useFileOpen();
+  useAgentBridge();
 
   useEffect(() => {
     if (sidebarTab === 'im' || sidebarTab === 'files') {

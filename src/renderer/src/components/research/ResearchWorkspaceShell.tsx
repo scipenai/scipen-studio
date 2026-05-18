@@ -28,6 +28,7 @@ import { t } from '../../locales';
 import { useProposalProcessor } from '../../hooks/useProposalProcessor';
 import { useNativeIM } from '../im/useNativeIM';
 import { MainLayout } from '../layout/MainLayout';
+import { ChatSidebar } from '../chat';
 import { ResearchConversationPane } from './ResearchConversationPane';
 import { IconButton } from '../ui';
 import {
@@ -65,6 +66,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
   const conversationScopeService = getConversationScopeService();
   const isPreviewVisible = usePreviewVisible();
   const isOpenClawRuntime = settings.assistant.runtime === 'openclaw';
+  const isSnacaRuntime = settings.assistant.runtime === 'snaca';
   const hasIMConfig = Boolean(settings.im.serverUrl && settings.im.token);
   const isBootstrapReady = runtime.bootstrapState === 'ready';
   const imState = useNativeIM({
@@ -432,35 +434,42 @@ export const ResearchWorkspaceShell: React.FC = () => {
               minSize={22}
               className="min-h-0 min-w-0"
             >
-              <ResearchConversationPane
-                isOpenClawRuntime={isOpenClawRuntime}
-                openClawStatus={openClawStatus}
-                hasIMConfig={hasIMConfig}
-                conversationScopeError={conversationScopeError}
-                isOpenClawReady={isOpenClawReady}
-                builtinMessages={builtinMessages}
-                imMessages={imState.snapshot.messages}
-                imLoading={imState.isLoading || false}
-                isGenerating={isGenerating}
-                chatError={chatError}
-                inputValue={inputValue}
-                inputPlaceholder={inputPlaceholder}
-                onInputChange={setInputValue}
-                onSend={actions.handleSendStable}
-                onRetryConnection={actions.handleRetryConnection}
-                onOpenSettings={actions.handleOpenSettings}
-                onOpenArtifact={actions.handleOpenArtifactStable}
-                onCompileArtifact={actions.handleCompileArtifactStable}
-                onOpenIMFile={actions.handleOpenIMFile}
-                onCompileIMFile={actions.handleCompileIMFile}
-                onAcceptAutoFix={actions.handleAcceptAutoFixStable}
-                autoFixLabel={autoFixLabel}
-                botUserId={runtime.botUserId || undefined}
-                draftContextBadges={pendingErrorDraft?.badges ?? []}
-                inputPulseKey={inputPulseKey}
-                onDismissDraftContextBadge={actions.handleDismissDraftContextBadge}
-                activeTabPath={activeTabPath ?? undefined}
-              />
+              {isSnacaRuntime ? (
+                <ChatSidebar
+                  workspaceRoot={projectPath}
+                  displayName={projectPath ? projectPath.replace(/\\/g, '/').split('/').pop() : undefined}
+                />
+              ) : (
+                <ResearchConversationPane
+                  isOpenClawRuntime={isOpenClawRuntime}
+                  openClawStatus={openClawStatus}
+                  hasIMConfig={hasIMConfig}
+                  conversationScopeError={conversationScopeError}
+                  isOpenClawReady={isOpenClawReady}
+                  builtinMessages={builtinMessages}
+                  imMessages={imState.snapshot.messages}
+                  imLoading={imState.isLoading || false}
+                  isGenerating={isGenerating}
+                  chatError={chatError}
+                  inputValue={inputValue}
+                  inputPlaceholder={inputPlaceholder}
+                  onInputChange={setInputValue}
+                  onSend={actions.handleSendStable}
+                  onRetryConnection={actions.handleRetryConnection}
+                  onOpenSettings={actions.handleOpenSettings}
+                  onOpenArtifact={actions.handleOpenArtifactStable}
+                  onCompileArtifact={actions.handleCompileArtifactStable}
+                  onOpenIMFile={actions.handleOpenIMFile}
+                  onCompileIMFile={actions.handleCompileIMFile}
+                  onAcceptAutoFix={actions.handleAcceptAutoFixStable}
+                  autoFixLabel={autoFixLabel}
+                  botUserId={runtime.botUserId || undefined}
+                  draftContextBadges={pendingErrorDraft?.badges ?? []}
+                  inputPulseKey={inputPulseKey}
+                  onDismissDraftContextBadge={actions.handleDismissDraftContextBadge}
+                  activeTabPath={activeTabPath ?? undefined}
+                />
+              )}
             </Panel>
 
             {showEditorPane && (

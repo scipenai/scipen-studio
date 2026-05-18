@@ -15,3 +15,7 @@ export {
   createEditorProtocolClient,
   EditorProtocolClient,
 } from './EditorProtocolClient';
+export {
+  createAgentEditApplyService,
+  AgentEditApplyService,
+} from './AgentEditApplyService';

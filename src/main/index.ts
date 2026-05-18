@@ -796,6 +796,7 @@ function registerIpcHandlers() {
     registerAgentHandlers({
       sidecar: c.get(ServiceNames.AGENT_SIDECAR),
       client: c.get(ServiceNames.AGENT_PROTOCOL_CLIENT),
+      editApply: c.get(ServiceNames.AGENT_EDIT_APPLY),
       config: c.get(ServiceNames.CONFIG),
     });
   }

@@ -30,7 +30,9 @@ import { OfflineOpsStore } from './OfflineOpsStore';
 import { OfflineOpsManager } from './OfflineOpsManager';
 import { createSnacaSidecarService } from './agent/SnacaSidecarService';
 import { createEditorProtocolClient } from './agent/EditorProtocolClient';
+import { createAgentEditApplyService } from './agent/AgentEditApplyService';
 import type { ISnacaSidecarService } from './agent/interfaces/ISnacaSidecarService';
+import type { IEditorProtocolClient } from './agent/interfaces/IEditorProtocolClient';
 import path from 'path';
 import { app } from 'electron';
 
@@ -140,6 +142,13 @@ export function registerServices(): void {
     })
   );
 
+  container.registerLazy(ServiceNames.AGENT_EDIT_APPLY, () =>
+    createAgentEditApplyService({
+      client: container.get<IEditorProtocolClient>(ServiceNames.AGENT_PROTOCOL_CLIENT),
+      fileSystem: container.get<IFileSystemService>(ServiceNames.FILE_SYSTEM),
+    })
+  );
+
   // ====== LSP Services ======
 
   // LSP runs in a separate UtilityProcess for isolation
@@ -156,8 +165,8 @@ export function registerServices(): void {
 /**
  * Resolve the snaca-editor binary path.
  *
- * - In dev: prefer `D:\scipen\snaca\target\debug\snaca-editor.exe` (or the
- *   parent SNACA workspace's debug build relative to this repo).
+ * - In dev: `<repo>/snaca/target/debug/snaca-editor[.exe]` — the in-tree
+ *   Rust workspace, built with `cargo build --bin snaca-editor`.
  * - Packaged: `resources/bin/snaca-editor[.exe]` (see electron-builder
  *   `extraResources`).
  *
@@ -171,16 +180,7 @@ function resolveSnacaEditorBinaryPath(): string {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'bin', `snaca-editor${ext}`);
   }
-  // Dev: SNACA repo lives at ../../snaca (relative to scipen-studio root) for
-  // now. The next phase moves it inside scipen-studio/ and updates this.
-  return path.join(
-    app.getAppPath(),
-    '..',
-    'snaca',
-    'target',
-    'debug',
-    `snaca-editor${ext}`
-  );
+  return path.join(app.getAppPath(), 'snaca', 'target', 'debug', `snaca-editor${ext}`);
 }
 
 // ====== Service Lifecycle ======

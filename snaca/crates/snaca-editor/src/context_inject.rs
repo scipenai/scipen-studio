@@ -69,6 +69,17 @@ pub fn render_xml(ctx: &ChatContext) -> String {
         }
     }
 
+    if let Some(intel) = &ctx.project_intel {
+        if !intel.is_empty() {
+            out.push_str("  <project_intel>\n");
+            out.push_str(&escape_xml(intel));
+            if !intel.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str("  </project_intel>\n");
+        }
+    }
+
     out.push_str("</context>\n");
     out
 }
@@ -181,5 +192,27 @@ mod tests {
         };
         let s = render_xml(&ctx);
         assert!(s.contains("a &lt; b &amp; c"));
+    }
+
+    #[test]
+    fn renders_project_intel_block() {
+        let ctx = ChatContext {
+            project_intel: Some("# Document\n\\documentclass{article}".into()),
+            ..Default::default()
+        };
+        let s = render_xml(&ctx);
+        assert!(s.contains("<project_intel>"));
+        assert!(s.contains("\\documentclass{article}"));
+        assert!(s.contains("</project_intel>"));
+    }
+
+    #[test]
+    fn omits_project_intel_when_empty() {
+        let ctx = ChatContext {
+            project_intel: Some(String::new()),
+            ..Default::default()
+        };
+        let s = render_xml(&ctx);
+        assert!(!s.contains("project_intel"));
     }
 }

@@ -17,6 +17,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { agentClient } from '../../services/agent/AgentClientService';
+import { buildChatContext } from '../../services/agent/ChatContextBuilder';
 import { chatStreamStore } from '../../services/agent/ChatStreamStore';
 import { AgentChatInput } from './AgentChatInput';
 import { ChatMessage } from './ChatMessage';
@@ -75,7 +76,8 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
 
   const handleSend = useCallback(async (text: string) => {
     try {
-      const { turnId } = await agentClient.sendChat(text, {});
+      const context = buildChatContext();
+      const { turnId } = await agentClient.sendChat(text, context);
       chatStreamStore.beginUserTurn(turnId, text);
     } catch (err) {
       setStartup({ kind: 'error', message: extractErrorMessage(err) });

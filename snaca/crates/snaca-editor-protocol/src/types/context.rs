@@ -20,6 +20,13 @@ pub struct ChatContext {
     pub diagnostics: Option<Vec<DiagnosticItem>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<ProjectMeta>,
+    /// Free-form markdown summarising project-level intel the host has cheaply
+    /// gathered (documentclass / packages / macros / current section /
+    /// content window around the cursor / last compile outcome, …). Rendered
+    /// verbatim inside `<project_intel>` so the LLM can read it without
+    /// schema upgrades on each new field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_intel: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

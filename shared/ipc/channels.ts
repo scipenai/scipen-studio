@@ -246,6 +246,13 @@ export enum IpcChannel {
   Agent_CancelTurn = 'agent:cancel-turn',
   Agent_ConfirmEdit = 'agent:confirm-edit',
   Agent_ConfirmTool = 'agent:confirm-tool',
+  /**
+   * Renderer-decided resolution of an `edit.propose` event. Main reads the
+   * file, validates `base_hash`, applies the (possibly partial) hunks, and
+   * forwards `editConfirm` to SNACA. Differs from `Agent_ConfirmEdit` which
+   * is a thin passthrough — this one is the host-applies workflow.
+   */
+  Agent_ResolveEditProposal = 'agent:resolve-edit-proposal',
   /** Streaming events pushed from main to renderer. */
   Agent_SidecarStateChanged = 'agent:sidecar-state-changed',
   Agent_TurnDelta = 'agent:turn-delta',
@@ -258,6 +265,13 @@ export enum IpcChannel {
   Agent_MemoryUpdated = 'agent:memory-updated',
   Agent_Error = 'agent:error',
   Agent_Log = 'agent:log',
+  /**
+   * Fires after host_applies-mode `Agent_ResolveEditProposal` succeeds with
+   * `accept`. Payload carries the post-edit `{ file, content, applied_hash }`
+   * so the renderer can sync the Monaco model + EditorService state without
+   * round-tripping through fs watcher.
+   */
+  Agent_EditApplied = 'agent:edit-applied',
 
   // ====== Chat ======
   Chat_SendMessage = 'chat:send-message',

@@ -210,6 +210,7 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Agent_CancelTurn,
   IpcChannel.Agent_ConfirmEdit,
   IpcChannel.Agent_ConfirmTool,
+  IpcChannel.Agent_ResolveEditProposal,
 
   // ====== Chat ======
   IpcChannel.Chat_SendMessage,
@@ -275,6 +276,7 @@ export const ALLOWED_EVENT_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Agent_MemoryUpdated,
   IpcChannel.Agent_Error,
   IpcChannel.Agent_Log,
+  IpcChannel.Agent_EditApplied,
 
   IpcChannel.App_UpdateStatus,
   IpcChannel.AI_StreamChunk,

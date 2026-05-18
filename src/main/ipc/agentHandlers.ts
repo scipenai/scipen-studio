@@ -12,17 +12,22 @@
  */
 
 import { BrowserWindow, ipcMain } from 'electron';
+import { z } from 'zod';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import type { IEditorProtocolClient } from '../services/agent/interfaces/IEditorProtocolClient';
 import type {
   ISnacaSidecarService,
   SidecarState,
 } from '../services/agent/interfaces/ISnacaSidecarService';
+import type { IAgentEditApplyService } from '../services/agent/interfaces/IAgentEditApplyService';
 import { EDITOR_PROTOCOL_VERSION } from '../services/agent/protocol/methods';
-import type {
-  EditConfirmParams,
-  SnacaConfig,
-  ToolConfirmParams,
+import {
+  ChatContextSchema,
+  EditConfirmParamsSchema,
+  ToolConfirmParamsSchema,
+  type EditConfirmParams,
+  type SnacaConfig,
+  type ToolConfirmParams,
 } from '../services/agent/protocol/schemas';
 import { createLogger } from '../services/LoggerService';
 import { DisposableStore } from '../../../shared/utils/lifecycle';
@@ -33,6 +38,7 @@ const logger = createLogger('AgentHandlers');
 export interface AgentHandlersDeps {
   sidecar: ISnacaSidecarService;
   client: IEditorProtocolClient;
+  editApply: IAgentEditApplyService;
   config: IConfigManager;
 }
 
@@ -40,12 +46,6 @@ interface AgentSessionState {
   sessionId: string | null;
   threadId: string | null;
   inflightTurn: { turnId: string; kind: 'chat' | 'inline_edit' | 'composer' } | null;
-}
-
-interface StartProjectParams {
-  workspaceRoot: string;
-  displayName?: string;
-  projectType?: 'latex' | 'typst' | 'mixed';
 }
 
 const HOST_CAPS = {
@@ -65,8 +65,54 @@ const HOST_CAPS = {
   framing: ['ndjson' as const],
 };
 
+// ----- Input validation schemas (renderer → main) -----
+// These mirror what `agentApi` (preload) sends. Note the camelCase shape
+// because we haven't translated to wire (snake_case) yet at this boundary.
+
+const startProjectParamsSchema = z.object({
+  workspaceRoot: z.string().min(1).max(4096),
+  displayName: z.string().max(512).optional(),
+  projectType: z.enum(['latex', 'typst', 'mixed']).optional(),
+});
+
+const sendChatPayloadSchema = z.object({
+  content: z.string().min(1).max(50_000),
+  context: ChatContextSchema,
+});
+
+const threadTitleSchema = z.string().max(200).optional();
+const threadIdSchema = z.string().min(1).max(128);
+const turnIdSchema = z.string().min(1).max(128);
+
+const resolveEditProposalSchema = z.object({
+  proposalId: z.string().min(1).max(128),
+  decision: z.enum(['accept', 'reject', 'accept_partial']),
+  perHunk: z
+    .array(
+      z.object({
+        hunkId: z.string().min(1).max(64),
+        decision: z.enum(['accept', 'reject']),
+      })
+    )
+    .max(256)
+    .optional(),
+  workspaceRoot: z.string().min(1).max(4096).optional(),
+});
+
+/** Throw a friendly error from a Zod failure so the renderer can surface it. */
+function parseOrThrow<T>(schema: z.ZodSchema<T>, value: unknown, label: string): T {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`)
+      .join('; ');
+    throw new Error(`Invalid ${label}: ${issues}`);
+  }
+  return result.data;
+}
+
 export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore {
-  const { sidecar, client, config } = deps;
+  const { sidecar, client, editApply, config } = deps;
   const store = new DisposableStore();
 
   /** Per-app singleton session/thread for P1. Multi-project comes later. */
@@ -147,13 +193,15 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
   store.add(client.onMemoryUpdated((e) => broadcast(IpcChannel.Agent_MemoryUpdated, e)));
   store.add(client.onError((e) => broadcast(IpcChannel.Agent_Error, e)));
   store.add(client.onLog((e) => broadcast(IpcChannel.Agent_Log, e)));
+  store.add(editApply.onEditApplied((e) => broadcast(IpcChannel.Agent_EditApplied, e)));
 
   // ----- Request handlers -----
 
   ipcMain.handle(IpcChannel.Agent_GetSidecarState, (): SidecarState => sidecar.state);
   ipcMain.handle(IpcChannel.Agent_GetSessionState, (): AgentSessionState => ({ ...state }));
 
-  ipcMain.handle(IpcChannel.Agent_StartProject, async (_e, params: StartProjectParams) => {
+  ipcMain.handle(IpcChannel.Agent_StartProject, async (_e, rawParams: unknown) => {
+    const params = parseOrThrow(startProjectParamsSchema, rawParams, 'startProject params');
     await initIfNeeded();
     if (state.sessionId) {
       // Already running — close prior session before opening new one.
@@ -190,14 +238,16 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
     };
   });
 
-  ipcMain.handle(IpcChannel.Agent_NewThread, async (_e, title?: string) => {
+  ipcMain.handle(IpcChannel.Agent_NewThread, async (_e, rawTitle: unknown) => {
+    const title = parseOrThrow(threadTitleSchema, rawTitle, 'newThread title');
     requireSession(state);
     const result = await client.sessionNewThread(state.sessionId!, title);
     state.threadId = result.thread_id;
     return { threadId: result.thread_id, title: result.title };
   });
 
-  ipcMain.handle(IpcChannel.Agent_SwitchThread, async (_e, threadId: string) => {
+  ipcMain.handle(IpcChannel.Agent_SwitchThread, async (_e, rawThreadId: unknown) => {
+    const threadId = parseOrThrow(threadIdSchema, rawThreadId, 'switchThread threadId');
     requireSession(state);
     await client.sessionSwitchThread(state.sessionId!, threadId);
     state.threadId = threadId;
@@ -210,37 +260,65 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
     return result.threads;
   });
 
-  ipcMain.handle(
-    IpcChannel.Agent_SendChat,
-    async (_e, params: { content: string; context: Record<string, unknown> }) => {
-      requireSession(state);
-      if (!state.threadId) {
-        // First message — auto-create a default thread.
-        const t = await client.sessionNewThread(state.sessionId!, undefined);
-        state.threadId = t.thread_id;
-      }
-      const result = await client.chatSend({
-        session_id: state.sessionId!,
-        thread_id: state.threadId!,
-        content: params.content,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        context: (params.context ?? {}) as any,
-      });
-      state.inflightTurn = { turnId: result.turn_id, kind: 'chat' };
-      return { turnId: result.turn_id };
+  ipcMain.handle(IpcChannel.Agent_SendChat, async (_e, rawPayload: unknown) => {
+    const payload = parseOrThrow(sendChatPayloadSchema, rawPayload, 'sendChat payload');
+    requireSession(state);
+    if (!state.threadId) {
+      // First message — auto-create a default thread.
+      const t = await client.sessionNewThread(state.sessionId!, undefined);
+      state.threadId = t.thread_id;
     }
-  );
+    const result = await client.chatSend({
+      session_id: state.sessionId!,
+      thread_id: state.threadId!,
+      content: payload.content,
+      context: payload.context,
+    });
+    state.inflightTurn = { turnId: result.turn_id, kind: 'chat' };
+    return { turnId: result.turn_id };
+  });
 
-  ipcMain.handle(IpcChannel.Agent_CancelTurn, async (_e, turnId: string) => {
+  ipcMain.handle(IpcChannel.Agent_CancelTurn, async (_e, rawTurnId: unknown) => {
+    const turnId = parseOrThrow(turnIdSchema, rawTurnId, 'cancelTurn turnId');
     await client.turnCancel({ turn_id: turnId });
     return { ok: true } as const;
   });
 
-  ipcMain.handle(IpcChannel.Agent_ConfirmEdit, async (_e, params: EditConfirmParams) => {
+  ipcMain.handle(IpcChannel.Agent_ConfirmEdit, async (_e, rawParams: unknown): Promise<unknown> => {
+    const params: EditConfirmParams = parseOrThrow(
+      EditConfirmParamsSchema,
+      rawParams,
+      'confirmEdit params'
+    );
     return await client.editConfirm(params);
   });
 
-  ipcMain.handle(IpcChannel.Agent_ConfirmTool, async (_e, params: ToolConfirmParams) => {
+  ipcMain.handle(
+    IpcChannel.Agent_ResolveEditProposal,
+    async (_e, rawParams: unknown): Promise<unknown> => {
+      const params = parseOrThrow(
+        resolveEditProposalSchema,
+        rawParams,
+        'resolveEditProposal params'
+      );
+      try {
+        return await editApply.resolve(params);
+      } catch (err) {
+        logger.error('resolveEditProposal failed', {
+          proposalId: params.proposalId,
+          error: (err as Error).message,
+        });
+        throw err;
+      }
+    }
+  );
+
+  ipcMain.handle(IpcChannel.Agent_ConfirmTool, async (_e, rawParams: unknown): Promise<unknown> => {
+    const params: ToolConfirmParams = parseOrThrow(
+      ToolConfirmParamsSchema,
+      rawParams,
+      'confirmTool params'
+    );
     return await client.toolConfirm(params);
   });
 
