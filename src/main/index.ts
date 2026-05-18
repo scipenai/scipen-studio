@@ -61,11 +61,7 @@ import {
   registerOverleafHandlers,
   registerOverleafLiveHandlers,
   registerSelectionHandlers,
-  registerIMHandlers,
   registerCollaborationOwnerHandlers,
-  registerOTHandlers,
-  registerProjectBindingHandlers,
-  registerProjectConversationHandlers,
   registerAgentHandlers,
   registerSettingsHandlers,
   registerUpdateHandlers,
@@ -777,10 +773,7 @@ function registerIpcHandlers() {
   registerConfigHandlers();
   registerDialogHandlers();
   registerSettingsHandlers();
-  registerIMHandlers();
   registerCollaborationOwnerHandlers();
-  registerOTHandlers();
-  registerProjectConversationHandlers();
   registerOverleafHandlers({
     getProjectMetaService,
     setProjectMetaService,
@@ -789,7 +782,6 @@ function registerIpcHandlers() {
     getAuthService: () => overleafAuthService,
   });
   registerOverleafLiveHandlers({ getAuthService: () => overleafAuthService });
-  registerProjectBindingHandlers();
 
   // ====== Register Agent Handlers (SNACA sidecar bridge) ======
   // The sidecar is lazily spawned on first `startProject` call from

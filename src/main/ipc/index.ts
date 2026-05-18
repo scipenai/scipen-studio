@@ -18,14 +18,10 @@ export { registerConfigHandlers } from './configHandlers';
 export { registerDialogHandlers } from './dialogHandlers';
 export { registerSettingsHandlers } from './settingsHandlers';
 export { registerSelectionHandlers, type SelectionHandlersDeps } from './selectionHandlers';
-export { registerIMHandlers } from './imHandlers';
 export { registerOverleafHandlers, type OverleafHandlersDeps } from './overleafHandlers';
 
 export { registerCollaborationOwnerHandlers } from './collaborationOwnerHandlers';
-export { registerOTHandlers } from './otHandlers';
 export { registerOverleafLiveHandlers } from './overleafLiveHandlers';
-export { registerProjectBindingHandlers } from './projectBindingHandlers';
-export { registerProjectConversationHandlers } from './projectConversationHandlers';
 export { registerUpdateHandlers, type UpdateHandlersDeps } from './updateHandlers';
 export { registerAgentHandlers, type AgentHandlersDeps } from './agentHandlers';
 

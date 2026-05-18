@@ -20,15 +20,7 @@ import { getLSPProcessClient } from './LSPProcessClient';
 import { LaTeXCompiler } from './LaTeXCompiler';
 import { SelectionService } from './SelectionService';
 import { createSyncTeXService } from './SyncTeXService';
-import { StudioIMService } from './StudioIMService';
-import { StudioOTService } from './StudioOTService';
 import { StudioOverleafLiveService } from './StudioOverleafLiveService';
-import { ProjectBindingService } from './ProjectBindingService';
-import { ProjectConversationService } from './ProjectConversationService';
-import { ReplicaWritebackService } from './ReplicaWritebackService';
-import { ExternalChangeDetector } from './ExternalChangeDetector';
-import { OfflineOpsStore } from './OfflineOpsStore';
-import { OfflineOpsManager } from './OfflineOpsManager';
 import { createSnacaSidecarService } from './agent/SnacaSidecarService';
 import { createEditorProtocolClient } from './agent/EditorProtocolClient';
 import { createAgentEditApplyService } from './agent/AgentEditApplyService';
@@ -105,30 +97,9 @@ export function registerServices(): void {
     ServiceNames.SELECTION,
     () => new SelectionService()
   );
-  container.registerSingleton(ServiceNames.STUDIO_IM, () => new StudioIMService());
-  container.registerSingleton(ServiceNames.STUDIO_OT, () => new StudioOTService());
   container.registerSingleton(
     ServiceNames.STUDIO_OVERLEAF_LIVE,
     () => new StudioOverleafLiveService()
-  );
-  container.registerSingleton(ServiceNames.PROJECT_BINDING, () => new ProjectBindingService());
-  container.registerSingleton(
-    ServiceNames.PROJECT_CONVERSATION,
-    () => new ProjectConversationService()
-  );
-  container.registerSingleton(ServiceNames.REPLICA_WRITEBACK, () => new ReplicaWritebackService());
-  container.registerSingleton(
-    ServiceNames.EXTERNAL_CHANGE_DETECTOR,
-    () => new ExternalChangeDetector()
-  );
-  container.registerSingleton(ServiceNames.OFFLINE_OPS_STORE, () => new OfflineOpsStore());
-  container.registerSingleton(
-    ServiceNames.OFFLINE_OPS_MANAGER,
-    () =>
-      new OfflineOpsManager(
-        container.get<StudioOTService>(ServiceNames.STUDIO_OT),
-        container.get<OfflineOpsStore>(ServiceNames.OFFLINE_OPS_STORE)
-      )
   );
 
   // ====== Agent (SNACA sidecar + editor-protocol client) ======
@@ -316,38 +287,6 @@ export function getChatOrchestrator(): IChatOrchestrator {
   return getServiceContainer().get<IChatOrchestrator>(ServiceNames.CHAT_ORCHESTRATOR);
 }
 
-export function getStudioIMService(): StudioIMService {
-  return getServiceContainer().get<StudioIMService>(ServiceNames.STUDIO_IM);
-}
-
 export function getStudioOverleafLiveService(): StudioOverleafLiveService {
   return getServiceContainer().get<StudioOverleafLiveService>(ServiceNames.STUDIO_OVERLEAF_LIVE);
-}
-
-export function getStudioOTService(): StudioOTService {
-  return getServiceContainer().get<StudioOTService>(ServiceNames.STUDIO_OT);
-}
-
-export function getProjectBindingService(): ProjectBindingService {
-  return getServiceContainer().get<ProjectBindingService>(ServiceNames.PROJECT_BINDING);
-}
-
-export function getProjectConversationService(): ProjectConversationService {
-  return getServiceContainer().get<ProjectConversationService>(ServiceNames.PROJECT_CONVERSATION);
-}
-
-export function getReplicaWritebackService(): ReplicaWritebackService {
-  return getServiceContainer().get<ReplicaWritebackService>(ServiceNames.REPLICA_WRITEBACK);
-}
-
-export function getExternalChangeDetector(): ExternalChangeDetector {
-  return getServiceContainer().get<ExternalChangeDetector>(ServiceNames.EXTERNAL_CHANGE_DETECTOR);
-}
-
-export function getOfflineOpsStore(): OfflineOpsStore {
-  return getServiceContainer().get<OfflineOpsStore>(ServiceNames.OFFLINE_OPS_STORE);
-}
-
-export function getOfflineOpsManager(): OfflineOpsManager {
-  return getServiceContainer().get<OfflineOpsManager>(ServiceNames.OFFLINE_OPS_MANAGER);
 }

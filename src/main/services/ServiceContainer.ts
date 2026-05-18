@@ -215,15 +215,7 @@ export const ServiceNames = {
   TINYMIST: 'tinymist',
 
   SELECTION: 'selection',
-  STUDIO_IM: 'studioIM',
-  STUDIO_OT: 'studioOT',
   STUDIO_OVERLEAF_LIVE: 'studioOverleafLive',
-  PROJECT_CONVERSATION: 'projectConversation',
-  PROJECT_BINDING: 'projectBinding',
-  REPLICA_WRITEBACK: 'replicaWriteback',
-  EXTERNAL_CHANGE_DETECTOR: 'externalChangeDetector',
-  OFFLINE_OPS_STORE: 'offlineOpsStore',
-  OFFLINE_OPS_MANAGER: 'offlineOpsManager',
 
   AI: 'ai',
   CHAT_ORCHESTRATOR: 'chatOrchestrator',
