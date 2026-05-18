@@ -1,0 +1,126 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/snaca-core",
+    "crates/snaca-tools-api",
+    "crates/snaca-llm",
+    "crates/snaca-tools",
+    "crates/snaca-mcp",
+    "crates/snaca-skills",
+    "crates/snaca-workspace",
+    "crates/snaca-state",
+    "crates/snaca-memory",
+    "crates/snaca-engine",
+    "crates/snaca-channel-protocol",
+    "crates/snaca-channel-host",
+    "crates/snaca-editor-protocol",
+    "crates/snaca-editor",
+    "crates/snaca-server",
+    "crates/snaca-cli",
+    "crates/snaca-plugin-lark",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "Apache-2.0"
+repository = "https://github.com/hongxuan/snaca"
+authors = ["SNACA Authors"]
+
+[workspace.dependencies]
+# Internal crates
+snaca-core = { path = "crates/snaca-core", version = "0.1.0" }
+snaca-tools-api = { path = "crates/snaca-tools-api", version = "0.1.0" }
+snaca-llm = { path = "crates/snaca-llm", version = "0.1.0" }
+snaca-tools = { path = "crates/snaca-tools", version = "0.1.0" }
+snaca-mcp = { path = "crates/snaca-mcp", version = "0.1.0" }
+snaca-skills = { path = "crates/snaca-skills", version = "0.1.0" }
+snaca-workspace = { path = "crates/snaca-workspace", version = "0.1.0" }
+snaca-state = { path = "crates/snaca-state", version = "0.1.0" }
+snaca-memory = { path = "crates/snaca-memory", version = "0.1.0" }
+snaca-engine = { path = "crates/snaca-engine", version = "0.1.0" }
+snaca-channel-protocol = { path = "crates/snaca-channel-protocol", version = "0.1.0" }
+snaca-channel-host = { path = "crates/snaca-channel-host", version = "0.1.0" }
+snaca-editor-protocol = { path = "crates/snaca-editor-protocol", version = "0.1.0" }
+snaca-editor = { path = "crates/snaca-editor", version = "0.1.0" }
+snaca-server = { path = "crates/snaca-server", version = "0.1.0" }
+
+# Async runtime & utilities
+tokio = { version = "1.52", features = ["full"] }
+tokio-util = { version = "0.7.18", features = ["codec", "io", "rt"] }
+futures = "0.3.32"
+async-stream = "0.3.6"
+async-trait = "0.1.89"
+bytes = "1.11"
+
+# Serialization
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+toml = "1.1"
+
+# Error handling
+thiserror = "2.0.18"
+anyhow = "1.0.102"
+
+# Observability
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+
+# IDs & encoding
+uuid = { version = "1.23", features = ["v4", "serde"] }
+blake3 = "1.8"
+data-encoding = "2.11"
+
+# Time
+chrono = { version = "0.4.44", features = ["serde"] }
+
+# HTTP
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls", "multipart", "query"] }
+axum = "0.8.9"
+tower = "0.5.3"
+tower-http = { version = "0.6.10", features = ["trace", "cors"] }
+
+# Database
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "macros", "chrono"] }
+
+# CLI
+clap = { version = "4.6", features = ["derive", "env"] }
+
+# Filesystem
+dirs = "6"
+walkdir = "2.5"
+globset = "0.4.18"
+
+# Text matching
+regex = "1.12"
+
+# YAML (used for skill frontmatter)
+serde_yaml_ng = "0.10"
+
+# Model Context Protocol (Rust SDK).
+# `client` + `transport-child-process` is the minimal feature set for
+# stdio-based MCP servers like @modelcontextprotocol/server-filesystem.
+# `transport-streamable-http-client` + the reqwest backend add the
+# Streamable HTTP transport (the modern MCP spec, supersedes raw SSE)
+# so tenants can point at hosted servers via URL.
+rmcp = { version = "1.6", default-features = false, features = [
+    "client",
+    "transport-child-process",
+    "transport-streamable-http-client",
+    "transport-streamable-http-client-reqwest",
+    "reqwest",
+] }
+
+# Linux landlock LSM (ABI v3+; kernel 5.13+). Used to confine Bash and
+# (M3) MCP child processes to the project workspace.
+landlock = "0.4"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
