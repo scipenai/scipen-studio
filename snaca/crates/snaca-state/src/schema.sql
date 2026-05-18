@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS threads (
     id          TEXT PRIMARY KEY,
     tenant_id   TEXT NOT NULL,
     project_id  TEXT NOT NULL,
+    title       TEXT NOT NULL DEFAULT 'New conversation',
     created_at  TEXT NOT NULL
 );
 

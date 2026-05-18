@@ -3647,6 +3647,7 @@ dependencies = [
  "snaca-core",
  "snaca-editor-protocol",
  "snaca-llm",
+ "snaca-state",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

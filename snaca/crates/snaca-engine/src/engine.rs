@@ -844,6 +844,8 @@ impl Engine {
                 id: thread_id.clone(),
                 tenant_id: tenant_id.clone(),
                 project_id: project_id.clone(),
+                // IM-side threads aren't user-titled; left blank.
+                title: String::new(),
             })
             .await;
         match insert_res {

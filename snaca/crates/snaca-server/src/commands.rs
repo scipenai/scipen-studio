@@ -326,6 +326,7 @@ mod tests {
                 id: snaca_core::ThreadId::new(tid),
                 tenant_id: tenant.clone(),
                 project_id: project_id_from_slug(slug),
+                title: String::new(),
             })
             .await
             .unwrap();

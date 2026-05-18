@@ -4,7 +4,7 @@ use crate::error::{StateError, StateResult};
 use crate::models::{
     ChatBinding, MemoryVector, MessageRow, NewMessage, NewOutboxEntry, NewScheduledTask,
     NewThread, OutboxKind, OutboxRow, OutboxStatus, PersistedDecision, ScheduledTask,
-    StoredApprovalDecision, ThreadCompaction, ThreadRow, ToolCallRow,
+    StoredApprovalDecision, ThreadCompaction, ThreadRow, ThreadSummaryRow, ToolCallRow,
 };
 use chrono::{DateTime, Utc};
 use snaca_core::{
@@ -70,6 +70,33 @@ impl Database {
         // is a no-op.
         self.migrate_approval_decisions_add_input_signature().await?;
         self.migrate_thread_compactions_add_summary_from().await?;
+        self.migrate_threads_add_title().await?;
+        Ok(())
+    }
+
+    /// Editor-mode migration: add `title` to `threads`. Fresh DBs get the
+    /// column from `schema.sql`; legacy DBs (IM-mode pre-editor) backfill
+    /// in place with the default string. SQLite's `ALTER TABLE ADD COLUMN`
+    /// with `NOT NULL DEFAULT` is safe here — the default value populates
+    /// existing rows atomically.
+    async fn migrate_threads_add_title(&self) -> StateResult<()> {
+        let rows = sqlx::query("PRAGMA table_info(threads)")
+            .fetch_all(&self.pool)
+            .await?;
+        let has_col = rows.iter().any(|r| {
+            r.try_get::<String, _>("name")
+                .map(|n| n == "title")
+                .unwrap_or(false)
+        });
+        if has_col {
+            return Ok(());
+        }
+        sqlx::query(
+            "ALTER TABLE threads \
+             ADD COLUMN title TEXT NOT NULL DEFAULT 'New conversation'",
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -162,12 +189,13 @@ impl Database {
     pub async fn insert_thread(&self, t: &NewThread) -> StateResult<ThreadRow> {
         let now = Utc::now();
         sqlx::query(
-            "INSERT INTO threads (id, tenant_id, project_id, created_at) \
-             VALUES (?, ?, ?, ?)",
+            "INSERT INTO threads (id, tenant_id, project_id, title, created_at) \
+             VALUES (?, ?, ?, ?, ?)",
         )
         .bind(t.id.as_str())
         .bind(t.tenant_id.as_str())
         .bind(t.project_id.as_str())
+        .bind(&t.title)
         .bind(now.to_rfc3339())
         .execute(&self.pool)
         .await?;
@@ -175,18 +203,42 @@ impl Database {
             id: t.id.clone(),
             tenant_id: t.tenant_id.clone(),
             project_id: t.project_id.clone(),
+            title: t.title.clone(),
             created_at: now,
         })
     }
 
     pub async fn find_thread(&self, id: &ThreadId) -> StateResult<Option<ThreadRow>> {
         let row = sqlx::query(
-            "SELECT id, tenant_id, project_id, created_at FROM threads WHERE id = ?",
+            "SELECT id, tenant_id, project_id, title, created_at FROM threads WHERE id = ?",
         )
         .bind(id.as_str())
         .fetch_optional(&self.pool)
         .await?;
         row.map(thread_from_row).transpose()
+    }
+
+    /// Update only the `title` column. Returns `true` when a row was
+    /// affected; callers can treat `false` as "thread vanished".
+    pub async fn update_thread_title(&self, id: &ThreadId, title: &str) -> StateResult<bool> {
+        let affected = sqlx::query("UPDATE threads SET title = ? WHERE id = ?")
+            .bind(title)
+            .bind(id.as_str())
+            .execute(&self.pool)
+            .await?
+            .rows_affected();
+        Ok(affected > 0)
+    }
+
+    /// Delete a thread. Messages (and their tool_calls / compactions)
+    /// cascade via FK. Returns `true` when a row was removed.
+    pub async fn delete_thread(&self, id: &ThreadId) -> StateResult<bool> {
+        let affected = sqlx::query("DELETE FROM threads WHERE id = ?")
+            .bind(id.as_str())
+            .execute(&self.pool)
+            .await?
+            .rows_affected();
+        Ok(affected > 0)
     }
 
     /// Distinct tenant ids that have at least one thread on file. Used
@@ -241,7 +293,7 @@ impl Database {
         project: &ProjectId,
     ) -> StateResult<Vec<ThreadRow>> {
         let rows = sqlx::query(
-            "SELECT id, tenant_id, project_id, created_at FROM threads \
+            "SELECT id, tenant_id, project_id, title, created_at FROM threads \
              WHERE tenant_id = ? AND project_id = ? ORDER BY created_at DESC",
         )
         .bind(tenant.as_str())
@@ -249,6 +301,50 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter().map(thread_from_row).collect()
+    }
+
+    /// List threads under `(tenant, project)` with derived stats:
+    ///   * `last_active_at` = MAX(messages.created_at), falling back to
+    ///     `threads.created_at` when the thread has no messages yet.
+    ///   * `turn_count` = number of user-role messages.
+    ///
+    /// Ordered most-recently-active first so the editor protocol's
+    /// `list_thread_summaries` contract holds without a second sort.
+    pub async fn list_threads_with_stats(
+        &self,
+        tenant: &TenantId,
+        project: &ProjectId,
+    ) -> StateResult<Vec<ThreadSummaryRow>> {
+        let rows = sqlx::query(
+            "SELECT t.id, t.tenant_id, t.project_id, t.title, t.created_at, \
+                    COALESCE( \
+                        (SELECT MAX(m.created_at) FROM messages m WHERE m.thread_id = t.id), \
+                        t.created_at \
+                    ) AS last_active_at, \
+                    (SELECT COUNT(*) FROM messages m \
+                       WHERE m.thread_id = t.id AND m.role = 'user') AS turn_count \
+             FROM threads t \
+             WHERE t.tenant_id = ? AND t.project_id = ? \
+             ORDER BY last_active_at DESC",
+        )
+        .bind(tenant.as_str())
+        .bind(project.as_str())
+        .fetch_all(&self.pool)
+        .await?;
+        // SqliteRow isn't Clone, so we extract the derived columns first,
+        // then hand the row to thread_from_row.
+        rows.into_iter()
+            .map(|row| {
+                let last_active_at = parse_dt(&row.try_get::<String, _>("last_active_at")?)?;
+                let turn_count: i64 = row.try_get("turn_count")?;
+                let thread = thread_from_row(row)?;
+                Ok(ThreadSummaryRow {
+                    thread,
+                    last_active_at,
+                    turn_count: turn_count.max(0) as u32,
+                })
+            })
+            .collect()
     }
 
     // -------- messages --------
@@ -1136,6 +1232,7 @@ fn thread_from_row(row: sqlx::sqlite::SqliteRow) -> StateResult<ThreadRow> {
         id: ThreadId::new(row.try_get::<String, _>("id")?),
         tenant_id: TenantId::new(row.try_get::<String, _>("tenant_id")?),
         project_id: ProjectId::from_raw(row.try_get::<String, _>("project_id")?),
+        title: row.try_get::<String, _>("title")?,
         created_at: parse_dt(&row.try_get::<String, _>("created_at")?)?,
     })
 }
@@ -1338,6 +1435,7 @@ mod tests {
             id: ThreadId::new("chat_1"),
             tenant_id: TenantId::new("tenant_a"),
             project_id: ProjectId::from_raw("proj_x"),
+            title: String::new(),
         };
         let row = db.insert_thread(&new).await.unwrap();
         assert_eq!(row.id.as_str(), "chat_1");
@@ -1353,6 +1451,7 @@ mod tests {
             id: ThreadId::new("chat_2"),
             tenant_id: TenantId::new("t"),
             project_id: ProjectId::from_raw("p"),
+            title: String::new(),
         };
         db.insert_thread(&thread).await.unwrap();
         let session = SessionId::new();
@@ -1390,6 +1489,7 @@ mod tests {
             id: ThreadId::new("chat_3"),
             tenant_id: TenantId::new("t"),
             project_id: ProjectId::from_raw("p"),
+            title: String::new(),
         };
         db.insert_thread(&thread).await.unwrap();
         let msg = db

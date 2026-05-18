@@ -36,6 +36,7 @@ async fn seed(data_root: &std::path::Path) {
         id: ThreadId::new("thr-1"),
         tenant_id: alpha.clone(),
         project_id: p1.clone(),
+        title: String::new(),
     })
     .await
     .unwrap();
@@ -43,6 +44,7 @@ async fn seed(data_root: &std::path::Path) {
         id: ThreadId::new("thr-2"),
         tenant_id: alpha.clone(),
         project_id: p2.clone(),
+        title: String::new(),
     })
     .await
     .unwrap();
@@ -50,6 +52,7 @@ async fn seed(data_root: &std::path::Path) {
         id: ThreadId::new("thr-3"),
         tenant_id: beta.clone(),
         project_id: p1.clone(),
+        title: String::new(),
     })
     .await
     .unwrap();

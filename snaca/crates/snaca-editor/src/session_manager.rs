@@ -1,22 +1,32 @@
-//! `SessionManager` — owns all active `Session`s, enforces single-active.
+//! `SessionManager` — owns all active `Session`s and routes editor-protocol
+//! requests to the per-project SQLite database (`snaca-state`).
 //!
-//! The `session_count` helper and `SessionManagerArc` alias are kept as
-//! diagnostic / public-API anchors for the next phase's wiring (Studio
-//! IPC + integration tests). Silenced in P0.
+//! Each session owns one SQLite file under `metadata_root/state.sqlite`, so
+//! project isolation is physical (separate DB per project root). Threads
+//! and messages persist across SNACA restarts; only the `active_thread_id`
+//! is in-memory runtime state.
 
 #![allow(dead_code)]
 
-use crate::session::{InflightTurn, Session, ThreadState, TurnKind};
-use snaca_core::{ContentBlock, Message, Role};
+use crate::session::{InflightTurn, Session, TurnKind};
+use snaca_core::{ContentBlock, Message, ProjectId, Role, SessionId, TenantId, ThreadId};
 use snaca_editor_protocol::error::{ErrorCode, ProtocolError};
 use snaca_editor_protocol::messages::session::{ThreadMessage, ThreadMessageRole, ThreadSummary};
 use snaca_editor_protocol::types::context::ProjectType;
+use snaca_state::{Database, NewMessage, NewThread};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::AbortHandle;
 use uuid::Uuid;
+
+/// Sole tenant used by Studio. Forward-compatible if SNACA grows multi-tenant.
+const STUDIO_TENANT_ID: &str = "local";
+
+/// Default title given to bootstrap and auto-spawned threads. Matches the
+/// renderer-side i18n placeholder used when SNACA returns nothing.
+const DEFAULT_THREAD_TITLE: &str = "New conversation";
 
 #[derive(Default)]
 pub struct SessionManager {
@@ -35,9 +45,14 @@ impl SessionManager {
         }
     }
 
-    /// Opens a new session. Returns `(session_id, active_thread_id, threads)`
-    /// where `active_thread_id` always points at a freshly bootstrapped
-    /// default thread (so `chat.send` has somewhere to route immediately).
+    /// Opens a session backed by a per-project SQLite DB at
+    /// `metadata_root/state.sqlite`. Returns
+    /// `(session_id, active_thread_id, threads)` where:
+    ///   * `threads` reflects every persisted thread for this project,
+    ///     most-recently-active first.
+    ///   * `active_thread_id` is the most-recently-active thread on disk,
+    ///     or a freshly bootstrapped "New conversation" when the project
+    ///     has no threads yet (first-ever open).
     pub async fn open(
         &self,
         project_id: String,
@@ -66,7 +81,65 @@ impl SessionManager {
             ));
         }
 
+        // Ensure the metadata directory exists before sqlx opens the file.
+        // sqlx's `create_if_missing` only creates the DB file itself, not
+        // its parent directory.
+        tokio::fs::create_dir_all(&metadata_root).await.map_err(|e| {
+            ProtocolError::new(
+                ErrorCode::WorkspaceInvalid,
+                format!(
+                    "failed to create metadata_root {}: {e}",
+                    metadata_root.display()
+                ),
+            )
+        })?;
+
+        let db_path = metadata_root.join("state.sqlite");
+        let db = Database::open(&db_path).await.map_err(|e| {
+            ProtocolError::internal(format!(
+                "failed to open SQLite at {}: {e}",
+                db_path.display()
+            ))
+        })?;
+        db.run_migrations()
+            .await
+            .map_err(|e| ProtocolError::internal(format!("migrations failed: {e}")))?;
+
+        let tenant = TenantId::new(STUDIO_TENANT_ID);
+        let project = ProjectId::from_raw(&project_id);
+
+        // Load existing threads for this project. If empty, bootstrap one.
+        let mut summaries_rows = db
+            .list_threads_with_stats(&tenant, &project)
+            .await
+            .map_err(|e| ProtocolError::internal(format!("list_threads_with_stats failed: {e}")))?;
+
+        let active_thread_id = if summaries_rows.is_empty() {
+            let thread_id = Uuid::new_v4().to_string();
+            db.insert_thread(&NewThread {
+                id: ThreadId::new(&thread_id),
+                tenant_id: tenant.clone(),
+                project_id: project.clone(),
+                title: DEFAULT_THREAD_TITLE.to_string(),
+            })
+            .await
+            .map_err(|e| ProtocolError::internal(format!("insert_thread failed: {e}")))?;
+            // Re-list so the returned summaries match disk state.
+            summaries_rows = db
+                .list_threads_with_stats(&tenant, &project)
+                .await
+                .map_err(|e| {
+                    ProtocolError::internal(format!("list_threads_with_stats failed: {e}"))
+                })?;
+            thread_id
+        } else {
+            // list_threads_with_stats already orders most-recently-active first.
+            summaries_rows[0].thread.id.as_str().to_string()
+        };
+
+        let summaries: Vec<ThreadSummary> = summaries_rows.iter().map(row_to_summary).collect();
         let session_id = Uuid::new_v4().to_string();
+
         let mut session = Session::new(
             session_id.clone(),
             project_id,
@@ -75,20 +148,14 @@ impl SessionManager {
             shared_metadata_root,
             display_name,
             project_type,
+            db,
         );
-
-        // Bootstrap one default thread so chat.send has somewhere to go.
-        let thread_id = Uuid::new_v4().to_string();
-        let thread = ThreadState::new(thread_id.clone(), "New conversation".to_string());
-        session.threads.insert(thread_id.clone(), thread);
-        session.active_thread_id = Some(thread_id.clone());
-
-        let summaries = session.list_thread_summaries();
+        session.active_thread_id = Some(active_thread_id.clone());
 
         let mut inner = self.inner.lock().await;
         inner.sessions.insert(session_id.clone(), session);
 
-        Ok((session_id, thread_id, summaries))
+        Ok((session_id, active_thread_id, summaries))
     }
 
     pub async fn close(&self, session_id: &str) -> Result<(), ProtocolError> {
@@ -100,6 +167,8 @@ impl SessionManager {
         if let Some(turn) = session.inflight {
             turn.abort.abort();
         }
+        // `db` drops with the session; SqlitePool runs its own background
+        // cleanup. No explicit close needed.
         Ok(())
     }
 
@@ -114,11 +183,17 @@ impl SessionManager {
             .sessions
             .get(session_id)
             .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
-        let all = session.list_thread_summaries();
-        let total = all.len() as u32;
+        let tenant = TenantId::new(STUDIO_TENANT_ID);
+        let project = ProjectId::from_raw(&session.project_id);
+        let rows = session
+            .db
+            .list_threads_with_stats(&tenant, &project)
+            .await
+            .map_err(|e| ProtocolError::internal(format!("list_threads_with_stats failed: {e}")))?;
+        let total = rows.len() as u32;
         let off = offset.unwrap_or(0) as usize;
-        let lim = limit.map(|l| l as usize).unwrap_or(all.len());
-        let page = all.into_iter().skip(off).take(lim).collect();
+        let lim = limit.map(|l| l as usize).unwrap_or(rows.len());
+        let page = rows.iter().skip(off).take(lim).map(row_to_summary).collect();
         Ok((page, total))
     }
 
@@ -136,9 +211,17 @@ impl SessionManager {
             return Err(ProtocolError::inflight_turn_busy());
         }
         let thread_id = Uuid::new_v4().to_string();
-        let title = title.unwrap_or_else(|| "New conversation".to_string());
-        let thread = ThreadState::new(thread_id.clone(), title.clone());
-        session.threads.insert(thread_id.clone(), thread);
+        let title = title.unwrap_or_else(|| DEFAULT_THREAD_TITLE.to_string());
+        session
+            .db
+            .insert_thread(&NewThread {
+                id: ThreadId::new(&thread_id),
+                tenant_id: TenantId::new(STUDIO_TENANT_ID),
+                project_id: ProjectId::from_raw(&session.project_id),
+                title: title.clone(),
+            })
+            .await
+            .map_err(|e| ProtocolError::internal(format!("insert_thread failed: {e}")))?;
         session.active_thread_id = Some(thread_id.clone());
         Ok((thread_id, title))
     }
@@ -156,21 +239,17 @@ impl SessionManager {
         if session.inflight.is_some() {
             return Err(ProtocolError::inflight_turn_busy());
         }
-        if !session.threads.contains_key(thread_id) {
-            return Err(ProtocolError::thread_not_found(thread_id));
-        }
+        // Validate the thread exists for this project, then fetch its
+        // up-to-date summary (last_active_at + turn_count) from disk.
+        let summary = lookup_thread_summary(&session.db, &session.project_id, thread_id).await?;
         session.active_thread_id = Some(thread_id.to_string());
-        Ok(session.thread_summary(thread_id).unwrap())
+        Ok(summary)
     }
 
-    /// Delete a thread. Returns the id of whatever thread is active **after**
-    /// the delete — guaranteed non-empty:
-    ///   1. If the deleted thread wasn't the active one, the current active id
-    ///      is returned unchanged.
-    ///   2. If it was the active one but other threads survive, the
-    ///      most-recently-active surviving thread is promoted.
-    ///   3. If no threads survive, a fresh "New conversation" is auto-created
-    ///      so callers never have to handle a "session without a thread" state.
+    /// Delete a thread. Returns the id of whatever thread becomes active
+    /// after the delete — guaranteed non-empty (the manager auto-spawns a
+    /// fresh "New conversation" when the deleted thread was the last
+    /// surviving one).
     pub async fn delete_thread(
         &self,
         session_id: &str,
@@ -184,37 +263,51 @@ impl SessionManager {
         if session.inflight.is_some() {
             return Err(ProtocolError::inflight_turn_busy());
         }
-        let removed = session.threads.remove(thread_id);
-        if removed.is_none() {
+
+        let removed = session
+            .db
+            .delete_thread(&ThreadId::new(thread_id))
+            .await
+            .map_err(|e| ProtocolError::internal(format!("delete_thread failed: {e}")))?;
+        if !removed {
             return Err(ProtocolError::thread_not_found(thread_id));
         }
 
         let was_active = session.active_thread_id.as_deref() == Some(thread_id);
         if !was_active {
-            // Active is still valid — just return it.
             return Ok(session.active_thread_id.clone().unwrap_or_default());
         }
 
         // Promote: pick the most-recently-active surviving thread.
-        let next_active = session
-            .threads
-            .values()
-            .max_by_key(|t| t.last_active_at)
-            .map(|t| t.thread_id.clone());
+        let tenant = TenantId::new(STUDIO_TENANT_ID);
+        let project = ProjectId::from_raw(&session.project_id);
+        let survivors = session
+            .db
+            .list_threads_with_stats(&tenant, &project)
+            .await
+            .map_err(|e| ProtocolError::internal(format!("list_threads_with_stats failed: {e}")))?;
 
-        if let Some(id) = next_active {
-            session.active_thread_id = Some(id.clone());
-            return Ok(id);
+        if let Some(top) = survivors.first() {
+            let next_active = top.thread.id.as_str().to_string();
+            session.active_thread_id = Some(next_active.clone());
+            return Ok(next_active);
         }
 
-        // No survivors → spawn a fresh default thread.
-        let new_id = Uuid::new_v4().to_string();
-        session.threads.insert(
-            new_id.clone(),
-            ThreadState::new(new_id.clone(), "New conversation".to_string()),
-        );
-        session.active_thread_id = Some(new_id.clone());
-        Ok(new_id)
+        // No survivors — spawn a fresh default thread so the session always
+        // has somewhere to route `chat.send`.
+        let fresh_id = Uuid::new_v4().to_string();
+        session
+            .db
+            .insert_thread(&NewThread {
+                id: ThreadId::new(&fresh_id),
+                tenant_id: tenant,
+                project_id: project,
+                title: DEFAULT_THREAD_TITLE.to_string(),
+            })
+            .await
+            .map_err(|e| ProtocolError::internal(format!("insert_thread failed: {e}")))?;
+        session.active_thread_id = Some(fresh_id.clone());
+        Ok(fresh_id)
     }
 
     pub async fn rename_thread(
@@ -223,16 +316,19 @@ impl SessionManager {
         thread_id: &str,
         title: String,
     ) -> Result<(), ProtocolError> {
-        let mut inner = self.inner.lock().await;
+        let inner = self.inner.lock().await;
         let session = inner
             .sessions
-            .get_mut(session_id)
+            .get(session_id)
             .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
-        let thread = session
-            .threads
-            .get_mut(thread_id)
-            .ok_or_else(|| ProtocolError::thread_not_found(thread_id))?;
-        thread.title = title;
+        let updated = session
+            .db
+            .update_thread_title(&ThreadId::new(thread_id), &title)
+            .await
+            .map_err(|e| ProtocolError::internal(format!("update_thread_title failed: {e}")))?;
+        if !updated {
+            return Err(ProtocolError::thread_not_found(thread_id));
+        }
         Ok(())
     }
 
@@ -250,16 +346,20 @@ impl SessionManager {
             .sessions
             .get_mut(session_id)
             .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
-        if !session.threads.contains_key(thread_id) {
-            return Err(ProtocolError::thread_not_found(thread_id));
-        }
         if session.inflight.is_some() {
             return Err(ProtocolError::inflight_turn_busy());
         }
+        // Validate thread existence cheaply via find_thread.
+        let exists = session
+            .db
+            .find_thread(&ThreadId::new(thread_id))
+            .await
+            .map_err(|e| ProtocolError::internal(format!("find_thread failed: {e}")))?
+            .is_some();
+        if !exists {
+            return Err(ProtocolError::thread_not_found(thread_id));
+        }
         let turn_id = Uuid::new_v4().to_string();
-        // Placeholder abort handle — replaced via set_abort once task is spawned.
-        // We construct one via a no-op task purely to satisfy the type;
-        // it will be overwritten immediately.
         let placeholder = tokio::spawn(async {}).abort_handle();
         session.inflight = Some(InflightTurn {
             turn_id: turn_id.clone(),
@@ -268,10 +368,6 @@ impl SessionManager {
             abort: placeholder,
             started_at: chrono::Utc::now(),
         });
-        // Touch thread.
-        if let Some(t) = session.threads.get_mut(thread_id) {
-            t.touch();
-        }
         Ok(turn_id)
     }
 
@@ -305,36 +401,46 @@ impl SessionManager {
         match session.inflight.take() {
             Some(t) if t.turn_id == turn_id => Some(t),
             other => {
-                // Mismatch — put it back. (Shouldn't normally happen.)
                 session.inflight = other;
                 None
             }
         }
     }
 
-    /// Append a message to the thread history.
+    /// Append a message to the thread history (persisted in SQLite).
     pub async fn append_message(
         &self,
         session_id: &str,
         thread_id: &str,
         msg: Message,
     ) -> Result<(), ProtocolError> {
-        let mut inner = self.inner.lock().await;
+        let inner = self.inner.lock().await;
         let session = inner
             .sessions
-            .get_mut(session_id)
+            .get(session_id)
             .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
-        let thread = session
-            .threads
-            .get_mut(thread_id)
-            .ok_or_else(|| ProtocolError::thread_not_found(thread_id))?;
-        thread.append_message(msg);
+        // Parse session_id as a uuid for the messages table column. SNACA
+        // sessions are uuids (we generate them in `open`); we re-parse
+        // instead of caching to keep `Session` allocation-free for now.
+        let session_uuid = Uuid::parse_str(&session.session_id).map_err(|e| {
+            ProtocolError::internal(format!("session_id is not a valid uuid: {e}"))
+        })?;
+        session
+            .db
+            .append_message(&NewMessage {
+                thread_id: ThreadId::new(thread_id),
+                session_id: SessionId::from_uuid(session_uuid),
+                role: msg.role,
+                content: msg.content,
+            })
+            .await
+            .map_err(|e| ProtocolError::internal(format!("append_message failed: {e}")))?;
         Ok(())
     }
 
-    /// Snapshot the most recent `limit` messages from a thread (returns empty
-    /// vec if the thread is unknown — caller typically already validated via
-    /// `begin_turn`).
+    /// Snapshot the most recent `limit` messages from a thread (for feeding
+    /// the LLM). Falls back to an empty vec if the thread is unknown so the
+    /// caller's `begin_turn` validation remains authoritative.
     pub async fn recent_messages(
         &self,
         session_id: &str,
@@ -342,19 +448,32 @@ impl SessionManager {
         limit: usize,
     ) -> Vec<Message> {
         let inner = self.inner.lock().await;
-        inner
-            .sessions
-            .get(session_id)
-            .and_then(|s| s.threads.get(thread_id))
-            .map(|t| t.recent_messages(limit))
-            .unwrap_or_default()
+        let Some(session) = inner.sessions.get(session_id) else {
+            return Vec::new();
+        };
+        let limit_u32 = limit.try_into().unwrap_or(u32::MAX);
+        match session
+            .db
+            .recent_messages(&ThreadId::new(thread_id), limit_u32)
+            .await
+        {
+            Ok(rows) => rows
+                .into_iter()
+                .map(|r| Message {
+                    id: r.id,
+                    role: r.role,
+                    content: r.content,
+                    created_at: r.created_at,
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        }
     }
 
-    /// Render a thread's history into wire-friendly `ThreadMessage`s for
-    /// `session.get_messages`. Returns `(messages, total)` where total counts
-    /// only renderable messages (system messages and tool calls are skipped
-    /// from history rendering — they were already played live via
-    /// `turn.delta`).
+    /// Render a thread's persisted history into wire-friendly `ThreadMessage`s
+    /// for `session.get_messages`. System / Tool roles and empty-text rows
+    /// are skipped — they were either injected by the engine or already
+    /// played live via `turn.delta`.
     pub async fn get_messages(
         &self,
         session_id: &str,
@@ -366,24 +485,23 @@ impl SessionManager {
             .sessions
             .get(session_id)
             .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
-        let thread = session
-            .threads
-            .get(thread_id)
-            .ok_or_else(|| ProtocolError::thread_not_found(thread_id))?;
-
-        let rendered: Vec<ThreadMessage> = thread
-            .messages
-            .iter()
-            .filter_map(render_history_message)
-            .collect();
+        // Validate the thread belongs to this session's project.
+        let row = session
+            .db
+            .find_thread(&ThreadId::new(thread_id))
+            .await
+            .map_err(|e| ProtocolError::internal(format!("find_thread failed: {e}")))?;
+        if row.is_none() {
+            return Err(ProtocolError::thread_not_found(thread_id));
+        }
+        let rows = session
+            .db
+            .recent_messages(&ThreadId::new(thread_id), limit.unwrap_or(u32::MAX))
+            .await
+            .map_err(|e| ProtocolError::internal(format!("recent_messages failed: {e}")))?;
+        let rendered: Vec<ThreadMessage> = rows.iter().filter_map(render_history_row).collect();
         let total = rendered.len() as u32;
-        let messages = match limit {
-            Some(n) if (n as usize) < rendered.len() => {
-                rendered.into_iter().rev().take(n as usize).rev().collect()
-            }
-            _ => rendered,
-        };
-        Ok((messages, total))
+        Ok((rendered, total))
     }
 
     /// Cancels the inflight turn matching `turn_id` if any. Returns true on hit.
@@ -409,20 +527,47 @@ impl SessionManager {
 /// Convenience for sharing across tasks.
 pub type SessionManagerArc = Arc<SessionManager>;
 
-/// Convert a `snaca_core::Message` into the flat wire shape returned by
-/// `session.get_messages`. Returns `None` for messages that should not appear
-/// in the rendered history (tool-only, image-only, etc.).
-fn render_history_message(msg: &Message) -> Option<ThreadMessage> {
-    let role = match msg.role {
+// ---------------- private helpers ----------------
+
+fn row_to_summary(row: &snaca_state::ThreadSummaryRow) -> ThreadSummary {
+    ThreadSummary {
+        thread_id: row.thread.id.as_str().to_string(),
+        title: row.thread.title.clone(),
+        created_at: row.thread.created_at.to_rfc3339(),
+        last_active_at: row.last_active_at.to_rfc3339(),
+        turn_count: row.turn_count,
+    }
+}
+
+/// Fetch a thread's wire-shape summary by id; errors with `thread_not_found`
+/// when the row is missing. Re-queries the stats so caller doesn't have to
+/// hold a list snapshot.
+async fn lookup_thread_summary(
+    db: &Database,
+    project_id: &str,
+    thread_id: &str,
+) -> Result<ThreadSummary, ProtocolError> {
+    let tenant = TenantId::new(STUDIO_TENANT_ID);
+    let project = ProjectId::from_raw(project_id);
+    let rows = db
+        .list_threads_with_stats(&tenant, &project)
+        .await
+        .map_err(|e| ProtocolError::internal(format!("list_threads_with_stats failed: {e}")))?;
+    rows.iter()
+        .find(|r| r.thread.id.as_str() == thread_id)
+        .map(row_to_summary)
+        .ok_or_else(|| ProtocolError::thread_not_found(thread_id))
+}
+
+fn render_history_row(row: &snaca_state::MessageRow) -> Option<ThreadMessage> {
+    let role = match row.role {
         Role::User => ThreadMessageRole::User,
         Role::Assistant => ThreadMessageRole::Assistant,
-        // System / Tool messages aren't part of the user-visible history —
-        // system prompt was injected by chat.send, tool results were played
-        // live via turn.delta.
+        // System / Tool messages aren't part of the user-visible history.
         Role::System | Role::Tool => return None,
     };
     let mut text = String::new();
-    for block in &msg.content {
+    for block in &row.content {
         if let ContentBlock::Text { text: t } = block {
             if !text.is_empty() {
                 text.push('\n');
@@ -433,13 +578,9 @@ fn render_history_message(msg: &Message) -> Option<ThreadMessage> {
     if text.is_empty() {
         return None;
     }
-    // snaca_core::Message has no `created_at`; the SQLite persistence layer
-    // owns timestamps. For the in-memory path we fall back to "now" — Studio
-    // only uses ts for relative ordering, and the messages here are already
-    // ordered by Vec position.
     Some(ThreadMessage {
         role,
         text,
-        ts: chrono::Utc::now().to_rfc3339(),
+        ts: row.created_at.to_rfc3339(),
     })
 }

@@ -12,6 +12,10 @@ pub struct NewThread {
     pub id: ThreadId,
     pub tenant_id: TenantId,
     pub project_id: ProjectId,
+    /// User-facing thread title. Defaults to "New conversation" on the SQL
+    /// side when omitted; callers should usually supply a value to keep the
+    /// in-memory `Display` consistent.
+    pub title: String,
 }
 
 #[derive(Debug, Clone)]
@@ -19,7 +23,19 @@ pub struct ThreadRow {
     pub id: ThreadId,
     pub tenant_id: TenantId,
     pub project_id: ProjectId,
+    pub title: String,
     pub created_at: DateTime<Utc>,
+}
+
+/// Aggregated thread metadata for list views. `last_active_at` is the most
+/// recent message timestamp (falling back to `created_at` when the thread
+/// has no messages yet); `turn_count` is the number of user-role messages
+/// in the thread.
+#[derive(Debug, Clone)]
+pub struct ThreadSummaryRow {
+    pub thread: ThreadRow,
+    pub last_active_at: DateTime<Utc>,
+    pub turn_count: u32,
 }
 
 #[derive(Debug, Clone)]

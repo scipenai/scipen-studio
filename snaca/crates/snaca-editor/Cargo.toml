@@ -16,6 +16,7 @@ path = "src/main.rs"
 snaca-editor-protocol.workspace = true
 snaca-core.workspace = true
 snaca-llm.workspace = true
+snaca-state.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
