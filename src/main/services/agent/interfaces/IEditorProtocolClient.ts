@@ -38,6 +38,8 @@ import type {
   PlanConfirmParams,
   PlanConfirmResult,
   PlanUpdateParams,
+  SessionDeleteThreadResult,
+  SessionGetMessagesResult,
   SessionListThreadsResult,
   SessionNewThreadResult,
   SessionOpenParams,
@@ -91,12 +93,17 @@ export interface IEditorProtocolClient extends Partial<IDisposable> {
   ): Promise<SessionListThreadsResult>;
   sessionNewThread(sessionId: string, title?: string): Promise<SessionNewThreadResult>;
   sessionSwitchThread(sessionId: string, threadId: string): Promise<SessionSwitchThreadResult>;
-  sessionDeleteThread(sessionId: string, threadId: string): Promise<{ deleted: boolean }>;
+  sessionDeleteThread(sessionId: string, threadId: string): Promise<SessionDeleteThreadResult>;
   sessionRenameThread(
     sessionId: string,
     threadId: string,
     title: string
   ): Promise<{ renamed: boolean }>;
+  sessionGetMessages(
+    sessionId: string,
+    threadId: string,
+    limit?: number
+  ): Promise<SessionGetMessagesResult>;
 
   // ---------------- Agent surfaces ----------------
 
