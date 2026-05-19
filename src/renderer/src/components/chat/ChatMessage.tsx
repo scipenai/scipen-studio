@@ -297,7 +297,7 @@ function PlanCard({ plan, turnId }: { plan: ChatPlan; turnId: string }): ReactEl
           {plan.files.length > 0 && (
             <ul className="space-y-1">
               {plan.files.map((f) => (
-                <PlanFileRow key={`${f.action}:${f.path}`} file={f} />
+                <PlanFileRow key={`${f.action}:${f.agentRelativePath}`} file={f} />
               ))}
             </ul>
           )}
@@ -336,7 +336,7 @@ function PlanFileRow({ file }: { file: ChatPlanFile }): ReactElement {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="truncate font-mono text-[10px] text-[var(--color-text)]">
-            {file.path}
+            {file.agentRelativePath}
           </span>
           {file.renameTo && (
             <>
@@ -429,13 +429,17 @@ function ProposalsList({ proposals }: { proposals: ChatProposalRecord[] }): Reac
 
 function ProposalRow({ proposal }: { proposal: ChatProposalRecord }): ReactElement {
   const { t } = useTranslation();
-  const fileName = lastSegment(proposal.file);
+  const fileName = lastSegment(proposal.agentRelativePath);
   // Click rescues a stuck "waiting for review" card by re-materializing.
+  // fs op MUST use absolutePath — agentRelativePath is display only and
+  // would resolve against process.cwd() at the IPC boundary (rejected by
+  // safePathSchema since the Layer 1 fix, but using the right field keeps
+  // the intent obvious).
   const onClick = useCallback(async () => {
     if (proposal.status !== 'pending') return;
-    await openFileInEditor(proposal.file);
+    await openFileInEditor(proposal.absolutePath);
     await agentEditProposalBridge.retryMaterialize(proposal.proposalId);
-  }, [proposal.file, proposal.proposalId, proposal.status]);
+  }, [proposal.absolutePath, proposal.proposalId, proposal.status]);
   const interactive = proposal.status === 'pending';
   return (
     <button
@@ -445,7 +449,11 @@ function ProposalRow({ proposal }: { proposal: ChatProposalRecord }): ReactEleme
       className={`flex w-full items-center gap-2 rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] px-2 py-1 text-[11px] text-left ${
         interactive ? 'hover:border-[var(--color-accent)] cursor-pointer' : 'cursor-default'
       }`}
-      title={interactive ? t('chat.proposalClickHint', { file: proposal.file }) : proposal.file}
+      title={
+        interactive
+          ? t('chat.proposalClickHint', { file: proposal.agentRelativePath })
+          : proposal.agentRelativePath
+      }
     >
       <FilePen size={11} className="flex-shrink-0 text-[var(--color-accent)]" />
       <span className="truncate font-mono text-[10px] text-[var(--color-text)]">{fileName}</span>

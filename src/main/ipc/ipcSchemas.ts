@@ -5,40 +5,43 @@
  * Framework code (registerTypedHandler, etc.) lives in typedIpc.ts.
  */
 
+import path from 'node:path';
 import { z } from 'zod';
 import { IpcChannel } from '../../../shared/ipc/channels';
 
 // ==================== Schema Helpers ====================
 
 /**
- * Path validation helper - checks for path traversal and sensitive paths
+ * Path validation helper at the IPC perimeter.
  *
- * Security policy:
- * 1. Prohibit path traversal attacks (..)
- * 2. Prohibit access to system sensitive directories (/etc, /proc, Windows, Program Files, etc.)
- * 3. Prohibit access to user AppData directory (protect privacy data)
- * 4. Exception: Allow access to application's own data directory (scipen-studio)
+ * Hard rules (any violation rejected at the boundary, never reaches fs):
+ * 1. Must be absolute. Relative paths have no anchor at the IPC layer —
+ *    Node's fs would silently resolve them against process.cwd(), which
+ *    in a packaged Electron app is the install directory. Callers passing
+ *    agent-supplied data MUST absolutize against the workspace root first
+ *    (see SNACA `resolve_within` / `AgentEditProposalBridge.resolveAbsolute`).
+ * 2. No path traversal (`..`).
+ * 3. No sensitive system directories (/etc, Windows, Program Files, AppData...).
+ *    Exception: the app's own data directory is whitelisted.
  */
 const safePathSchema = z.string().refine(
   (pathStr) => {
+    if (!path.isAbsolute(pathStr)) {
+      return false;
+    }
+
     const normalized = pathStr.replace(/\\/g, '/').toLowerCase();
 
-    // ========== 1. Prohibit path traversal ==========
     if (/\.\.[/\\]/.test(normalized)) {
       return false;
     }
 
-    // ========== 2. Whitelist: Application's own data directory ==========
-    // Path format: C:/Users/xxx/AppData/Roaming/scipen-studio/...
-    //              C:/Users/xxx/AppData/Local/scipen-studio/...
-    //              C:/Users/xxx/AppData/Local/Temp/scipen-... (temporary files)
     const appDataWhitelist =
       /^[a-z]:\/users\/[^/]+\/appdata\/(roaming|local)\/(scipen-studio|temp\/scipen)/i;
     if (appDataWhitelist.test(normalized)) {
-      return true; // Allow access to application's own data directory
+      return true;
     }
 
-    // ========== 3. Sensitive path blocking ==========
     const sensitivePatterns = [
       /^\/?etc\//i,
       /^\/?proc\//i,
@@ -49,7 +52,7 @@ const safePathSchema = z.string().refine(
 
     return !sensitivePatterns.some((pattern) => pattern.test(normalized));
   },
-  { message: 'Path contains potentially dangerous patterns' }
+  { message: 'Path must be absolute and outside sensitive system directories' }
 );
 
 /**

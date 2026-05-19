@@ -10,6 +10,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { agentClient, type ThreadMessageDTO } from './AgentClientService';
+import { getProjectService } from '../core';
 import {
   deleteTurnMetaForThread,
   loadTurnMetaForThread,
@@ -17,6 +18,32 @@ import {
   turnMetaKey,
   type TurnMetaRecord,
 } from './TurnMetaStore';
+
+/**
+ * Resolve an agent-supplied path against the active project root.
+ *
+ * Agents (SNACA) emit paths relative to their `workspace_root`. The renderer
+ * lives in the same project but uses absolute paths everywhere (editor tabs,
+ * file tree, fs IPC). This is the single conversion point — anything that
+ * crosses from "agent data" to "Studio data" must pass through here so
+ * relative paths can't silently leak into `fs.readFile` with the wrong cwd.
+ *
+ * Idempotent: absolute input is returned as-is (normalized to forward slashes).
+ * Returns empty string if no project is open (caller decides degraded UX).
+ */
+function resolveAgentPath(agentRelativeOrAbsolute: string): string {
+  if (!agentRelativeOrAbsolute) return '';
+  const normalized = agentRelativeOrAbsolute.replace(/\\/g, '/');
+  if (isAbsolutePath(normalized)) return normalized;
+  const root = getProjectService().projectPath;
+  if (!root) return normalized;
+  const normRoot = root.replace(/\\/g, '/');
+  return `${normRoot}${normRoot.endsWith('/') ? '' : '/'}${normalized}`;
+}
+
+function isAbsolutePath(p: string): boolean {
+  return /^([a-zA-Z]:\/|\/\/|\/)/.test(p);
+}
 
 /**
  * Per-thread snapshot persisted in memory. Holds the rendered history
@@ -39,17 +66,31 @@ export interface ChatTurnUsage {
   costUsd?: number;
 }
 
+/**
+ * Records emitted by SNACA (the agent). All `agent*Path` fields are the
+ * **agent-supplied raw string** — typically workspace-relative, sometimes
+ * malformed if the model hallucinated. They are SAFE for display only.
+ *
+ * `absolutePath` is the trusted, project-root-anchored version. It is the
+ * ONLY field allowed to flow into Studio's fs IPC (File_Read/Write/...).
+ * Mixing these up is exactly how an LLM-fabricated relative path can leak
+ * into `process.cwd()`-based resolution and read from the install dir.
+ */
 export interface ChatProposalRecord {
   proposalId: string;
-  /** Absolute path, forward-slash normalized. */
-  file: string;
+  /** Agent-supplied path, as it appeared in `edit.propose`. Display only. */
+  agentRelativePath: string;
+  /** Resolved against the active project root. Use this for any fs op. */
+  absolutePath: string;
   hunkCount: number;
-  /** Pending → user hasn't decided; accepted / rejected once they do. */
   status: 'pending' | 'accepted' | 'rejected';
 }
 
 export interface ChatPlanFile {
-  path: string;
+  /** Agent-supplied path, as it appeared in `plan.update`. Display only. */
+  agentRelativePath: string;
+  /** Resolved against the active project root. Use this for any fs op. */
+  absolutePath: string;
   action: 'create' | 'modify' | 'delete' | 'rename';
   renameTo?: string;
   summary: string;
@@ -535,15 +576,24 @@ class ChatStreamStoreImpl {
   private upsertProposal(turnId: string, evt: any): void {
     const proposalId = evt?.proposal_id as string | undefined;
     if (!proposalId) return;
-    const file = (evt?.file as string | undefined) ?? '';
+    const agentRelativePath = (evt?.file as string | undefined) ?? '';
     const hunkCount = Array.isArray(evt?.hunks) ? evt.hunks.length : 0;
     const turn = this.acquireTurn(turnId);
     const existing = turn.proposals.find((p) => p.proposalId === proposalId);
     if (existing) {
-      if (file) existing.file = file;
+      if (agentRelativePath) {
+        existing.agentRelativePath = agentRelativePath;
+        existing.absolutePath = resolveAgentPath(agentRelativePath);
+      }
       if (hunkCount) existing.hunkCount = hunkCount;
     } else {
-      turn.proposals.push({ proposalId, file, hunkCount, status: 'pending' });
+      turn.proposals.push({
+        proposalId,
+        agentRelativePath,
+        absolutePath: resolveAgentPath(agentRelativePath),
+        hunkCount,
+        status: 'pending',
+      });
     }
     this.fire();
   }
@@ -613,7 +663,8 @@ class ChatStreamStoreImpl {
       rationale: (evt.rationale as string | undefined) ?? '',
       files: Array.isArray(evt.files)
         ? evt.files.map((f: any) => ({
-            path: f.path,
+            agentRelativePath: f.path,
+            absolutePath: resolveAgentPath(f.path),
             action: f.action,
             renameTo: f.rename_to,
             summary: f.summary,
@@ -693,15 +744,44 @@ function recordToCompletedTurn(r: TurnMetaRecord): ChatTurn {
     thinkingText: r.thinking,
     text: '', // canonical text comes from messages[], not the turn
     toolCalls: r.toolCalls,
-    proposals: r.proposals,
-    plan: r.plan,
-    // Approval cards are ephemeral — never restored from cache (the
-    // tool either ran or it didn't, the IndexedDB record reflects the
-    // outcome via toolCalls).
+    proposals: r.proposals.map(migrateProposal),
+    plan: r.plan ? { ...r.plan, files: r.plan.files.map(migratePlanFile) } : null,
+    // Approval cards are ephemeral — never restored from cache.
     approvals: [],
     pending: false,
     doneReason: 'completed',
     usage: r.usage,
+  };
+}
+
+/**
+ * IndexedDB records written before the `file → agentRelativePath` rename
+ * carry the legacy shape. Normalize on read so the UI never sees the old
+ * field; the next persist round writes the new shape and the legacy field
+ * naturally ages out.
+ */
+function migrateProposal(p: any): ChatProposalRecord {
+  if (p.agentRelativePath && p.absolutePath) return p as ChatProposalRecord;
+  const legacy = (p.file as string | undefined) ?? '';
+  return {
+    proposalId: p.proposalId,
+    agentRelativePath: legacy,
+    absolutePath: resolveAgentPath(legacy),
+    hunkCount: p.hunkCount ?? 0,
+    status: p.status ?? 'pending',
+  };
+}
+
+function migratePlanFile(f: any): ChatPlanFile {
+  if (f.agentRelativePath && f.absolutePath) return f as ChatPlanFile;
+  const legacy = (f.path as string | undefined) ?? '';
+  return {
+    agentRelativePath: legacy,
+    absolutePath: resolveAgentPath(legacy),
+    action: f.action,
+    renameTo: f.renameTo,
+    summary: f.summary ?? '',
+    status: f.status ?? 'pending',
   };
 }
 

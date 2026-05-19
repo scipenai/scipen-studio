@@ -243,10 +243,28 @@ class PathSecurityServiceImpl {
     }
 
     // === 1. Path Traversal Prevention ===
+    // Checked before the absolute-path enforcement so the more specific
+    // attack pattern wins the rejection message — `../foo` would also fail
+    // step 1.5, but "traversal" is the more actionable diagnosis.
     if (this.containsPathTraversal(filePath)) {
       return {
         allowed: false,
         reason: 'Path traversal detected: ".." is not allowed in file paths',
+      };
+    }
+
+    // === 1.5. Absolute path enforcement ===
+    // Service-layer defense in depth (the IPC schema already rejects, but
+    // direct service callers — tests, future internal modules — must also
+    // be denied). Relative paths have no anchor here: Node fs would resolve
+    // against process.cwd() = install dir in packaged builds, leading to
+    // silent reads in the wrong place. Caller must absolutize against the
+    // active workspace (SNACA workspace_root for agent data; file tree /
+    // editor for user-initiated paths) before invoking this service.
+    if (!path.isAbsolute(filePath)) {
+      return {
+        allowed: false,
+        reason: `Relative path not allowed: "${filePath}". Absolutize against the workspace root before calling.`,
       };
     }
 
