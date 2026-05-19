@@ -596,6 +596,93 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
     ]),
   ],
 
+  // ==================== Memory / Skills viewer (P6-C) ====================
+  // The renderer-facing IPC takes only a payload object; session_id is
+  // joined in main from the live AgentSessionState. Schemas here mirror
+  // those in agentHandlers.ts as a defense-in-depth check.
+  [
+    IpcChannel.Agent_MemoryList,
+    z.tuple([
+      z
+        .object({
+          scope: z.enum(['user', 'feedback', 'project', 'reference']).optional(),
+        })
+        .optional(),
+    ]),
+  ],
+  [
+    IpcChannel.Agent_MemoryGet,
+    z.tuple([
+      z.object({
+        scope: z.enum(['user', 'feedback', 'project', 'reference']),
+        name: z
+          .string()
+          .min(1)
+          .max(64)
+          .regex(/^[a-z0-9_-]+$/),
+      }),
+    ]),
+  ],
+  [
+    IpcChannel.Agent_MemoryWrite,
+    z.tuple([
+      z.object({
+        scope: z.enum(['user', 'feedback', 'project', 'reference']),
+        name: z
+          .string()
+          .min(1)
+          .max(64)
+          .regex(/^[a-z0-9_-]+$/),
+        content: z.string().max(100_000),
+      }),
+    ]),
+  ],
+  [
+    IpcChannel.Agent_MemoryDelete,
+    z.tuple([
+      z.object({
+        scope: z.enum(['user', 'feedback', 'project', 'reference']),
+        name: z
+          .string()
+          .min(1)
+          .max(64)
+          .regex(/^[a-z0-9_-]+$/),
+      }),
+    ]),
+  ],
+  [
+    IpcChannel.Agent_MemoryReveal,
+    z.tuple([
+      z
+        .object({
+          scope: z.enum(['user', 'feedback', 'project', 'reference']).optional(),
+          name: z
+            .string()
+            .min(1)
+            .max(64)
+            .regex(/^[a-z0-9_-]+$/)
+            .optional(),
+        })
+        .optional(),
+    ]),
+  ],
+  [IpcChannel.Agent_SkillsList, z.tuple([])],
+  [
+    IpcChannel.Agent_SkillsGet,
+    z.tuple([z.object({ name: z.string().min(1).max(128) })]),
+  ],
+  [IpcChannel.Agent_SkillsReload, z.tuple([])],
+  [
+    IpcChannel.Agent_OpenMemoryViewer,
+    z.tuple([
+      z
+        .object({
+          initialTab: z.enum(['memory', 'skills']).optional(),
+        })
+        .optional(),
+    ]),
+  ],
+
   // ==================== Config (P0 fix) ====================
   // 🔒 Config_Get/Set - can read/write arbitrary configuration
   [IpcChannel.Config_Get, z.tuple([z.string().max(256)])],

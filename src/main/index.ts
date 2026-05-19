@@ -296,9 +296,19 @@ async function addRecentProject(projectPath: string, isRemote?: boolean): Promis
 
 /**
  * Creates a new application window.
+ *
+ * `windowKind` decides which sub-app the renderer mounts. The default
+ * `'main'` loads the full IDE. `'memory-viewer'` loads the MemoryViewer
+ * secondary UI (`#/memory-viewer`) — same renderer bundle, lighter
+ * dependency tree, sized for a side panel.
  */
-function createWindow(options?: { projectPath?: string }): number {
+function createWindow(options?: {
+  projectPath?: string;
+  windowKind?: 'main' | 'memory-viewer';
+  initialTab?: 'memory' | 'skills';
+}): number {
   const appPath = app.getAppPath();
+  const windowKind = options?.windowKind ?? 'main';
 
   let preloadPath: string;
   if (app.isPackaged) {
@@ -320,11 +330,14 @@ function createWindow(options?: { projectPath?: string }): number {
 
   const isMac = process.platform === 'darwin';
 
+  const isViewer = windowKind === 'memory-viewer';
+
   const newWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 800,
-    minHeight: 600,
+    width: isViewer ? 900 : 1400,
+    height: isViewer ? 700 : 900,
+    minWidth: isViewer ? 600 : 800,
+    minHeight: isViewer ? 500 : 600,
+    title: isViewer ? 'SciPen Studio — Memory & Skills' : undefined,
     icon: iconPath,
     // macOS uses a hidden inset title bar for native feel; Windows/Linux keep the standard bar for the menu.
     ...(isMac
@@ -373,11 +386,17 @@ function createWindow(options?: { projectPath?: string }): number {
     newWindow.webContents.send('main-process-message', new Date().toLocaleString());
   });
 
+  const hash = isViewer
+    ? `#/memory-viewer${options?.initialTab ? `?tab=${options.initialTab}` : ''}`
+    : '';
+
   if (isDev && ELECTRON_RENDERER_URL) {
-    newWindow.loadURL(ELECTRON_RENDERER_URL);
-    newWindow.webContents.openDevTools();
+    newWindow.loadURL(`${ELECTRON_RENDERER_URL}${hash}`);
+    if (!isViewer) {
+      newWindow.webContents.openDevTools();
+    }
   } else {
-    newWindow.loadFile(path.join(RENDERER_DIST, 'index.html'));
+    newWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), { hash: hash || undefined });
   }
 
   log.info(`[Main] Created window ${windowId}, total windows: ${windows.size}`);

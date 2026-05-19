@@ -17,9 +17,18 @@ import type {
   EditProposeParams,
   ErrorNotificationParams,
   LogWriteParams,
+  MemoryDeleteResult,
+  MemoryGetResult,
+  MemoryListResult,
+  MemoryRevealResult,
+  MemoryScope,
   MemoryUpdatedParams,
+  MemoryWriteResult,
   PlanUpdateParams,
   SessionGetMessagesResult,
+  SkillsGetResult,
+  SkillsListResult,
+  SkillsReloadResult,
   ThreadSummary,
   ToolApprovalRequestParams,
   TurnDeltaParams,
@@ -171,6 +180,46 @@ export const agentApi = {
    */
   respondContextFlush: (payload: AgentContextFlushResponsePayload): Promise<{ ok: true }> =>
     ipcRenderer.invoke(IpcChannel.Agent_ContextFlushResponse, payload),
+
+  // ------ Memory viewer ------
+
+  memoryList: (scope?: MemoryScope): Promise<MemoryListResult> =>
+    ipcRenderer.invoke(IpcChannel.Agent_MemoryList, { scope }),
+
+  memoryGet: (scope: MemoryScope, name: string): Promise<MemoryGetResult> =>
+    ipcRenderer.invoke(IpcChannel.Agent_MemoryGet, { scope, name }),
+
+  memoryWrite: (
+    scope: MemoryScope,
+    name: string,
+    content: string
+  ): Promise<MemoryWriteResult> =>
+    ipcRenderer.invoke(IpcChannel.Agent_MemoryWrite, { scope, name, content }),
+
+  memoryDelete: (scope: MemoryScope, name: string): Promise<MemoryDeleteResult> =>
+    ipcRenderer.invoke(IpcChannel.Agent_MemoryDelete, { scope, name }),
+
+  /** When name is undefined, returns the memory directory itself. */
+  memoryReveal: (
+    scope?: MemoryScope,
+    name?: string
+  ): Promise<MemoryRevealResult> =>
+    ipcRenderer.invoke(IpcChannel.Agent_MemoryReveal, { scope, name }),
+
+  // ------ Skills viewer (read-only) ------
+
+  skillsList: (): Promise<SkillsListResult> =>
+    ipcRenderer.invoke(IpcChannel.Agent_SkillsList),
+
+  skillsGet: (name: string): Promise<SkillsGetResult> =>
+    ipcRenderer.invoke(IpcChannel.Agent_SkillsGet, { name }),
+
+  skillsReload: (): Promise<SkillsReloadResult> =>
+    ipcRenderer.invoke(IpcChannel.Agent_SkillsReload),
+
+  /** Open the Memory & Skills viewer in a secondary window. */
+  openMemoryViewer: (initialTab?: 'memory' | 'skills'): Promise<number> =>
+    ipcRenderer.invoke(IpcChannel.Agent_OpenMemoryViewer, { initialTab }),
 
   // ------ Streaming events ------
 

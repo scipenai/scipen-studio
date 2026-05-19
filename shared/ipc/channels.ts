@@ -209,6 +209,18 @@ export enum IpcChannel {
   Agent_CancelTurn = 'agent:cancel-turn',
   Agent_ConfirmEdit = 'agent:confirm-edit',
   Agent_ConfirmTool = 'agent:confirm-tool',
+  // Memory viewer
+  Agent_MemoryList = 'agent:memory-list',
+  Agent_MemoryGet = 'agent:memory-get',
+  Agent_MemoryWrite = 'agent:memory-write',
+  Agent_MemoryDelete = 'agent:memory-delete',
+  Agent_MemoryReveal = 'agent:memory-reveal',
+  // Skills viewer
+  Agent_SkillsList = 'agent:skills-list',
+  Agent_SkillsGet = 'agent:skills-get',
+  Agent_SkillsReload = 'agent:skills-reload',
+  // Memory / skills viewer secondary window
+  Agent_OpenMemoryViewer = 'agent:open-memory-viewer',
   /**
    * Renderer-decided resolution of an `edit.propose` event. Main reads the
    * file, validates `base_hash`, applies the (possibly partial) hunks, and

@@ -34,7 +34,17 @@ import type {
   InlineEditStartParams,
   InlineEditStartResult,
   LogWriteParams,
+  MemoryDeleteParams,
+  MemoryDeleteResult,
+  MemoryGetParams,
+  MemoryGetResult,
+  MemoryListParams,
+  MemoryListResult,
+  MemoryRevealParams,
+  MemoryRevealResult,
   MemoryUpdatedParams,
+  MemoryWriteParams,
+  MemoryWriteResult,
   PlanConfirmParams,
   PlanConfirmResult,
   PlanUpdateParams,
@@ -45,6 +55,12 @@ import type {
   SessionOpenParams,
   SessionOpenResult,
   SessionSwitchThreadResult,
+  SkillsGetParams,
+  SkillsGetResult,
+  SkillsListParams,
+  SkillsListResult,
+  SkillsReloadParams,
+  SkillsReloadResult,
   SnacaConfig,
   ToolApprovalRequestParams,
   ToolConfirmParams,
@@ -118,6 +134,20 @@ export interface IEditorProtocolClient extends Partial<IDisposable> {
   turnCancel(params: TurnCancelParams): Promise<void>;
   editConfirm(params: EditConfirmParams): Promise<EditConfirmResult>;
   toolConfirm(params: ToolConfirmParams): Promise<{ ok: boolean }>;
+
+  // ---------------- Memory viewer ----------------
+
+  memoryList(params: MemoryListParams): Promise<MemoryListResult>;
+  memoryGet(params: MemoryGetParams): Promise<MemoryGetResult>;
+  memoryWrite(params: MemoryWriteParams): Promise<MemoryWriteResult>;
+  memoryDelete(params: MemoryDeleteParams): Promise<MemoryDeleteResult>;
+  memoryReveal(params: MemoryRevealParams): Promise<MemoryRevealResult>;
+
+  // ---------------- Skills viewer ----------------
+
+  skillsList(params: SkillsListParams): Promise<SkillsListResult>;
+  skillsGet(params: SkillsGetParams): Promise<SkillsGetResult>;
+  skillsReload(params: SkillsReloadParams): Promise<SkillsReloadResult>;
 
   // ---------------- Reverse RPC ----------------
 

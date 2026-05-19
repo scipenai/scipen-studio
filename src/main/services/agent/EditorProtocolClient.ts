@@ -49,7 +49,12 @@ import {
   InitResultSchema,
   InlineEditStartResultSchema,
   LogWriteParamsSchema,
+  MemoryDeleteResultSchema,
+  MemoryGetResultSchema,
+  MemoryListResultSchema,
+  MemoryRevealResultSchema,
   MemoryUpdatedParamsSchema,
+  MemoryWriteResultSchema,
   PlanConfirmResultSchema,
   PlanUpdateParamsSchema,
   SessionDeleteThreadResultSchema,
@@ -58,6 +63,13 @@ import {
   SessionNewThreadResultSchema,
   SessionOpenResultSchema,
   SessionSwitchThreadResultSchema,
+  ShutdownResultSchema,
+  SkillsGetResultSchema,
+  SkillsListResultSchema,
+  SkillsReloadResultSchema,
+  ToolApprovalRequestParamsSchema,
+  TurnDeltaParamsSchema,
+  UsageUpdateParamsSchema,
   ShutdownResultSchema,
   ToolApprovalRequestParamsSchema,
   TurnDeltaParamsSchema,
@@ -81,7 +93,17 @@ import {
   type InlineEditStartParams,
   type InlineEditStartResult,
   type LogWriteParams,
+  type MemoryDeleteParams,
+  type MemoryDeleteResult,
+  type MemoryGetParams,
+  type MemoryGetResult,
+  type MemoryListParams,
+  type MemoryListResult,
+  type MemoryRevealParams,
+  type MemoryRevealResult,
   type MemoryUpdatedParams,
+  type MemoryWriteParams,
+  type MemoryWriteResult,
   type PlanConfirmParams,
   type PlanConfirmResult,
   type PlanUpdateParams,
@@ -92,6 +114,12 @@ import {
   type SessionOpenParams,
   type SessionOpenResult,
   type SessionSwitchThreadResult,
+  type SkillsGetParams,
+  type SkillsGetResult,
+  type SkillsListParams,
+  type SkillsListResult,
+  type SkillsReloadParams,
+  type SkillsReloadResult,
   type SnacaConfig,
   type ToolApprovalRequestParams,
   type ToolConfirmParams,
@@ -317,6 +345,42 @@ export class EditorProtocolClient extends Disposable implements IEditorProtocolC
 
   async toolConfirm(params: ToolConfirmParams): Promise<{ ok: boolean }> {
     return this.request(HostToSnaca.ToolConfirm, params, anonymousSchema<{ ok: boolean }>());
+  }
+
+  // ----- memory viewer -----
+
+  async memoryList(params: MemoryListParams): Promise<MemoryListResult> {
+    return this.request(HostToSnaca.MemoryList, params, MemoryListResultSchema);
+  }
+
+  async memoryGet(params: MemoryGetParams): Promise<MemoryGetResult> {
+    return this.request(HostToSnaca.MemoryGet, params, MemoryGetResultSchema);
+  }
+
+  async memoryWrite(params: MemoryWriteParams): Promise<MemoryWriteResult> {
+    return this.request(HostToSnaca.MemoryWrite, params, MemoryWriteResultSchema);
+  }
+
+  async memoryDelete(params: MemoryDeleteParams): Promise<MemoryDeleteResult> {
+    return this.request(HostToSnaca.MemoryDelete, params, MemoryDeleteResultSchema);
+  }
+
+  async memoryReveal(params: MemoryRevealParams): Promise<MemoryRevealResult> {
+    return this.request(HostToSnaca.MemoryReveal, params, MemoryRevealResultSchema);
+  }
+
+  // ----- skills viewer -----
+
+  async skillsList(params: SkillsListParams): Promise<SkillsListResult> {
+    return this.request(HostToSnaca.SkillsList, params, SkillsListResultSchema);
+  }
+
+  async skillsGet(params: SkillsGetParams): Promise<SkillsGetResult> {
+    return this.request(HostToSnaca.SkillsGet, params, SkillsGetResultSchema);
+  }
+
+  async skillsReload(params: SkillsReloadParams): Promise<SkillsReloadResult> {
+    return this.request(HostToSnaca.SkillsReload, params, SkillsReloadResultSchema);
   }
 
   // ----- reverse RPC -----

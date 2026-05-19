@@ -11,7 +11,7 @@
  * calls have somewhere to land.
  */
 
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow, ipcMain, shell } from 'electron';
 import { z } from 'zod';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import { ConfigKeys } from '../../../shared/types/config-keys';
@@ -169,6 +169,40 @@ const confirmEditPayloadSchema = z.object({
     )
     .max(256)
     .optional(),
+});
+
+// ----- Memory / Skills viewer (P6-C) -----
+
+const memoryScopeSchema = z.enum(['user', 'feedback', 'project', 'reference']);
+const memoryNameSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9_-]+$/, 'name must match [a-z0-9_-]{1,64}');
+
+const memoryListPayloadSchema = z.object({
+  scope: memoryScopeSchema.optional(),
+});
+const memoryGetPayloadSchema = z.object({
+  scope: memoryScopeSchema,
+  name: memoryNameSchema,
+});
+const memoryWritePayloadSchema = z.object({
+  scope: memoryScopeSchema,
+  name: memoryNameSchema,
+  content: z.string().max(100_000),
+});
+const memoryDeletePayloadSchema = z.object({
+  scope: memoryScopeSchema,
+  name: memoryNameSchema,
+});
+const memoryRevealPayloadSchema = z.object({
+  scope: memoryScopeSchema.optional(),
+  name: memoryNameSchema.optional(),
+});
+
+const skillsGetPayloadSchema = z.object({
+  name: z.string().min(1).max(128),
 });
 
 /** Throw a friendly error from a Zod failure so the renderer can surface it. */
@@ -570,6 +604,91 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
       return { ok: true };
     }
   );
+
+  // ----- Memory viewer (P6-C) -----
+  //
+  // All these handlers require `state.sessionId` (set after the
+  // first sidecar bootstrap). UI ensures the project is loaded
+  // before opening the viewer, so SessionNotFound is degenerate.
+
+  const requireSession = (): string => {
+    if (!state.sessionId) {
+      throw new Error('No active SNACA session — open a project first.');
+    }
+    return state.sessionId;
+  };
+
+  ipcMain.handle(IpcChannel.Agent_MemoryList, async (_e, rawPayload: unknown) => {
+    const p = parseOrThrow(memoryListPayloadSchema, rawPayload ?? {}, 'memoryList payload');
+    return await client.memoryList({ session_id: requireSession(), scope: p.scope });
+  });
+
+  ipcMain.handle(IpcChannel.Agent_MemoryGet, async (_e, rawPayload: unknown) => {
+    const p = parseOrThrow(memoryGetPayloadSchema, rawPayload, 'memoryGet payload');
+    return await client.memoryGet({
+      session_id: requireSession(),
+      scope: p.scope,
+      name: p.name,
+    });
+  });
+
+  ipcMain.handle(IpcChannel.Agent_MemoryWrite, async (_e, rawPayload: unknown) => {
+    const p = parseOrThrow(memoryWritePayloadSchema, rawPayload, 'memoryWrite payload');
+    return await client.memoryWrite({
+      session_id: requireSession(),
+      scope: p.scope,
+      name: p.name,
+      content: p.content,
+    });
+  });
+
+  ipcMain.handle(IpcChannel.Agent_MemoryDelete, async (_e, rawPayload: unknown) => {
+    const p = parseOrThrow(memoryDeletePayloadSchema, rawPayload, 'memoryDelete payload');
+    return await client.memoryDelete({
+      session_id: requireSession(),
+      scope: p.scope,
+      name: p.name,
+    });
+  });
+
+  ipcMain.handle(IpcChannel.Agent_MemoryReveal, async (_e, rawPayload: unknown) => {
+    const p = parseOrThrow(
+      memoryRevealPayloadSchema,
+      rawPayload ?? {},
+      'memoryReveal payload'
+    );
+    const result = await client.memoryReveal({
+      session_id: requireSession(),
+      scope: p.scope,
+      name: p.name,
+    });
+    // Reveal the path in the host's file manager. shell.showItemInFolder
+    // wants a file; if the result is a directory, fall back to opening it.
+    try {
+      const stat = await import('node:fs').then((m) => m.promises.stat(result.path));
+      if (stat.isDirectory()) {
+        await shell.openPath(result.path);
+      } else {
+        shell.showItemInFolder(result.path);
+      }
+    } catch {
+      // Path may not exist yet (empty memory tree). No-op, surface via result.
+    }
+    return result;
+  });
+
+  ipcMain.handle(IpcChannel.Agent_SkillsList, async () => {
+    return await client.skillsList({ session_id: requireSession() });
+  });
+
+  ipcMain.handle(IpcChannel.Agent_SkillsGet, async (_e, rawPayload: unknown) => {
+    const p = parseOrThrow(skillsGetPayloadSchema, rawPayload, 'skillsGet payload');
+    return await client.skillsGet({ session_id: requireSession(), name: p.name });
+  });
+
+  ipcMain.handle(IpcChannel.Agent_SkillsReload, async () => {
+    return await client.skillsReload({ session_id: requireSession() });
+  });
 
   return store;
 }

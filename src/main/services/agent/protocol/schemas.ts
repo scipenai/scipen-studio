@@ -726,6 +726,130 @@ export const MemoryUpdatedParamsSchema = z.object({
 });
 export type MemoryUpdatedParams = z.infer<typeof MemoryUpdatedParamsSchema>;
 
+// ============ memory.* RPC ============
+
+export const MemoryEntrySummarySchema = z.object({
+  scope: MemoryScopeSchema,
+  name: z.string(),
+  last_modified: z.string(),
+  preview: z.string(),
+});
+export type MemoryEntrySummary = z.infer<typeof MemoryEntrySummarySchema>;
+
+export const MemoryListParamsSchema = z.object({
+  session_id: z.string().min(1),
+  scope: MemoryScopeSchema.optional(),
+});
+export type MemoryListParams = z.infer<typeof MemoryListParamsSchema>;
+
+export const MemoryListResultSchema = z.object({
+  entries: z.array(MemoryEntrySummarySchema),
+});
+export type MemoryListResult = z.infer<typeof MemoryListResultSchema>;
+
+export const MemoryGetParamsSchema = z.object({
+  session_id: z.string().min(1),
+  scope: MemoryScopeSchema,
+  name: z.string().min(1),
+});
+export type MemoryGetParams = z.infer<typeof MemoryGetParamsSchema>;
+
+export const MemoryGetResultSchema = z.object({
+  scope: MemoryScopeSchema,
+  name: z.string(),
+  content: z.string(),
+  last_modified: z.string(),
+});
+export type MemoryGetResult = z.infer<typeof MemoryGetResultSchema>;
+
+export const MemoryWriteParamsSchema = z.object({
+  session_id: z.string().min(1),
+  scope: MemoryScopeSchema,
+  name: z.string().min(1),
+  content: z.string(),
+});
+export type MemoryWriteParams = z.infer<typeof MemoryWriteParamsSchema>;
+
+export const MemoryWriteResultSchema = z.object({
+  action: MemoryActionSchema,
+});
+export type MemoryWriteResult = z.infer<typeof MemoryWriteResultSchema>;
+
+export const MemoryDeleteParamsSchema = z.object({
+  session_id: z.string().min(1),
+  scope: MemoryScopeSchema,
+  name: z.string().min(1),
+});
+export type MemoryDeleteParams = z.infer<typeof MemoryDeleteParamsSchema>;
+
+export const MemoryDeleteResultSchema = z.object({
+  deleted: z.boolean(),
+});
+export type MemoryDeleteResult = z.infer<typeof MemoryDeleteResultSchema>;
+
+export const MemoryRevealParamsSchema = z.object({
+  session_id: z.string().min(1),
+  scope: MemoryScopeSchema.optional(),
+  name: z.string().optional(),
+});
+export type MemoryRevealParams = z.infer<typeof MemoryRevealParamsSchema>;
+
+export const MemoryRevealResultSchema = z.object({
+  path: z.string(),
+});
+export type MemoryRevealResult = z.infer<typeof MemoryRevealResultSchema>;
+
+// ============ skills.* RPC ============
+
+export const SkillScopeSchema = z.enum(['bundled', 'tenant', 'project']);
+export type SkillScope = z.infer<typeof SkillScopeSchema>;
+
+export const SkillSummarySchema = z.object({
+  scope: SkillScopeSchema,
+  name: z.string(),
+  description: z.string().optional(),
+  when_to_use: z.string().optional(),
+  allowed_tools: z.array(z.string()).default([]),
+  source_path: z.string(),
+});
+export type SkillSummary = z.infer<typeof SkillSummarySchema>;
+
+export const SkillDetailSchema = SkillSummarySchema.extend({
+  body: z.string(),
+});
+export type SkillDetail = z.infer<typeof SkillDetailSchema>;
+
+export const SkillsListParamsSchema = z.object({
+  session_id: z.string().min(1),
+});
+export type SkillsListParams = z.infer<typeof SkillsListParamsSchema>;
+
+export const SkillsListResultSchema = z.object({
+  skills: z.array(SkillSummarySchema),
+});
+export type SkillsListResult = z.infer<typeof SkillsListResultSchema>;
+
+export const SkillsGetParamsSchema = z.object({
+  session_id: z.string().min(1),
+  name: z.string().min(1),
+});
+export type SkillsGetParams = z.infer<typeof SkillsGetParamsSchema>;
+
+export const SkillsGetResultSchema = z.object({
+  skill: SkillDetailSchema,
+});
+export type SkillsGetResult = z.infer<typeof SkillsGetResultSchema>;
+
+export const SkillsReloadParamsSchema = z.object({
+  session_id: z.string().min(1),
+});
+export type SkillsReloadParams = z.infer<typeof SkillsReloadParamsSchema>;
+
+export const SkillsReloadResultSchema = z.object({
+  reloaded: z.boolean(),
+});
+export type SkillsReloadResult = z.infer<typeof SkillsReloadResultSchema>;
+
 export const ErrorNotificationParamsSchema = z.object({
   turn_id: z.string().optional(),
   session_id: z.string().optional(),

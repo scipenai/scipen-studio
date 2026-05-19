@@ -241,6 +241,56 @@ class AgentClientServiceImpl {
     return this.api.respondContextFlush(payload);
   }
 
+  // ---- Memory viewer ----
+
+  memoryList(scope?: 'user' | 'feedback' | 'project' | 'reference'): Promise<any> {
+    return this.api.memoryList(scope);
+  }
+
+  memoryGet(scope: 'user' | 'feedback' | 'project' | 'reference', name: string): Promise<any> {
+    return this.api.memoryGet(scope, name);
+  }
+
+  memoryWrite(
+    scope: 'user' | 'feedback' | 'project' | 'reference',
+    name: string,
+    content: string
+  ): Promise<any> {
+    return this.api.memoryWrite(scope, name, content);
+  }
+
+  memoryDelete(
+    scope: 'user' | 'feedback' | 'project' | 'reference',
+    name: string
+  ): Promise<any> {
+    return this.api.memoryDelete(scope, name);
+  }
+
+  memoryReveal(
+    scope?: 'user' | 'feedback' | 'project' | 'reference',
+    name?: string
+  ): Promise<any> {
+    return this.api.memoryReveal(scope, name);
+  }
+
+  // ---- Skills viewer (read-only) ----
+
+  skillsList(): Promise<any> {
+    return this.api.skillsList();
+  }
+
+  skillsGet(name: string): Promise<any> {
+    return this.api.skillsGet(name);
+  }
+
+  skillsReload(): Promise<any> {
+    return this.api.skillsReload();
+  }
+
+  openMemoryViewer(initialTab?: 'memory' | 'skills'): Promise<number> {
+    return this.api.openMemoryViewer(initialTab);
+  }
+
   // ---- event subscriptions (return unsubscribe fn) ----
 
   onTurnDelta(cb: (e: any) => void): () => void {

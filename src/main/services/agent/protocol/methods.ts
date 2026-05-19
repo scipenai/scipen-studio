@@ -34,6 +34,16 @@ export const HostToSnaca = {
   EditConfirm: 'edit.confirm',
   ToolConfirm: 'tool.confirm',
   ContextRespond: 'context.respond',
+  // Memory viewer
+  MemoryList: 'memory.list',
+  MemoryGet: 'memory.get',
+  MemoryWrite: 'memory.write',
+  MemoryDelete: 'memory.delete',
+  MemoryReveal: 'memory.reveal',
+  // Skills viewer
+  SkillsList: 'skills.list',
+  SkillsGet: 'skills.get',
+  SkillsReload: 'skills.reload',
 } as const;
 
 export type HostToSnacaMethod = (typeof HostToSnaca)[keyof typeof HostToSnaca];
