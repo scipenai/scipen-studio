@@ -24,6 +24,15 @@ use snaca_editor_protocol::messages::composer::{
     ComposerMode, ComposerStartParams, ComposerStartResult, PlanConfirmParams, PlanConfirmResult,
 };
 use snaca_editor_protocol::messages::edit::{EditConfirmParams, EditConfirmResult};
+use snaca_editor_protocol::messages::memory::{
+    MemoryDeleteParams, MemoryDeleteResult, MemoryGetParams, MemoryGetResult, MemoryListParams,
+    MemoryListResult, MemoryRevealParams, MemoryRevealResult, MemoryWriteParams,
+    MemoryWriteResult,
+};
+use snaca_editor_protocol::messages::skills::{
+    SkillsGetParams, SkillsGetResult, SkillsListParams, SkillsListResult, SkillsReloadParams,
+    SkillsReloadResult,
+};
 use snaca_editor_protocol::messages::tool::{
     ToolConfirmParams, ToolConfirmResult,
 };
@@ -648,6 +657,76 @@ impl MessageHandler for EditorHandler {
             debug!(tool_call_id = %params.tool_call_id, "tool.confirm: unknown id");
         }
         Ok(ToolConfirmResult { ok: true })
+    }
+
+    // ---------------- Memory viewer ----------------
+
+    async fn handle_memory_list(
+        &self,
+        params: MemoryListParams,
+    ) -> Result<MemoryListResult, ProtocolError> {
+        self.require_initialized().await?;
+        crate::memory_handler::handle_memory_list(self.sessions.as_ref(), params).await
+    }
+
+    async fn handle_memory_get(
+        &self,
+        params: MemoryGetParams,
+    ) -> Result<MemoryGetResult, ProtocolError> {
+        self.require_initialized().await?;
+        crate::memory_handler::handle_memory_get(self.sessions.as_ref(), params).await
+    }
+
+    async fn handle_memory_write(
+        &self,
+        params: MemoryWriteParams,
+    ) -> Result<MemoryWriteResult, ProtocolError> {
+        self.require_initialized().await?;
+        crate::memory_handler::handle_memory_write(self.sessions.as_ref(), &self.outbound, params)
+            .await
+    }
+
+    async fn handle_memory_delete(
+        &self,
+        params: MemoryDeleteParams,
+    ) -> Result<MemoryDeleteResult, ProtocolError> {
+        self.require_initialized().await?;
+        crate::memory_handler::handle_memory_delete(self.sessions.as_ref(), &self.outbound, params)
+            .await
+    }
+
+    async fn handle_memory_reveal(
+        &self,
+        params: MemoryRevealParams,
+    ) -> Result<MemoryRevealResult, ProtocolError> {
+        self.require_initialized().await?;
+        crate::memory_handler::handle_memory_reveal(self.sessions.as_ref(), params).await
+    }
+
+    // ---------------- Skills viewer ----------------
+
+    async fn handle_skills_list(
+        &self,
+        params: SkillsListParams,
+    ) -> Result<SkillsListResult, ProtocolError> {
+        self.require_initialized().await?;
+        crate::skills_handler::handle_skills_list(self.sessions.as_ref(), params).await
+    }
+
+    async fn handle_skills_get(
+        &self,
+        params: SkillsGetParams,
+    ) -> Result<SkillsGetResult, ProtocolError> {
+        self.require_initialized().await?;
+        crate::skills_handler::handle_skills_get(self.sessions.as_ref(), params).await
+    }
+
+    async fn handle_skills_reload(
+        &self,
+        params: SkillsReloadParams,
+    ) -> Result<SkillsReloadResult, ProtocolError> {
+        self.require_initialized().await?;
+        crate::skills_handler::handle_skills_reload(self.sessions.as_ref(), params).await
     }
 }
 

@@ -54,6 +54,9 @@ pub enum ErrorCode {
     Cancelled,
     /// -32014: operation timed out (context.respond, tool exec, …).
     Timeout,
+    /// -32015: resource not found (memory entry, skill, …). Distinct from
+    /// `ProposalNotFound` which is reserved for edit-proposal ids.
+    NotFound,
     /// Anything else — preserved verbatim on the wire.
     Other(i32),
 }
@@ -82,6 +85,7 @@ impl ErrorCode {
             ErrorCode::BaseHashMismatch => -32012,
             ErrorCode::Cancelled => -32013,
             ErrorCode::Timeout => -32014,
+            ErrorCode::NotFound => -32015,
 
             ErrorCode::Other(c) => c,
         }
@@ -109,6 +113,7 @@ impl ErrorCode {
             ErrorCode::BaseHashMismatch => "base_hash_mismatch",
             ErrorCode::Cancelled => "cancelled",
             ErrorCode::Timeout => "timeout",
+            ErrorCode::NotFound => "not_found",
             ErrorCode::Other(_) => "other",
         }
     }
@@ -137,6 +142,7 @@ impl From<i32> for ErrorCode {
             -32012 => ErrorCode::BaseHashMismatch,
             -32013 => ErrorCode::Cancelled,
             -32014 => ErrorCode::Timeout,
+            -32015 => ErrorCode::NotFound,
             other => ErrorCode::Other(other),
         }
     }

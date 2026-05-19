@@ -21,6 +21,7 @@ pub mod error;
 pub mod listener;
 pub mod loop_guard;
 pub mod memory_extractor;
+pub mod memory_sink;
 pub mod reranker;
 pub mod tools_factory;
 
@@ -37,5 +38,6 @@ pub use memory_extractor::{
     ConstantExtractor, FilteredMemoryExtractor, LlmMemoryExtractor, MemoryExtractor,
     MemoryProposal, SensitiveFilter, SharedExtractor,
 };
+pub use memory_sink::{MemoryAction, MemoryEventSink, NoopMemorySink, SharedMemorySink};
 pub use reranker::{IdentityReranker, LlmReranker, RerankCandidate, Reranker, SharedReranker};
 pub use tools_factory::RuntimeToolFactory;

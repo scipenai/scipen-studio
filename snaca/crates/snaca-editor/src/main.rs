@@ -21,9 +21,11 @@ mod config;
 mod context_inject;
 mod handler;
 mod llm;
+mod memory_handler;
 mod outbound;
 mod session;
 mod session_manager;
+mod skills_handler;
 mod turn_engine;
 mod turn_listener;
 
@@ -71,6 +73,7 @@ fn main() -> anyhow::Result<()> {
 async fn run(cli: Cli) -> anyhow::Result<()> {
     let outbound = Arc::new(OutboundWriter::new(tokio::io::stdout()));
     let sessions = Arc::new(SessionManager::new());
+    sessions.set_outbound(outbound.clone());
 
     if let Some(path) = cli.config.as_deref() {
         if let Err(e) = config::preload_from_file(path).await {

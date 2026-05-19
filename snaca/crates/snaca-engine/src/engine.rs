@@ -109,6 +109,12 @@ pub struct Engine {
     /// pick the top `RECALL_TOP_K`. None falls back to a simple
     /// truncation of the cosine top-k — same behaviour as M3 chunk 2.
     reranker: Option<crate::reranker::SharedReranker>,
+    /// Optional sink notified whenever the background memory_extractor
+    /// successfully writes a memory entry. The editor crate wires this
+    /// to the JSON-RPC `memory.updated` notification so MemoryViewer
+    /// refreshes live. None disables broadcasting; the write still
+    /// happens.
+    memory_sink: Option<crate::memory_sink::SharedMemorySink>,
     /// Optional background-task registry. When attached, Bash's
     /// `run_in_background = true` path can spawn long-lived tasks
     /// whose status is polled via the TaskOutput tool. Held as an
@@ -185,6 +191,7 @@ impl Engine {
             embedder: None,
             extractor: None,
             reranker: None,
+            memory_sink: None,
             task_registry: None,
             inflight: Arc::new(Mutex::new(HashMap::new())),
             surfaced_memories: Arc::new(Mutex::new(HashMap::new())),
@@ -371,6 +378,14 @@ impl Engine {
     /// engine truncates the cosine top-k itself.
     pub fn with_reranker(mut self, reranker: crate::reranker::SharedReranker) -> Self {
         self.reranker = Some(reranker);
+        self
+    }
+
+    /// Attach a memory-event sink. Called best-effort after every
+    /// successful extractor write so the host can refresh its view
+    /// without polling.
+    pub fn with_memory_sink(mut self, sink: crate::memory_sink::SharedMemorySink) -> Self {
+        self.memory_sink = Some(sink);
         self
     }
 
@@ -993,6 +1008,7 @@ impl Engine {
         };
         let state = self.state.clone();
         let workspace = self.workspace.clone();
+        let sink = self.memory_sink.clone();
         // Pull *all* recent messages from the thread the worker can
         // see — same window the engine uses for retrieval, so the
         // extractor sees the same context the LLM did.
@@ -1038,11 +1054,26 @@ impl Engine {
                     .write(proposal.scope, &proposal.name, &proposal.content)
                     .await
                 {
-                    Ok(entry) => debug!(
-                        scope = %entry.scope,
-                        name = entry.name.as_str(),
-                        "extractor wrote memory entry"
-                    ),
+                    Ok(entry) => {
+                        debug!(
+                            scope = %entry.scope,
+                            name = entry.name.as_str(),
+                            "extractor wrote memory entry"
+                        );
+                        // The extractor writes through `MemoryStore::write`
+                        // which both creates and overwrites without
+                        // distinguishing. We can't tell created vs updated
+                        // cheaply here, so default to `Updated` — the host
+                        // refreshes the list on either and a stale "new"
+                        // badge is worse than a stale "modified" one.
+                        if let Some(s) = &sink {
+                            s.on_memory_changed(
+                                entry.scope,
+                                entry.name.as_str(),
+                                crate::memory_sink::MemoryAction::Updated,
+                            );
+                        }
+                    }
                     Err(e) => warn!(
                         scope = %proposal.scope,
                         name = proposal.name.as_str(),

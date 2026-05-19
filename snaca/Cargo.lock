@@ -3649,6 +3649,8 @@ dependencies = [
  "snaca-editor-protocol",
  "snaca-engine",
  "snaca-llm",
+ "snaca-memory",
+ "snaca-skills",
  "snaca-state",
  "snaca-tools",
  "snaca-tools-api",

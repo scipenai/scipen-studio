@@ -6,9 +6,11 @@
 #![allow(dead_code)]
 
 use chrono::{DateTime, Utc};
+use snaca_core::{ProjectId, TenantId};
 use snaca_editor_protocol::types::context::ProjectType;
 use snaca_engine::Engine;
 use snaca_state::Database;
+use snaca_workspace::WorkspaceLayout;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::task::AbortHandle;
@@ -66,6 +68,54 @@ impl Session {
             db,
             engine,
         }
+    }
+
+    /// `<metadata_root>/local/projects/<project_id>/memory/`. Matches the
+    /// path `Engine::spawn_memory_extraction` writes to via
+    /// `WorkspaceLayout::memory_dir` so host reads see exactly what the
+    /// background extractor produces. Falls back to a path under
+    /// `metadata_root` even when the layout can't be built — every caller
+    /// already tolerates a missing directory.
+    pub fn memory_dir(&self) -> PathBuf {
+        let tenant = TenantId::new(crate::session_manager::STUDIO_TENANT_ID);
+        let project = ProjectId::from_raw(&self.project_id);
+        WorkspaceLayout::new(&self.metadata_root)
+            .map(|l| l.memory_dir(&tenant, &project))
+            .unwrap_or_else(|_| {
+                self.metadata_root
+                    .join(crate::session_manager::STUDIO_TENANT_ID)
+                    .join("projects")
+                    .join(&self.project_id)
+                    .join("memory")
+            })
+    }
+
+    /// `<metadata_root>/local/projects/<project_id>/skills/`.
+    pub fn project_skills_dir(&self) -> PathBuf {
+        let tenant = TenantId::new(crate::session_manager::STUDIO_TENANT_ID);
+        let project = ProjectId::from_raw(&self.project_id);
+        WorkspaceLayout::new(&self.metadata_root)
+            .map(|l| l.project_skills_dir(&tenant, &project))
+            .unwrap_or_else(|_| {
+                self.metadata_root
+                    .join(crate::session_manager::STUDIO_TENANT_ID)
+                    .join("projects")
+                    .join(&self.project_id)
+                    .join("skills")
+            })
+    }
+
+    /// `<metadata_root>/local/skills/`. Shared across all projects under
+    /// the same tenant.
+    pub fn tenant_skills_dir(&self) -> PathBuf {
+        let tenant = TenantId::new(crate::session_manager::STUDIO_TENANT_ID);
+        WorkspaceLayout::new(&self.metadata_root)
+            .map(|l| l.tenant_skills_dir(&tenant))
+            .unwrap_or_else(|_| {
+                self.metadata_root
+                    .join(crate::session_manager::STUDIO_TENANT_ID)
+                    .join("skills")
+            })
     }
 }
 

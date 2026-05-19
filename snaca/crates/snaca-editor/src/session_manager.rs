@@ -37,6 +37,12 @@ const DEFAULT_THREAD_TITLE: &str = "New conversation";
 #[derive(Default)]
 pub struct SessionManager {
     inner: Mutex<Inner>,
+    /// Outbound JSON-RPC writer. Set via `with_outbound` after construction
+    /// (chicken-and-egg: `OutboundWriter` itself wraps `stdout` so it
+    /// exists first, but `SessionManager` is constructed before we wire
+    /// it). When `Some`, the engine memory sink uses this to broadcast
+    /// `memory.updated` notifications.
+    outbound: tokio::sync::OnceCell<Arc<crate::outbound::OutboundWriter>>,
 }
 
 #[derive(Default)]
@@ -46,9 +52,13 @@ struct Inner {
 
 impl SessionManager {
     pub fn new() -> Self {
-        Self {
-            inner: Mutex::new(Inner::default()),
-        }
+        Self::default()
+    }
+
+    /// Wire the outbound writer. Called once at startup. Subsequent calls
+    /// are no-ops (the cell only accepts the first set).
+    pub fn set_outbound(&self, outbound: Arc<crate::outbound::OutboundWriter>) {
+        let _ = self.outbound.set(outbound);
     }
 
     /// Opens a session backed by a per-project SQLite DB at
@@ -153,12 +163,19 @@ impl SessionManager {
         // on failure the session still opens (Phase A keeps the legacy
         // chat path), but Phase B's Engine route degrades to "no engine
         // available" and chat.send must fall back.
+        let memory_sink = self.outbound.get().map(|ob| {
+            Arc::new(crate::memory_handler::EditorMemorySink {
+                outbound: ob.clone(),
+                session_id: session_id.clone(),
+            }) as Arc<dyn snaca_engine::MemoryEventSink>
+        });
         let engine = build_session_engine(
             &workspace_root,
             &metadata_root,
             llm,
             db.clone(),
             snaca_config,
+            memory_sink,
         );
 
         let mut session = Session::new(
@@ -371,6 +388,33 @@ impl SessionManager {
             session.project_id.clone(),
             session.workspace_root.clone(),
         ))
+    }
+
+    /// Resolve the project's memory directory. Used by `memory.*` handlers
+    /// so every read/write lines up with what `Engine::spawn_memory_extraction`
+    /// is writing under `WorkspaceLayout::memory_dir`.
+    pub async fn memory_dir_for(&self, session_id: &str) -> Result<PathBuf, ProtocolError> {
+        let inner = self.inner.lock().await;
+        let session = inner
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        Ok(session.memory_dir())
+    }
+
+    /// `(project_skills_dir, tenant_skills_dir)` for `skills.*` handlers.
+    /// Both paths may be absent on disk — handlers must tolerate missing
+    /// directories.
+    pub async fn skills_dirs_for(
+        &self,
+        session_id: &str,
+    ) -> Result<(PathBuf, PathBuf), ProtocolError> {
+        let inner = self.inner.lock().await;
+        let session = inner
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        Ok((session.project_skills_dir(), session.tenant_skills_dir()))
     }
 
     /// Composer plan-phase needs to share the session's per-project DB
@@ -665,6 +709,7 @@ fn build_session_engine(
     llm: Arc<dyn LlmClient>,
     db: Database,
     snaca_config: &SnacaConfig,
+    memory_sink: Option<Arc<dyn snaca_engine::MemoryEventSink>>,
 ) -> Option<Arc<Engine>> {
     let layout = match WorkspaceLayout::new(metadata_root.clone()) {
         Ok(l) => l,
@@ -720,6 +765,9 @@ fn build_session_engine(
     }
 
     let tools = base_tool_registry();
-    let engine = Engine::new(llm, tools, db, layout, engine_config);
+    let mut engine = Engine::new(llm, tools, db, layout, engine_config);
+    if let Some(sink) = memory_sink {
+        engine = engine.with_memory_sink(sink);
+    }
     Some(Arc::new(engine))
 }
