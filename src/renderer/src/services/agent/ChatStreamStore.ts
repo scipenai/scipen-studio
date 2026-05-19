@@ -63,6 +63,16 @@ export interface ChatPlan {
   files: ChatPlanFile[];
 }
 
+export interface ChatApprovalRequest {
+  toolCallId: string;
+  tool: string;
+  args: unknown;
+  summary: string;
+  risk: 'low' | 'medium' | 'high';
+  /** Cleared by markApprovalResolved when the user picks an option. */
+  status: 'pending' | 'resolved';
+}
+
 export interface ChatTurn {
   turnId: string;
   /** Whether the turn has emitted any thinking text. */
@@ -84,6 +94,8 @@ export interface ChatTurn {
   proposals: ChatProposalRecord[];
   /** Latest plan.update snapshot, if SNACA emitted one. */
   plan: ChatPlan | null;
+  /** Pending tool-approval cards waiting for the user's decision. */
+  approvals: ChatApprovalRequest[];
   /** True until a `done` event arrives. */
   pending: boolean;
   /** Final reason if not pending. */
@@ -145,6 +157,7 @@ class ChatStreamStoreImpl {
     agentClient.onEditProposeComplete((evt) => this.handleEditProposeComplete(evt));
     agentClient.onPlanUpdate((evt) => this.handlePlanUpdate(evt));
     agentClient.onEditApplied((evt) => this.handleEditApplied(evt));
+    agentClient.onToolApprovalRequest((evt) => this.handleToolApprovalRequest(evt));
   }
 
   // ---- public read API ----
@@ -530,6 +543,44 @@ class ChatStreamStoreImpl {
     }
   }
 
+  private handleToolApprovalRequest(evt: any): void {
+    const turnId = evt?.turn_id as string | undefined;
+    const toolCallId = evt?.tool_call_id as string | undefined;
+    if (!turnId || !toolCallId) return;
+    const turn = this.acquireTurn(turnId);
+    // Idempotent: if SNACA re-emits the same request for any reason,
+    // overwrite the existing pending card rather than duplicating.
+    const existing = turn.approvals.find((a) => a.toolCallId === toolCallId);
+    const record: ChatApprovalRequest = {
+      toolCallId,
+      tool: evt.tool ?? '',
+      args: evt.args,
+      summary: evt.summary ?? '',
+      risk: evt.risk ?? 'medium',
+      status: 'pending',
+    };
+    if (existing) {
+      Object.assign(existing, record);
+    } else {
+      turn.approvals.push(record);
+    }
+    this.fire();
+  }
+
+  /** Called after `agentClient.confirmTool` resolves so the card flips
+   *  from pending to a "resolved" state without waiting on a server
+   *  echo (SNACA doesn't emit a separate "approval consumed" event). */
+  markApprovalResolved(toolCallId: string): void {
+    for (const turn of this.iterAllTurns()) {
+      const a = turn.approvals.find((a) => a.toolCallId === toolCallId);
+      if (a) {
+        a.status = 'resolved';
+        this.fire();
+        return;
+      }
+    }
+  }
+
   private handlePlanUpdate(evt: any): void {
     const turnId = evt?.turn_id as string | undefined;
     if (!turnId) return;
@@ -602,6 +653,7 @@ function makeEmptyTurn(turnId: string): ChatTurn {
     toolCalls: [],
     proposals: [],
     plan: null,
+    approvals: [],
     pending: true,
   };
 }
@@ -620,6 +672,10 @@ function recordToCompletedTurn(r: TurnMetaRecord): ChatTurn {
     toolCalls: r.toolCalls,
     proposals: r.proposals,
     plan: r.plan,
+    // Approval cards are ephemeral — never restored from cache (the
+    // tool either ran or it didn't, the IndexedDB record reflects the
+    // outcome via toolCalls).
+    approvals: [],
     pending: false,
     doneReason: 'completed',
     usage: r.usage,

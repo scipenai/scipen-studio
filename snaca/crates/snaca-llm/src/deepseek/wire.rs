@@ -24,6 +24,13 @@ pub struct ChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop: Option<Vec<String>>,
     pub stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_options: Option<StreamOptions>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StreamOptions {
+    pub include_usage: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

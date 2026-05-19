@@ -10,14 +10,19 @@
 //!   still return `method_not_found` (next phases).
 
 use crate::context_inject;
+use crate::approval_gate::{decision_from_edit, decision_from_wire};
 use crate::llm::{build_llm_client, run_chat_turn};
-use crate::turn_engine::{default_approval_gate, run_engine_turn};
+use crate::turn_engine::{gate_for_mode, run_engine_turn};
 use crate::outbound::OutboundWriter;
 use crate::session::TurnKind;
 use crate::session_manager::SessionManager;
 use async_trait::async_trait;
 use snaca_core::Message;
 use snaca_editor_protocol::error::ProtocolError;
+use snaca_editor_protocol::messages::edit::{EditConfirmParams, EditConfirmResult};
+use snaca_editor_protocol::messages::tool::{
+    ToolConfirmParams, ToolConfirmResult,
+};
 use snaca_editor_protocol::messages::{chat::*, init::*, session::*, turn::*};
 use snaca_editor_protocol::routing::MessageHandler;
 use snaca_editor_protocol::types::context::ChatContext;
@@ -47,6 +52,21 @@ pub struct EditorHandler {
     /// Set after `init` succeeds. Stored as `Option` so other methods can
     /// short-circuit with `NotInitialized` until then.
     inner: tokio::sync::RwLock<InnerState>,
+    /// `tool_call_id → sender` parked by `EditorApprovalGate`; resolved
+    /// by `handle_tool_confirm`.
+    pending_approvals: Arc<std::sync::Mutex<
+        std::collections::HashMap<String, tokio::sync::oneshot::Sender<snaca_engine::ApprovalDecision>>,
+    >>,
+    /// `proposal_id → sender` for Edit/Write routed through Diff Review.
+    pending_edit_approvals: Arc<std::sync::Mutex<
+        std::collections::HashMap<String, tokio::sync::oneshot::Sender<snaca_engine::ApprovalDecision>>,
+    >>,
+    /// `turn_id → token`. Fired by `turn.cancel`; all cancellable awaits
+    /// in the turn select on it so the task unwinds through the normal
+    /// Done(Cancelled) path.
+    pending_turns: Arc<std::sync::Mutex<
+        std::collections::HashMap<String, tokio_util::sync::CancellationToken>,
+    >>,
 }
 
 #[derive(Default)]
@@ -64,6 +84,9 @@ impl EditorHandler {
             sessions,
             started_at: Instant::now(),
             inner: tokio::sync::RwLock::new(InnerState::default()),
+            pending_approvals: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pending_edit_approvals: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pending_turns: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -327,7 +350,8 @@ impl MessageHandler for EditorHandler {
             .begin_turn(&params.session_id, &params.thread_id, TurnKind::Chat)
             .await?;
 
-        let (engine_opt, project_id) = self.sessions.engine_for(&params.session_id).await?;
+        let (engine_opt, project_id, workspace_root) =
+            self.sessions.engine_for(&params.session_id).await?;
 
         match engine_opt {
             Some(engine) => {
@@ -340,8 +364,30 @@ impl MessageHandler for EditorHandler {
                 let thread_id = params.thread_id.clone();
                 let turn_id_clone = turn_id.clone();
                 let user_text = params.content.clone();
-                let gate = default_approval_gate();
+                let approval_mode = self
+                    .inner
+                    .read()
+                    .await
+                    .snaca_config
+                    .as_ref()
+                    .map(|c| c.approval_mode)
+                    .unwrap_or(snaca_editor_protocol::types::config::ApprovalMode::Interactive);
+                let cancel_token = tokio_util::sync::CancellationToken::new();
+                self.pending_turns
+                    .lock()
+                    .unwrap()
+                    .insert(turn_id.clone(), cancel_token.clone());
+                let gate = gate_for_mode(
+                    approval_mode,
+                    outbound.clone(),
+                    turn_id_clone.clone(),
+                    self.pending_approvals.clone(),
+                    self.pending_edit_approvals.clone(),
+                    workspace_root.clone(),
+                    cancel_token.clone(),
+                );
 
+                let pending_turns_for_task = self.pending_turns.clone();
                 let handle = tokio::spawn(async move {
                     run_engine_turn(
                         engine,
@@ -350,11 +396,13 @@ impl MessageHandler for EditorHandler {
                         session_id,
                         project_id,
                         thread_id,
-                        turn_id_clone,
+                        turn_id_clone.clone(),
                         user_text,
                         gate,
+                        cancel_token,
                     )
                     .await;
+                    pending_turns_for_task.lock().unwrap().remove(&turn_id_clone);
                 });
                 let _ = self
                     .sessions
@@ -413,8 +461,54 @@ impl MessageHandler for EditorHandler {
     // ---------------- Control ----------------
 
     async fn handle_turn_cancel(&self, params: TurnCancelParams) {
-        let hit = self.sessions.cancel_turn(&params.turn_id).await;
-        debug!(turn_id = %params.turn_id, hit, reason = ?params.reason, "turn.cancel");
+        let token = self.pending_turns.lock().unwrap().remove(&params.turn_id);
+        if let Some(t) = token {
+            t.cancel();
+            debug!(turn_id = %params.turn_id, reason = ?params.reason, "turn.cancel (token fired)");
+        } else {
+            debug!(turn_id = %params.turn_id, "turn.cancel: no pending turn");
+        }
+    }
+
+    async fn handle_edit_confirm(
+        &self,
+        params: EditConfirmParams,
+    ) -> Result<EditConfirmResult, ProtocolError> {
+        let sender = self
+            .pending_edit_approvals
+            .lock()
+            .unwrap()
+            .remove(&params.proposal_id);
+        if let Some(s) = sender {
+            let _ = s.send(decision_from_edit(params.decision));
+            info!(proposal_id = %params.proposal_id, decision = ?params.decision, "edit.confirm");
+        } else {
+            debug!(proposal_id = %params.proposal_id, "edit.confirm: unknown id");
+        }
+        // The engine's Edit/Write tool writes after the gate releases;
+        // host did not apply here.
+        Ok(EditConfirmResult {
+            applied: false,
+            applied_hash: None,
+            errors: None,
+        })
+    }
+
+    async fn handle_tool_confirm(
+        &self,
+        params: ToolConfirmParams,
+    ) -> Result<ToolConfirmResult, ProtocolError> {
+        let sender = {
+            let mut map = self.pending_approvals.lock().unwrap();
+            map.remove(&params.tool_call_id)
+        };
+        if let Some(s) = sender {
+            let _ = s.send(decision_from_wire(params.decision));
+            info!(tool_call_id = %params.tool_call_id, decision = ?params.decision, "tool.confirm");
+        } else {
+            debug!(tool_call_id = %params.tool_call_id, "tool.confirm: unknown id");
+        }
+        Ok(ToolConfirmResult { ok: true })
     }
 }
 

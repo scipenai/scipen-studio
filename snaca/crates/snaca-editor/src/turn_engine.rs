@@ -1,36 +1,31 @@
-//! Engine-backed turn dispatcher. Replaces the P1 `llm::run_chat_turn`
-//! for sessions that successfully wired an `snaca-engine::Engine` at
-//! session open. Falls back to the legacy path is handled by the caller
-//! (`handler::handle_chat_send`) when this module's prerequisites aren't
-//! met.
-//!
-//! Flow:
-//!   1. Build `TurnRequest`, pinning `message_id` to the session-level
-//!      `turn_id` so `Engine::abort_turn` / `abort_thread` can target a
-//!      specific in-flight turn from the editor protocol's `turn.cancel`.
-//!   2. Run `engine.handle_turn_full(req, gate, listener)` — Engine owns
-//!      user/assistant/tool message persistence and the LLM loop.
-//!   3. On completion, emit one `turn.delta.kind=done` (or `error`) with
-//!      `seq` continued from the listener's atomic counter so the host
-//!      observes a total order.
-//!   4. Release the session-level `inflight` slot via `end_turn`.
+//! Engine-backed chat turn driver. Builds the listener / gate, runs
+//! `engine.handle_turn_full`, then emits the trailing `done` / `error`
+//! delta and releases the session inflight slot.
 
+use crate::approval_gate::EditorApprovalGate;
 use crate::outbound::OutboundWriter;
 use crate::session_manager::{SessionManager, STUDIO_TENANT_ID};
 use crate::turn_listener::EditorTurnListener;
 use snaca_core::{ProjectId, TenantId, ThreadId};
 use snaca_editor_protocol::messages::turn::{DoneReason, TurnDeltaKind, TurnDeltaParams};
 use snaca_editor_protocol::messages::usage::{UsageTotals, UsageUpdateParams};
+use snaca_editor_protocol::types::config::ApprovalMode;
 use snaca_engine::{
-    ApprovalGate, Engine, NoopApprovalGate, TurnEventListener, TurnRequest,
+    ApprovalDecision, ApprovalGate, DenyAllApprovalGate, Engine, NoopApprovalGate,
+    TurnEventListener, TurnRequest,
 };
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-/// Drive one chat turn through `Engine`. Spawned by `handle_chat_send`;
-/// runs to completion regardless of host-side cancellation (the engine
-/// cooperatively checks `abort_turn`).
+/// `tool_call_id` (or `proposal_id`) → decision channel. Shared between
+/// the gate and the editor-protocol confirm handler.
+pub type PendingApprovals =
+    Arc<Mutex<HashMap<String, oneshot::Sender<ApprovalDecision>>>>;
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_engine_turn(
     engine: Arc<Engine>,
@@ -42,6 +37,7 @@ pub async fn run_engine_turn(
     turn_id: String,
     user_text: String,
     gate: Arc<dyn ApprovalGate>,
+    cancel: CancellationToken,
 ) {
     info!(
         turn_id = %turn_id,
@@ -65,15 +61,21 @@ pub async fn run_engine_turn(
         message_id: Some(turn_id.clone()),
     };
 
-    let outcome = engine.handle_turn_full(req, gate, listener).await;
+    // Engine owns its own inflight tokens via abort_turn. Race its
+    // future against `cancel`; on cancellation also signal the engine
+    // so in-flight tools abort.
+    let outcome = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => {
+            info!(turn_id = %turn_id, "turn cancelled before engine completion");
+            engine.abort_turn(&ThreadId::new(&thread_id), &turn_id);
+            Err(snaca_engine::EngineError::Aborted)
+        }
+        o = engine.handle_turn_full(req, gate, listener) => o,
+    };
 
-    // After listener returns, emit one final ordering anchor on the wire.
-    // `seq` here is the post-listener value (atomic .load is the last
-    // emitted + 1 thanks to fetch_add semantics).
     match &outcome {
         Ok(o) => {
-            // Forward Engine's aggregated usage to the host so it can
-            // render the per-turn token totals.
             let cumulative = UsageTotals {
                 input_tokens: o.usage.input_tokens,
                 output_tokens: o.usage.output_tokens,
@@ -105,6 +107,16 @@ pub async fn run_engine_turn(
             reason: DoneReason::Completed,
             cancelled: None,
         },
+        Err(snaca_engine::EngineError::Aborted) => TurnDeltaKind::Done {
+            reason: DoneReason::Cancelled,
+            cancelled: Some(true),
+        },
+        Err(snaca_engine::EngineError::Approval(snaca_engine::ApprovalError::Cancelled)) => {
+            TurnDeltaKind::Done {
+                reason: DoneReason::Cancelled,
+                cancelled: Some(true),
+            }
+        }
         Err(e) => TurnDeltaKind::Error {
             code: 0,
             message: e.to_string(),
@@ -123,8 +135,26 @@ pub async fn run_engine_turn(
     sessions.end_turn(&session_id, &turn_id).await;
 }
 
-/// Default gate used by Phase B — auto-approves everything. Phase C
-/// swaps this for `EditorApprovalGate` that bridges to the host UI.
-pub fn default_approval_gate() -> Arc<dyn ApprovalGate> {
-    Arc::new(NoopApprovalGate)
+#[allow(clippy::too_many_arguments)]
+pub fn gate_for_mode(
+    mode: ApprovalMode,
+    outbound: Arc<OutboundWriter>,
+    turn_id: String,
+    pending_tool: PendingApprovals,
+    pending_edit: PendingApprovals,
+    workspace_root: std::path::PathBuf,
+    cancel: CancellationToken,
+) -> Arc<dyn ApprovalGate> {
+    match mode {
+        ApprovalMode::AutoAllow => Arc::new(NoopApprovalGate),
+        ApprovalMode::AutoDeny => Arc::new(DenyAllApprovalGate),
+        ApprovalMode::Interactive => Arc::new(EditorApprovalGate::new(
+            outbound,
+            turn_id,
+            pending_tool,
+            pending_edit,
+            workspace_root,
+            cancel,
+        )),
+    }
 }

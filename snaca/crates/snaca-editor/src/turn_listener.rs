@@ -1,21 +1,6 @@
-//! `EditorTurnListener` — bridges `snaca-engine`'s per-turn LLM event
-//! stream into editor-protocol `turn.delta` events on the host outbound.
-//!
-//! Engine's `TurnEventListener` sees the raw `snaca_llm::StreamEvent`
-//! flow during a turn:
-//!   - `ContentBlockDelta(Text{...})` → host renders streaming text
-//!   - `ContentBlockDelta(Thinking{...})` → host renders folded thinking
-//!   - `ContentBlockStart(ToolUse) → ContentBlockDelta(ToolInputJson) →
-//!     ContentBlockStop` → host renders one tool-call card per block
-//!
-//! The editor protocol is coarser: a single `turn.delta` with
-//! `kind=tool_use { tool_call_id, tool, args }`. We accumulate the
-//! `ToolInputJson` fragments per block index, then emit one ToolUse
-//! event when the block closes.
-//!
-//! `seq` is monotonic within a turn; it's shared with the Done /
-//! Error tail event emitted by `run_engine_turn` after the listener
-//! returns control, so the host can preserve total order on the wire.
+//! Bridges engine `StreamEvent` → editor-protocol `turn.delta`. Tool
+//! blocks emit a single `tool_use` delta on `ContentBlockStop` after
+//! accumulating `ToolInputJson` fragments.
 
 use crate::outbound::OutboundWriter;
 use async_trait::async_trait;
@@ -29,12 +14,8 @@ use std::sync::{Arc, Mutex};
 pub struct EditorTurnListener {
     outbound: Arc<OutboundWriter>,
     turn_id: String,
-    /// Shared with the run_engine_turn tail emitter so Done's `seq`
-    /// continues from the last delta's value.
+    /// Shared with run_engine_turn so the Done event keeps seq monotonic.
     seq: Arc<AtomicU64>,
-    /// block_index -> (tool_call_id, tool_name, accumulated_args_json).
-    /// Mutex is acquired briefly per event so the engine's stream loop
-    /// isn't blocked across awaits.
     tool_blocks: Mutex<HashMap<u32, ToolBlock>>,
 }
 
@@ -108,13 +89,7 @@ impl TurnEventListener for EditorTurnListener {
                 }
             }
             StreamEvent::ContentBlockStop { index } => {
-                // Take the block out of the map so a second Stop on the
-                // same index (shouldn't happen but stays cheap) doesn't
-                // double-emit.
-                let block = {
-                    let mut blocks = self.tool_blocks.lock().unwrap();
-                    blocks.remove(index)
-                };
+                let block = self.tool_blocks.lock().unwrap().remove(index);
                 if let Some(b) = block {
                     let args: serde_json::Value = if b.args_buf.trim().is_empty() {
                         serde_json::Value::Object(Default::default())
@@ -130,12 +105,9 @@ impl TurnEventListener for EditorTurnListener {
                     .await;
                 }
             }
-            _ => {
-                // MessageStart / MessageDelta / MessageStop / Error are
-                // handled by run_engine_turn from the TurnOutcome / error
-                // path so the protocol-level `done` ordering stays after
-                // any final text/tool deltas.
-            }
+            // MessageStart/Delta/Stop/Error are emitted by run_engine_turn
+            // after the listener returns to preserve total order.
+            _ => {}
         }
     }
 }

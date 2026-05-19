@@ -29,8 +29,6 @@ import type { IContextRequestService } from '../services/agent/interfaces/IConte
 import { EDITOR_PROTOCOL_VERSION } from '../services/agent/protocol/methods';
 import {
   ChatContextSchema,
-  EditConfirmParamsSchema,
-  ToolConfirmParamsSchema,
   type EditConfirmParams,
   type LlmProvider,
   type SnacaConfig,
@@ -126,6 +124,37 @@ const resolveEditProposalSchema = z.object({
 const contextFlushResponseSchema = z.object({
   requestId: z.string().min(1).max(128),
   flushedFiles: z.array(z.string().max(4096)).max(512),
+});
+
+// Renderer-side (camelCase) shapes for tool/edit confirm; the wire
+// schemas in protocol/schemas.ts are snake_case and only used right
+// before forwarding to the SNACA client.
+const confirmToolPayloadSchema = z.object({
+  toolCallId: z.string().min(1).max(128),
+  decision: z.enum(['allow', 'deny', 'allow_always', 'deny_always']),
+});
+
+const confirmEditPayloadSchema = z.object({
+  proposalId: z.string().min(1).max(128),
+  decision: z.enum(['accept', 'reject', 'accept_partial']),
+  perHunk: z
+    .array(
+      z.object({
+        hunkId: z.string().min(1).max(64),
+        decision: z.enum(['accept', 'reject']),
+      })
+    )
+    .max(256)
+    .optional(),
+  modifiedText: z
+    .array(
+      z.object({
+        hunkId: z.string().min(1).max(64),
+        newText: z.string(),
+      })
+    )
+    .max(256)
+    .optional(),
 });
 
 /** Throw a friendly error from a Zod failure so the renderer can surface it. */
@@ -442,12 +471,14 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
   });
 
   ipcMain.handle(IpcChannel.Agent_ConfirmEdit, async (_e, rawParams: unknown): Promise<unknown> => {
-    const params: EditConfirmParams = parseOrThrow(
-      EditConfirmParamsSchema,
-      rawParams,
-      'confirmEdit params'
-    );
-    return await client.editConfirm(params);
+    const p = parseOrThrow(confirmEditPayloadSchema, rawParams, 'confirmEdit params');
+    const wire: EditConfirmParams = {
+      proposal_id: p.proposalId,
+      decision: p.decision,
+      per_hunk: p.perHunk?.map((h) => ({ hunk_id: h.hunkId, decision: h.decision })),
+      modified_text: p.modifiedText?.map((m) => ({ hunk_id: m.hunkId, new_text: m.newText })),
+    };
+    return await client.editConfirm(wire);
   });
 
   ipcMain.handle(
@@ -471,12 +502,12 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
   );
 
   ipcMain.handle(IpcChannel.Agent_ConfirmTool, async (_e, rawParams: unknown): Promise<unknown> => {
-    const params: ToolConfirmParams = parseOrThrow(
-      ToolConfirmParamsSchema,
-      rawParams,
-      'confirmTool params'
-    );
-    return await client.toolConfirm(params);
+    const p = parseOrThrow(confirmToolPayloadSchema, rawParams, 'confirmTool params');
+    const wire: ToolConfirmParams = {
+      tool_call_id: p.toolCallId,
+      decision: p.decision,
+    };
+    return await client.toolConfirm(wire);
   });
 
   ipcMain.handle(
@@ -564,7 +595,12 @@ export function buildSnacaConfigFromSettings(config: IConfigManager): SnacaConfi
       base_url: resolved?.baseUrl ?? process.env.SNACA_BASE_URL ?? 'https://api.deepseek.com',
     },
     engine: {},
-    approval_mode: 'auto_allow',
+    // `interactive` routes file-mutation tools (Edit/Write/MultiEdit)
+    // through Studio's Monaco Diff Review and high-risk tools (Bash)
+    // through the in-chat approval card. `auto_allow` would let SNACA
+    // edit files / run shell commands without any user review — that's
+    // a CI/server-side default, not what a desktop user expects.
+    approval_mode: 'interactive',
   };
 }
 

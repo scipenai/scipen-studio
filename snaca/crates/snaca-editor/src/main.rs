@@ -15,6 +15,7 @@
 //! P0 scope (this file): wiring + stub `chat.send` that emits canned
 //! deltas. Real LLM / tools / engine integration arrives in later phases.
 
+mod approval_gate;
 mod config;
 mod context_inject;
 mod handler;

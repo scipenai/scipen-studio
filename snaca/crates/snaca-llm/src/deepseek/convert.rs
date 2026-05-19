@@ -15,8 +15,8 @@ use crate::error::{LlmError, LlmResult};
 use crate::request::{MessageRequest, ToolSchema};
 use crate::response::{MessageResponse, StopReason};
 use crate::deepseek::wire::{
-    ChatRequest, ChatResponse, WireMessage, WireTool, WireToolCall, WireToolCallFunction,
-    WireToolDefinition,
+    ChatRequest, ChatResponse, StreamOptions, WireMessage, WireTool, WireToolCall,
+    WireToolCallFunction, WireToolDefinition,
 };
 use snaca_core::{ContentBlock, Message, MessageId, Role, ToolUseId};
 use std::time::SystemTime;
@@ -56,6 +56,11 @@ pub fn build_chat_request(req: &MessageRequest, stream: bool) -> LlmResult<ChatR
             Some(req.stop_sequences.clone())
         },
         stream,
+        stream_options: if stream {
+            Some(StreamOptions { include_usage: true })
+        } else {
+            None
+        },
     })
 }
 

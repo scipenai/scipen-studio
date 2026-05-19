@@ -9,16 +9,24 @@
  */
 
 import { ChevronRight, CornerDownLeft, FileCog, FilePlus, FileX, FilePen } from 'lucide-react';
-import { useState, type ReactElement } from 'react';
-import type {
-  ChatMessage as ChatMessageData,
-  ChatPlan,
-  ChatPlanFile,
-  ChatProposalRecord,
-  ChatTurn,
+import { useCallback, useState, type ReactElement } from 'react';
+import { agentClient } from '../../services/agent/AgentClientService';
+import {
+  chatStreamStore,
+  type ChatApprovalRequest,
+  type ChatMessage as ChatMessageData,
+  type ChatPlan,
+  type ChatPlanFile,
+  type ChatProposalRecord,
+  type ChatTurn,
 } from '../../services/agent/ChatStreamStore';
+import { agentEditProposalBridge } from '../../services/agent/AgentEditProposalBridge';
+import { useTranslation, type TranslationKey } from '../../locales';
+import { openFileInEditor } from '../../services/core/FileOpenService';
 import { MarkdownContent } from './MarkdownContent';
 import { ThinkingRenderer } from './ThinkingRenderer';
+
+type T = (key: TranslationKey, params?: Record<string, string | number>) => string;
 
 interface ChatMessageProps {
   message: ChatMessageData | null;
@@ -36,6 +44,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
         <RoleBadge role="assistant" pending />
         {turn.hasThinking && <ThinkingRenderer text={turn.thinkingText} streaming={turn.pending} />}
         {turn.plan && <PlanCard plan={turn.plan} />}
+        <ApprovalList approvals={turn.approvals} />
         <ToolCalls calls={turn.toolCalls} />
         <ProposalsList proposals={turn.proposals} />
         {turn.text ? (
@@ -243,6 +252,7 @@ function prettyJson(value: unknown): string {
 }
 
 function PlanCard({ plan }: { plan: ChatPlan }): ReactElement {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(plan.awaiting);
   return (
     <div className="mb-2 rounded-md border border-[color-mix(in_srgb,var(--color-accent)_30%,var(--color-border-subtle))] bg-[color-mix(in_srgb,var(--color-accent)_5%,transparent)] text-[12px]">
@@ -255,10 +265,10 @@ function PlanCard({ plan }: { plan: ChatPlan }): ReactElement {
           size={11}
           className={`flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
         />
-        <span className="font-medium text-[var(--color-text)]">计划</span>
+        <span className="font-medium text-[var(--color-text)]">{t('chat.planLabel')}</span>
         <span className="text-[var(--color-text-muted)]">
-          {plan.files.length} 项
-          {plan.awaiting && ' · 等待确认'}
+          {plan.files.length} {t('chat.planItemsSuffix')}
+          {plan.awaiting && ` · ${t('chat.planAwaitingConfirm')}`}
         </span>
       </button>
       {open && (
@@ -280,6 +290,7 @@ function PlanCard({ plan }: { plan: ChatPlan }): ReactElement {
 }
 
 function PlanFileRow({ file }: { file: ChatPlanFile }): ReactElement {
+  const { t } = useTranslation();
   const Icon = planActionIcon(file.action);
   return (
     <li className="flex items-start gap-2 text-[11px]">
@@ -298,7 +309,7 @@ function PlanFileRow({ file }: { file: ChatPlanFile }): ReactElement {
             </>
           )}
           <span className={`ml-auto flex-shrink-0 text-[10px] ${planStatusColor(file.status)}`}>
-            {planStatusLabel(file.status)}
+            {planStatusLabel(file.status, t)}
           </span>
         </div>
         {file.summary && (
@@ -352,18 +363,18 @@ function planStatusColor(status: ChatPlanFile['status']): string {
   }
 }
 
-function planStatusLabel(status: ChatPlanFile['status']): string {
+function planStatusLabel(status: ChatPlanFile['status'], t: T): string {
   switch (status) {
     case 'pending':
-      return '待办';
+      return t('chat.planStatusPending');
     case 'in_progress':
-      return '进行中';
+      return t('chat.planStatusInProgress');
     case 'done':
-      return '完成';
+      return t('chat.planStatusDone');
     case 'rejected':
-      return '已拒绝';
+      return t('chat.planStatusRejected');
     case 'failed':
-      return '失败';
+      return t('chat.planStatusFailed');
   }
 }
 
@@ -379,20 +390,34 @@ function ProposalsList({ proposals }: { proposals: ChatProposalRecord[] }): Reac
 }
 
 function ProposalRow({ proposal }: { proposal: ChatProposalRecord }): ReactElement {
+  const { t } = useTranslation();
   const fileName = lastSegment(proposal.file);
+  // Click rescues a stuck "waiting for review" card by re-materializing.
+  const onClick = useCallback(async () => {
+    if (proposal.status !== 'pending') return;
+    await openFileInEditor(proposal.file);
+    await agentEditProposalBridge.retryMaterialize(proposal.proposalId);
+  }, [proposal.file, proposal.proposalId, proposal.status]);
+  const interactive = proposal.status === 'pending';
   return (
-    <div className="flex items-center gap-2 rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] px-2 py-1 text-[11px]">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!interactive}
+      className={`flex w-full items-center gap-2 rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] px-2 py-1 text-[11px] text-left ${
+        interactive ? 'hover:border-[var(--color-accent)] cursor-pointer' : 'cursor-default'
+      }`}
+      title={interactive ? t('chat.proposalClickHint', { file: proposal.file }) : proposal.file}
+    >
       <FilePen size={11} className="flex-shrink-0 text-[var(--color-accent)]" />
-      <span className="truncate font-mono text-[10px] text-[var(--color-text)]" title={proposal.file}>
-        {fileName}
-      </span>
+      <span className="truncate font-mono text-[10px] text-[var(--color-text)]">{fileName}</span>
       <span className="flex-shrink-0 text-[var(--color-text-muted)]">
-        · {proposal.hunkCount} 处改动
+        · {proposal.hunkCount} {t('chat.proposalChangesSuffix')}
       </span>
       <span className={`ml-auto flex-shrink-0 ${proposalStatusColor(proposal.status)}`}>
-        {proposalStatusLabel(proposal.status)}
+        {proposalStatusLabel(proposal.status, t)}
       </span>
-    </div>
+    </button>
   );
 }
 
@@ -408,14 +433,14 @@ function proposalStatusColor(status: ChatProposalRecord['status']): string {
   }
 }
 
-function proposalStatusLabel(status: ChatProposalRecord['status']): string {
+function proposalStatusLabel(status: ChatProposalRecord['status'], t: T): string {
   switch (status) {
     case 'pending':
-      return '待审阅';
+      return t('chat.proposalPending');
     case 'accepted':
-      return '已接受';
+      return t('chat.proposalAccepted');
     case 'rejected':
-      return '已拒绝';
+      return t('chat.proposalRejected');
   }
 }
 
@@ -424,4 +449,109 @@ function lastSegment(path: string): string {
   const norm = path.replace(/\\/g, '/');
   const idx = norm.lastIndexOf('/');
   return idx >= 0 ? norm.slice(idx + 1) : norm;
+}
+
+function ApprovalList({
+  approvals,
+}: {
+  approvals: ChatApprovalRequest[];
+}): ReactElement | null {
+  // Only show pending cards — resolved ones disappear (the tool's
+  // outcome surfaces via the regular tool-call card from SNACA's stream).
+  const pending = approvals.filter((a) => a.status === 'pending');
+  if (pending.length === 0) return null;
+  return (
+    <div className="mb-2 space-y-2">
+      {pending.map((a) => (
+        <ApprovalCard key={a.toolCallId} approval={a} />
+      ))}
+    </div>
+  );
+}
+
+function ApprovalCard({ approval }: { approval: ChatApprovalRequest }): ReactElement {
+  const { t } = useTranslation();
+  const argsPreview = formatArgsPreview(approval.args);
+
+  const decide = useCallback(
+    async (decision: 'allow' | 'allow_always' | 'deny') => {
+      // Optimistic flip so the card stops looking active before the
+      // IPC round trip lands; engine timeout will Deny if we never get there.
+      chatStreamStore.markApprovalResolved(approval.toolCallId);
+      try {
+        await agentClient.confirmTool({ toolCallId: approval.toolCallId, decision });
+      } catch {
+        /* best-effort */
+      }
+    },
+    [approval.toolCallId]
+  );
+
+  return (
+    <div
+      className={`rounded-md border p-2 ${riskBorder(approval.risk)} text-[11px] bg-[var(--color-bg-secondary)]`}
+    >
+      <div className="mb-1 flex items-center gap-1.5">
+        <span className={`text-[10px] uppercase tracking-wider ${riskText(approval.risk)}`}>
+          {approval.risk}
+        </span>
+        <span className="font-medium text-[var(--color-text-primary)]">{approval.tool}</span>
+      </div>
+      {approval.summary && (
+        <div className="mb-1.5 text-[var(--color-text-muted)]">{approval.summary}</div>
+      )}
+      {argsPreview && (
+        <pre className="mb-2 max-h-24 overflow-y-auto whitespace-pre-wrap rounded bg-[var(--color-bg-primary)] px-1.5 py-1 font-mono text-[10px] text-[var(--color-text)]">
+          {argsPreview}
+        </pre>
+      )}
+      <div className="flex gap-1.5">
+        <button
+          type="button"
+          onClick={() => void decide('allow')}
+          className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-0.5 text-[10px] hover:bg-[var(--color-bg-hover)]"
+        >
+          {t('chat.approvalAllowOnce')}
+        </button>
+        <button
+          type="button"
+          onClick={() => void decide('allow_always')}
+          className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-0.5 text-[10px] hover:bg-[var(--color-bg-hover)]"
+        >
+          {t('chat.approvalAllowAlways')}
+        </button>
+        <button
+          type="button"
+          onClick={() => void decide('deny')}
+          className="rounded border border-red-400/40 bg-red-400/10 px-2 py-0.5 text-[10px] text-red-300 hover:bg-red-400/20"
+        >
+          {t('chat.approvalDeny')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function riskBorder(risk: 'low' | 'medium' | 'high'): string {
+  switch (risk) {
+    case 'high':
+      return 'border-red-400/50';
+    case 'medium':
+      return 'border-amber-300/50';
+    case 'low':
+    default:
+      return 'border-[var(--color-border-subtle)]';
+  }
+}
+
+function riskText(risk: 'low' | 'medium' | 'high'): string {
+  switch (risk) {
+    case 'high':
+      return 'text-red-400';
+    case 'medium':
+      return 'text-amber-300';
+    case 'low':
+    default:
+      return 'text-[var(--color-text-muted)]';
+  }
 }

@@ -4,17 +4,18 @@
 //! - **Outbound (request)**: `MessageRequest` → `ChatRequest`. System prompt
 //!   becomes a `role: "system"` message. `Role::Tool` messages are split:
 //!   each `ToolResult` block becomes its own `role: "tool"` wire message.
-//!   `Thinking` blocks are dropped — vanilla OpenAI does not accept them
-//!   in history (use [`crate::deepseek`] when you need R1's
-//!   `reasoning_content` round-trip).
+//!   `Thinking` blocks become a `reasoning_content` field on the
+//!   assistant message; standard OpenAI ignores it, reasoning gateways
+//!   (DeepSeek thinking, Qwen-QwQ) REQUIRE the replay or they reject
+//!   the next turn.
 //! - **Inbound (response)**: `ChatResponse` → `MessageResponse`. Multiple
 //!   `tool_calls` become multiple `ContentBlock::ToolUse` blocks; the order
 //!   is preserved.
 
 use crate::error::{LlmError, LlmResult};
 use crate::openai::wire::{
-    ChatRequest, ChatResponse, WireMessage, WireTool, WireToolCall, WireToolCallFunction,
-    WireToolDefinition,
+    ChatRequest, ChatResponse, StreamOptions, WireMessage, WireTool, WireToolCall,
+    WireToolCallFunction, WireToolDefinition,
 };
 use crate::request::{MessageRequest, ToolSchema};
 use crate::response::{MessageResponse, StopReason};
@@ -30,6 +31,7 @@ pub fn build_chat_request(req: &MessageRequest, stream: bool) -> LlmResult<ChatR
             messages.push(WireMessage {
                 role: "system".into(),
                 content: Some(system.clone()),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
@@ -55,6 +57,11 @@ pub fn build_chat_request(req: &MessageRequest, stream: bool) -> LlmResult<ChatR
             Some(req.stop_sequences.clone())
         },
         stream,
+        stream_options: if stream {
+            Some(StreamOptions { include_usage: true })
+        } else {
+            None
+        },
     })
 }
 
@@ -65,6 +72,7 @@ fn push_message(msg: &Message, out: &mut Vec<WireMessage>) -> LlmResult<()> {
             out.push(WireMessage {
                 role: "system".into(),
                 content: Some(text),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
@@ -75,6 +83,7 @@ fn push_message(msg: &Message, out: &mut Vec<WireMessage>) -> LlmResult<()> {
             out.push(WireMessage {
                 role: "user".into(),
                 content: Some(text),
+                reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
@@ -82,6 +91,7 @@ fn push_message(msg: &Message, out: &mut Vec<WireMessage>) -> LlmResult<()> {
         }
         Role::Assistant => {
             let mut text = String::new();
+            let mut reasoning = String::new();
             let mut tool_calls: Vec<WireToolCall> = Vec::new();
             for block in &msg.content {
                 match block {
@@ -91,10 +101,15 @@ fn push_message(msg: &Message, out: &mut Vec<WireMessage>) -> LlmResult<()> {
                         }
                         text.push_str(t);
                     }
-                    // Vanilla OpenAI does not accept reasoning blocks in
-                    // history; drop them. Use the DeepSeek client when R1
-                    // round-trip is required.
-                    ContentBlock::Thinking { .. } => {}
+                    // Reasoning gateways (DeepSeek thinking, Qwen-QwQ, ...)
+                    // require the prior trace to be replayed. Standard OpenAI
+                    // ignores the field, so emitting it is safe in both cases.
+                    ContentBlock::Thinking { text: t, .. } => {
+                        if !reasoning.is_empty() {
+                            reasoning.push('\n');
+                        }
+                        reasoning.push_str(t);
+                    }
                     ContentBlock::ToolUse { id, name, input } => {
                         tool_calls.push(WireToolCall {
                             id: id.as_str().to_string(),
@@ -105,13 +120,17 @@ fn push_message(msg: &Message, out: &mut Vec<WireMessage>) -> LlmResult<()> {
                             },
                         });
                     }
-                    // Assistant should not contain ToolResult or Image (in M1).
                     _ => {}
                 }
             }
             out.push(WireMessage {
                 role: "assistant".into(),
                 content: if text.is_empty() { None } else { Some(text) },
+                reasoning_content: if reasoning.is_empty() {
+                    None
+                } else {
+                    Some(reasoning)
+                },
                 tool_calls: if tool_calls.is_empty() {
                     None
                 } else {
@@ -122,7 +141,6 @@ fn push_message(msg: &Message, out: &mut Vec<WireMessage>) -> LlmResult<()> {
             });
         }
         Role::Tool => {
-            // Each ToolResult becomes its own `role: "tool"` wire message.
             for block in &msg.content {
                 if let ContentBlock::ToolResult {
                     tool_use_id,
@@ -134,6 +152,7 @@ fn push_message(msg: &Message, out: &mut Vec<WireMessage>) -> LlmResult<()> {
                     out.push(WireMessage {
                         role: "tool".into(),
                         content: Some(text),
+                        reasoning_content: None,
                         tool_calls: None,
                         tool_call_id: Some(tool_use_id.as_str().to_string()),
                         name: None,
@@ -327,10 +346,10 @@ mod tests {
     }
 
     #[test]
-    fn thinking_blocks_dropped_from_assistant_history() {
-        // Vanilla OpenAI does not accept reasoning blocks; verify they are
-        // silently dropped (use the DeepSeek client when R1 round-trip is
-        // required).
+    fn thinking_blocks_replayed_as_reasoning_content() {
+        // Reasoning gateways (DeepSeek thinking, Qwen-QwQ) reject the
+        // next turn unless the prior reasoning trace is replayed.
+        // Standard OpenAI ignores the extra field.
         let assistant_with_thinking = Message::new(
             Role::Assistant,
             vec![
@@ -342,6 +361,10 @@ mod tests {
             .with_messages(vec![assistant_with_thinking]);
         let wire = build_chat_request(&req, false).unwrap();
         assert_eq!(wire.messages[0].content.as_deref(), Some("answer"));
+        assert_eq!(
+            wire.messages[0].reasoning_content.as_deref(),
+            Some("think think")
+        );
     }
 
     #[test]

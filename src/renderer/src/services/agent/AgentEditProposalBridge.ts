@@ -25,6 +25,17 @@ import { createLogger } from '../LogService';
 
 const logger = createLogger('AgentEditProposalBridge');
 
+/** SNACA wire shape — snake_case keys. */
+interface RawHunk {
+  hunk_id: string;
+  range: {
+    start: { line: number; column: number };
+    end: { line: number; column: number };
+  };
+  old_text: string;
+  new_text: string;
+}
+
 interface ProposalSnapshot {
   proposalId: string;
   /** Absolute, forward-slash normalized. */
@@ -52,6 +63,13 @@ class AgentEditProposalBridgeImpl {
   private subscribed = false;
   private readonly byProposal = new Map<string, ProposalSnapshot>();
   private readonly byReview = new Map<string, string>(); // reviewId → proposalId
+  /** Last-seen propose payload per proposal_id, kept so the renderer can
+   *  retry materialization on user click when the initial pass failed
+   *  (e.g. file open race during the first event). Cleared on dispatch. */
+  private readonly lastPropose = new Map<
+    string,
+    { file: string; hunks: RawHunk[] }
+  >();
 
   /** Idempotent — first caller wires up the listeners. */
   init(): void {
@@ -91,67 +109,51 @@ class AgentEditProposalBridgeImpl {
     proposal_id: string;
     file: string;
     streaming: boolean;
-    hunks: Array<{
-      hunk_id: string;
-      range: {
-        start: { line: number; column: number };
-        end: { line: number; column: number };
-      };
-      old_text: string;
-      new_text: string;
-    }>;
+    hunks: RawHunk[];
   }): Promise<void> {
-    // P1: skip the streaming intermediates; the `complete` event carries
-    // the canonical final state.
     if (evt.streaming) return;
     await this.materialize(evt.proposal_id, evt.file, evt.hunks);
   }
 
   private async handleProposeComplete(evt: {
     proposal_id: string;
-    final_hunks: Array<{
-      hunk_id: string;
-      range: {
-        start: { line: number; column: number };
-        end: { line: number; column: number };
-      };
-      old_text: string;
-      new_text: string;
-    }>;
+    final_hunks: RawHunk[];
   }): Promise<void> {
     const existing = this.byProposal.get(evt.proposal_id);
-    if (!existing) {
-      // We never saw the initial `propose`. Without a file path we can't
-      // materialize a review; drop and let the LLM time out / surface error.
-      return;
-    }
+    if (!existing) return;
     await this.materialize(evt.proposal_id, existing.absoluteFile, evt.final_hunks);
+  }
+
+  /** Manually retry materialization for a proposal whose initial
+   *  open / review-create raced and lost. Triggered from the chat
+   *  side's ProposalRow click. No-op if the proposal is already
+   *  resolved or the payload has been dispatched. */
+  async retryMaterialize(proposalId: string): Promise<void> {
+    const payload = this.lastPropose.get(proposalId);
+    if (!payload) return;
+    if (this.byProposal.get(proposalId)?.reviewId) return;
+    await this.materialize(proposalId, payload.file, payload.hunks);
   }
 
   private async materialize(
     proposalId: string,
     file: string,
-    hunks: Array<{
-      hunk_id: string;
-      range: {
-        start: { line: number; column: number };
-        end: { line: number; column: number };
-      };
-      old_text: string;
-      new_text: string;
-    }>
+    hunks: RawHunk[]
   ): Promise<void> {
+    this.lastPropose.set(proposalId, { file, hunks });
     const absoluteFile = await this.resolveAbsolute(file);
+    logger.info('materialize edit proposal', { proposalId, file, absoluteFile });
 
-    // Ensure the file is open so DiffReview decorations have a Monaco model.
     await this.ensureOpen(absoluteFile);
 
     const editor = getEditorService();
     const tab = editor.tabs.find((t) => sameAbsolute(t.path, absoluteFile));
     if (!tab) {
-      // Could not open — give up silently. We don't reject the proposal
-      // here because the bridge has no way to call back into SNACA (main
-      // owns that); main will surface a timeout if needed.
+      logger.error('edit proposal dropped: file could not be opened', {
+        proposalId,
+        absoluteFile,
+        openTabs: editor.tabs.map((t) => t.path),
+      });
       return;
     }
 
@@ -195,6 +197,7 @@ class AgentEditProposalBridgeImpl {
     const snapshot = this.byProposal.get(proposalId);
     if (!snapshot) return;
     this.byProposal.delete(proposalId);
+    this.lastPropose.delete(proposalId);
     if (snapshot.reviewId) {
       this.byReview.delete(snapshot.reviewId);
     }
@@ -250,8 +253,7 @@ class AgentEditProposalBridgeImpl {
 
   private async ensureOpen(absoluteFile: string): Promise<void> {
     const editor = getEditorService();
-    const already = editor.tabs.some((t) => sameAbsolute(t.path, absoluteFile));
-    if (already) return;
+    if (editor.tabs.some((t) => sameAbsolute(t.path, absoluteFile))) return;
     await openFileInEditor(absoluteFile);
   }
 }

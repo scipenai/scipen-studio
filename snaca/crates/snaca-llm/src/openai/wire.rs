@@ -25,6 +25,15 @@ pub struct ChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop: Option<Vec<String>>,
     pub stream: bool,
+    // Required to receive usage on the terminal SSE chunk; OpenAI &
+    // DeepSeek default to omitting usage in streaming mode otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_options: Option<StreamOptions>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StreamOptions {
+    pub include_usage: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,6 +43,14 @@ pub struct WireMessage {
     /// keep the `Option` distinct from "missing field".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    /// Echo of the prior turn's chain-of-thought when the upstream is a
+    /// reasoning gateway (DeepSeek R1/V4-thinking, Qwen-QwQ, ...). Those
+    /// servers REQUIRE the prior reasoning to be replayed in history or
+    /// they reject the next turn with `invalid_request_error`. Standard
+    /// OpenAI ignores the field; skip_serializing_if=None keeps the
+    /// payload clean when there's nothing to send.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<WireToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]

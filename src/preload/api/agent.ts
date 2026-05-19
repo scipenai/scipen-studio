@@ -11,7 +11,6 @@ import { ipcRenderer } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import type {
   ChatContext,
-  EditConfirmParams,
   EditConfirmResult,
   EditProposeCompleteParams,
   EditProposeDeltaParams,
@@ -23,7 +22,6 @@ import type {
   SessionGetMessagesResult,
   ThreadSummary,
   ToolApprovalRequestParams,
-  ToolConfirmParams,
   TurnDeltaParams,
   UsageUpdateParams,
 } from '../../main/services/agent/protocol/schemas';
@@ -69,6 +67,18 @@ export interface AgentContextFlushRequestPayload {
 export interface AgentContextFlushResponsePayload {
   requestId: string;
   flushedFiles: string[];
+}
+
+export interface AgentConfirmToolParams {
+  toolCallId: string;
+  decision: 'allow' | 'deny' | 'allow_always' | 'deny_always';
+}
+
+export interface AgentConfirmEditParams {
+  proposalId: string;
+  decision: 'accept' | 'reject' | 'accept_partial';
+  perHunk?: Array<{ hunkId: string; decision: 'accept' | 'reject' }>;
+  modifiedText?: Array<{ hunkId: string; newText: string }>;
 }
 
 export interface SendChatResult {
@@ -120,10 +130,10 @@ export const agentApi = {
   cancelTurn: (turnId: string): Promise<{ ok: true }> =>
     ipcRenderer.invoke(IpcChannel.Agent_CancelTurn, turnId),
 
-  confirmEdit: (params: EditConfirmParams): Promise<EditConfirmResult> =>
+  confirmEdit: (params: AgentConfirmEditParams): Promise<EditConfirmResult> =>
     ipcRenderer.invoke(IpcChannel.Agent_ConfirmEdit, params),
 
-  confirmTool: (params: ToolConfirmParams): Promise<{ ok: boolean }> =>
+  confirmTool: (params: AgentConfirmToolParams): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke(IpcChannel.Agent_ConfirmTool, params),
 
   /**

@@ -354,21 +354,23 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Reserves an inflight slot, returning the allocated turn id. Caller
-    /// Take a snapshot of the per-session Engine + project_id for the
-    /// turn dispatcher. Engine handle is `Arc`-cloned cheaply; falling
-    /// back to `None` here is the signal that this session's engine wiring
-    /// failed at `open()` and chat.send should use the legacy path.
+    /// Snapshot of per-session Engine + project_id + workspace_root for
+    /// the turn dispatcher. `None` engine means session.open's engine
+    /// wiring failed and chat.send must fall back to the legacy path.
     pub async fn engine_for(
         &self,
         session_id: &str,
-    ) -> Result<(Option<Arc<Engine>>, String), ProtocolError> {
+    ) -> Result<(Option<Arc<Engine>>, String, PathBuf), ProtocolError> {
         let inner = self.inner.lock().await;
         let session = inner
             .sessions
             .get(session_id)
             .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
-        Ok((session.engine.clone(), session.project_id.clone()))
+        Ok((
+            session.engine.clone(),
+            session.project_id.clone(),
+            session.workspace_root.clone(),
+        ))
     }
 
     /// is responsible for storing the `AbortHandle` via [`Self::set_abort`]
@@ -549,11 +551,15 @@ impl SessionManager {
 
     /// Cancels the inflight turn matching `turn_id` if any. Returns true on hit.
     pub async fn cancel_turn(&self, turn_id: &str) -> bool {
-        let inner = self.inner.lock().await;
-        for session in inner.sessions.values() {
+        let mut inner = self.inner.lock().await;
+        for session in inner.sessions.values_mut() {
             if let Some(t) = &session.inflight {
                 if t.turn_id == turn_id {
                     t.abort.abort();
+                    // Abort kills the spawn task before run_engine_turn's
+                    // end_turn could run — clear the slot here so the
+                    // next chat.send isn't refused with InflightTurnBusy.
+                    session.inflight = None;
                     return true;
                 }
             }
@@ -629,15 +635,10 @@ fn render_history_row(row: &snaca_state::MessageRow) -> Option<ThreadMessage> {
     })
 }
 
-/// Construct the per-session `Engine`. `metadata_root` hosts SNACA's
-/// internal data (memory tree, settings); `workspace_root` is the user's
-/// real project directory and gets pinned via `with_explicit_workspace`
-/// so file tools land there rather than in the multi-tenant sandbox.
-///
-/// Best-effort: any failure during WorkspaceLayout setup or registry
-/// construction is logged and surfaced as `None`. Phase B's caller is
-/// expected to fall back to the legacy `run_chat_turn` path in that
-/// case rather than refuse to open the session.
+/// Build the per-session Engine. `metadata_root` owns SNACA's internal
+/// data; `workspace_root` is pinned via `with_explicit_workspace` so
+/// file tools operate on the user's real project. Returns `None` on
+/// any failure; caller (`handle_chat_send`) falls back to legacy path.
 fn build_session_engine(
     workspace_root: &PathBuf,
     metadata_root: &PathBuf,
@@ -668,17 +669,35 @@ fn build_session_engine(
         }
     };
 
-    // Ensure the (tenant, project) subtree the engine writes into exists
-    // on disk. Tenant/project ids are derived from STUDIO_TENANT_ID +
-    // the wire project_id; the actual workspace dir is the explicit
-    // override so this only materializes the memory subtree.
-    // (We can't call ensure_project here because we don't have a stable
-    //  project_id yet — engine builders pass tenant/project per turn.)
-
-    // Phase A: per-field mapping from SnacaConfig.engine to EngineConfig
-    // is deferred to Phase E. EngineConfig::default_for(model) seeds the
-    // model-aware defaults (history limits, compaction thresholds, etc.).
-    let engine_config = EngineConfig::default_for(snaca_config.llm.model.clone());
+    // Overlay SnacaConfig.engine overrides on the model-aware defaults.
+    let mut engine_config = EngineConfig::default_for(snaca_config.llm.model.clone());
+    let ec = &snaca_config.engine;
+    if let Some(v) = ec.max_iterations { engine_config.max_iterations = v as usize; }
+    if let Some(v) = ec.loop_guard_max_repeats {
+        engine_config.loop_guard_max_repeats = Some(v as usize);
+    }
+    if let Some(v) = ec.concurrent_tool_limit {
+        engine_config.concurrent_tool_limit = v as usize;
+    }
+    if let Some(v) = ec.max_tokens { engine_config.max_tokens = Some(v); }
+    if let Some(v) = ec.history_limit { engine_config.history_limit = v; }
+    if let Some(v) = ec.compact_after_input_tokens {
+        engine_config.compact_after_input_tokens = Some(v as u32);
+    }
+    if let Some(v) = ec.compact_keep_recent {
+        engine_config.compact_keep_recent = v as usize;
+    }
+    if let Some(v) = ec.protect_first_n {
+        engine_config.protect_first_n = v as usize;
+    }
+    if let Some(v) = ec.compact_max_retries {
+        engine_config.compact_max_retries = v as u8;
+    }
+    if let Some(sp) = ec.system_prompt.as_ref() {
+        if !sp.is_empty() {
+            engine_config.system_prompt = sp.clone();
+        }
+    }
 
     let tools = base_tool_registry();
     let engine = Engine::new(llm, tools, db, layout, engine_config);

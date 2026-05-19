@@ -191,7 +191,10 @@ class AgentClientServiceImpl {
     return this.api.confirmEdit(params);
   }
 
-  confirmTool(params: unknown): Promise<unknown> {
+  confirmTool(params: {
+    toolCallId: string;
+    decision: 'allow' | 'deny' | 'allow_always' | 'deny_always';
+  }): Promise<unknown> {
     return this.api.confirmTool(params);
   }
 
