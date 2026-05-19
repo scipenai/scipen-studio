@@ -178,11 +178,15 @@ export class SnacaSidecarService extends Disposable implements ISnacaSidecarServ
       args.push('--log-filter', this.opts.logFilter);
     }
 
+    // Resolve `env` lazily so live changes in Studio Settings (api key /
+    // base url) take effect on the next spawn without rewiring DI.
+    const resolvedEnv = typeof this.opts.env === 'function' ? this.opts.env() : this.opts.env;
+
     let child: ChildHandle;
     try {
       child = spawn(this.opts.binaryPath, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, ...this.opts.env },
+        env: { ...process.env, ...resolvedEnv },
         windowsHide: true,
       }) as ChildHandle;
     } catch (e) {

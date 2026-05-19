@@ -28,6 +28,7 @@ import {
   createContextRequestService,
   defaultGetRendererWebContents,
 } from './agent/ContextRequestService';
+import { buildSnacaSidecarEnv } from '../ipc/agentHandlers';
 import type { ISnacaSidecarService } from './agent/interfaces/ISnacaSidecarService';
 import type { IEditorProtocolClient } from './agent/interfaces/IEditorProtocolClient';
 import path from 'path';
@@ -98,13 +99,10 @@ export function registerServices(): void {
   container.registerLazy(ServiceNames.AGENT_SIDECAR, () =>
     createSnacaSidecarService({
       binaryPath: resolveSnacaEditorBinaryPath(),
-      env: {
-        // API key is read from the parent process env at sidecar spawn time.
-        // The sidecar's `snaca.toml` only carries the env variable name,
-        // never the key itself.
-        SNACA_API_KEY: process.env.SNACA_API_KEY ?? '',
-        RUST_LOG: process.env.SNACA_LOG ?? 'snaca_editor=info,info',
-      },
+      // Resolve env each spawn so Settings changes (api key / base url)
+      // flow through after `sidecar.restart()`. `snaca.toml` only carries
+      // the env variable NAME — never the key itself.
+      env: () => buildSnacaSidecarEnv(container.get<IConfigManager>(ServiceNames.CONFIG)),
       autoRestart: true,
     })
   );

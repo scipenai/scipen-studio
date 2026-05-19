@@ -14,6 +14,11 @@
 import { BrowserWindow, ipcMain } from 'electron';
 import { z } from 'zod';
 import { IpcChannel } from '../../../shared/ipc/channels';
+import { ConfigKeys } from '../../../shared/types/config-keys';
+import type {
+  AIProviderDTO,
+  ModelSelection,
+} from '../../../shared/ipc/types';
 import type { IEditorProtocolClient } from '../services/agent/interfaces/IEditorProtocolClient';
 import type {
   ISnacaSidecarService,
@@ -27,6 +32,7 @@ import {
   EditConfirmParamsSchema,
   ToolConfirmParamsSchema,
   type EditConfirmParams,
+  type LlmProvider,
   type SnacaConfig,
   type ToolConfirmParams,
 } from '../services/agent/protocol/schemas';
@@ -197,6 +203,52 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
       broadcast(IpcChannel.Agent_TurnDelta, e);
     })
   );
+
+  // ----- AI config → sidecar restart -----
+  //
+  // When the user changes the selected provider, api key, or model, the
+  // running sidecar still holds the OLD `SnacaConfig` from its `init`
+  // call. Restart it and clear the session so the next `startProject`
+  // re-issues `init` with the fresh settings.
+  let restartTimer: NodeJS.Timeout | null = null;
+  const scheduleSidecarReload = (): void => {
+    if (restartTimer) return;
+    // Debounce: settings UIs typically fire several writes back-to-back.
+    restartTimer = setTimeout(() => {
+      restartTimer = null;
+      void reloadSidecar();
+    }, 300);
+  };
+  const reloadSidecar = async (): Promise<void> => {
+    state.sessionId = null;
+    state.threadId = null;
+    state.inflightTurn = null;
+    initPromise = null;
+    if (!sidecar.isRunning()) {
+      logger.debug('AI config changed; sidecar not running, skipping restart');
+      return;
+    }
+    try {
+      await sidecar.restart();
+      logger.info('AI config changed; sidecar restarted');
+    } catch (err) {
+      logger.error('sidecar restart after AI config change failed', {
+        error: (err as Error).message,
+      });
+    }
+  };
+  store.add({ dispose: config.subscribe(ConfigKeys.AIProviders, scheduleSidecarReload) });
+  store.add({
+    dispose: config.subscribe(ConfigKeys.AISelectedModels, scheduleSidecarReload),
+  });
+  store.add({
+    dispose: () => {
+      if (restartTimer) {
+        clearTimeout(restartTimer);
+        restartTimer = null;
+      }
+    },
+  });
   store.add(client.onEditPropose((e) => broadcast(IpcChannel.Agent_EditPropose, e)));
   store.add(client.onEditProposeDelta((e) => broadcast(IpcChannel.Agent_EditProposeDelta, e)));
   store.add(client.onEditProposeComplete((e) => broadcast(IpcChannel.Agent_EditProposeComplete, e)));
@@ -451,18 +503,91 @@ function uuidV4ish(input: string): string {
   return [part(h1, 8), part(h2, 4), '4' + part(h1 ^ h2, 3), '8' + part(h2 ^ h1, 3), part(h1 + h2, 8) + part(h2 - h1, 4)].join('-');
 }
 
-/** Render `SnacaConfig` from Studio settings. */
-function buildSnacaConfigFromSettings(_config: IConfigManager): SnacaConfig {
-  // P1 minimal: read everything from env / hard-defaults. Real Settings UI
-  // pulls these out of SecureStorage + config in a later phase.
+/** Wire name for SNACA's api-key env variable. */
+const SNACA_API_KEY_ENV = 'SNACA_API_KEY';
+
+/** Render `SnacaConfig` from Studio settings (provider + selected chat model). */
+export function buildSnacaConfigFromSettings(config: IConfigManager): SnacaConfig {
+  const resolved = resolveChatProvider(config);
   return {
     llm: {
-      provider: 'deepseek',
-      api_key_env: 'SNACA_API_KEY',
-      model: process.env.SNACA_MODEL ?? 'deepseek-chat',
-      base_url: process.env.SNACA_BASE_URL ?? 'https://api.deepseek.com',
+      // Protocol contract: only the env variable NAME crosses the wire.
+      // The sidecar reads the actual key from its spawned process env.
+      provider: resolved?.snacaProvider ?? envFallbackProvider(),
+      api_key_env: SNACA_API_KEY_ENV,
+      model: resolved?.modelId ?? process.env.SNACA_MODEL ?? 'deepseek-chat',
+      base_url: resolved?.baseUrl ?? process.env.SNACA_BASE_URL ?? 'https://api.deepseek.com',
     },
     engine: {},
     approval_mode: 'auto_allow',
   };
+}
+
+/**
+ * Build the env injected into the spawned sidecar. `SNACA_API_KEY` is
+ * sourced from the selected chat provider; `process.env.SNACA_API_KEY` is
+ * a developer-only fallback.
+ */
+export function buildSnacaSidecarEnv(config: IConfigManager): NodeJS.ProcessEnv {
+  const resolved = resolveChatProvider(config);
+  const apiKey = resolved?.apiKey || process.env.SNACA_API_KEY || '';
+  return {
+    [SNACA_API_KEY_ENV]: apiKey,
+    RUST_LOG: process.env.SNACA_LOG ?? 'snaca_editor=info,info',
+  };
+}
+
+interface ResolvedChatProvider {
+  snacaProvider: LlmProvider;
+  modelId: string;
+  baseUrl?: string;
+  apiKey: string;
+}
+
+/** Look up the chat-selected provider/model out of the AI config DTO. */
+function resolveChatProvider(config: IConfigManager): ResolvedChatProvider | null {
+  let ai;
+  try {
+    ai = config.getFullAIConfig();
+  } catch {
+    return null;
+  }
+  const selection: ModelSelection | null = ai.selectedModels.chat;
+  if (!selection) return null;
+
+  const providers: AIProviderDTO[] = ai.providers;
+  const provider = providers.find((p) => p.id === selection.providerId && p.enabled);
+  if (!provider) return null;
+  if (!selection.modelId) return null;
+
+  return {
+    snacaProvider: mapProviderIdToSnaca(provider.id),
+    modelId: selection.modelId,
+    baseUrl: provider.apiHost?.trim() || undefined,
+    apiKey: provider.apiKey ?? '',
+  };
+}
+
+/**
+ * Studio's ProviderId namespace is wider than SNACA's LlmProvider enum.
+ * Anthropic and DeepSeek have first-class adapters; everything else
+ * (openai, siliconflow, custom-*, ...) speaks the OpenAI-compatible
+ * REST surface — SNACA handles them under `openai_compatible`.
+ */
+function mapProviderIdToSnaca(providerId: string): LlmProvider {
+  if (providerId === 'anthropic') return 'anthropic';
+  if (providerId === 'deepseek') return 'deepseek';
+  return 'openai_compatible';
+}
+
+/**
+ * Choose a sensible env-only default when the user has not configured a
+ * chat provider yet. Keeps existing developer setups (SNACA_BASE_URL
+ * pointing at DeepSeek) working without a Settings round trip.
+ */
+function envFallbackProvider(): LlmProvider {
+  const base = (process.env.SNACA_BASE_URL ?? '').toLowerCase();
+  if (base.includes('anthropic')) return 'anthropic';
+  if (base.includes('deepseek')) return 'deepseek';
+  return 'openai_compatible';
 }

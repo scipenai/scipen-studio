@@ -28,8 +28,12 @@ export interface SidecarOptions {
   /**
    * Env additions for the spawned process. Sensitive values (`SNACA_API_KEY`)
    * must be supplied here — never inside `snaca.toml`.
+   *
+   * May be either a static record or a getter resolved at each spawn so
+   * Studio Settings (api key / base url) flow into the next sidecar
+   * instance after a restart.
    */
-  env?: NodeJS.ProcessEnv;
+  env?: NodeJS.ProcessEnv | (() => NodeJS.ProcessEnv);
   /** Auto-restart on unexpected exit. Default true. */
   autoRestart?: boolean;
   /**
