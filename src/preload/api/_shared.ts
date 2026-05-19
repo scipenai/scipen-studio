@@ -175,13 +175,6 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Agent_ContextFlushResponse,
 
   // ====== Chat ======
-  IpcChannel.Chat_SendMessage,
-  IpcChannel.Chat_Cancel,
-  IpcChannel.Chat_GetSessions,
-  IpcChannel.Chat_GetMessages,
-  IpcChannel.Chat_DeleteSession,
-  IpcChannel.Chat_RenameSession,
-  IpcChannel.Chat_CreateSession,
 
   // ====== Window/Dialog ======
   IpcChannel.Window_New,
@@ -224,7 +217,6 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
 export const ALLOWED_EVENT_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Window_OpenProject,
   IpcChannel.Window_OpenFile,
-  IpcChannel.Chat_Stream,
 
   // ====== Agent streaming events ======
   IpcChannel.Agent_SidecarStateChanged,

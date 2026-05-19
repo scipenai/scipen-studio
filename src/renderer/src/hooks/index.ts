@@ -52,9 +52,3 @@ export { useGlobalShortcuts } from './useGlobalShortcuts';
 export { useMemoryCleanup } from './useMemoryCleanup';
 export { useFileOpen } from './useFileOpen';
 export { useAgentBridge } from './useAgentBridge';
-
-// ============ Chat Hooks ============
-export {
-  useChatService,
-  type UseChatServiceReturn,
-} from './useChatService';

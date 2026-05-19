@@ -7,7 +7,6 @@
 export { fileApi, fileWatcherApi } from './file';
 export { aiApi } from './ai';
 export { lspApi } from './lsp';
-export { chatApi } from './chat';
 export { windowApi, dialogApi } from './window';
 export { projectApi, compileApi, appApi, logApi, configApi, traceApi } from './system';
 export { settingsApi } from './settings';

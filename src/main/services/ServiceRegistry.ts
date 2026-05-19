@@ -34,7 +34,6 @@ import path from 'path';
 import { app, BrowserWindow } from 'electron';
 
 import { TraceService } from './TraceService';
-import { ChatOrchestrator } from './chat';
 import type { IConfigManager } from './interfaces';
 import type {
   IAIService,
@@ -42,7 +41,6 @@ import type {
   ISelectionService,
   ISyncTeXService,
 } from './interfaces';
-import type { IChatOrchestrator } from './interfaces/IChatOrchestrator';
 
 // ====== Worker Client Imports ======
 
@@ -84,15 +82,8 @@ export function registerServices(): void {
       aiService: container.get<IAIService>(ServiceNames.AI),
     })
   );
-  // Chat orchestrator for conversation mode
-  container.registerSingleton<IChatOrchestrator>(
-    ServiceNames.CHAT_ORCHESTRATOR,
-    () =>
-      new ChatOrchestrator(
-        container.get<IAIService>(ServiceNames.AI),
-        container.get<IFileSystemService>(ServiceNames.FILE_SYSTEM)
-      )
-  );
+  // Conversational chat is owned by the SNACA sidecar (registered below);
+  // there is no in-process orchestrator on the main side anymore.
   container.registerSingleton<ISelectionService>(
     ServiceNames.SELECTION,
     () => new SelectionService()
@@ -281,10 +272,6 @@ export function getSyncTeXServiceFromContainer(): ISyncTeXService {
 
 export function getSelectionServiceFromContainer(): ISelectionService {
   return getServiceContainer().get<ISelectionService>(ServiceNames.SELECTION);
-}
-
-export function getChatOrchestrator(): IChatOrchestrator {
-  return getServiceContainer().get<IChatOrchestrator>(ServiceNames.CHAT_ORCHESTRATOR);
 }
 
 export function getStudioOverleafLiveService(): StudioOverleafLiveService {

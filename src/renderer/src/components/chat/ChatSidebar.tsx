@@ -28,10 +28,13 @@ import React, {
   useState,
   useSyncExternalStore,
 } from 'react';
+import { useEvent } from '../../hooks';
 import { useTranslation } from '../../locales';
 import { agentClient, type ThreadSummary } from '../../services/agent/AgentClientService';
 import { buildChatContext } from '../../services/agent/ChatContextBuilder';
 import { chatStreamStore } from '../../services/agent/ChatStreamStore';
+import { getUIService } from '../../services/core/ServiceRegistry';
+import type { AskAIAboutErrorRequest } from '../../services/core/UIService';
 import { AgentChatInput } from './AgentChatInput';
 import { ChatMessage } from './ChatMessage';
 import { ThreadHistoryDrawer } from './ThreadHistoryDrawer';
@@ -55,7 +58,10 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
+  const [seedValue, setSeedValue] = useState<string | undefined>(undefined);
+  const [seedKey, setSeedKey] = useState<number>(0);
   const startedFor = useRef<string | null>(null);
+  const uiService = useMemo(() => getUIService(), []);
 
   // Subscribe to chatStreamStore — single source of truth for active thread id
   // plus the rendered message list. Snapshot derives from getActiveThreadId so
@@ -130,6 +136,27 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
       setThreadError(`${t('thread.loadFailed')}: ${extractErrorMessage(err)}`);
     }
   }, [t]);
+
+  // ---- inbound prompt injection (Ask-AI buttons → input seed) ----
+
+  useEvent(
+    uiService.onDidRequestAIErrorAnalysis,
+    (req: AskAIAboutErrorRequest) => {
+      setSeedValue(formatErrorPrompt(req));
+      setSeedKey((k) => k + 1);
+    },
+    []
+  );
+
+  useEvent(
+    uiService.onDidRequestChatWithText,
+    ({ text }) => {
+      const quoted = text.trim() ? `> ${text.trim().replace(/\n/g, '\n> ')}\n\n` : '';
+      setSeedValue(quoted);
+      setSeedKey((k) => k + 1);
+    },
+    []
+  );
 
   // ---- send / cancel ----
 
@@ -302,6 +329,8 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
         placeholder={placeholder}
         onSend={handleSend}
         onCancel={handleCancel}
+        seedValue={seedValue}
+        seedKey={seedKey}
       />
 
       <ThreadHistoryDrawer
@@ -360,4 +389,21 @@ function extractErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === 'string') return err;
   return String(err);
+}
+
+/**
+ * Compose the prompt text seeded into the chat input when the user hits an
+ * "Ask AI about this compile error" button. Kept terse — SNACA can read
+ * `diagnostics` from the auto-built `ChatContext` so we don't dump the raw
+ * log here, only enough to anchor the question.
+ */
+function formatErrorPrompt(req: AskAIAboutErrorRequest): string {
+  const where =
+    req.file && req.line != null
+      ? `${req.file}:${req.line}`
+      : req.file ?? '';
+  const head = where
+    ? `${req.compilerType} 编译报错 (${where}):`
+    : `${req.compilerType} 编译报错:`;
+  return `${head}\n\n${req.errorMessage.trim()}\n\n帮我看看怎么修。`;
 }

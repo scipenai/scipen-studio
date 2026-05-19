@@ -19,34 +19,9 @@ export const projectsTable = sqliteTable('projects', {
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
 });
 
-// ============ AI Chat Sessions ============
-
-export const chatSessionsTable = sqliteTable('chat_sessions', {
-  id: text('id').primaryKey(),
-  projectId: text('project_id'),
-  title: text('title'),
-  model: text('model'),
-  provider: text('provider'),
-  systemPrompt: text('system_prompt'),
-  settings: text('settings', { mode: 'json' }).$type<Record<string, unknown>>(),
-  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-});
-
-// ============ AI Chat Messages ============
-
-export const chatMessagesTable = sqliteTable('chat_messages', {
-  id: text('id').primaryKey(),
-  sessionId: text('session_id')
-    .notNull()
-    .references(() => chatSessionsTable.id, { onDelete: 'cascade' }),
-  role: text('role', { enum: ['user', 'assistant', 'system'] }).notNull(),
-  content: text('content').notNull(),
-  model: text('model'),
-  tokenCount: integer('token_count'),
-  metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>(),
-  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
-});
+// AI chat sessions / messages tables were removed in P4-C — SNACA owns
+// conversation persistence in its own per-project SQLite under
+// `~/.scipen-studio/.snaca/local/projects/<projectId>/state.sqlite`.
 
 // ============ User Settings ============
 
@@ -60,12 +35,6 @@ export const userSettingsTable = sqliteTable('user_settings', {
 
 export type Project = typeof projectsTable.$inferSelect;
 export type NewProject = typeof projectsTable.$inferInsert;
-
-export type ChatSession = typeof chatSessionsTable.$inferSelect;
-export type NewChatSession = typeof chatSessionsTable.$inferInsert;
-
-export type ChatMessage = typeof chatMessagesTable.$inferSelect;
-export type NewChatMessage = typeof chatMessagesTable.$inferInsert;
 
 export type UserSetting = typeof userSettingsTable.$inferSelect;
 export type NewUserSetting = typeof userSettingsTable.$inferInsert;

@@ -12,9 +12,26 @@ interface AgentChatInputProps {
   placeholder?: string;
   onSend: (text: string) => void;
   onCancel?: () => void;
+  /**
+   * Externally injected prompt text. Each time `seedKey` changes the input
+   * adopts `seedValue` as its current draft, then keeps it editable. Useful
+   * for "Ask AI about this compile error" buttons that pre-fill the prompt.
+   * Pass `seedKey` as a monotonically increasing counter so identical seeds
+   * still trigger a refill.
+   */
+  seedValue?: string;
+  seedKey?: number;
 }
 
-export function AgentChatInput({ busy, disabled, placeholder, onSend, onCancel }: AgentChatInputProps): React.ReactElement {
+export function AgentChatInput({
+  busy,
+  disabled,
+  placeholder,
+  onSend,
+  onCancel,
+  seedValue,
+  seedKey,
+}: AgentChatInputProps): React.ReactElement {
   const [value, setValue] = useState<string>('');
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -24,6 +41,23 @@ export function AgentChatInput({ busy, disabled, placeholder, onSend, onCancel }
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 144)}px`;
   }, [value]);
+
+  // Apply seed on `seedKey` change. We intentionally don't depend on
+  // `seedValue` directly so a re-render with the same key (e.g. parent
+  // re-render) won't clobber the user's mid-edit text.
+  useEffect(() => {
+    if (seedKey === undefined) return;
+    setValue(seedValue ?? '');
+    // Focus + select-all so the user can immediately overwrite or hit Enter.
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (el) {
+        el.focus();
+        el.select();
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seedValue is intentionally not a dep
+  }, [seedKey]);
 
   const submit = useCallback(() => {
     const text = value.trim();

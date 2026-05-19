@@ -1,37 +1,22 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { FolderKanban, MessageSquareText, PanelLeftOpen, PanelRightOpen } from 'lucide-react';
-import { Suspense, lazy, useEffect, useMemo, useRef, useState, startTransition } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef } from 'react';
 import type React from 'react';
 import { Panel, PanelGroup } from 'react-resizable-panels';
 import { api } from '../../api';
-import { useEvent } from '../../hooks/useEvent';
-import { useChatService } from '../../hooks/useChatService';
 import {
   getUIService,
-  useActiveArtifactPath,
   useActiveTabPath,
-  useCompilationResult,
   usePreviewVisible,
   useProjectPath,
-  useSettings,
   useSidebarTab,
   useWorkspaceMode,
 } from '../../services/core';
-import { getChatService } from '../../services/core/ChatService';
 import { t } from '../../locales';
 import { MainLayout } from '../layout/MainLayout';
 import { ChatSidebar } from '../chat';
-import { ResearchConversationPane } from './ResearchConversationPane';
 import { IconButton } from '../ui';
-import {
-  buildAskPromptPartsFromCompileError,
-  buildErrorContextBadges,
-  buildWorkspaceInputPlaceholder,
-  findLatestArtifact,
-  getChatPanelDefaultSize,
-  WorkspaceResizeHandle,
-} from './researchWorkspaceHelpers';
-import type { PendingErrorDraftContext } from './researchWorkspaceHelpers';
+import { getChatPanelDefaultSize, WorkspaceResizeHandle } from './researchWorkspaceHelpers';
 import { useResearchWorkspaceActions } from './useResearchWorkspaceActions';
 
 const FileExplorer = lazy(() =>
@@ -39,65 +24,31 @@ const FileExplorer = lazy(() =>
 );
 
 export const ResearchWorkspaceShell: React.FC = () => {
-  const uiService = getUIService();
+  const uiService = useMemo(() => getUIService(), []);
   const projectPath = useProjectPath();
   const sidebarTab = useSidebarTab();
-  const activeArtifactPath = useActiveArtifactPath();
   const activeTabPath = useActiveTabPath();
   const workspaceMode = useWorkspaceMode();
-  const compilationResult = useCompilationResult();
-  const settings = useSettings();
-  const chatServiceState = useChatService();
   const isPreviewVisible = usePreviewVisible();
-  const isSnacaRuntime = settings.assistant.runtime === 'snaca';
-
-  const [inputValue, setInputValue] = useState('');
-  const [chatError, setChatError] = useState<string | null>(null);
-  const [pendingErrorDraft, setPendingErrorDraft] = useState<PendingErrorDraftContext | null>(null);
-  const [inputPulseKey, setInputPulseKey] = useState(0);
   const hasInitializedLayoutRef = useRef(false);
 
   const showFilesDrawer = sidebarTab === 'files';
   const showEditorPane = workspaceMode !== 'chat';
-  const sessionTitle =
-    chatServiceState.currentSession?.title || t('research.newConversation');
   const chatDefaultSize = getChatPanelDefaultSize(workspaceMode);
   const editorDefaultSize = 100 - chatDefaultSize;
-  const builtinMessages = chatServiceState.messages;
-  const isGenerating = chatServiceState.isGenerating;
-  const latestArtifact = useMemo(
-    () =>
-      activeArtifactPath && builtinMessages.length > 0
-        ? findLatestArtifact(builtinMessages, activeArtifactPath)
-        : null,
-    [activeArtifactPath, builtinMessages]
-  );
-  const inputPlaceholder = useMemo(
-    () => buildWorkspaceInputPlaceholder(activeTabPath, projectPath),
-    [activeTabPath, projectPath]
-  );
-  const autoFixLabel = useMemo(() => {
-    const errorCount =
-      compilationResult?.parsedErrors?.length || compilationResult?.errors?.length || 0;
-    return errorCount > 0
-      ? t('research.autoFixCount', { count: String(errorCount) })
-      : t('research.autoFix');
-  }, [compilationResult]);
 
-  // ─── Actions hook ────────────────────────────────
+  const projectName = useMemo(() => {
+    if (!projectPath) return null;
+    return projectPath.replace(/\\/g, '/').split('/').pop() || null;
+  }, [projectPath]);
+  const headerTitle = projectName ?? 'SciPenClaw';
+
+  // ─── Actions hook — pure layout / artifact navigation ────────────────
   const actions = useResearchWorkspaceActions({
     uiService,
-    chatSendMessage: chatServiceState.sendMessage,
-    projectPath,
     activeTabPath,
-    activeArtifactPath,
     workspaceMode,
     isPreviewVisible,
-    inputValue,
-    setInputValue,
-    pendingErrorDraft,
-    setPendingErrorDraft,
-    setChatError,
   });
 
   useEffect(() => {
@@ -113,35 +64,9 @@ export const ResearchWorkspaceShell: React.FC = () => {
     }
   }, [uiService]);
 
-  useEvent(
-    uiService.onDidRequestAIErrorAnalysis,
-    (request) => {
-      const promptParts = buildAskPromptPartsFromCompileError(request, projectPath);
-      setInputValue(promptParts.visiblePrompt);
-      setPendingErrorDraft({
-        hiddenContext: promptParts.hiddenContext,
-        badges: buildErrorContextBadges(request, projectPath),
-      });
-      startTransition(() => {
-        setInputPulseKey((current) => current + 1);
-      });
-    },
-    [projectPath]
-  );
-
-  useEvent(
-    uiService.onDidRequestChatWithText,
-    ({ text }) => {
-      const trimmed = text.trim();
-      setInputValue(trimmed ? `> ${trimmed.replace(/\n/g, '\n> ')}\n\n` : '');
-      startTransition(() => {
-        setInputPulseKey((current) => current + 1);
-      });
-    },
-    []
-  );
-
-  // Global text selection capture: SelectionService forwards to the main window via IPC.
+  // Global text-selection capture: SelectionService forwards captured text via
+  // IPC; we re-emit through uiService.requestChatWithText so ChatSidebar's
+  // seed listener pre-fills the SNACA prompt input.
   useEffect(() => {
     const dispose = api.selection.onTextCaptured((data) => {
       if (data.text?.trim()) {
@@ -150,28 +75,6 @@ export const ResearchWorkspaceShell: React.FC = () => {
     });
     return dispose;
   }, [uiService]);
-
-  useEvent(
-    getChatService().onDidError,
-    (error) => {
-      setChatError(error.message);
-    },
-    []
-  );
-
-  useEffect(() => {
-    const latestAssistantWithContent =
-      [...builtinMessages]
-        .reverse()
-        .find(
-          (message) =>
-            message.role === 'assistant' &&
-            (message.content.trim() || (message.blocks?.length ?? 0) > 0)
-        ) ?? null;
-    if (latestAssistantWithContent) {
-      setChatError(null);
-    }
-  }, [builtinMessages]);
 
   return (
     <div className="h-full overflow-hidden p-2" style={{ background: 'var(--color-bg-void)' }}>
@@ -191,29 +94,8 @@ export const ResearchWorkspaceShell: React.FC = () => {
         >
           <div className="min-w-0">
             <h2 className="truncate text-[17px] font-medium tracking-[-0.03em] text-[var(--color-text-primary)]">
-              {sessionTitle}
+              {headerTitle}
             </h2>
-            <div className="mt-1.5 flex items-center gap-2 text-[12px] text-[var(--color-text-muted)]">
-              <span className="inline-flex items-center gap-2">
-                <span
-                  className={`h-2.5 w-2.5 rounded-full ${
-                    isGenerating ? 'bg-sky-500' : 'bg-emerald-500'
-                  }`}
-                />
-                {isGenerating ? t('research.scipenReplying') : t('research.startNewConversation')}
-              </span>
-              {latestArtifact && (
-                <span
-                  className="rounded-full px-2.5 py-1 text-[11px]"
-                  style={{
-                    background: 'var(--color-bg-hover)',
-                    color: 'var(--color-text-muted)',
-                  }}
-                >
-                  {t('research.recentFile', { title: latestArtifact.title })}
-                </span>
-              )}
-            </div>
           </div>
 
           <div
@@ -330,31 +212,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
               minSize={22}
               className="min-h-0 min-w-0"
             >
-              {isSnacaRuntime ? (
-                <ChatSidebar
-                  workspaceRoot={projectPath}
-                  displayName={projectPath ? projectPath.replace(/\\/g, '/').split('/').pop() : undefined}
-                />
-              ) : (
-                <ResearchConversationPane
-                  builtinMessages={builtinMessages}
-                  isGenerating={isGenerating}
-                  chatError={chatError}
-                  inputValue={inputValue}
-                  inputPlaceholder={inputPlaceholder}
-                  onInputChange={setInputValue}
-                  onSend={actions.handleSendStable}
-                  onOpenSettings={actions.handleOpenSettings}
-                  onOpenArtifact={actions.handleOpenArtifactStable}
-                  onCompileArtifact={actions.handleCompileArtifactStable}
-                  onAcceptAutoFix={actions.handleAcceptAutoFixStable}
-                  autoFixLabel={autoFixLabel}
-                  draftContextBadges={pendingErrorDraft?.badges ?? []}
-                  inputPulseKey={inputPulseKey}
-                  onDismissDraftContextBadge={actions.handleDismissDraftContextBadge}
-                  activeTabPath={activeTabPath ?? undefined}
-                />
-              )}
+              <ChatSidebar workspaceRoot={projectPath} displayName={projectName ?? undefined} />
             </Panel>
 
             {showEditorPane && (

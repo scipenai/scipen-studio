@@ -109,14 +109,6 @@ const EXEMPT_FROM_SCHEMA = new Set<string>([
   IpcChannel.Agent_ConfirmTool,
   IpcChannel.Agent_ResolveEditProposal,
   // Chat invokes (TODO P3 follow-up: add proper schemas)
-  IpcChannel.Chat_SendMessage,
-  IpcChannel.Chat_Stream,
-  IpcChannel.Chat_Cancel,
-  IpcChannel.Chat_GetSessions,
-  IpcChannel.Chat_GetMessages,
-  IpcChannel.Chat_DeleteSession,
-  IpcChannel.Chat_RenameSession,
-  IpcChannel.Chat_CreateSession,
 
   // Simple parameter channels (single primitive type, low risk)
   IpcChannel.Config_Get,

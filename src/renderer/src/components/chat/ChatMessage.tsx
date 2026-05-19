@@ -8,6 +8,7 @@
 
 import type React from 'react';
 import type { ChatMessage as ChatMessageData, ChatTurn } from '../../services/agent/ChatStreamStore';
+import { MarkdownContent } from './MarkdownContent';
 import { ThinkingRenderer } from './ThinkingRenderer';
 
 interface ChatMessageProps {
@@ -25,8 +26,8 @@ export function ChatMessage({ message, turn }: ChatMessageProps): React.ReactEle
         {turn.hasThinking && <ThinkingRenderer text={turn.thinkingText} streaming={turn.pending} />}
         <ToolCalls turn={turn} />
         {turn.text ? (
-          <div className="whitespace-pre-wrap break-words text-[13px] leading-[1.6]">
-            {turn.text}
+          <div className="text-[13px] leading-[1.6]">
+            <MarkdownContent content={turn.text} />
             {turn.pending && <span className="ml-0.5 inline-block h-3 w-px animate-pulse bg-[var(--color-accent)] align-middle" />}
           </div>
         ) : (
@@ -61,7 +62,9 @@ export function ChatMessage({ message, turn }: ChatMessageProps): React.ReactEle
   return (
     <div className="mb-3 rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] p-2.5">
       <RoleBadge role="assistant" />
-      <div className="whitespace-pre-wrap break-words text-[13px] leading-[1.6]">{message.text}</div>
+      <div className="text-[13px] leading-[1.6]">
+        <MarkdownContent content={message.text} />
+      </div>
     </div>
   );
 }

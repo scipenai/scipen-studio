@@ -142,7 +142,6 @@ export type CursorBlinking = 'blink' | 'smooth' | 'phase' | 'expand' | 'solid';
 export type WhitespaceMode = 'none' | 'boundary' | 'selection' | 'all';
 
 export type LineHighlightMode = 'none' | 'gutter' | 'line' | 'all';
-export type AssistantRuntime = 'builtin' | 'snaca';
 export interface AppSettings {
   ai: {
     provider: AIProvider;
@@ -233,7 +232,6 @@ export interface AppSettings {
     inlineEdit: string;
   };
   assistant: {
-    runtime: AssistantRuntime;
     autoFixCompileErrors: boolean;
     maxAutoFixRetries: number;
   };

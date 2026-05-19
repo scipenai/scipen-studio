@@ -12,7 +12,6 @@ export {
 } from './inlineEditHandlers';
 export { registerCompileHandlers, type CompileHandlersDeps } from './compileHandlers';
 export { registerWindowHandlers, type WindowHandlersDeps } from './windowHandlers';
-export { registerChatHandlers, type ChatHandlersDeps } from './chatHandlers';
 export { registerLSPHandlers, type LSPHandlersDeps } from './lspHandlers';
 export { registerConfigHandlers } from './configHandlers';
 export { registerDialogHandlers } from './dialogHandlers';

@@ -91,31 +91,9 @@ import type {
   SyncTeXForwardResult,
 } from '../../../../shared/ipc/types';
 
-import type {
-  ChatGetMessagesParams,
-  ChatMessage,
-  ChatMessagesResult,
-  ChatOperationResult,
-  ChatRenameSessionParams,
-  ChatSendMessageParams,
-  ChatSendMessageResult,
-  ChatSession,
-  ChatSessionsResult,
-  ChatStreamEvent,
-  SendMessageOptions,
-} from '../../../../shared/types/chat';
-
-export type {
-  ChatMessage,
-  ChatSession,
-  ChatStreamEvent,
-  SendMessageOptions,
-  ChatSendMessageParams,
-  ChatSendMessageResult,
-  ChatOperationResult,
-  ChatMessagesResult,
-  ChatSessionsResult,
-};
+// Legacy `shared/types/chat` types (ChatMessage / ChatSession / ChatStreamEvent
+// / SendMessageOptions) belonged to the deleted builtin chat path; SNACA owns
+// its own message shapes via `services/agent/ChatStreamStore`.
 
 export type { LaTeXCompileResult, SyncTeXForwardResult, SyncTeXBackwardResult, OverleafProjectDTO };
 
@@ -636,31 +614,6 @@ export const overleafLive = {
     on(IpcChannel.OverleafLive_Error, listener as (...args: unknown[]) => void),
 };
 
-// ==================== Chat API ====================
-
-export const chat = {
-  sendMessage: (params: ChatSendMessageParams) =>
-    invoke<ChatSendMessageResult>(IpcChannel.Chat_SendMessage, params),
-
-  cancel: (sessionId: string) => invoke<ChatOperationResult>(IpcChannel.Chat_Cancel, sessionId),
-
-  getSessions: () => invoke<ChatSessionsResult>(IpcChannel.Chat_GetSessions),
-
-  getMessages: (params: ChatGetMessagesParams) =>
-    invoke<ChatMessagesResult>(IpcChannel.Chat_GetMessages, params),
-
-  deleteSession: (sessionId: string) =>
-    invoke<ChatOperationResult>(IpcChannel.Chat_DeleteSession, sessionId),
-
-  renameSession: (params: ChatRenameSessionParams) =>
-    invoke<ChatOperationResult>(IpcChannel.Chat_RenameSession, params),
-
-  createSession: () => invoke<ChatSession>(IpcChannel.Chat_CreateSession),
-
-  onStream: (callback: (event: ChatStreamEvent) => void) =>
-    on(IpcChannel.Chat_Stream, (data) => callback(data as ChatStreamEvent)),
-};
-
 // ==================== Window API ====================
 
 export const win = {
@@ -795,7 +748,6 @@ export const api = {
   lsp,
   overleaf,
   collaborationOwner,
-  chat,
   win,
   app,
   dialog,

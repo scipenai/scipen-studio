@@ -22,7 +22,6 @@ import { runMigrations } from './database';
 
 import {
   getAIService,
-  getChatOrchestrator,
   getFileSystemService,
   getSelectionServiceFromContainer,
   getSyncTeXServiceFromContainer,
@@ -51,7 +50,6 @@ import { initializeLSPRegistry } from './services/lsp/setup';
 // ====== IPC Handlers ======
 import {
   registerAIHandlers,
-  registerChatHandlers,
   registerCompileHandlers,
   registerConfigHandlers,
   registerDialogHandlers,
@@ -757,11 +755,6 @@ function registerIpcHandlers() {
     getMainWindow,
     getWindows,
     createWindow,
-  });
-
-  // ====== Register Chat Handlers (Ask Mode) ======
-  registerChatHandlers({
-    chatOrchestrator: getChatOrchestrator(),
   });
 
   // ====== Register LSP Handlers ======

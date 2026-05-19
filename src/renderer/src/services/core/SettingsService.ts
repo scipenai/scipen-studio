@@ -145,7 +145,6 @@ export const defaultSettings: AppSettings = {
     inlineEdit: 'Ctrl+K',
   },
   assistant: {
-    runtime: 'builtin',
     autoFixCompileErrors: true,
     maxAutoFixRetries: 3,
   },
@@ -335,11 +334,11 @@ export class SettingsService implements IDisposable {
         // v4.x: IM/OT remote collaboration removed; strip persisted blocks so deepMerge can't restore them
         parsed.im = undefined;
         parsed.collaboration = undefined;
+        // P4-C: builtin chat removed; SNACA is the only chat runtime so the
+        // legacy `assistant.runtime` / `assistant.openclaw` fields are dropped.
         if (parsed?.assistant) {
           parsed.assistant.openclaw = undefined;
-          if (parsed.assistant.runtime === 'openclaw') {
-            parsed.assistant.runtime = 'builtin';
-          }
+          parsed.assistant.runtime = undefined;
         }
 
         // Migration: 'overleaf' engine removed (local-first mode); fall back to xelatex

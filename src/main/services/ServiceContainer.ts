@@ -218,7 +218,6 @@ export const ServiceNames = {
   STUDIO_OVERLEAF_LIVE: 'studioOverleafLive',
 
   AI: 'ai',
-  CHAT_ORCHESTRATOR: 'chatOrchestrator',
   /**
    * Ctrl+K inline edit. Streams a single LLM completion through `AIService`
    * config; independent of SNACA. See `InlineEditService`.

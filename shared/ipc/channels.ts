@@ -250,14 +250,6 @@ export enum IpcChannel {
   Agent_ContextFlushRequest = 'agent:context-flush-request',
 
   // ====== Chat ======
-  Chat_SendMessage = 'chat:send-message',
-  Chat_Stream = 'chat:stream',
-  Chat_Cancel = 'chat:cancel',
-  Chat_GetSessions = 'chat:get-sessions',
-  Chat_GetMessages = 'chat:get-messages',
-  Chat_DeleteSession = 'chat:delete-session',
-  Chat_RenameSession = 'chat:rename-session',
-  Chat_CreateSession = 'chat:create-session',
 
   // ====== Window Management ======
   Window_New = 'new-window',

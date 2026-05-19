@@ -13,7 +13,6 @@ import {
   ALLOWED_INVOKE_CHANNELS,
   aiApi,
   appApi,
-  chatApi,
   compileApi,
   configApi,
   createSafeListener,
@@ -85,7 +84,6 @@ function createElectronApi() {
 
     // ====== Namespaced APIs ======
     window: windowApi,
-    chat: chatApi,
     ai: aiApi,
     fileWatcher: fileWatcherApi,
     log: logApi,

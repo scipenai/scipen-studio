@@ -78,7 +78,6 @@ export interface IPCApiContract
 // ====== Event Contract (cross-domain, stays here) ======
 
 import type { LSPDiagnostic } from './ipc/lsp-contract';
-import type { ChatStreamEvent } from './types/chat';
 import type { AIConfigDTO } from './ipc/types';
 
 /** IPC event channel types (send/on pattern) */
@@ -109,8 +108,6 @@ export interface IPCEventContract {
     content?: string;
     error?: string;
   };
-  /** Unified Chat stream event */
-  [IpcChannel.Chat_Stream]: ChatStreamEvent;
   [IpcChannel.Window_OpenProject]: string;
   [IpcChannel.Window_OpenFile]: string;
   [IpcChannel.Message_FromMain]: string;
