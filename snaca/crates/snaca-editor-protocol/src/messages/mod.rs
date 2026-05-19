@@ -16,6 +16,7 @@ pub mod log;
 pub mod memory;
 pub mod plan;
 pub mod session;
+pub mod skills;
 pub mod tool;
 pub mod turn;
 pub mod usage;
@@ -49,6 +50,18 @@ pub mod host_to_snaca {
     pub const EDIT_CONFIRM: &str = "edit.confirm";
     pub const TOOL_CONFIRM: &str = "tool.confirm";
     pub const CONTEXT_RESPOND: &str = "context.respond";
+
+    // Memory viewer
+    pub const MEMORY_LIST: &str = "memory.list";
+    pub const MEMORY_GET: &str = "memory.get";
+    pub const MEMORY_WRITE: &str = "memory.write";
+    pub const MEMORY_DELETE: &str = "memory.delete";
+    pub const MEMORY_REVEAL: &str = "memory.reveal";
+
+    // Skills viewer
+    pub const SKILLS_LIST: &str = "skills.list";
+    pub const SKILLS_GET: &str = "skills.get";
+    pub const SKILLS_RELOAD: &str = "skills.reload";
 }
 
 /// Method-name constants for SNACA → host.

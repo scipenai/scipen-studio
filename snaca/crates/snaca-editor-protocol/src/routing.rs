@@ -16,8 +16,8 @@ use crate::jsonrpc::{
     JsonRpcResponse,
 };
 use crate::messages::{
-    chat::*, composer::*, context_req::*, edit::*, init::*, inline_edit::*, session::*, tool::*,
-    turn::*,
+    chat::*, composer::*, context_req::*, edit::*, init::*, inline_edit::*, memory::*,
+    session::*, skills::*, tool::*, turn::*,
 };
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Serialize};
@@ -47,6 +47,14 @@ pub enum Method {
     EditConfirm,
     ToolConfirm,
     ContextRespond,
+    MemoryList,
+    MemoryGet,
+    MemoryWrite,
+    MemoryDelete,
+    MemoryReveal,
+    SkillsList,
+    SkillsGet,
+    SkillsReload,
     // SNACA → host (for handler symmetry; rarely needed by Dispatcher)
     TurnDelta,
     EditPropose,
@@ -86,6 +94,14 @@ impl Method {
             x if x == h::EDIT_CONFIRM => Method::EditConfirm,
             x if x == h::TOOL_CONFIRM => Method::ToolConfirm,
             x if x == h::CONTEXT_RESPOND => Method::ContextRespond,
+            x if x == h::MEMORY_LIST => Method::MemoryList,
+            x if x == h::MEMORY_GET => Method::MemoryGet,
+            x if x == h::MEMORY_WRITE => Method::MemoryWrite,
+            x if x == h::MEMORY_DELETE => Method::MemoryDelete,
+            x if x == h::MEMORY_REVEAL => Method::MemoryReveal,
+            x if x == h::SKILLS_LIST => Method::SkillsList,
+            x if x == h::SKILLS_GET => Method::SkillsGet,
+            x if x == h::SKILLS_RELOAD => Method::SkillsReload,
             // SNACA → host
             x if x == p::TURN_DELTA => Method::TurnDelta,
             x if x == p::EDIT_PROPOSE => Method::EditPropose,
@@ -262,6 +278,66 @@ pub trait MessageHandler: Send + Sync {
     ) -> Result<ContextRespondResult, ProtocolError> {
         Ok(ContextRespondResult { ok: true })
     }
+
+    // ---------------- Memory viewer ----------------
+
+    async fn handle_memory_list(
+        &self,
+        _params: MemoryListParams,
+    ) -> Result<MemoryListResult, ProtocolError> {
+        Err(ProtocolError::method_not_found("memory.list"))
+    }
+
+    async fn handle_memory_get(
+        &self,
+        _params: MemoryGetParams,
+    ) -> Result<MemoryGetResult, ProtocolError> {
+        Err(ProtocolError::method_not_found("memory.get"))
+    }
+
+    async fn handle_memory_write(
+        &self,
+        _params: MemoryWriteParams,
+    ) -> Result<MemoryWriteResult, ProtocolError> {
+        Err(ProtocolError::method_not_found("memory.write"))
+    }
+
+    async fn handle_memory_delete(
+        &self,
+        _params: MemoryDeleteParams,
+    ) -> Result<MemoryDeleteResult, ProtocolError> {
+        Err(ProtocolError::method_not_found("memory.delete"))
+    }
+
+    async fn handle_memory_reveal(
+        &self,
+        _params: MemoryRevealParams,
+    ) -> Result<MemoryRevealResult, ProtocolError> {
+        Err(ProtocolError::method_not_found("memory.reveal"))
+    }
+
+    // ---------------- Skills viewer ----------------
+
+    async fn handle_skills_list(
+        &self,
+        _params: SkillsListParams,
+    ) -> Result<SkillsListResult, ProtocolError> {
+        Err(ProtocolError::method_not_found("skills.list"))
+    }
+
+    async fn handle_skills_get(
+        &self,
+        _params: SkillsGetParams,
+    ) -> Result<SkillsGetResult, ProtocolError> {
+        Err(ProtocolError::method_not_found("skills.get"))
+    }
+
+    async fn handle_skills_reload(
+        &self,
+        _params: SkillsReloadParams,
+    ) -> Result<SkillsReloadResult, ProtocolError> {
+        Err(ProtocolError::method_not_found("skills.reload"))
+    }
 }
 
 /// Generic dispatcher that wraps a [`MessageHandler`].
@@ -419,6 +495,30 @@ impl<H: MessageHandler> Dispatcher<H> {
             }
             Method::ContextRespond => {
                 call_typed(self.handler.as_ref(), params, H::handle_context_respond).await
+            }
+            Method::MemoryList => {
+                call_typed(self.handler.as_ref(), params, H::handle_memory_list).await
+            }
+            Method::MemoryGet => {
+                call_typed(self.handler.as_ref(), params, H::handle_memory_get).await
+            }
+            Method::MemoryWrite => {
+                call_typed(self.handler.as_ref(), params, H::handle_memory_write).await
+            }
+            Method::MemoryDelete => {
+                call_typed(self.handler.as_ref(), params, H::handle_memory_delete).await
+            }
+            Method::MemoryReveal => {
+                call_typed(self.handler.as_ref(), params, H::handle_memory_reveal).await
+            }
+            Method::SkillsList => {
+                call_typed(self.handler.as_ref(), params, H::handle_skills_list).await
+            }
+            Method::SkillsGet => {
+                call_typed(self.handler.as_ref(), params, H::handle_skills_get).await
+            }
+            Method::SkillsReload => {
+                call_typed(self.handler.as_ref(), params, H::handle_skills_reload).await
             }
             // SNACA → host methods should never arrive as host → SNACA requests
             _ => Err(ProtocolError::method_not_found(&req.method)),
