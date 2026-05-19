@@ -469,3 +469,34 @@ describe('AIService - DI Mock Pattern (Examples)', () => {
     });
   });
 });
+
+describe('normalizeOpenAIBaseUrl', () => {
+  let normalize: (raw: string | undefined) => string | undefined;
+  beforeAll(async () => {
+    const mod = await import('../../../src/main/services/AIService');
+    normalize = mod.normalizeOpenAIBaseUrl;
+  });
+
+  it('passes through host that already ends in /v1', () => {
+    expect(normalize('https://api.openai.com/v1')).toBe('https://api.openai.com/v1');
+  });
+
+  it('appends /v1 to bare host', () => {
+    // The common DeepSeek paste case — host without version segment.
+    expect(normalize('https://api.deepseek.com')).toBe('https://api.deepseek.com/v1');
+  });
+
+  it('strips trailing slash and then appends /v1', () => {
+    expect(normalize('https://api.deepseek.com/')).toBe('https://api.deepseek.com/v1');
+  });
+
+  it('respects other version segments', () => {
+    expect(normalize('https://api.example.com/v2')).toBe('https://api.example.com/v2');
+  });
+
+  it('returns undefined for blank/whitespace input', () => {
+    expect(normalize(undefined)).toBeUndefined();
+    expect(normalize('')).toBeUndefined();
+    expect(normalize('   ')).toBeUndefined();
+  });
+});

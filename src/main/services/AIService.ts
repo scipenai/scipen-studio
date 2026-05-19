@@ -78,7 +78,7 @@ export class AIService implements IAIService {
         // All OpenAI-compatible providers use createOpenAI
         const openai = createOpenAI({
           apiKey,
-          baseURL: baseUrl,
+          baseURL: normalizeOpenAIBaseUrl(baseUrl),
         });
         // Use .chat() to ensure Chat Completions API instead of new Responses API
         // (many compatible services don't support Responses API)
@@ -125,7 +125,7 @@ export class AIService implements IAIService {
       default: {
         const openai = createOpenAI({
           apiKey: effectiveApiKey,
-          baseURL: effectiveBaseUrl,
+          baseURL: normalizeOpenAIBaseUrl(effectiveBaseUrl),
         });
         return openai.chat(effectiveModel);
       }
@@ -361,6 +361,25 @@ export class AIService implements IAIService {
       return { success: false, message: `Connection failed: ${message}` };
     }
   }
+}
+
+/**
+ * Vercel `@ai-sdk/openai` concatenates `{baseURL}/chat/completions`
+ * verbatim — it does NOT auto-append `/v1`. Users routinely paste
+ * `https://api.deepseek.com` (or trailing-slashed variants) into the
+ * Settings field; SNACA's clients tolerate both forms, so AIService
+ * does too. Anthropic SDK handles its own versioning, hence this only
+ * runs on the OpenAI-compatible path.
+ *
+ * @internal Exported for unit tests.
+ */
+export function normalizeOpenAIBaseUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim().replace(/\/+$/, '');
+  if (!trimmed) return undefined;
+  // Already ends in `/v1`, `/v2`, etc. — leave it.
+  if (/\/v\d+$/i.test(trimmed)) return trimmed;
+  return `${trimmed}/v1`;
 }
 
 /**

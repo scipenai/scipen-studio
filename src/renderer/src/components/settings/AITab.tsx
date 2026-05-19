@@ -38,6 +38,8 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     id: 'openai',
     label: 'OpenAI 兼容',
     defaultHost: 'https://api.openai.com/v1',
+    // Studio AIService auto-appends `/v1` if missing, so both bare host and
+    // `/v1` form work — show both to make the convention obvious.
     hostExamples: ['https://api.openai.com/v1', 'https://api.deepseek.com'],
   },
   {
