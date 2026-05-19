@@ -56,6 +56,14 @@ interface AgentSessionState {
   inflightTurn: { turnId: string; kind: 'chat' | 'inline_edit' | 'composer' } | null;
 }
 
+/** Last successful startProject input — used to silently re-open a session
+ *  after `reloadSidecar` so the renderer never sees "No active session". */
+interface StartProjectParams {
+  workspaceRoot: string;
+  displayName?: string;
+  projectType?: 'latex' | 'typst' | 'mixed';
+}
+
 const HOST_CAPS = {
   ui_surfaces: ['chat' as const, 'inline_edit' as const, 'composer' as const],
   context_kinds: [
@@ -143,6 +151,11 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
     inflightTurn: null,
   };
 
+  /** Last successful startProject input, kept so reloadSidecar can
+   *  silently re-open a session against the same project after the
+   *  sidecar comes back up. */
+  let lastStartParams: StartProjectParams | null = null;
+
   // ----- Sidecar lifecycle: spawn at startup; init on first ready -----
 
   let initPromise: Promise<void> | null = null;
@@ -219,6 +232,58 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
       void reloadSidecar();
     }, 300);
   };
+  /**
+   * Open (or re-open) a session against `params` and write the result
+   * into `state`. Closes any prior session first. Caller owns retry —
+   * this function throws on hard failures so they surface in IPC.
+   */
+  const openSessionFor = async (
+    params: StartProjectParams
+  ): Promise<{ sessionId: string; threadId: string; threads: unknown[] }> => {
+    await initIfNeeded();
+    if (state.sessionId) {
+      try {
+        await client.sessionClose(state.sessionId);
+      } catch (err) {
+        logger.warn('previous session.close failed', {
+          error: (err as Error).message,
+        });
+      }
+      state.sessionId = null;
+      state.threadId = null;
+      state.inflightTurn = null;
+    }
+
+    const projectId = makeProjectIdFromPath(params.workspaceRoot);
+    const metadataRoot = buildMetadataRootFor(projectId);
+    const sharedMetadataRoot = buildSharedMetadataRoot();
+
+    const result = await client.sessionOpen({
+      project_id: projectId,
+      workspace_root: normalizePath(params.workspaceRoot),
+      metadata_root: normalizePath(metadataRoot),
+      shared_metadata_root: normalizePath(sharedMetadataRoot),
+      display_name: params.displayName ?? params.workspaceRoot,
+      project_type: params.projectType ?? 'latex',
+    });
+
+    state.sessionId = result.session_id;
+    state.threadId = result.active_thread_id;
+    lastStartParams = params;
+    return {
+      sessionId: result.session_id,
+      threadId: result.active_thread_id,
+      threads: result.threads,
+    };
+  };
+
+  /**
+   * Drop the in-process session view; handlers will rebuild it lazily
+   * via `ensureSessionReady` the next time the renderer issues a request.
+   * Don't re-open here — that couples the reload event to a specific
+   * recovery moment; the lazy path covers reload, sidecar crash, and
+   * any other future "session lost" path with one mechanism.
+   */
   const reloadSidecar = async (): Promise<void> => {
     state.sessionId = null;
     state.threadId = null;
@@ -236,6 +301,28 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
         error: (err as Error).message,
       });
     }
+  };
+
+  /**
+   * Make sure `state.sessionId` is current before executing a session-scoped
+   * handler. The session can disappear for several reasons:
+   *   - AI config change → sidecar restart (`reloadSidecar`)
+   *   - sidecar crashed and auto-recovered with a different pid
+   *   - explicit shutdown / future eviction policies
+   *
+   * Rather than push a "session lost" event to the renderer and ask it to
+   * re-call `startProject`, we silently re-open using the parameters of the
+   * last successful start. The renderer never sees the gap.
+   */
+  const ensureSessionReady = async (): Promise<void> => {
+    if (state.sessionId) return;
+    if (!lastStartParams) {
+      throw new Error('No active session. Call agent.startProject() first.');
+    }
+    logger.info('session missing; auto re-opening', {
+      workspaceRoot: lastStartParams.workspaceRoot,
+    });
+    await openSessionFor(lastStartParams);
   };
   store.add({ dispose: config.subscribe(ConfigKeys.AIProviders, scheduleSidecarReload) });
   store.add({
@@ -273,48 +360,12 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
 
   ipcMain.handle(IpcChannel.Agent_StartProject, async (_e, rawParams: unknown) => {
     const params = parseOrThrow(startProjectParamsSchema, rawParams, 'startProject params');
-    await initIfNeeded();
-    if (state.sessionId) {
-      // Already running — close prior session before opening new one.
-      try {
-        await client.sessionClose(state.sessionId);
-      } catch (err) {
-        logger.warn('previous session.close failed', {
-          error: (err as Error).message,
-        });
-      }
-      state.sessionId = null;
-      state.threadId = null;
-      state.inflightTurn = null;
-    }
-
-    const projectId = makeProjectIdFromPath(params.workspaceRoot);
-    const metadataRoot = buildMetadataRootFor(projectId);
-    const sharedMetadataRoot = buildSharedMetadataRoot();
-
-    const result = await client.sessionOpen({
-      project_id: projectId,
-      workspace_root: normalizePath(params.workspaceRoot),
-      metadata_root: normalizePath(metadataRoot),
-      shared_metadata_root: normalizePath(sharedMetadataRoot),
-      display_name: params.displayName ?? params.workspaceRoot,
-      project_type: params.projectType ?? 'latex',
-    });
-
-    state.sessionId = result.session_id;
-    // SNACA is the single source of truth for active thread.
-    state.threadId = result.active_thread_id;
-
-    return {
-      sessionId: result.session_id,
-      threadId: state.threadId,
-      threads: result.threads,
-    };
+    return await openSessionFor(params);
   });
 
   ipcMain.handle(IpcChannel.Agent_NewThread, async (_e, rawTitle: unknown) => {
     const title = parseOrThrow(threadTitleSchema, rawTitle, 'newThread title');
-    requireSession(state);
+    await ensureSessionReady();
     const result = await client.sessionNewThread(state.sessionId!, title);
     state.threadId = result.thread_id;
     return { threadId: result.thread_id, title: result.title };
@@ -322,21 +373,21 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
 
   ipcMain.handle(IpcChannel.Agent_SwitchThread, async (_e, rawThreadId: unknown) => {
     const threadId = parseOrThrow(threadIdSchema, rawThreadId, 'switchThread threadId');
-    requireSession(state);
+    await ensureSessionReady();
     await client.sessionSwitchThread(state.sessionId!, threadId);
     state.threadId = threadId;
     return { switched: true };
   });
 
   ipcMain.handle(IpcChannel.Agent_ListThreads, async () => {
-    requireSession(state);
+    await ensureSessionReady();
     const result = await client.sessionListThreads(state.sessionId!);
     return result.threads;
   });
 
   ipcMain.handle(IpcChannel.Agent_DeleteThread, async (_e, rawThreadId: unknown) => {
     const threadId = parseOrThrow(threadIdSchema, rawThreadId, 'deleteThread threadId');
-    requireSession(state);
+    await ensureSessionReady();
     // SNACA picks the most-recently-active surviving thread, or spawns a
     // fresh "New conversation" when none remain. We trust its choice and
     // just mirror the returned active_thread_id into Studio state.
@@ -351,7 +402,7 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
       rawPayload,
       'renameThread payload'
     );
-    requireSession(state);
+    await ensureSessionReady();
     await client.sessionRenameThread(state.sessionId!, threadId, title);
     return { renamed: true };
   });
@@ -362,13 +413,13 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
       rawPayload,
       'getMessages payload'
     );
-    requireSession(state);
+    await ensureSessionReady();
     return client.sessionGetMessages(state.sessionId!, threadId, limit);
   });
 
   ipcMain.handle(IpcChannel.Agent_SendChat, async (_e, rawPayload: unknown) => {
     const payload = parseOrThrow(sendChatPayloadSchema, rawPayload, 'sendChat payload');
-    requireSession(state);
+    await ensureSessionReady();
     if (!state.threadId) {
       // First message — auto-create a default thread.
       const t = await client.sessionNewThread(state.sessionId!, undefined);
@@ -445,12 +496,6 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
 }
 
 // ----- helpers -----
-
-function requireSession(state: AgentSessionState): void {
-  if (!state.sessionId) {
-    throw new Error('No active session. Call agent.startProject() first.');
-  }
-}
 
 function normalizePath(p: string): string {
   return p.replace(/\\/g, '/');
