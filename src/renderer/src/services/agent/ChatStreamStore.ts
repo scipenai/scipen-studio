@@ -268,17 +268,28 @@ class ChatStreamStoreImpl {
   }
 
   /**
-   * Record the user message and immediately begin a new pending turn.
-   * Caller still needs to fire `agentClient.sendChat()` separately — this
-   * just sets up UI state so renders see the user message before stream
-   * lands.
+   * Record the user message and reserve a slot for the pending turn.
+   *
+   * RACE NOTE: SNACA spawns the LLM task the instant `chat.send` is
+   * received and starts emitting `turn.delta` immediately. Those deltas
+   * routinely arrive over the IPC bus BEFORE `sendChat`'s RPC reply
+   * surfaces the turn_id back here. `handleTurnDelta` will have already
+   * created a `currentTurn` via `acquireTurn` and accumulated text into
+   * it; if we blindly overwrote with a fresh empty turn here, those
+   * early deltas would be lost (visible symptom: "no reply shows up
+   * until I close and re-open the window", because hydrateThread later
+   * reads SNACA's persisted assistant message).
+   *
+   * Preserve the accumulated turn when its id matches.
    */
   beginUserTurn(turnId: string, content: string): void {
     this.messages = [
       ...this.messages,
       { role: 'user', text: content, ts: Date.now() },
     ];
-    this.currentTurn = makeEmptyTurn(turnId);
+    if (!this.currentTurn || this.currentTurn.turnId !== turnId) {
+      this.currentTurn = makeEmptyTurn(turnId);
+    }
     this.fire();
   }
 

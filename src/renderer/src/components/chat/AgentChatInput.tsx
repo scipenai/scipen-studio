@@ -82,7 +82,7 @@ export function AgentChatInput({
               submit();
             }
           }}
-          className="w-full resize-none bg-transparent px-3 py-2 pr-12 text-[13px] outline-none placeholder:text-[var(--color-text-muted)] disabled:cursor-not-allowed"
+          className="w-full resize-none bg-transparent px-3 py-2 pr-12 text-[13px] leading-[1.55] text-[var(--color-text-primary)] caret-[var(--color-accent)] outline-none placeholder:text-[var(--color-text-muted)] disabled:cursor-not-allowed"
         />
         <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1">
           {busy && onCancel ? (

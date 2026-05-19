@@ -121,14 +121,24 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
 }
 
 fn setup_tracing(filter_arg: Option<&str>) {
+    use std::io::IsTerminal;
+
     let filter = std::env::var("RUST_LOG")
         .ok()
         .or_else(|| filter_arg.map(String::from))
         .unwrap_or_else(|| "snaca_editor=info,snaca_editor_protocol=info,info".into());
 
+    // ANSI escapes are great in a real terminal but turn into garbage like
+    // `[2m...[0m` when the host pipes stderr into a log file (Studio's
+    // SnacaSidecarService does exactly that). Detect TTY and respect the
+    // standard `NO_COLOR` env var, otherwise emit plain text.
+    let use_ansi = std::io::stderr().is_terminal()
+        && std::env::var_os("NO_COLOR").is_none();
+
     // Logs go to stderr — stdout is reserved for JSON-RPC frames.
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::new(filter))
         .with_writer(std::io::stderr)
+        .with_ansi(use_ansi)
         .try_init();
 }

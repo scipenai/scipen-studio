@@ -334,17 +334,30 @@ export class AIService implements IAIService {
     try {
       const model = this.createModel();
 
-      const { text } = await generateText({
+      // Reasoning models (deepseek-v4-pro, deepseek-v4-flash + thinking,
+      // gpt-o*, …) spend the bulk of their token budget on internal
+      // chain-of-thought; a 10-token cap leaves zero visible output. Give
+      // enough headroom that even a thinking model emits SOME text, while
+      // staying small enough that the round-trip is cheap.
+      const result = await generateText({
         model,
         prompt: 'Hello',
-        maxOutputTokens: 10,
+        maxOutputTokens: 256,
       });
 
-      if (text) {
-        return { success: true, message: `Connected! Model: ${this.currentConfig.model}` };
-      }
-
-      return { success: false, message: 'Connection failed: no response' };
+      // A successful HTTP round-trip without a thrown error is the real
+      // signal we're configured correctly — even if the model returned an
+      // empty assistant message (some servers do under stop_reason=length).
+      const tokens =
+        result.usage && typeof result.usage.outputTokens === 'number'
+          ? result.usage.outputTokens
+          : null;
+      return {
+        success: true,
+        message: result.text
+          ? `Connected! Model: ${this.currentConfig.model}`
+          : `Connected (model accepted request${tokens != null ? `, ${tokens} tokens` : ''}, no text in 256-token probe).`,
+      };
     } catch (error: unknown) {
       console.error('[AIService] Connection test failed:', error);
 

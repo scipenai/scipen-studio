@@ -311,6 +311,24 @@ describe('AIService', () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain('Invalid API key');
     });
+
+    /**
+     * Reasoning models (deepseek-v4-pro, gpt-o*, …) burn most of their
+     * budget on internal chain-of-thought; with a small probe cap the
+     * visible `text` can come back empty even on a perfectly healthy
+     * round-trip. We must NOT flag that as a connection failure.
+     */
+    it('treats empty text as success (reasoning models)', async () => {
+      mockGenerateText.mockResolvedValue({
+        text: '',
+        usage: { outputTokens: 256 },
+      });
+
+      const result = await aiService.testConnection();
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('Connected');
+    });
   });
 
   describe('Error Handling', () => {
