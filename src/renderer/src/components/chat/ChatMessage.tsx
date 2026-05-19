@@ -8,9 +8,15 @@
  * the same context the user saw mid-generation.
  */
 
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, CornerDownLeft, FileCog, FilePlus, FileX, FilePen } from 'lucide-react';
 import { useState, type ReactElement } from 'react';
-import type { ChatMessage as ChatMessageData, ChatTurn } from '../../services/agent/ChatStreamStore';
+import type {
+  ChatMessage as ChatMessageData,
+  ChatPlan,
+  ChatPlanFile,
+  ChatProposalRecord,
+  ChatTurn,
+} from '../../services/agent/ChatStreamStore';
 import { MarkdownContent } from './MarkdownContent';
 import { ThinkingRenderer } from './ThinkingRenderer';
 
@@ -29,7 +35,9 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
       <div className="mb-3 rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] p-2.5">
         <RoleBadge role="assistant" pending />
         {turn.hasThinking && <ThinkingRenderer text={turn.thinkingText} streaming={turn.pending} />}
+        {turn.plan && <PlanCard plan={turn.plan} />}
         <ToolCalls calls={turn.toolCalls} />
+        <ProposalsList proposals={turn.proposals} />
         {turn.text ? (
           <div className="text-[13px] leading-[1.6]">
             <MarkdownContent content={turn.text} />
@@ -71,7 +79,9 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
       {completedTurn?.hasThinking && (
         <ThinkingRenderer text={completedTurn.thinkingText} streaming={false} />
       )}
+      {completedTurn?.plan && <PlanCard plan={completedTurn.plan} />}
       {completedTurn && <ToolCalls calls={completedTurn.toolCalls} />}
+      {completedTurn && <ProposalsList proposals={completedTurn.proposals} />}
       <div className="text-[13px] leading-[1.6]">
         <MarkdownContent content={message.text} />
       </div>
@@ -230,4 +240,188 @@ function prettyJson(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function PlanCard({ plan }: { plan: ChatPlan }): ReactElement {
+  const [open, setOpen] = useState(plan.awaiting);
+  return (
+    <div className="mb-2 rounded-md border border-[color-mix(in_srgb,var(--color-accent)_30%,var(--color-border-subtle))] bg-[color-mix(in_srgb,var(--color-accent)_5%,transparent)] text-[12px]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
+      >
+        <ChevronRight
+          size={11}
+          className={`flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
+        />
+        <span className="font-medium text-[var(--color-text)]">计划</span>
+        <span className="text-[var(--color-text-muted)]">
+          {plan.files.length} 项
+          {plan.awaiting && ' · 等待确认'}
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-[var(--color-border-subtle)] px-2.5 py-2 space-y-1.5">
+          {plan.rationale && (
+            <div className="text-[11px] leading-[1.55] text-[var(--color-text-muted)] whitespace-pre-wrap">
+              {plan.rationale}
+            </div>
+          )}
+          <ul className="space-y-1">
+            {plan.files.map((f) => (
+              <PlanFileRow key={`${f.action}:${f.path}`} file={f} />
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlanFileRow({ file }: { file: ChatPlanFile }): ReactElement {
+  const Icon = planActionIcon(file.action);
+  return (
+    <li className="flex items-start gap-2 text-[11px]">
+      <Icon size={12} className={`mt-0.5 flex-shrink-0 ${planActionColor(file.action)}`} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate font-mono text-[10px] text-[var(--color-text)]">
+            {file.path}
+          </span>
+          {file.renameTo && (
+            <>
+              <CornerDownLeft size={10} className="flex-shrink-0 -rotate-90 text-[var(--color-text-muted)]" />
+              <span className="truncate font-mono text-[10px] text-[var(--color-text)]">
+                {file.renameTo}
+              </span>
+            </>
+          )}
+          <span className={`ml-auto flex-shrink-0 text-[10px] ${planStatusColor(file.status)}`}>
+            {planStatusLabel(file.status)}
+          </span>
+        </div>
+        {file.summary && (
+          <div className="mt-0.5 leading-[1.45] text-[var(--color-text-muted)]">{file.summary}</div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function planActionIcon(action: ChatPlanFile['action']): typeof FileCog {
+  switch (action) {
+    case 'create':
+      return FilePlus;
+    case 'delete':
+      return FileX;
+    case 'rename':
+      return FilePen;
+    case 'modify':
+    default:
+      return FileCog;
+  }
+}
+
+function planActionColor(action: ChatPlanFile['action']): string {
+  switch (action) {
+    case 'create':
+      return 'text-emerald-400';
+    case 'delete':
+      return 'text-red-400';
+    case 'rename':
+      return 'text-amber-300';
+    case 'modify':
+    default:
+      return 'text-[var(--color-accent)]';
+  }
+}
+
+function planStatusColor(status: ChatPlanFile['status']): string {
+  switch (status) {
+    case 'done':
+      return 'text-emerald-400';
+    case 'in_progress':
+      return 'text-[var(--color-accent)]';
+    case 'failed':
+    case 'rejected':
+      return 'text-red-400';
+    case 'pending':
+    default:
+      return 'text-[var(--color-text-muted)]';
+  }
+}
+
+function planStatusLabel(status: ChatPlanFile['status']): string {
+  switch (status) {
+    case 'pending':
+      return '待办';
+    case 'in_progress':
+      return '进行中';
+    case 'done':
+      return '完成';
+    case 'rejected':
+      return '已拒绝';
+    case 'failed':
+      return '失败';
+  }
+}
+
+function ProposalsList({ proposals }: { proposals: ChatProposalRecord[] }): ReactElement | null {
+  if (proposals.length === 0) return null;
+  return (
+    <div className="mb-2 space-y-1">
+      {proposals.map((p) => (
+        <ProposalRow key={p.proposalId} proposal={p} />
+      ))}
+    </div>
+  );
+}
+
+function ProposalRow({ proposal }: { proposal: ChatProposalRecord }): ReactElement {
+  const fileName = lastSegment(proposal.file);
+  return (
+    <div className="flex items-center gap-2 rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] px-2 py-1 text-[11px]">
+      <FilePen size={11} className="flex-shrink-0 text-[var(--color-accent)]" />
+      <span className="truncate font-mono text-[10px] text-[var(--color-text)]" title={proposal.file}>
+        {fileName}
+      </span>
+      <span className="flex-shrink-0 text-[var(--color-text-muted)]">
+        · {proposal.hunkCount} 处改动
+      </span>
+      <span className={`ml-auto flex-shrink-0 ${proposalStatusColor(proposal.status)}`}>
+        {proposalStatusLabel(proposal.status)}
+      </span>
+    </div>
+  );
+}
+
+function proposalStatusColor(status: ChatProposalRecord['status']): string {
+  switch (status) {
+    case 'accepted':
+      return 'text-emerald-400';
+    case 'rejected':
+      return 'text-[var(--color-text-muted)]';
+    case 'pending':
+    default:
+      return 'text-[var(--color-accent)]';
+  }
+}
+
+function proposalStatusLabel(status: ChatProposalRecord['status']): string {
+  switch (status) {
+    case 'pending':
+      return '待审阅';
+    case 'accepted':
+      return '已接受';
+    case 'rejected':
+      return '已拒绝';
+  }
+}
+
+function lastSegment(path: string): string {
+  if (!path) return '';
+  const norm = path.replace(/\\/g, '/');
+  const idx = norm.lastIndexOf('/');
+  return idx >= 0 ? norm.slice(idx + 1) : norm;
 }

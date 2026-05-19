@@ -165,6 +165,20 @@ pub fn parse_chat_response(resp: ChatResponse) -> LlmResult<MessageResponse> {
 
     let mut content: Vec<ContentBlock> = Vec::new();
 
+    // Surface reasoning content (when the upstream supports it — many
+    // OpenAI-compat reasoning gateways re-use the DeepSeek-R1 field name).
+    if let Some(reasoning) = choice
+        .message
+        .reasoning_content
+        .as_deref()
+        .filter(|s| !s.is_empty())
+    {
+        content.push(ContentBlock::Thinking {
+            text: reasoning.to_string(),
+            signature: None,
+        });
+    }
+
     if let Some(text) = choice.message.content.as_deref().filter(|s| !s.is_empty()) {
         content.push(ContentBlock::text(text));
     }
@@ -455,5 +469,36 @@ mod tests {
         let resp = make_chat_response(json!({"id": "x", "choices": []}));
         let err = parse_chat_response(resp).unwrap_err();
         assert!(matches!(err, LlmError::MalformedResponse(_)));
+    }
+
+    /// Many OpenAI-compatible reasoning gateways (DeepSeek-R1 via OpenAI
+    /// path, Qwen-QwQ, GLM-4-Flash-Thinking, …) re-use the
+    /// `reasoning_content` field name. Verify we surface it as a Thinking
+    /// block on inbound; vanilla `gpt-4o` responses don't include it and
+    /// degrade to the prior `parse_text_response` shape.
+    #[test]
+    fn parse_response_with_reasoning_content() {
+        let resp = make_chat_response(json!({
+            "id": "chatcmpl-r",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "answer",
+                    "reasoning_content": "let me think"
+                },
+                "finish_reason": "stop"
+            }]
+        }));
+        let parsed = parse_chat_response(resp).unwrap();
+        assert_eq!(parsed.message.content.len(), 2);
+        assert!(matches!(
+            &parsed.message.content[0],
+            ContentBlock::Thinking { text, .. } if text == "let me think"
+        ));
+        assert!(matches!(
+            &parsed.message.content[1],
+            ContentBlock::Text { text } if text == "answer"
+        ));
     }
 }

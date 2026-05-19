@@ -17,6 +17,7 @@
  */
 
 import { agentClient } from './AgentClientService';
+import { chatStreamStore } from './ChatStreamStore';
 import { getDiffReviewService } from '../core/DiffReviewService';
 import { getEditorService, getProjectService } from '../core';
 import { openFileInEditor } from '../core/FileOpenService';
@@ -202,6 +203,15 @@ class AgentEditProposalBridgeImpl {
     // null (review removed without action — shouldn't happen here) → 'reject'
     // as a safe default.
     const decision: 'accept' | 'reject' = snapshot.lastAction === 'accept' ? 'accept' : 'reject';
+
+    // Flip the chat-side proposal card before the IPC round-trip. SNACA
+    // doesn't emit a reject event of its own, so this is the only signal
+    // the chat panel ever gets for that path. Accept is idempotent — the
+    // upcoming `edit.applied` event will set it again.
+    chatStreamStore.markProposalResolved(
+      proposalId,
+      decision === 'accept' ? 'accepted' : 'rejected'
+    );
 
     const result = await agentClient.resolveEditProposal({
       proposalId,

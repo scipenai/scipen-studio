@@ -32,6 +32,30 @@ export interface ChatTurnUsage {
   costUsd?: number;
 }
 
+export interface ChatProposalRecord {
+  proposalId: string;
+  /** Absolute path, forward-slash normalized. */
+  file: string;
+  hunkCount: number;
+  /** Pending → user hasn't decided; accepted / rejected once they do. */
+  status: 'pending' | 'accepted' | 'rejected';
+}
+
+export interface ChatPlanFile {
+  path: string;
+  action: 'create' | 'modify' | 'delete' | 'rename';
+  renameTo?: string;
+  summary: string;
+  status: 'pending' | 'in_progress' | 'done' | 'rejected' | 'failed';
+}
+
+export interface ChatPlan {
+  /** When true, SNACA is waiting for an explicit `plan.confirm`. */
+  awaiting: boolean;
+  rationale: string;
+  files: ChatPlanFile[];
+}
+
 export interface ChatTurn {
   turnId: string;
   /** Whether the turn has emitted any thinking text. */
@@ -49,6 +73,10 @@ export interface ChatTurn {
     message?: string;
     result?: string;
   }>;
+  /** Edit proposals raised during this turn (host_applies path). */
+  proposals: ChatProposalRecord[];
+  /** Latest plan.update snapshot, if SNACA emitted one. */
+  plan: ChatPlan | null;
   /** True until a `done` event arrives. */
   pending: boolean;
   /** Final reason if not pending. */
@@ -94,6 +122,10 @@ class ChatStreamStoreImpl {
     agentClient.onTurnDelta((evt) => this.handleTurnDelta(evt));
     agentClient.onUsageUpdate((evt) => this.handleUsage(evt));
     agentClient.onError((evt) => this.handleError(evt));
+    agentClient.onEditPropose((evt) => this.handleEditPropose(evt));
+    agentClient.onEditProposeComplete((evt) => this.handleEditProposeComplete(evt));
+    agentClient.onPlanUpdate((evt) => this.handlePlanUpdate(evt));
+    agentClient.onEditApplied((evt) => this.handleEditApplied(evt));
   }
 
   // ---- public read API ----
@@ -203,6 +235,23 @@ class ChatStreamStoreImpl {
       this.currentTurn = null;
       this.completedTurns.clear();
       this.fire();
+    }
+  }
+
+  /**
+   * Called by `AgentEditProposalBridge` when the user finishes the diff
+   * review. SNACA doesn't emit a dedicated reject event, so the bridge
+   * owns this translation. `accepted` will usually be confirmed soon
+   * after by `edit.applied` (which is idempotent here).
+   */
+  markProposalResolved(proposalId: string, status: 'accepted' | 'rejected'): void {
+    for (const turn of this.iterAllTurns()) {
+      const p = turn.proposals.find((p) => p.proposalId === proposalId);
+      if (p) {
+        p.status = status;
+        this.fire();
+        return;
+      }
     }
   }
 
@@ -340,6 +389,93 @@ class ChatStreamStoreImpl {
     this.fire();
   }
 
+  /**
+   * `edit.propose` (and `edit.propose.complete`) carry a turn_id, the file
+   * path, and the hunk set. We surface a single record per proposal —
+   * complete events update hunkCount, never duplicate.
+   */
+  private handleEditPropose(evt: any): void {
+    const turnId = evt?.turn_id as string | undefined;
+    if (!turnId) return;
+    // P1 SNACA emits both a streaming intermediate and a final propose;
+    // skip the intermediates so the card doesn't churn.
+    if (evt?.streaming === true) return;
+    this.upsertProposal(turnId, evt);
+  }
+
+  private handleEditProposeComplete(evt: any): void {
+    const turnId = evt?.turn_id as string | undefined;
+    if (!turnId) return;
+    // `final_hunks` is the canonical post-stream shape; some emitters also
+    // send the older `hunks` field.
+    const hunks = (evt.final_hunks ?? evt.hunks ?? []) as unknown[];
+    this.upsertProposal(turnId, {
+      proposal_id: evt.proposal_id,
+      file: evt.file,
+      hunks,
+    });
+  }
+
+  private upsertProposal(turnId: string, evt: any): void {
+    const proposalId = evt?.proposal_id as string | undefined;
+    if (!proposalId) return;
+    const file = (evt?.file as string | undefined) ?? '';
+    const hunkCount = Array.isArray(evt?.hunks) ? evt.hunks.length : 0;
+    const turn = this.acquireTurn(turnId);
+    const existing = turn.proposals.find((p) => p.proposalId === proposalId);
+    if (existing) {
+      if (file) existing.file = file;
+      if (hunkCount) existing.hunkCount = hunkCount;
+    } else {
+      turn.proposals.push({ proposalId, file, hunkCount, status: 'pending' });
+    }
+    this.fire();
+  }
+
+  /**
+   * Host wrote the proposal to disk — flip the card to `accepted`. We have
+   * no event for "rejected" yet (DiffReviewService swallows rejection
+   * locally), so a still-pending card after the turn ends implies reject.
+   */
+  private handleEditApplied(evt: any): void {
+    const proposalId = evt?.proposalId as string | undefined;
+    if (!proposalId) return;
+    for (const turn of this.iterAllTurns()) {
+      const p = turn.proposals.find((p) => p.proposalId === proposalId);
+      if (p) {
+        p.status = 'accepted';
+        this.fire();
+        return;
+      }
+    }
+  }
+
+  private handlePlanUpdate(evt: any): void {
+    const turnId = evt?.turn_id as string | undefined;
+    if (!turnId) return;
+    const turn = this.acquireTurn(turnId);
+    turn.plan = {
+      awaiting: !!evt.awaiting,
+      rationale: (evt.rationale as string | undefined) ?? '',
+      files: Array.isArray(evt.files)
+        ? evt.files.map((f: any) => ({
+            path: f.path,
+            action: f.action,
+            renameTo: f.rename_to,
+            summary: f.summary,
+            status: f.status,
+          }))
+        : [],
+    };
+    this.fire();
+  }
+
+  /** Iterate every known turn (current + completed) without allocating. */
+  private *iterAllTurns(): Generator<ChatTurn> {
+    if (this.currentTurn) yield this.currentTurn;
+    for (const t of this.completedTurns.values()) yield t;
+  }
+
   private acquireTurn(turnId: string): ChatTurn {
     if (this.currentTurn?.turnId === turnId) return this.currentTurn;
     let turn = this.completedTurns.get(turnId);
@@ -362,6 +498,8 @@ function makeEmptyTurn(turnId: string): ChatTurn {
     thinkingText: '',
     text: '',
     toolCalls: [],
+    proposals: [],
+    plan: null,
     pending: true,
   };
 }

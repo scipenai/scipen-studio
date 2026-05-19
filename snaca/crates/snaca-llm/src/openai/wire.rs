@@ -103,6 +103,13 @@ pub struct WireResponseMessage {
     /// May be null when the assistant only made tool calls.
     #[serde(default)]
     pub content: Option<String>,
+    /// Chain-of-thought trace. Standard OpenAI does NOT emit this; many
+    /// third-party reasoning gateways (DeepSeek-R1, Qwen-QwQ, GLM-4-Flash,
+    /// SiliconFlow's deepseek-r1, …) re-use the same field name to expose
+    /// their reasoning. We surface it as a `Thinking` block whenever present
+    /// so the Studio UI can render it; absent for vanilla `gpt-4o` etc.
+    #[serde(default)]
+    pub reasoning_content: Option<String>,
     #[serde(default)]
     pub tool_calls: Option<Vec<WireToolCall>>,
 }

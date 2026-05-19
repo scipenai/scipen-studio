@@ -60,6 +60,12 @@ pub struct StreamChoice {
 pub struct StreamDelta {
     #[serde(default)]
     pub content: Option<String>,
+    /// Chain-of-thought stream emitted by many OpenAI-compat reasoning
+    /// gateways (DeepSeek-R1, Qwen-QwQ, GLM-4-Flash-Thinking, …). Vanilla
+    /// OpenAI never emits this; Option<String> + `default` keeps the parser
+    /// tolerant in either direction.
+    #[serde(default)]
+    pub reasoning_content: Option<String>,
     #[serde(default)]
     pub tool_calls: Option<Vec<StreamToolCall>>,
 }
@@ -84,6 +90,7 @@ pub struct StreamToolCallFunction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ActiveBlock {
     Text(u32),
+    Thinking(u32),
     ToolUse {
         canonical_index: u32,
         chunk_index: u32,
@@ -113,7 +120,7 @@ impl StreamState {
     fn close_current(&mut self, out: &mut Vec<StreamEvent>) {
         if let Some(block) = self.current.take() {
             let index = match block {
-                ActiveBlock::Text(i) => i,
+                ActiveBlock::Text(i) | ActiveBlock::Thinking(i) => i,
                 ActiveBlock::ToolUse {
                     canonical_index, ..
                 } => canonical_index,
@@ -143,6 +150,20 @@ pub fn process_chunk(chunk: ChatStreamChunk, state: &mut StreamState) -> Vec<Str
     };
     let delta = choice.delta;
 
+    // 1. reasoning_content (compatible reasoning gateways re-use this field)
+    if let Some(reasoning) = delta.reasoning_content {
+        if !reasoning.is_empty() {
+            ensure_thinking(state, &mut out);
+            if let Some(ActiveBlock::Thinking(idx)) = state.current {
+                out.push(StreamEvent::ContentBlockDelta {
+                    index: idx,
+                    delta: ContentDelta::Thinking { text: reasoning },
+                });
+            }
+        }
+    }
+
+    // 2. content (the visible text the user sees)
     if let Some(text) = delta.content {
         if !text.is_empty() {
             ensure_text(state, &mut out);
@@ -217,6 +238,19 @@ fn ensure_text(state: &mut StreamState, out: &mut Vec<StreamEvent>) {
     out.push(StreamEvent::ContentBlockStart {
         index: idx,
         block: ContentBlockStart::Text,
+    });
+}
+
+fn ensure_thinking(state: &mut StreamState, out: &mut Vec<StreamEvent>) {
+    if matches!(state.current, Some(ActiveBlock::Thinking(_))) {
+        return;
+    }
+    state.close_current(out);
+    let idx = state.next_idx();
+    state.current = Some(ActiveBlock::Thinking(idx));
+    out.push(StreamEvent::ContentBlockStart {
+        index: idx,
+        block: ContentBlockStart::Thinking,
     });
 }
 
@@ -362,6 +396,37 @@ mod tests {
         }
         assert!(matches!(evs[2], StreamEvent::MessageStop));
         assert!(state.finished);
+    }
+
+    #[test]
+    fn reasoning_then_content_closes_thinking_block() {
+        // OpenAI-compat reasoning gateways stream `reasoning_content` first,
+        // then visible `content`. The parser must close the Thinking block
+        // and open a fresh Text block on the transition so renderers see
+        // them as separate sections.
+        let mut state = StreamState::new();
+        process_chunk(
+            from_json(json!({
+                "id": "x",
+                "choices": [{"index": 0, "delta": {"reasoning_content": "let me think"}}]
+            })),
+            &mut state,
+        );
+        let events = process_chunk(
+            from_json(json!({
+                "id": "x",
+                "choices": [{"index": 0, "delta": {"content": "answer"}}]
+            })),
+            &mut state,
+        );
+        assert!(matches!(events[0], StreamEvent::ContentBlockStop { index: 0 }));
+        assert!(matches!(
+            events[1],
+            StreamEvent::ContentBlockStart {
+                index: 1,
+                block: ContentBlockStart::Text
+            }
+        ));
     }
 
     #[test]
