@@ -178,6 +178,17 @@ impl MessageHandler for EditorHandler {
         params: SessionOpenParams,
     ) -> Result<SessionOpenResult, ProtocolError> {
         self.require_initialized().await?;
+        let llm = self.get_llm().await?;
+        // Snapshot snaca_config for engine wiring — held across the
+        // await so subsequent config.reload calls don't tear the session
+        // build mid-construction.
+        let snaca_config = {
+            let inner = self.inner.read().await;
+            inner
+                .snaca_config
+                .clone()
+                .ok_or_else(ProtocolError::not_initialized)?
+        };
         let (session_id, active_thread_id, threads) = self
             .sessions
             .open(
@@ -187,6 +198,8 @@ impl MessageHandler for EditorHandler {
                 params.shared_metadata_root.as_ref().map(PathBuf::from),
                 params.display_name,
                 params.project_type,
+                llm,
+                &snaca_config,
             )
             .await?;
         info!(session_id = %session_id, workspace = %params.workspace_root, "session opened");

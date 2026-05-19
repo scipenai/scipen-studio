@@ -12,13 +12,19 @@ use crate::session::{InflightTurn, Session, TurnKind};
 use snaca_core::{ContentBlock, Message, ProjectId, Role, SessionId, TenantId, ThreadId};
 use snaca_editor_protocol::error::{ErrorCode, ProtocolError};
 use snaca_editor_protocol::messages::session::{ThreadMessage, ThreadMessageRole, ThreadSummary};
+use snaca_editor_protocol::types::config::SnacaConfig;
 use snaca_editor_protocol::types::context::ProjectType;
+use snaca_engine::{Engine, EngineConfig};
+use snaca_llm::LlmClient;
 use snaca_state::{Database, NewMessage, NewThread};
+use snaca_tools::base_tool_registry;
+use snaca_workspace::WorkspaceLayout;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::AbortHandle;
+use tracing::warn;
 use uuid::Uuid;
 
 /// Sole tenant used by Studio. Forward-compatible if SNACA grows multi-tenant.
@@ -53,6 +59,7 @@ impl SessionManager {
     ///   * `active_thread_id` is the most-recently-active thread on disk,
     ///     or a freshly bootstrapped "New conversation" when the project
     ///     has no threads yet (first-ever open).
+    #[allow(clippy::too_many_arguments)]
     pub async fn open(
         &self,
         project_id: String,
@@ -61,6 +68,8 @@ impl SessionManager {
         shared_metadata_root: Option<PathBuf>,
         display_name: String,
         project_type: ProjectType,
+        llm: Arc<dyn LlmClient>,
+        snaca_config: &SnacaConfig,
     ) -> Result<(String, String, Vec<ThreadSummary>), ProtocolError> {
         if !workspace_root.exists() {
             return Err(ProtocolError::new(
@@ -140,6 +149,18 @@ impl SessionManager {
         let summaries: Vec<ThreadSummary> = summaries_rows.iter().map(row_to_summary).collect();
         let session_id = Uuid::new_v4().to_string();
 
+        // Wire up an Engine for this session. Build is best-effort:
+        // on failure the session still opens (Phase A keeps the legacy
+        // chat path), but Phase B's Engine route degrades to "no engine
+        // available" and chat.send must fall back.
+        let engine = build_session_engine(
+            &workspace_root,
+            &metadata_root,
+            llm,
+            db.clone(),
+            snaca_config,
+        );
+
         let mut session = Session::new(
             session_id.clone(),
             project_id,
@@ -149,6 +170,7 @@ impl SessionManager {
             display_name,
             project_type,
             db,
+            engine,
         );
         session.active_thread_id = Some(active_thread_id.clone());
 
@@ -589,4 +611,60 @@ fn render_history_row(row: &snaca_state::MessageRow) -> Option<ThreadMessage> {
         ts: row.created_at.to_rfc3339(),
         turn_id: row.turn_id.clone(),
     })
+}
+
+/// Construct the per-session `Engine`. `metadata_root` hosts SNACA's
+/// internal data (memory tree, settings); `workspace_root` is the user's
+/// real project directory and gets pinned via `with_explicit_workspace`
+/// so file tools land there rather than in the multi-tenant sandbox.
+///
+/// Best-effort: any failure during WorkspaceLayout setup or registry
+/// construction is logged and surfaced as `None`. Phase B's caller is
+/// expected to fall back to the legacy `run_chat_turn` path in that
+/// case rather than refuse to open the session.
+fn build_session_engine(
+    workspace_root: &PathBuf,
+    metadata_root: &PathBuf,
+    llm: Arc<dyn LlmClient>,
+    db: Database,
+    snaca_config: &SnacaConfig,
+) -> Option<Arc<Engine>> {
+    let layout = match WorkspaceLayout::new(metadata_root.clone()) {
+        Ok(l) => l,
+        Err(e) => {
+            warn!(
+                metadata_root = %metadata_root.display(),
+                error = %e,
+                "engine disabled: WorkspaceLayout::new failed"
+            );
+            return None;
+        }
+    };
+    let layout = match layout.with_explicit_workspace(workspace_root.clone()) {
+        Ok(l) => l,
+        Err(e) => {
+            warn!(
+                workspace_root = %workspace_root.display(),
+                error = %e,
+                "engine disabled: explicit_workspace rejected"
+            );
+            return None;
+        }
+    };
+
+    // Ensure the (tenant, project) subtree the engine writes into exists
+    // on disk. Tenant/project ids are derived from STUDIO_TENANT_ID +
+    // the wire project_id; the actual workspace dir is the explicit
+    // override so this only materializes the memory subtree.
+    // (We can't call ensure_project here because we don't have a stable
+    //  project_id yet — engine builders pass tenant/project per turn.)
+
+    // Phase A: per-field mapping from SnacaConfig.engine to EngineConfig
+    // is deferred to Phase E. EngineConfig::default_for(model) seeds the
+    // model-aware defaults (history limits, compaction thresholds, etc.).
+    let engine_config = EngineConfig::default_for(snaca_config.llm.model.clone());
+
+    let tools = base_tool_registry();
+    let engine = Engine::new(llm, tools, db, layout, engine_config);
+    Some(Arc::new(engine))
 }

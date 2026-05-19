@@ -11,6 +11,14 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
 pub struct WorkspaceLayout {
     data_root: PathBuf,
+    /// When set, `workspace_dir()` returns this regardless of (tenant,
+    /// project). Used by single-project hosts (SciPen Studio's SNACA
+    /// sidecar) where the user has already opened a real project
+    /// directory and tools should operate on it directly rather than on
+    /// the multi-tenant `data_root/<tenant>/projects/<project>/workspace`
+    /// sandbox path. `data_root` still owns memory / settings / SQLite
+    /// — only the tool cwd flips.
+    explicit_workspace: Option<PathBuf>,
 }
 
 impl WorkspaceLayout {
@@ -23,7 +31,25 @@ impl WorkspaceLayout {
                 data_root.display().to_string(),
             ));
         }
-        Ok(Self { data_root })
+        Ok(Self {
+            data_root,
+            explicit_workspace: None,
+        })
+    }
+
+    /// Pin tool cwd to a real project directory rather than the default
+    /// sandbox under `data_root`. Must be absolute. Memory / settings
+    /// paths are unaffected and still derive from `data_root`.
+    pub fn with_explicit_workspace(
+        mut self,
+        workspace_dir: impl Into<PathBuf>,
+    ) -> Result<Self, WorkspaceError> {
+        let dir = workspace_dir.into();
+        if !dir.is_absolute() {
+            return Err(WorkspaceError::RootNotAbsolute(dir.display().to_string()));
+        }
+        self.explicit_workspace = Some(dir);
+        Ok(self)
     }
 
     pub fn data_root(&self) -> &Path {
@@ -48,8 +74,13 @@ impl WorkspaceLayout {
             .join(project.as_str())
     }
 
-    /// Filesystem cwd for tools (Read/Write/Bash etc.).
+    /// Filesystem cwd for tools (Read/Write/Bash etc.). Falls back to the
+    /// `with_explicit_workspace` override when set so single-project hosts
+    /// can point tools at a real user directory.
     pub fn workspace_dir(&self, tenant: &TenantId, project: &ProjectId) -> PathBuf {
+        if let Some(dir) = &self.explicit_workspace {
+            return dir.clone();
+        }
         self.project_root(tenant, project).join("workspace")
     }
 
@@ -65,13 +96,19 @@ impl WorkspaceLayout {
         self.project_root(tenant, project).join("skills")
     }
 
-    /// Create the project directory tree if absent. Idempotent.
+    /// Create the project directory tree if absent. Idempotent. With an
+    /// `explicit_workspace` override the workspace dir itself is the user's
+    /// real project — already on disk — so we only create the memory tree
+    /// (and skip touching the workspace dir to avoid spurious mkdir on a
+    /// directory the host already owns).
     pub fn ensure_project(
         &self,
         tenant: &TenantId,
         project: &ProjectId,
     ) -> Result<(), WorkspaceError> {
-        std::fs::create_dir_all(self.workspace_dir(tenant, project))?;
+        if self.explicit_workspace.is_none() {
+            std::fs::create_dir_all(self.workspace_dir(tenant, project))?;
+        }
         let memory = self.memory_dir(tenant, project);
         for sub in ["user", "project", "reference", "feedback"] {
             std::fs::create_dir_all(memory.join(sub))?;

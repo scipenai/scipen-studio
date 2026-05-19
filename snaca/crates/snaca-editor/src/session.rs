@@ -7,8 +7,10 @@
 
 use chrono::{DateTime, Utc};
 use snaca_editor_protocol::types::context::ProjectType;
+use snaca_engine::Engine;
 use snaca_state::Database;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::task::AbortHandle;
 
 // Session intentionally does NOT derive `Debug` — its `db: Database` field
@@ -30,9 +32,15 @@ pub struct Session {
     pub created_at: DateTime<Utc>,
     /// Per-project SQLite handle (cheap to clone — wraps an `Arc<SqlitePool>`).
     pub db: Database,
+    /// Agentic turn runner — built lazily at session open with the
+    /// current LLM client, project workspace, and the per-project DB.
+    /// `Option` so a session can exist before Phase B wires `handle_chat_send`
+    /// to use it (P1 chat path bypasses Engine entirely).
+    pub engine: Option<Arc<Engine>>,
 }
 
 impl Session {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         session_id: String,
         project_id: String,
@@ -42,6 +50,7 @@ impl Session {
         display_name: String,
         project_type: ProjectType,
         db: Database,
+        engine: Option<Arc<Engine>>,
     ) -> Self {
         Self {
             session_id,
@@ -55,6 +64,7 @@ impl Session {
             inflight: None,
             created_at: Utc::now(),
             db,
+            engine,
         }
     }
 }
