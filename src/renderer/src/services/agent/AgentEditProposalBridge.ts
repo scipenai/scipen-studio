@@ -20,6 +20,7 @@ import { agentClient } from './AgentClientService';
 import { chatStreamStore } from './ChatStreamStore';
 import { getDiffReviewService } from '../core/DiffReviewService';
 import { getEditorService, getProjectService } from '../core';
+import { resolveAgentPath, sameAbsolutePath } from './agentPathResolver';
 import { openFileInEditor } from '../core/FileOpenService';
 import { createLogger } from '../LogService';
 
@@ -141,13 +142,13 @@ class AgentEditProposalBridgeImpl {
     hunks: RawHunk[]
   ): Promise<void> {
     this.lastPropose.set(proposalId, { file, hunks });
-    const absoluteFile = await this.resolveAbsolute(file);
+    const absoluteFile = resolveAgentPath(file);
     logger.info('materialize edit proposal', { proposalId, file, absoluteFile });
 
     await this.ensureOpen(absoluteFile);
 
     const editor = getEditorService();
-    const tab = editor.tabs.find((t) => sameAbsolute(t.path, absoluteFile));
+    const tab = editor.tabs.find((t) => sameAbsolutePath(t.path, absoluteFile));
     if (!tab) {
       logger.error('edit proposal dropped: file could not be opened', {
         proposalId,
@@ -242,28 +243,11 @@ class AgentEditProposalBridgeImpl {
 
   // ====== Helpers ======
 
-  private async resolveAbsolute(file: string): Promise<string> {
-    const normalized = file.replace(/\\/g, '/');
-    if (isAbsolutePath(normalized)) return normalized;
-    const root = getProjectService().projectPath;
-    if (!root) return normalized;
-    const normRoot = root.replace(/\\/g, '/');
-    return `${normRoot}${normRoot.endsWith('/') ? '' : '/'}${normalized}`;
-  }
-
   private async ensureOpen(absoluteFile: string): Promise<void> {
     const editor = getEditorService();
-    if (editor.tabs.some((t) => sameAbsolute(t.path, absoluteFile))) return;
+    if (editor.tabs.some((t) => sameAbsolutePath(t.path, absoluteFile))) return;
     await openFileInEditor(absoluteFile);
   }
-}
-
-function isAbsolutePath(p: string): boolean {
-  return /^([a-zA-Z]:\/|\/\/|\/)/.test(p);
-}
-
-function sameAbsolute(a: string, b: string): boolean {
-  return a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase();
 }
 
 /**

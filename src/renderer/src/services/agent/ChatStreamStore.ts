@@ -10,7 +10,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { agentClient, type ThreadMessageDTO } from './AgentClientService';
-import { getProjectService } from '../core';
+import { resolveAgentPath } from './agentPathResolver';
 import {
   deleteTurnMetaForThread,
   loadTurnMetaForThread,
@@ -18,32 +18,6 @@ import {
   turnMetaKey,
   type TurnMetaRecord,
 } from './TurnMetaStore';
-
-/**
- * Resolve an agent-supplied path against the active project root.
- *
- * Agents (SNACA) emit paths relative to their `workspace_root`. The renderer
- * lives in the same project but uses absolute paths everywhere (editor tabs,
- * file tree, fs IPC). This is the single conversion point — anything that
- * crosses from "agent data" to "Studio data" must pass through here so
- * relative paths can't silently leak into `fs.readFile` with the wrong cwd.
- *
- * Idempotent: absolute input is returned as-is (normalized to forward slashes).
- * Returns empty string if no project is open (caller decides degraded UX).
- */
-function resolveAgentPath(agentRelativeOrAbsolute: string): string {
-  if (!agentRelativeOrAbsolute) return '';
-  const normalized = agentRelativeOrAbsolute.replace(/\\/g, '/');
-  if (isAbsolutePath(normalized)) return normalized;
-  const root = getProjectService().projectPath;
-  if (!root) return normalized;
-  const normRoot = root.replace(/\\/g, '/');
-  return `${normRoot}${normRoot.endsWith('/') ? '' : '/'}${normalized}`;
-}
-
-function isAbsolutePath(p: string): boolean {
-  return /^([a-zA-Z]:\/|\/\/|\/)/.test(p);
-}
 
 /**
  * Per-thread snapshot persisted in memory. Holds the rendered history
