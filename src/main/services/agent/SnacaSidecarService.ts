@@ -226,6 +226,13 @@ export class SnacaSidecarService extends Disposable implements ISnacaSidecarServ
     };
     const onStderr = (chunk: Buffer | string): void => {
       const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      // SNACA emits structured tracing to stderr — surface each line in
+      // the main-process logger so a hung LLM call / config issue is
+      // grep-able from Studio logs without a stderr subscriber.
+      for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trimEnd();
+        if (trimmed) logger.info(`[snaca] ${trimmed}`);
+      }
       this._onStderr.fire(text);
     };
     const onError = (err: Error): void => {

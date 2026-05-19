@@ -568,9 +568,22 @@ function resolveChatProvider(config: IConfigManager): ResolvedChatProvider | nul
   return {
     snacaProvider: mapProviderIdToSnaca(provider.id),
     modelId: selection.modelId,
-    baseUrl: provider.apiHost?.trim() || undefined,
+    baseUrl: normalizeBaseUrlForSnaca(provider.apiHost),
     apiKey: provider.apiKey ?? '',
   };
+}
+
+/**
+ * Studio UI keeps `apiHost` in the form expected by the Vercel AI SDK
+ * (DeepSeek/OpenAI: trailing `/v1`). SNACA's clients append `/v1/...`
+ * themselves, so we strip a trailing `/v1` (with or without trailing `/`)
+ * before forwarding. An empty result is treated as "use SNACA defaults".
+ */
+function normalizeBaseUrlForSnaca(apiHost: string | undefined): string | undefined {
+  const raw = apiHost?.trim();
+  if (!raw) return undefined;
+  const stripped = raw.replace(/\/+$/, '').replace(/\/v1$/i, '');
+  return stripped || undefined;
 }
 
 /**
