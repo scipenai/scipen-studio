@@ -316,7 +316,15 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
         ) : (
           <>
             {messages.map((m, idx) => (
-              <ChatMessage key={`${m.role}-${m.ts}-${m.turnId ?? idx}`} message={m} />
+              <ChatMessage
+                key={`${m.role}-${m.ts}-${m.turnId ?? idx}`}
+                message={m}
+                completedTurn={
+                  m.role === 'assistant' && m.turnId
+                    ? chatStreamStore.getTurn(m.turnId)
+                    : undefined
+                }
+              />
             ))}
             {currentTurn && <ChatMessage message={null} turn={currentTurn} />}
           </>
