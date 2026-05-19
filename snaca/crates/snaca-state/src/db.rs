@@ -71,6 +71,7 @@ impl Database {
         self.migrate_approval_decisions_add_input_signature().await?;
         self.migrate_thread_compactions_add_summary_from().await?;
         self.migrate_threads_add_title().await?;
+        self.migrate_messages_add_turn_id().await?;
         Ok(())
     }
 
@@ -79,6 +80,30 @@ impl Database {
     /// in place with the default string. SQLite's `ALTER TABLE ADD COLUMN`
     /// with `NOT NULL DEFAULT` is safe here — the default value populates
     /// existing rows atomically.
+    /// Add a nullable `turn_id` column to `messages` so host UIs can
+     /// associate a persisted assistant message with the in-memory turn
+     /// (thinking trace, tool calls, edit proposals) that emitted it
+     /// live. Fresh DBs already get the column via `schema.sql`; legacy
+     /// DBs need an in-place `ALTER TABLE`. Nullable is fine because
+     /// the binding is informational only.
+    async fn migrate_messages_add_turn_id(&self) -> StateResult<()> {
+        let rows = sqlx::query("PRAGMA table_info(messages)")
+            .fetch_all(&self.pool)
+            .await?;
+        let has_col = rows.iter().any(|r| {
+            r.try_get::<String, _>("name")
+                .map(|n| n == "turn_id")
+                .unwrap_or(false)
+        });
+        if has_col {
+            return Ok(());
+        }
+        sqlx::query("ALTER TABLE messages ADD COLUMN turn_id TEXT")
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     async fn migrate_threads_add_title(&self) -> StateResult<()> {
         let rows = sqlx::query("PRAGMA table_info(threads)")
             .fetch_all(&self.pool)
@@ -355,8 +380,8 @@ impl Database {
         let content_json = serde_json::to_string(&msg.content)?;
         let role_str = role_to_str(msg.role);
         sqlx::query(
-            "INSERT INTO messages (id, thread_id, session_id, role, content, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO messages (id, thread_id, session_id, role, content, created_at, turn_id) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id.to_string())
         .bind(msg.thread_id.as_str())
@@ -364,6 +389,7 @@ impl Database {
         .bind(role_str)
         .bind(&content_json)
         .bind(now.to_rfc3339())
+        .bind(msg.turn_id.as_deref())
         .execute(&self.pool)
         .await?;
         Ok(MessageRow {
@@ -373,6 +399,7 @@ impl Database {
             role: msg.role,
             content: msg.content.clone(),
             created_at: now,
+            turn_id: msg.turn_id.clone(),
         })
     }
 
@@ -382,7 +409,7 @@ impl Database {
         limit: u32,
     ) -> StateResult<Vec<MessageRow>> {
         let rows = sqlx::query(
-            "SELECT id, thread_id, session_id, role, content, created_at FROM messages \
+            "SELECT id, thread_id, session_id, role, content, created_at, turn_id FROM messages \
              WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?",
         )
         .bind(thread.as_str())
@@ -411,7 +438,7 @@ impl Database {
         limit: u32,
     ) -> StateResult<Vec<MessageRow>> {
         let rows = sqlx::query(
-            "SELECT id, thread_id, session_id, role, content, created_at FROM messages \
+            "SELECT id, thread_id, session_id, role, content, created_at, turn_id FROM messages \
              WHERE thread_id = ? \
                AND created_at < COALESCE( \
                      (SELECT created_at FROM messages WHERE id = ?), \
@@ -442,7 +469,7 @@ impl Database {
         // earliest possible time so the query degrades to "all messages"
         // instead of returning empty silently.
         let rows = sqlx::query(
-            "SELECT id, thread_id, session_id, role, content, created_at FROM messages \
+            "SELECT id, thread_id, session_id, role, content, created_at, turn_id FROM messages \
              WHERE thread_id = ? \
                AND created_at > COALESCE( \
                      (SELECT created_at FROM messages WHERE id = ?), \
@@ -1247,6 +1274,7 @@ fn message_from_row(row: sqlx::sqlite::SqliteRow) -> StateResult<MessageRow> {
         role: role_from_str(&row.try_get::<String, _>("role")?)?,
         content,
         created_at: parse_dt(&row.try_get::<String, _>("created_at")?)?,
+        turn_id: row.try_get::<Option<String>, _>("turn_id").ok().flatten(),
     })
 }
 
@@ -1460,6 +1488,7 @@ mod tests {
             session_id: session,
             role: Role::User,
             content: vec![ContentBlock::text("hi")],
+            turn_id: None,
         })
         .await
         .unwrap();
@@ -1468,6 +1497,7 @@ mod tests {
             session_id: session,
             role: Role::Assistant,
             content: vec![ContentBlock::text("hello")],
+            turn_id: Some("turn-abc".into()),
         })
         .await
         .unwrap();
@@ -1476,6 +1506,9 @@ mod tests {
         assert_eq!(msgs.len(), 2);
         assert!(matches!(msgs[0].role, Role::User));
         assert!(matches!(msgs[1].role, Role::Assistant));
+        // turn_id round-trips: user has none, assistant carries the binding.
+        assert_eq!(msgs[0].turn_id, None);
+        assert_eq!(msgs[1].turn_id.as_deref(), Some("turn-abc"));
         match &msgs[0].content[0] {
             ContentBlock::Text { text } => assert_eq!(text, "hi"),
             _ => panic!(),
@@ -1502,6 +1535,7 @@ mod tests {
                     "Read",
                     serde_json::json!({"path": "x"}),
                 )],
+                turn_id: None,
             })
             .await
             .unwrap();

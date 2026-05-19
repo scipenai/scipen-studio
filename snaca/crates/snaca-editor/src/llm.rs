@@ -189,11 +189,13 @@ pub async fn run_chat_turn(
     }
 
     // Persist the assistant turn (text only) before signalling done so
-    // a follow-up chat.send sees it in `recent_messages`.
+    // a follow-up chat.send sees it in `recent_messages`. Bind to
+    // `turn_id` so the host UI can re-attach thinking trace / tool
+    // calls / edit proposals from its own caches after a hydrate.
     if !assistant_text.is_empty() {
         let msg = Message::new(Role::Assistant, vec![ContentBlock::text(assistant_text)]);
         if let Err(e) = sessions
-            .append_message(&session_id, &thread_id, msg)
+            .append_message(&session_id, &thread_id, msg, Some(turn_id.clone()))
             .await
         {
             warn!(error = %e, "failed to persist assistant message; history will gap");

@@ -526,6 +526,7 @@ impl Engine {
                     session_id,
                     role: Role::User,
                     content: vec![ContentBlock::text(user_text)],
+                    turn_id: None,
                 })
                 .await?;
 
@@ -640,6 +641,7 @@ impl Engine {
                     session_id,
                     role: Role::Assistant,
                     content: resp.message.content.clone(),
+                    turn_id: None,
                 })
                 .await?;
 
@@ -792,6 +794,7 @@ impl Engine {
                     session_id,
                     role: Role::Tool,
                     content: tool_results,
+                    turn_id: None,
                 })
                 .await?;
             }

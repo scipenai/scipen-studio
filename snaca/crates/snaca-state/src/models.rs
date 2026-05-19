@@ -44,6 +44,11 @@ pub struct NewMessage {
     pub session_id: SessionId,
     pub role: Role,
     pub content: Vec<ContentBlock>,
+    /// Optional binding to the in-memory turn that produced this message.
+    /// Host UIs use it to re-attach thinking trace / tool calls / edit
+    /// proposals after a hydrate. Pass `None` for user messages and any
+    /// pre-turn system messages.
+    pub turn_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +59,7 @@ pub struct MessageRow {
     pub role: Role,
     pub content: Vec<ContentBlock>,
     pub created_at: DateTime<Utc>,
+    pub turn_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]

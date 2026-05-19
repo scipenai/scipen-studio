@@ -135,6 +135,13 @@ pub struct ThreadMessage {
     pub text: String,
     /// RFC3339 UTC timestamp; `chrono::DateTime<Utc>::to_rfc3339()`.
     pub ts: String,
+    /// Turn that produced this message. Always present on assistant
+    /// messages persisted from a chat / inline_edit / composer turn;
+    /// absent for user messages and any pre-turn system messages. Host
+    /// UIs key off this to re-attach thinking trace / tool calls / edit
+    /// proposals from their own caches after a hydrate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

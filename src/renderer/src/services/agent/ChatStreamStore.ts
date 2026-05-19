@@ -10,6 +10,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { agentClient, type ThreadMessageDTO } from './AgentClientService';
+import {
+  deleteTurnMetaForThread,
+  loadTurnMetaForThread,
+  saveTurnMeta,
+  turnMetaKey,
+  type TurnMetaRecord,
+} from './TurnMetaStore';
 
 /**
  * Per-thread snapshot persisted in memory. Holds the rendered history
@@ -225,7 +232,13 @@ class ChatStreamStoreImpl {
   /**
    * Replace the visible message list — used after a thread switch when
    * `agentClient.getMessages` returned the history. Wire DTOs are mapped
-   * to in-store `ChatMessage` shape.
+   * to in-store `ChatMessage` shape; the `turn_id` SNACA now bundles on
+   * assistant messages becomes the key the local IndexedDB cache uses
+   * to re-attach thinking trace / tool calls / proposals.
+   *
+   * Cache rehydration is fire-and-forget: the visible message list paints
+   * immediately, and once IDB returns we splice the meta into
+   * `completedTurns` and fire again so React picks up the richer cards.
    */
   replaceMessages(threadId: string, wireMessages: ThreadMessageDTO[]): void {
     // Defensive: ignore if the user already moved on to a different thread.
@@ -235,18 +248,49 @@ class ChatStreamStoreImpl {
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .map((m) => ({
         role: m.role as 'user' | 'assistant',
+        turnId: m.turn_id,
         text: m.text,
         ts: parseRfc3339OrNow(m.ts),
       }));
+    this.fire();
+    void this.hydrateTurnMetaFromCache(threadId);
+  }
+
+  /**
+   * Async splice: pull every cached TurnMeta for the thread, build
+   * synthetic completed turns, fire so React re-renders the richer
+   * cards. Tolerant of IDB errors (cache loss only degrades to "no
+   * thinking / no tool cards on old turns" — never breaks chat).
+   */
+  private async hydrateTurnMetaFromCache(threadId: string): Promise<void> {
+    let records: TurnMetaRecord[];
+    try {
+      records = await loadTurnMetaForThread(threadId);
+    } catch {
+      return;
+    }
+    // The user may have already moved on to a different thread while
+    // IDB was loading; bail out so we don't pollute the active turn map.
+    if (this.activeThreadId !== threadId || records.length === 0) return;
+    for (const r of records) {
+      // Don't overwrite a fresher in-memory turn (e.g. the one currently
+      // streaming, or one accepted by markProposalResolved after hydrate).
+      if (this.completedTurns.has(r.turnId)) continue;
+      this.completedTurns.set(r.turnId, recordToCompletedTurn(r));
+    }
     this.fire();
   }
 
   /**
    * Drop a thread from the in-memory cache (e.g. after `deleteThread`).
-   * Safe to call for non-cached ids.
+   * Also evict the IndexedDB rows for that thread so storage doesn't
+   * grow unbounded after the user deletes long-running conversations.
    */
   forgetThread(threadId: string): void {
     this.threadCache.delete(threadId);
+    void deleteTurnMetaForThread(threadId).catch(() => {
+      /* cache eviction is best-effort */
+    });
     if (this.activeThreadId === threadId) {
       this.activeThreadId = null;
       this.messages = [];
@@ -378,6 +422,13 @@ class ChatStreamStoreImpl {
         if (this.currentTurn?.turnId === turnId) {
           this.currentTurn = null;
         }
+        // Persist the rich meta (thinking / tool calls / proposals / plan
+        // / usage) to IndexedDB so a future hydrate can re-attach it to
+        // SNACA's bare ThreadMessage. Fire-and-forget — IDB failure only
+        // costs us the cards next time, never breaks chat.
+        if (this.activeThreadId) {
+          void this.persistTurnMeta(this.activeThreadId, turn);
+        }
         break;
       case 'error':
         turn.error = {
@@ -505,6 +556,27 @@ class ChatStreamStoreImpl {
     for (const t of this.completedTurns.values()) yield t;
   }
 
+  /** Snapshot `turn` into IDB. Only data the user would want to re-see
+   *  on rehydrate gets stored (no `pending`/`doneReason`/`error` —
+   *  those describe the live stream, not the persisted artifact). */
+  private async persistTurnMeta(threadId: string, turn: ChatTurn): Promise<void> {
+    try {
+      await saveTurnMeta({
+        key: turnMetaKey(threadId, turn.turnId),
+        threadId,
+        turnId: turn.turnId,
+        thinking: turn.thinkingText,
+        toolCalls: turn.toolCalls,
+        proposals: turn.proposals,
+        plan: turn.plan,
+        usage: turn.usage,
+        ts: Date.now(),
+      });
+    } catch {
+      /* best-effort cache write */
+    }
+  }
+
   private acquireTurn(turnId: string): ChatTurn {
     if (this.currentTurn?.turnId === turnId) return this.currentTurn;
     let turn = this.completedTurns.get(turnId);
@@ -531,6 +603,26 @@ function makeEmptyTurn(turnId: string): ChatTurn {
     proposals: [],
     plan: null,
     pending: true,
+  };
+}
+
+/**
+ * Reconstruct a `ChatTurn` from an IDB record. The text part lives in the
+ * SNACA-backed `ChatMessage` (which `ChatMessage` component pairs with
+ * this turn via `turnId`), so the synthetic turn here is metadata-only.
+ */
+function recordToCompletedTurn(r: TurnMetaRecord): ChatTurn {
+  return {
+    turnId: r.turnId,
+    hasThinking: r.thinking.length > 0,
+    thinkingText: r.thinking,
+    text: '', // canonical text comes from messages[], not the turn
+    toolCalls: r.toolCalls,
+    proposals: r.proposals,
+    plan: r.plan,
+    pending: false,
+    doneReason: 'completed',
+    usage: r.usage,
   };
 }
 

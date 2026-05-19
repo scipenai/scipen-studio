@@ -89,6 +89,9 @@ export interface ThreadMessageDTO {
   role: 'user' | 'assistant' | 'system';
   text: string;
   ts: string;
+  /** Turn that produced this message — used to re-attach thinking trace
+   *  / tool calls / edit proposals from the local IndexedDB cache. */
+  turn_id?: string;
 }
 
 export interface AgentClientStartProjectResult {

@@ -362,6 +362,10 @@ export const ThreadMessageSchema = z.object({
   role: z.enum(['user', 'assistant', 'system']),
   text: z.string(),
   ts: z.string(),
+  /** Turn that produced this message (assistant messages from a chat /
+   *  inline_edit / composer turn). Studio uses it to re-attach thinking
+   *  trace / tool calls / edit proposals from IndexedDB cache. */
+  turn_id: z.string().optional(),
 });
 export type ThreadMessage = z.infer<typeof ThreadMessageSchema>;
 

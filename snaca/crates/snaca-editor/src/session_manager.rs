@@ -408,11 +408,15 @@ impl SessionManager {
     }
 
     /// Append a message to the thread history (persisted in SQLite).
+    /// `turn_id` is optional — set it for assistant messages that came out
+    /// of a turn so the host UI can re-associate thinking trace / tool
+    /// calls / edit proposals after a hydrate. `None` for user messages.
     pub async fn append_message(
         &self,
         session_id: &str,
         thread_id: &str,
         msg: Message,
+        turn_id: Option<String>,
     ) -> Result<(), ProtocolError> {
         let inner = self.inner.lock().await;
         let session = inner
@@ -432,6 +436,7 @@ impl SessionManager {
                 session_id: SessionId::from_uuid(session_uuid),
                 role: msg.role,
                 content: msg.content,
+                turn_id,
             })
             .await
             .map_err(|e| ProtocolError::internal(format!("append_message failed: {e}")))?;
@@ -582,5 +587,6 @@ fn render_history_row(row: &snaca_state::MessageRow) -> Option<ThreadMessage> {
         role,
         text,
         ts: row.created_at.to_rfc3339(),
+        turn_id: row.turn_id.clone(),
     })
 }

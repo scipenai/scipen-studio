@@ -309,8 +309,10 @@ impl MessageHandler for EditorHandler {
         //    turn starts so begin_turn's session validation already sees a
         //    consistent state (and a cancelled turn still records intent).
         let user_msg = Message::user_text(params.content.clone());
+        // User messages are not bound to a turn — turn_id only attaches
+        // to the assistant reply (set inside run_chat_turn).
         self.sessions
-            .append_message(&params.session_id, &params.thread_id, user_msg)
+            .append_message(&params.session_id, &params.thread_id, user_msg, None)
             .await?;
 
         // 2. Build the system prompt: base instruction + structured context.

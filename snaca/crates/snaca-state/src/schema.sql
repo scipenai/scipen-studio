@@ -21,6 +21,11 @@ CREATE TABLE IF NOT EXISTS messages (
     role        TEXT NOT NULL,
     content     TEXT NOT NULL,
     created_at  TEXT NOT NULL,
+    -- Optional: turn that produced this message. Host UIs use it to
+    -- associate persisted assistant messages with the in-memory turn
+    -- (thinking trace, tool calls, edit proposals) they emitted live.
+    -- Nullable because user messages predate the turn binding.
+    turn_id     TEXT,
     FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
 );
 
