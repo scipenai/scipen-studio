@@ -132,6 +132,7 @@
       "ui": "界面",
       "shortcuts": "快捷键",
       "ai": "AI Agent",
+      "agent": "Agent 数据",
       "update": "更新"
     }
   },
@@ -422,6 +423,7 @@
       "shortcuts": "常用命令的快捷键映射与操作习惯。",
       "selection": "划词助手与快捷键触发方式。",
       "ai": "AI Agent 与内联补全的提供商、密钥与模型配置。",
+      "agent": "查看 Agent 自动沉淀的记忆与可用的 Skills。",
       "update": "检查并安装应用更新。"
     }
   },
@@ -605,5 +607,52 @@
     "removedSnippet": "将删除的内容",
     "modifiedSnippet": "修改前后对比"
   },
-  "tools": {}
+  "tools": {},
+  "settingsAgent": {
+    "viewer": "Agent 数据查看",
+    "viewerDesc": "查看 Agent 自动沉淀到本项目的记忆与可用 Skills。这些数据驱动 AI 的长期上下文与能力扩展。",
+    "memoryLabel": "Memory",
+    "memoryDesc": "项目级的长期记忆,包含用户偏好、项目约定、外部引用与反馈纠错。",
+    "openMemory": "打开 Memory Viewer",
+    "skillsLabel": "Skills",
+    "skillsDesc": "项目级与租户级的 Skill 库,在编辑器中以 .md 文件维护。",
+    "openSkills": "打开 Skills Viewer"
+  },
+  "memoryViewer": {
+    "title": "Memory & Skills",
+    "tabMemory": "Memory",
+    "tabSkills": "Skills",
+    "scope": {
+      "user": "用户",
+      "feedback": "反馈",
+      "project": "项目",
+      "reference": "外部引用"
+    },
+    "skillScope": {
+      "bundled": "内置",
+      "tenant": "租户",
+      "project": "项目"
+    },
+    "newEntry": "新建",
+    "newEntryNamePlaceholder": "唯一名称,仅 a-z 0-9 _ -",
+    "newEntryInvalid": "名称必须匹配 [a-z0-9_-],长度 1-64",
+    "save": "保存",
+    "saving": "保存中…",
+    "saved": "已保存",
+    "delete": "删除",
+    "deleteConfirm": "删除 {{name}}?",
+    "reveal": "在文件管理器中显示",
+    "reload": "重新加载",
+    "empty": "暂无记忆",
+    "emptySkills": "暂无 Skill",
+    "noActiveSession": "未连接到项目。请先打开一个项目。",
+    "loadFailed": "加载失败: {{error}}",
+    "fieldDescription": "Description",
+    "fieldWhenToUse": "When to use",
+    "fieldAllowedTools": "Allowed tools",
+    "fieldSourcePath": "Source path",
+    "body": "Body",
+    "previewPlaceholder": "选择左侧条目以查看",
+    "noPreview": "(无预览)"
+  }
 }

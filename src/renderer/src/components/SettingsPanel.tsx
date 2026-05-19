@@ -4,7 +4,7 @@
  */
 
 import { clsx } from 'clsx';
-import { Code, FileText, Hand, Keyboard, Palette, RefreshCw, Sparkles } from 'lucide-react';
+import { Brain, Code, FileText, Hand, Keyboard, Palette, RefreshCw, Sparkles } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -13,6 +13,7 @@ import type { TranslationKey } from '../locales';
 import { getStorageService } from '../services/StorageService';
 import {
   AITab,
+  AgentTab,
   CompilerTab,
   EditorTab,
   SelectionTab,
@@ -28,6 +29,7 @@ type SettingsTab =
   | 'ui'
   | 'shortcuts'
   | 'ai'
+  | 'agent'
   | 'update';
 const SETTINGS_PANEL_TAB_KEY = 'ui.settingsPanelTab';
 
@@ -42,6 +44,12 @@ const tabs: {
     labelKey: 'settings.tabs.ai',
     icon: <Sparkles size={14} />,
     summaryKey: 'settingsPanel.summaries.ai',
+  },
+  {
+    id: 'agent',
+    labelKey: 'settings.tabs.agent',
+    icon: <Brain size={14} />,
+    summaryKey: 'settingsPanel.summaries.agent',
   },
   {
     id: 'compiler',
@@ -95,6 +103,8 @@ const TabContent: React.FC<{ activeTab: SettingsTab }> = ({ activeTab }) => {
       return <ShortcutsTab />;
     case 'ai':
       return <AITab />;
+    case 'agent':
+      return <AgentTab />;
     case 'update':
       return <UpdateTab />;
     default:

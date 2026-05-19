@@ -132,6 +132,7 @@
       "ui": "UI",
       "shortcuts": "Shortcuts",
       "ai": "AI Agent",
+      "agent": "Agent Data",
       "update": "Update"
     }
   },
@@ -422,6 +423,7 @@
       "shortcuts": "Customize command shortcuts and interaction habits.",
       "selection": "Configure selection assistant and shortcut trigger mode.",
       "ai": "Configure provider, API key, and models for the AI Agent and inline completion.",
+      "agent": "Browse Agent memory and the skills available to this project.",
       "update": "Check for and install application updates."
     }
   },
@@ -605,5 +607,52 @@
     "removedSnippet": "Content to be removed",
     "modifiedSnippet": "Before / after preview"
   },
-  "tools": {}
+  "tools": {},
+  "settingsAgent": {
+    "viewer": "Agent data viewer",
+    "viewerDesc": "Inspect Agent memory and the skills currently loaded for this project. Both feed the AI's long-term context and capabilities.",
+    "memoryLabel": "Memory",
+    "memoryDesc": "Project-scoped long-term memory: user prefs, project conventions, references, and feedback corrections.",
+    "openMemory": "Open Memory Viewer",
+    "skillsLabel": "Skills",
+    "skillsDesc": "Project- and tenant-scoped skill library. Edit the .md files in your editor.",
+    "openSkills": "Open Skills Viewer"
+  },
+  "memoryViewer": {
+    "title": "Memory & Skills",
+    "tabMemory": "Memory",
+    "tabSkills": "Skills",
+    "scope": {
+      "user": "User",
+      "feedback": "Feedback",
+      "project": "Project",
+      "reference": "Reference"
+    },
+    "skillScope": {
+      "bundled": "Bundled",
+      "tenant": "Tenant",
+      "project": "Project"
+    },
+    "newEntry": "New",
+    "newEntryNamePlaceholder": "unique name, a-z 0-9 _ -",
+    "newEntryInvalid": "Name must match [a-z0-9_-], 1-64 chars",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "delete": "Delete",
+    "deleteConfirm": "Delete {{name}}?",
+    "reveal": "Reveal in file manager",
+    "reload": "Reload",
+    "empty": "No memory entries yet",
+    "emptySkills": "No skills loaded",
+    "noActiveSession": "Not connected to a project. Open a project first.",
+    "loadFailed": "Load failed: {{error}}",
+    "fieldDescription": "Description",
+    "fieldWhenToUse": "When to use",
+    "fieldAllowedTools": "Allowed tools",
+    "fieldSourcePath": "Source path",
+    "body": "Body",
+    "previewPlaceholder": "Select an entry on the left to view",
+    "noPreview": "(no preview)"
+  }
 }

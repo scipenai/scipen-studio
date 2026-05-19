@@ -6,6 +6,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { MemoryViewerApp } from './components/memory-viewer/MemoryViewerApp';
 import './index.css';
 // Monaco Editor Worker environment configuration - must be initialized before Monaco loads
 import './components/editor/monaco/environment';
@@ -23,10 +24,17 @@ if (typeof URL.parse !== 'function') {
   ) => new URL(url, base);
 }
 
+// Hash routing: `#/memory-viewer` mounts the lighter MemoryViewer root.
+// The main process picks which hash to load based on `windowKind`. Same
+// bundle, so the secondary window doesn't need its own build step.
+const isMemoryViewer = window.location.hash.startsWith('#/memory-viewer');
+
+const RootComponent = isMemoryViewer ? MemoryViewerApp : App;
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <RootComponent />
   </React.StrictMode>
 );
 
-console.info('[App] SciPen Studio started');
+console.info(`[App] SciPen Studio started (${isMemoryViewer ? 'memory-viewer' : 'main'})`);

@@ -10,4 +10,5 @@ export { UITab } from './UITab';
 export { ShortcutsTab } from './ShortcutsTab';
 export { SelectionTab } from './SelectionTab';
 export { AITab } from './AITab';
+export { AgentTab } from './AgentTab';
 export { UpdateTab } from './UpdateTab';
