@@ -369,6 +369,29 @@ class ChatStreamStoreImpl {
   }
 
   /**
+   * Composer entry. Renders the user prompt with a "task mode" marker so the
+   * thread visibly distinguishes a plan-first composer turn from chat.
+   */
+  beginComposerTurn(turnId: string, instruction: string): void {
+    this.beginUserTurn(turnId, `🛠 ${instruction}`);
+  }
+
+  /**
+   * Optimistic clear of `plan.awaiting` after the user clicks Accept/Reject.
+   * Server still emits Done(Cancelled)/Completed; we just hide the buttons
+   * immediately so the UI doesn't feel laggy.
+   */
+  markPlanResolved(turnId: string): void {
+    for (const turn of this.iterAllTurns()) {
+      if (turn.turnId === turnId && turn.plan) {
+        turn.plan = { ...turn.plan, awaiting: false };
+        this.fire();
+        return;
+      }
+    }
+  }
+
+  /**
    * Clear all in-store state including the per-thread cache. Used when the
    * SNACA session is closed (new project, sidecar restart).
    */

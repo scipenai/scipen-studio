@@ -2,15 +2,37 @@
  * @file AgentChatInput - text input + send / cancel for the Agent chat panel.
  *
  * Distinct from the legacy `ChatInput` used by the older Chat subsystem.
+ *
+ * Composer "task mode" is modeled as a **one-shot armed flag** owned by this
+ * component. Submitting always resets it — the parent dispatches by the
+ * `intent` it receives, never by querying mode state. This keeps the
+ * consume-then-reset semantics atomic and physically prevents the
+ * "forgot to clear taskMode after send" class of bugs.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+
+export type SendIntent = 'chat' | 'composer';
+
+export interface ComposerChipConfig {
+  /** Label shown on the chip (e.g. "任务模式"). */
+  label: string;
+  /** Tooltip when chip is currently armed (e.g. "下次发送将触发任务模式"). */
+  armedTooltip?: string;
+  /** Tooltip when chip is idle. */
+  idleTooltip?: string;
+}
 
 interface AgentChatInputProps {
   busy: boolean;
   disabled?: boolean;
   placeholder?: string;
-  onSend: (text: string) => void;
+  /**
+   * Submit callback. `intent` reflects the input's armed state at submit
+   * time; armed state is reset immediately after dispatch so callers never
+   * need to (and cannot) manage it externally.
+   */
+  onSend: (text: string, intent: SendIntent) => void;
   onCancel?: () => void;
   /**
    * Externally injected prompt text. Each time `seedKey` changes the input
@@ -21,6 +43,11 @@ interface AgentChatInputProps {
    */
   seedValue?: string;
   seedKey?: number;
+  /**
+   * When provided, renders a 🛠 toggle chip that arms the next submit as
+   * a composer (plan-first) turn. Omit to hide the chip entirely.
+   */
+  composer?: ComposerChipConfig;
 }
 
 export function AgentChatInput({
@@ -31,8 +58,10 @@ export function AgentChatInput({
   onCancel,
   seedValue,
   seedKey,
+  composer,
 }: AgentChatInputProps): React.ReactElement {
   const [value, setValue] = useState<string>('');
+  const [armed, setArmed] = useState<boolean>(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
@@ -48,7 +77,6 @@ export function AgentChatInput({
   useEffect(() => {
     if (seedKey === undefined) return;
     setValue(seedValue ?? '');
-    // Focus + select-all so the user can immediately overwrite or hit Enter.
     requestAnimationFrame(() => {
       const el = textareaRef.current;
       if (el) {
@@ -62,12 +90,32 @@ export function AgentChatInput({
   const submit = useCallback(() => {
     const text = value.trim();
     if (!text || busy || disabled) return;
-    onSend(text);
+    const intent: SendIntent = armed ? 'composer' : 'chat';
+    onSend(text, intent);
     setValue('');
-  }, [value, busy, disabled, onSend]);
+    setArmed(false);
+  }, [value, busy, disabled, onSend, armed]);
 
   return (
     <div className="border-t border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2.5">
+      {composer && (
+        <div className="mb-1.5 flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setArmed((v) => !v)}
+            disabled={disabled || busy}
+            title={armed ? composer.armedTooltip : composer.idleTooltip}
+            aria-pressed={armed}
+            className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+              armed
+                ? 'bg-[var(--color-accent)] text-white'
+                : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]'
+            }`}
+          >
+            🛠 {composer.label}
+          </button>
+        </div>
+      )}
       <div className="relative rounded-md border border-[var(--color-border)] bg-[var(--color-bg-elevated)] focus-within:border-[var(--color-accent)]">
         <textarea
           ref={textareaRef}

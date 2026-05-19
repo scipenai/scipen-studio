@@ -29,8 +29,10 @@ import type { IContextRequestService } from '../services/agent/interfaces/IConte
 import { EDITOR_PROTOCOL_VERSION } from '../services/agent/protocol/methods';
 import {
   ChatContextSchema,
+  type ComposerStartParams,
   type EditConfirmParams,
   type LlmProvider,
+  type PlanConfirmParams,
   type SnacaConfig,
   type ToolConfirmParams,
 } from '../services/agent/protocol/schemas';
@@ -92,6 +94,18 @@ const startProjectParamsSchema = z.object({
 const sendChatPayloadSchema = z.object({
   content: z.string().min(1).max(50_000),
   context: ChatContextSchema,
+});
+
+const startComposerPayloadSchema = z.object({
+  instruction: z.string().min(1).max(50_000),
+  context: ChatContextSchema,
+  mode: z.enum(['plan_first', 'immediate']).default('plan_first'),
+  scope: z.object({ paths: z.array(z.string().max(4096)).max(256) }).optional(),
+});
+
+const confirmPlanPayloadSchema = z.object({
+  turnId: z.string().min(1).max(128),
+  decision: z.enum(['accept', 'reject', 'modify']),
 });
 
 const threadTitleSchema = z.string().max(200).optional();
@@ -462,6 +476,40 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
     });
     state.inflightTurn = { turnId: result.turn_id, kind: 'chat' };
     return { turnId: result.turn_id };
+  });
+
+  ipcMain.handle(IpcChannel.Agent_StartComposer, async (_e, rawPayload: unknown) => {
+    const payload = parseOrThrow(
+      startComposerPayloadSchema,
+      rawPayload,
+      'startComposer payload'
+    );
+    await ensureSessionReady();
+    if (!state.threadId) {
+      const t = await client.sessionNewThread(state.sessionId!, undefined);
+      state.threadId = t.thread_id;
+    }
+    const wire: ComposerStartParams = {
+      session_id: state.sessionId!,
+      thread_id: state.threadId!,
+      instruction: payload.instruction,
+      mentions: [],
+      context: payload.context,
+      mode: payload.mode,
+      scope: payload.scope,
+    };
+    const result = await client.composerStart(wire);
+    state.inflightTurn = { turnId: result.turn_id, kind: 'composer' };
+    return { turnId: result.turn_id };
+  });
+
+  ipcMain.handle(IpcChannel.Agent_ConfirmPlan, async (_e, rawPayload: unknown) => {
+    const p = parseOrThrow(confirmPlanPayloadSchema, rawPayload, 'confirmPlan payload');
+    const wire: PlanConfirmParams = {
+      turn_id: p.turnId,
+      decision: p.decision,
+    };
+    return await client.planConfirm(wire);
   });
 
   ipcMain.handle(IpcChannel.Agent_CancelTurn, async (_e, rawTurnId: unknown) => {

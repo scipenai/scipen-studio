@@ -16,6 +16,7 @@
 //! deltas. Real LLM / tools / engine integration arrives in later phases.
 
 mod approval_gate;
+mod composer;
 mod config;
 mod context_inject;
 mod handler;

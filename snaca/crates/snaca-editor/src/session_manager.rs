@@ -373,6 +373,26 @@ impl SessionManager {
         ))
     }
 
+    /// Composer plan-phase needs to share the session's per-project DB
+    /// and metadata_root so the plan turn lands in the same thread as the
+    /// follow-up action turn.
+    pub async fn composer_context(
+        &self,
+        session_id: &str,
+    ) -> Result<(Database, PathBuf, PathBuf, String), ProtocolError> {
+        let inner = self.inner.lock().await;
+        let session = inner
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        Ok((
+            session.db.clone(),
+            session.metadata_root.clone(),
+            session.workspace_root.clone(),
+            session.project_id.clone(),
+        ))
+    }
+
     /// is responsible for storing the `AbortHandle` via [`Self::set_abort`]
     /// once the task is spawned.
     pub async fn begin_turn(

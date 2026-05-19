@@ -35,7 +35,7 @@ import { buildChatContext } from '../../services/agent/ChatContextBuilder';
 import { chatStreamStore } from '../../services/agent/ChatStreamStore';
 import { getUIService } from '../../services/core/ServiceRegistry';
 import type { AskAIAboutErrorRequest } from '../../services/core/UIService';
-import { AgentChatInput } from './AgentChatInput';
+import { AgentChatInput, type SendIntent } from './AgentChatInput';
 import { ChatMessage } from './ChatMessage';
 import { ThreadHistoryDrawer } from './ThreadHistoryDrawer';
 
@@ -166,13 +166,16 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
   const busy = currentTurn?.pending === true;
 
   const handleSend = useCallback(
-    async (text: string) => {
+    async (text: string, intent: SendIntent) => {
       try {
         const context = buildChatContext();
-        const { turnId } = await agentClient.sendChat(text, context);
-        chatStreamStore.beginUserTurn(turnId, text);
-        // sendChat may have auto-created a thread on main side — re-list so
-        // the drawer reflects it. Cheap: usually 1-2 rows.
+        if (intent === 'composer') {
+          const { turnId } = await agentClient.startComposer(text, context, 'plan_first');
+          chatStreamStore.beginComposerTurn(turnId, text);
+        } else {
+          const { turnId } = await agentClient.sendChat(text, context);
+          chatStreamStore.beginUserTurn(turnId, text);
+        }
         void refreshThreads();
       } catch (err) {
         setStartup({ kind: 'error', message: extractErrorMessage(err) });
@@ -342,6 +345,11 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
         onCancel={handleCancel}
         seedValue={seedValue}
         seedKey={seedKey}
+        composer={{
+          label: t('chat.composerTaskMode'),
+          armedTooltip: t('chat.composerChatMode'),
+          idleTooltip: t('chat.composerTaskMode'),
+        }}
       />
 
       <ThreadHistoryDrawer

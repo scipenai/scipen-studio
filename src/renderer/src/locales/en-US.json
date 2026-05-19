@@ -374,7 +374,11 @@
     "planStatusInProgress": "In progress",
     "planStatusDone": "Done",
     "planStatusRejected": "Rejected",
-    "planStatusFailed": "Failed"
+    "planStatusFailed": "Failed",
+    "planAccept": "Accept plan",
+    "planReject": "Reject",
+    "composerTaskMode": "Task mode",
+    "composerChatMode": "Switch to chat"
   },
   "fileConflict": {
     "fileDeleted": "File has been deleted",

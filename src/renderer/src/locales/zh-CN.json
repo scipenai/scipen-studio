@@ -374,7 +374,11 @@
     "planStatusInProgress": "进行中",
     "planStatusDone": "完成",
     "planStatusRejected": "已拒绝",
-    "planStatusFailed": "失败"
+    "planStatusFailed": "失败",
+    "planAccept": "接受计划",
+    "planReject": "拒绝",
+    "composerTaskMode": "任务模式",
+    "composerChatMode": "切换到聊天"
   },
   "fileConflict": {
     "fileDeleted": "文件已被删除",

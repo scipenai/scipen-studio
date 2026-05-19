@@ -56,6 +56,18 @@ export interface SendChatParams {
   context: ChatContext;
 }
 
+export interface StartComposerParams {
+  instruction: string;
+  context: ChatContext;
+  mode?: 'plan_first' | 'immediate';
+  scope?: { paths: string[] };
+}
+
+export interface ConfirmPlanParams {
+  turnId: string;
+  decision: 'accept' | 'reject' | 'modify';
+}
+
 /** Payload of an inbound `Agent_ContextFlushRequest`. */
 export interface AgentContextFlushRequestPayload {
   requestId: string;
@@ -126,6 +138,12 @@ export const agentApi = {
 
   sendChat: (params: SendChatParams): Promise<SendChatResult> =>
     ipcRenderer.invoke(IpcChannel.Agent_SendChat, params),
+
+  startComposer: (params: StartComposerParams): Promise<SendChatResult> =>
+    ipcRenderer.invoke(IpcChannel.Agent_StartComposer, params),
+
+  confirmPlan: (params: ConfirmPlanParams): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke(IpcChannel.Agent_ConfirmPlan, params),
 
   cancelTurn: (turnId: string): Promise<{ ok: true }> =>
     ipcRenderer.invoke(IpcChannel.Agent_CancelTurn, turnId),

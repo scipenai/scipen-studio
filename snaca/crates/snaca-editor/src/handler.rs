@@ -9,6 +9,7 @@
 //! - `inline_edit.start` / `composer.start` / `edit.confirm` / `tool.confirm`
 //!   still return `method_not_found` (next phases).
 
+use crate::composer::{run_composer_plan_first, ComposerPlanArgs, PendingPlans};
 use crate::context_inject;
 use crate::approval_gate::{decision_from_edit, decision_from_wire};
 use crate::llm::{build_llm_client, run_chat_turn};
@@ -19,6 +20,9 @@ use crate::session_manager::SessionManager;
 use async_trait::async_trait;
 use snaca_core::Message;
 use snaca_editor_protocol::error::ProtocolError;
+use snaca_editor_protocol::messages::composer::{
+    ComposerMode, ComposerStartParams, ComposerStartResult, PlanConfirmParams, PlanConfirmResult,
+};
 use snaca_editor_protocol::messages::edit::{EditConfirmParams, EditConfirmResult};
 use snaca_editor_protocol::messages::tool::{
     ToolConfirmParams, ToolConfirmResult,
@@ -67,6 +71,9 @@ pub struct EditorHandler {
     pending_turns: Arc<std::sync::Mutex<
         std::collections::HashMap<String, tokio_util::sync::CancellationToken>,
     >>,
+    /// Composer plan-phase parking: turn_id → decision sender. Resolved by
+    /// `handle_plan_confirm`.
+    pending_plans: PendingPlans,
 }
 
 #[derive(Default)]
@@ -87,6 +94,7 @@ impl EditorHandler {
             pending_approvals: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             pending_edit_approvals: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             pending_turns: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pending_plans: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -456,6 +464,137 @@ impl MessageHandler for EditorHandler {
         }
 
         Ok(ChatSendResult { turn_id })
+    }
+
+    async fn handle_composer_start(
+        &self,
+        params: ComposerStartParams,
+    ) -> Result<ComposerStartResult, ProtocolError> {
+        self.require_initialized().await?;
+        info!(
+            session_id = %params.session_id,
+            thread_id = %params.thread_id,
+            mode = ?params.mode,
+            "composer.start received"
+        );
+
+        let plan_turn_id = self
+            .sessions
+            .begin_turn(&params.session_id, &params.thread_id, TurnKind::Composer)
+            .await?;
+
+        let (engine_opt, project_id, workspace_root) =
+            self.sessions.engine_for(&params.session_id).await?;
+        let engine = engine_opt.ok_or_else(|| {
+            ProtocolError::internal("composer requires an active engine for this session")
+        })?;
+
+        let snaca_config = {
+            let inner = self.inner.read().await;
+            inner
+                .snaca_config
+                .clone()
+                .ok_or_else(ProtocolError::not_initialized)?
+        };
+        let llm = self.get_llm().await?;
+        let cancel = tokio_util::sync::CancellationToken::new();
+        self.pending_turns
+            .lock()
+            .unwrap()
+            .insert(plan_turn_id.clone(), cancel.clone());
+
+        match params.mode {
+            ComposerMode::Immediate => {
+                let gate = gate_for_mode(
+                    snaca_config.approval_mode,
+                    self.outbound.clone(),
+                    plan_turn_id.clone(),
+                    self.pending_approvals.clone(),
+                    self.pending_edit_approvals.clone(),
+                    workspace_root.clone(),
+                    cancel.clone(),
+                );
+                let outbound = self.outbound.clone();
+                let sessions = self.sessions.clone();
+                let session_id = params.session_id.clone();
+                let thread_id = params.thread_id.clone();
+                let turn_id_clone = plan_turn_id.clone();
+                let user_text = params.instruction.clone();
+                let pending_turns = self.pending_turns.clone();
+                let handle = tokio::spawn(async move {
+                    run_engine_turn(
+                        engine,
+                        outbound,
+                        sessions,
+                        session_id,
+                        project_id,
+                        thread_id,
+                        turn_id_clone.clone(),
+                        user_text,
+                        gate,
+                        cancel,
+                    )
+                    .await;
+                    pending_turns.lock().unwrap().remove(&turn_id_clone);
+                });
+                let _ = self
+                    .sessions
+                    .set_abort(&params.session_id, &plan_turn_id, handle.abort_handle())
+                    .await;
+            }
+            ComposerMode::PlanFirst => {
+                let (db, metadata_root, _ws, _proj) =
+                    self.sessions.composer_context(&params.session_id).await?;
+                let args = ComposerPlanArgs {
+                    main_engine: engine,
+                    llm,
+                    snaca_config,
+                    db,
+                    outbound: self.outbound.clone(),
+                    sessions: self.sessions.clone(),
+                    session_id: params.session_id.clone(),
+                    project_id,
+                    workspace_root,
+                    metadata_root,
+                    thread_id: params.thread_id.clone(),
+                    plan_turn_id: plan_turn_id.clone(),
+                    user_text: params.instruction.clone(),
+                    plan_cancel: cancel,
+                    pending_plans: self.pending_plans.clone(),
+                    pending_turns: self.pending_turns.clone(),
+                    pending_approvals: self.pending_approvals.clone(),
+                    pending_edit_approvals: self.pending_edit_approvals.clone(),
+                };
+                let plan_turn_id_clone = plan_turn_id.clone();
+                let handle = tokio::spawn(async move {
+                    run_composer_plan_first(args).await;
+                    let _ = plan_turn_id_clone;
+                });
+                let _ = self
+                    .sessions
+                    .set_abort(&params.session_id, &plan_turn_id, handle.abort_handle())
+                    .await;
+            }
+        }
+
+        Ok(ComposerStartResult {
+            turn_id: plan_turn_id,
+        })
+    }
+
+    async fn handle_plan_confirm(
+        &self,
+        params: PlanConfirmParams,
+    ) -> Result<PlanConfirmResult, ProtocolError> {
+        let sender = self.pending_plans.lock().unwrap().remove(&params.turn_id);
+        if let Some(s) = sender {
+            let _ = s.send(params.decision);
+            info!(turn_id = %params.turn_id, decision = ?params.decision, "plan.confirm");
+            Ok(PlanConfirmResult { ok: true })
+        } else {
+            debug!(turn_id = %params.turn_id, "plan.confirm: unknown turn");
+            Ok(PlanConfirmResult { ok: false })
+        }
     }
 
     // ---------------- Control ----------------

@@ -183,6 +183,19 @@ class AgentClientServiceImpl {
     return this.api.sendChat({ content, context });
   }
 
+  async startComposer(
+    instruction: string,
+    context: ChatContext = {},
+    mode: 'plan_first' | 'immediate' = 'plan_first',
+    scope?: { paths: string[] }
+  ): Promise<{ turnId: string }> {
+    return this.api.startComposer({ instruction, context, mode, scope });
+  }
+
+  confirmPlan(turnId: string, decision: 'accept' | 'reject' | 'modify'): Promise<{ ok: boolean }> {
+    return this.api.confirmPlan({ turnId, decision });
+  }
+
   cancelTurn(turnId: string): Promise<{ ok: true }> {
     return this.api.cancelTurn(turnId);
   }

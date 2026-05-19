@@ -43,7 +43,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
       <div className="mb-3 rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] p-2.5">
         <RoleBadge role="assistant" pending />
         {turn.hasThinking && <ThinkingRenderer text={turn.thinkingText} streaming={turn.pending} />}
-        {turn.plan && <PlanCard plan={turn.plan} />}
+        {turn.plan && <PlanCard plan={turn.plan} turnId={turn.turnId} />}
         <ApprovalList approvals={turn.approvals} />
         <ToolCalls calls={turn.toolCalls} />
         <ProposalsList proposals={turn.proposals} />
@@ -88,7 +88,9 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
       {completedTurn?.hasThinking && (
         <ThinkingRenderer text={completedTurn.thinkingText} streaming={false} />
       )}
-      {completedTurn?.plan && <PlanCard plan={completedTurn.plan} />}
+      {completedTurn?.plan && (
+        <PlanCard plan={completedTurn.plan} turnId={completedTurn.turnId} />
+      )}
       {completedTurn && <ToolCalls calls={completedTurn.toolCalls} />}
       {completedTurn && <ProposalsList proposals={completedTurn.proposals} />}
       <div className="text-[13px] leading-[1.6]">
@@ -251,9 +253,23 @@ function prettyJson(value: unknown): string {
   }
 }
 
-function PlanCard({ plan }: { plan: ChatPlan }): ReactElement {
+function PlanCard({ plan, turnId }: { plan: ChatPlan; turnId: string }): ReactElement {
   const { t } = useTranslation();
   const [open, setOpen] = useState(plan.awaiting);
+  const [submitting, setSubmitting] = useState(false);
+  const decide = useCallback(
+    async (decision: 'accept' | 'reject') => {
+      if (submitting) return;
+      setSubmitting(true);
+      chatStreamStore.markPlanResolved(turnId);
+      try {
+        await agentClient.confirmPlan(turnId, decision);
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [submitting, turnId]
+  );
   return (
     <div className="mb-2 rounded-md border border-[color-mix(in_srgb,var(--color-accent)_30%,var(--color-border-subtle))] bg-[color-mix(in_srgb,var(--color-accent)_5%,transparent)] text-[12px]">
       <button
@@ -278,11 +294,33 @@ function PlanCard({ plan }: { plan: ChatPlan }): ReactElement {
               {plan.rationale}
             </div>
           )}
-          <ul className="space-y-1">
-            {plan.files.map((f) => (
-              <PlanFileRow key={`${f.action}:${f.path}`} file={f} />
-            ))}
-          </ul>
+          {plan.files.length > 0 && (
+            <ul className="space-y-1">
+              {plan.files.map((f) => (
+                <PlanFileRow key={`${f.action}:${f.path}`} file={f} />
+              ))}
+            </ul>
+          )}
+          {plan.awaiting && (
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => decide('accept')}
+                className="rounded px-2.5 py-1 text-[11px] font-medium text-white bg-[var(--color-accent)] hover:opacity-90 disabled:opacity-50"
+              >
+                {t('chat.planAccept')}
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => decide('reject')}
+                className="rounded border border-[var(--color-border-subtle)] px-2.5 py-1 text-[11px] text-[var(--color-text)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-50"
+              >
+                {t('chat.planReject')}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

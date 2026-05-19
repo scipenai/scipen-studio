@@ -168,6 +168,8 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Agent_RenameThread,
   IpcChannel.Agent_GetMessages,
   IpcChannel.Agent_SendChat,
+  IpcChannel.Agent_StartComposer,
+  IpcChannel.Agent_ConfirmPlan,
   IpcChannel.Agent_CancelTurn,
   IpcChannel.Agent_ConfirmEdit,
   IpcChannel.Agent_ConfirmTool,

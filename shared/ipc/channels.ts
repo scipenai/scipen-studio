@@ -204,6 +204,8 @@ export enum IpcChannel {
   Agent_RenameThread = 'agent:rename-thread',
   Agent_GetMessages = 'agent:get-messages',
   Agent_SendChat = 'agent:send-chat',
+  Agent_StartComposer = 'agent:start-composer',
+  Agent_ConfirmPlan = 'agent:confirm-plan',
   Agent_CancelTurn = 'agent:cancel-turn',
   Agent_ConfirmEdit = 'agent:confirm-edit',
   Agent_ConfirmTool = 'agent:confirm-tool',
