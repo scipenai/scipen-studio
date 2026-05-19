@@ -165,9 +165,11 @@
     "versionRestored": "Restored Overleaf version: {{fileName}}"
   },
   "aiSettings": {
+    "chatProvider": "AI Agent",
+    "chatProviderDesc": "Used by the SNACA Agent for chat, tool calls, Diff review, and all project-memory features",
+    "chatModel": "Agent Model",
+    "chatModelDesc": "Pick a stronger reasoning model, e.g. deepseek-chat, claude-sonnet-4",
     "completionProvider": "AI Completion",
-    "enableCompletion": "Enable AI Completion",
-    "enableCompletionDesc": "Auto-trigger AI writing suggestions while typing (Ghost Text)",
     "provider": "Provider",
     "providerDesc": "Select the model provider for AI completion",
     "apiKey": "API Key",

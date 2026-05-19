@@ -165,9 +165,11 @@
     "versionRestored": "已恢复 Overleaf 版本：{{fileName}}"
   },
   "aiSettings": {
+    "chatProvider": "AI Agent",
+    "chatProviderDesc": "用于 SNACA Agent 的对话、工具调用、Diff 审阅等所有项目记忆相关能力",
+    "chatModel": "Agent 模型",
+    "chatModelDesc": "建议选择推理较强的模型，如 deepseek-chat、claude-sonnet-4 等",
     "completionProvider": "AI 补全",
-    "enableCompletion": "启用 AI 补全",
-    "enableCompletionDesc": "输入时自动触发 AI 续写建议（Ghost Text）",
     "provider": "服务提供商",
     "providerDesc": "选择 AI 补全使用的模型提供商",
     "apiKey": "API Key",
