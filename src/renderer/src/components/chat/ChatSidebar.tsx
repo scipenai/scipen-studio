@@ -63,16 +63,19 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
   const startedFor = useRef<string | null>(null);
   const uiService = useMemo(() => getUIService(), []);
 
-  // Subscribe to chatStreamStore — single source of truth for active thread id
-  // plus the rendered message list. Snapshot derives from getActiveThreadId so
-  // a setActiveThread call triggers a re-render even when message count is
-  // unchanged (e.g. switching between empty threads).
-  const activeThreadId = useSyncExternalStore(
+  // Subscribe to chatStreamStore's version counter. ANY internal mutation
+  // (turn.delta accumulation, tool calls, proposals, active-thread swap,
+  // history reload) bumps the version, so React re-renders and then reads
+  // fresh snapshots from the direct getters below. Subscribing to a
+  // sub-shape (e.g. activeThreadId alone) would skip re-renders for
+  // streaming text since the thread id doesn't change mid-turn.
+  useSyncExternalStore(
     (cb) => chatStreamStore.subscribe(cb),
-    () => chatStreamStore.getActiveThreadId(),
-    () => null
+    () => chatStreamStore.getVersion(),
+    () => 0
   );
 
+  const activeThreadId = chatStreamStore.getActiveThreadId();
   const messages = chatStreamStore.getMessages();
   const currentTurn = chatStreamStore.getCurrentTurn();
   const activeThread = useMemo(

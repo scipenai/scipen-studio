@@ -112,6 +112,18 @@ class ChatStreamStoreImpl {
   /** Per-thread cache keyed by thread_id; swap into active state on switch. */
   private threadCache = new Map<string, ThreadCacheEntry>();
 
+  /**
+   * Monotonic snapshot counter, bumped on every state mutation. Components
+   * `useSyncExternalStore` on `getVersion()` so React re-renders whenever
+   * anything changes — the store is free to keep mutating internal objects
+   * (turn text, tool calls, proposal status) without immutable wrappers.
+   * Without this, selectors that read sub-shapes whose reference doesn't
+   * change (e.g. activeThreadId still null while turn.delta accumulates
+   * into currentTurn.text) would skip the re-render, leaving stream
+   * progress invisible until some unrelated state forced a paint.
+   */
+  private version = 0;
+
   private listeners = new Set<Listener>();
   private subscribed = false;
 
@@ -136,6 +148,12 @@ class ChatStreamStoreImpl {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  /** Snapshot counter — read via useSyncExternalStore to trigger React
+   *  re-renders on any state mutation. See `version` field doc. */
+  getVersion(): number {
+    return this.version;
   }
 
   getMessages(): ChatMessage[] {
@@ -498,6 +516,7 @@ class ChatStreamStoreImpl {
   }
 
   private fire(): void {
+    this.version++;
     for (const l of this.listeners) l();
   }
 }
