@@ -13,8 +13,8 @@ use snaca_editor_protocol::messages::turn::{DoneReason, TurnDeltaKind, TurnDelta
 use snaca_editor_protocol::messages::usage::{UsageTotals, UsageUpdateParams};
 use snaca_editor_protocol::types::config::{LlmProvider, SnacaConfig};
 use snaca_llm::{
-    anthropic::AnthropicConfig, deepseek::DeepSeekConfig, AnthropicClient, ContentDelta,
-    DeepSeekClient, LlmClient, MessageRequest, StreamEvent,
+    anthropic::AnthropicConfig, deepseek::DeepSeekConfig, openai::OpenAIConfig, AnthropicClient,
+    ContentDelta, DeepSeekClient, LlmClient, MessageRequest, OpenAIClient, StreamEvent,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -48,7 +48,21 @@ pub fn build_llm_client(cfg: &SnacaConfig) -> Result<Arc<dyn LlmClient>, Protoco
         .unwrap_or(Duration::from_secs(120));
 
     let client: Arc<dyn LlmClient> = match cfg.llm.provider {
-        LlmProvider::Deepseek | LlmProvider::OpenaiCompatible => {
+        LlmProvider::OpenaiCompatible => {
+            let mut oc = OpenAIConfig::new(api_key)
+                .with_model(cfg.llm.model.clone())
+                .with_timeout(timeout);
+            if let Some(url) = cfg.llm.base_url.clone() {
+                oc = oc.with_base_url(url);
+            }
+            Arc::new(OpenAIClient::new(oc).map_err(|e| {
+                ProtocolError::new(
+                    ErrorCode::ConfigInvalid,
+                    format!("OpenAI client init failed: {e}"),
+                )
+            })?)
+        }
+        LlmProvider::Deepseek => {
             let mut dc = DeepSeekConfig::new(api_key)
                 .with_model(cfg.llm.model.clone())
                 .with_timeout(timeout);

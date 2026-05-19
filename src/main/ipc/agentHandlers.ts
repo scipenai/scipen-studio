@@ -575,24 +575,22 @@ function resolveChatProvider(config: IConfigManager): ResolvedChatProvider | nul
 
 /**
  * Studio's ProviderId namespace is wider than SNACA's LlmProvider enum.
- * Anthropic and DeepSeek have first-class adapters; everything else
- * (openai, siliconflow, custom-*, ...) speaks the OpenAI-compatible
- * REST surface — SNACA handles them under `openai_compatible`.
+ * Anthropic gets the native Messages client; everything else goes through
+ * the OpenAI-compatible client. Users pick the actual upstream by setting
+ * the base URL (e.g. `https://api.deepseek.com` for DeepSeek OpenAI-compat,
+ * `https://api.deepseek.com/anthropic` for DeepSeek's Anthropic gateway).
  */
 function mapProviderIdToSnaca(providerId: string): LlmProvider {
-  if (providerId === 'anthropic') return 'anthropic';
-  if (providerId === 'deepseek') return 'deepseek';
-  return 'openai_compatible';
+  return providerId === 'anthropic' ? 'anthropic' : 'openai_compatible';
 }
 
 /**
  * Choose a sensible env-only default when the user has not configured a
- * chat provider yet. Keeps existing developer setups (SNACA_BASE_URL
- * pointing at DeepSeek) working without a Settings round trip.
+ * chat provider yet. Falls back to OpenAI-compatible (the broadest fit)
+ * unless `SNACA_BASE_URL` clearly points at an Anthropic endpoint.
  */
 function envFallbackProvider(): LlmProvider {
   const base = (process.env.SNACA_BASE_URL ?? '').toLowerCase();
   if (base.includes('anthropic')) return 'anthropic';
-  if (base.includes('deepseek')) return 'deepseek';
   return 'openai_compatible';
 }

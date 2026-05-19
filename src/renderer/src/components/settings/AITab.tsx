@@ -1,10 +1,11 @@
 /**
  * @file AITab.tsx - AI Agent Settings Tab
- * @description Single "AI Agent" section: one provider + apiKey + apiHost,
- *   shared by SNACA (chat / tools / Diff review) and Ctrl+K (ghost-text).
- *   Two model inputs sit underneath: Agent Model (selectedModels.chat) and
- *   Completion Model (selectedModels.completion). Completion is optional —
- *   when blank it falls back to the Agent model.
+ * @description Single section. The user picks a protocol family (OpenAI-
+ *   compatible or Anthropic-compatible) and points it at whichever base
+ *   URL their provider exposes — SNACA and Ctrl+K both use the same
+ *   credentials. Brand-level provider names (DeepSeek, SiliconFlow, …)
+ *   are intentionally not enumerated here: every modern gateway speaks
+ *   one of these two protocols.
  */
 
 import { Loader2 } from 'lucide-react';
@@ -20,23 +21,31 @@ import { SectionTitle, SettingItem, inputClassName } from './SettingsUI';
 type ModelSelection = NonNullable<SelectedModels['chat']>;
 
 interface ProviderOption {
+  /** ProviderId stored in settings. */
   id: ProviderId;
+  /** Label shown in the dropdown. */
   label: string;
+  /** Placeholder used as a UX hint when the host field is empty. */
   defaultHost: string;
+  /** Two short examples of common upstream endpoints under this protocol. */
+  hostExamples: string[];
 }
 
+// Only two entries — the protocol family is what matters; the base URL
+// is where the user encodes which actual vendor they're hitting.
 const PROVIDER_OPTIONS: ProviderOption[] = [
-  { id: 'openai', label: 'OpenAI', defaultHost: 'https://api.openai.com/v1' },
-  { id: 'anthropic', label: 'Anthropic', defaultHost: 'https://api.anthropic.com' },
-  { id: 'deepseek', label: 'DeepSeek', defaultHost: 'https://api.deepseek.com/v1' },
   {
-    id: 'dashscope',
-    label: '通义千问',
-    defaultHost: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    id: 'openai',
+    label: 'OpenAI 兼容',
+    defaultHost: 'https://api.openai.com/v1',
+    hostExamples: ['https://api.openai.com/v1', 'https://api.deepseek.com'],
   },
-  { id: 'siliconflow', label: 'SiliconFlow', defaultHost: 'https://api.siliconflow.cn/v1' },
-  { id: 'ollama', label: 'Ollama', defaultHost: 'http://localhost:11434/v1' },
-  { id: 'custom', label: '自定义 (OpenAI 兼容)', defaultHost: '' },
+  {
+    id: 'anthropic',
+    label: 'Anthropic 兼容',
+    defaultHost: 'https://api.anthropic.com',
+    hostExamples: ['https://api.anthropic.com', 'https://api.deepseek.com/anthropic'],
+  },
 ];
 
 const selectClassName =
@@ -55,6 +64,16 @@ function makeProvider(id: ProviderId): AIProviderDTO {
   };
 }
 
+/**
+ * Map any historical Studio ProviderId (deepseek/dashscope/siliconflow/…)
+ * to the new two-protocol scheme. Anthropic stays Anthropic; everything
+ * else lands on `openai` (the OpenAI-compatible protocol family). Users
+ * disambiguate by editing the base URL.
+ */
+function normalizeProviderId(id: ProviderId): ProviderId {
+  return id === 'anthropic' ? 'anthropic' : 'openai';
+}
+
 export const AITab: React.FC = () => {
   const { t } = useTranslation();
   const settingsService = getSettingsService();
@@ -67,7 +86,7 @@ export const AITab: React.FC = () => {
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   // Initial load. Picks a provider in this order: chat selection → completion
-  // selection → first existing → deepseek default. Models inputs default to
+  // selection → first existing → openai default. Models inputs default to
   // whatever the user already selected; completion left blank means "same as
   // chat" downstream.
   useEffect(() => {
@@ -76,9 +95,10 @@ export const AITab: React.FC = () => {
 
       const chatSel = config.selectedModels.chat;
       const complSel = config.selectedModels.completion;
-      const activeId: ProviderId =
-        (chatSel?.providerId ?? complSel?.providerId ?? config.providers[0]?.id ?? 'deepseek') as
-          ProviderId;
+      const activeId: ProviderId = normalizeProviderId(
+        (chatSel?.providerId ?? complSel?.providerId ?? config.providers[0]?.id ?? 'openai') as
+          ProviderId
+      );
 
       const existing = config.providers.find((p) => p.id === activeId);
       setProvider(existing ?? makeProvider(activeId));
@@ -185,10 +205,13 @@ export const AITab: React.FC = () => {
     }
   }, [t]);
 
-  // Placeholder host shown in the input — derived from the provider option.
+  // Placeholder host shown in the input — surface the protocol's two
+  // canonical examples (e.g. OpenAI's own host vs DeepSeek's OpenAI gateway)
+  // so the user knows what kind of URL is expected.
   const hostPlaceholder = useMemo(() => {
     if (!provider) return 'https://...';
-    return PROVIDER_OPTIONS.find((o) => o.id === provider.id)?.defaultHost ?? 'https://...';
+    const opt = PROVIDER_OPTIONS.find((o) => o.id === provider.id);
+    return opt ? `e.g. ${opt.hostExamples.join('  /  ')}` : 'https://...';
   }, [provider]);
 
   if (!provider) {
