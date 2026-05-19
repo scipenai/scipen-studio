@@ -3,21 +3,23 @@
 //! Defines a provider-agnostic [`LlmClient`] trait, the canonical
 //! request/response shapes, and concrete implementations.
 //!
-//! M1: DeepSeek (OpenAI-compatible, non-stream first; streaming in M2).
-//! Anthropic native is stubbed; full implementation lands in M2.
-//!
 //! ## Layout
-//! - [`error`]    — `LlmError` / `LlmResult`
-//! - [`request`]  — `MessageRequest` + `ToolSchema` + `StopSequence`
-//! - [`response`] — `MessageResponse` + `StopReason`
-//! - [`client`]   — `LlmClient` trait + `ProviderCaps`
-//! - [`deepseek`] — DeepSeek client (OpenAI-compatible) + canonical conversions
+//! - [`error`]     — `LlmError` / `LlmResult`
+//! - [`request`]   — `MessageRequest` + `ToolSchema` + `StopSequence`
+//! - [`response`]  — `MessageResponse` + `StopReason`
+//! - [`client`]    — `LlmClient` trait + `ProviderCaps`
+//! - [`openai`]    — standard OpenAI Chat Completions client (recommended
+//!                   default for "OpenAI 兼容" gateways)
+//! - [`deepseek`]  — OpenAI-compatible client extended for DeepSeek-R1
+//!                   `reasoning_content` + context cache hit/miss tokens
+//! - [`anthropic`] — Anthropic Messages API client
 
 pub mod anthropic;
 pub mod classify;
 pub mod client;
 pub mod deepseek;
 pub mod error;
+pub mod openai;
 pub mod request;
 pub mod response;
 pub mod retry;
@@ -29,6 +31,7 @@ pub use classify::classify_http_error;
 pub use client::{LlmClient, ProviderCaps};
 pub use deepseek::DeepSeekClient;
 pub use error::{LlmError, LlmResult};
+pub use openai::OpenAIClient;
 pub use request::{MessageRequest, ToolSchema};
 pub use response::{MessageResponse, StopReason};
 pub use retry::{RetryConfig, RetryingLlmClient};
