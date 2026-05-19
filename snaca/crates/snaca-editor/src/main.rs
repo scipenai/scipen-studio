@@ -22,6 +22,8 @@ mod llm;
 mod outbound;
 mod session;
 mod session_manager;
+mod turn_engine;
+mod turn_listener;
 
 use crate::handler::EditorHandler;
 use crate::outbound::OutboundWriter;

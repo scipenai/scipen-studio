@@ -28,7 +28,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 /// Sole tenant used by Studio. Forward-compatible if SNACA grows multi-tenant.
-const STUDIO_TENANT_ID: &str = "local";
+pub(crate) const STUDIO_TENANT_ID: &str = "local";
 
 /// Default title given to bootstrap and auto-spawned threads. Matches the
 /// renderer-side i18n placeholder used when SNACA returns nothing.
@@ -355,6 +355,22 @@ impl SessionManager {
     }
 
     /// Reserves an inflight slot, returning the allocated turn id. Caller
+    /// Take a snapshot of the per-session Engine + project_id for the
+    /// turn dispatcher. Engine handle is `Arc`-cloned cheaply; falling
+    /// back to `None` here is the signal that this session's engine wiring
+    /// failed at `open()` and chat.send should use the legacy path.
+    pub async fn engine_for(
+        &self,
+        session_id: &str,
+    ) -> Result<(Option<Arc<Engine>>, String), ProtocolError> {
+        let inner = self.inner.lock().await;
+        let session = inner
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        Ok((session.engine.clone(), session.project_id.clone()))
+    }
+
     /// is responsible for storing the `AbortHandle` via [`Self::set_abort`]
     /// once the task is spawned.
     pub async fn begin_turn(

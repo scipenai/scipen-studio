@@ -11,6 +11,7 @@
 
 use crate::context_inject;
 use crate::llm::{build_llm_client, run_chat_turn};
+use crate::turn_engine::{default_approval_gate, run_engine_turn};
 use crate::outbound::OutboundWriter;
 use crate::session::TurnKind;
 use crate::session_manager::SessionManager;
@@ -310,7 +311,6 @@ impl MessageHandler for EditorHandler {
         params: ChatSendParams,
     ) -> Result<ChatSendResult, ProtocolError> {
         self.require_initialized().await?;
-        let llm = self.get_llm().await?;
         info!(
             session_id = %params.session_id,
             thread_id = %params.thread_id,
@@ -318,54 +318,94 @@ impl MessageHandler for EditorHandler {
             "chat.send received"
         );
 
-        // 1. Append the new user message to thread history *before* the
-        //    turn starts so begin_turn's session validation already sees a
-        //    consistent state (and a cancelled turn still records intent).
-        let user_msg = Message::user_text(params.content.clone());
-        // User messages are not bound to a turn — turn_id only attaches
-        // to the assistant reply (set inside run_chat_turn).
-        self.sessions
-            .append_message(&params.session_id, &params.thread_id, user_msg, None)
-            .await?;
-
-        // 2. Build the system prompt: base instruction + structured context.
-        let system_prompt = build_system_prompt(&params.context);
-
-        // 3. Snapshot recent history (last N) to send to the LLM.
-        let messages = self
-            .sessions
-            .recent_messages(&params.session_id, &params.thread_id, MAX_HISTORY_MESSAGES)
-            .await;
-
-        // 4. Allocate the turn and spawn the streaming task.
+        // Allocate the turn id up front. It seeds the engine's
+        // `message_id` keying so `turn.cancel` can target one running
+        // turn precisely, and gives the legacy path a single source of
+        // truth too.
         let turn_id = self
             .sessions
             .begin_turn(&params.session_id, &params.thread_id, TurnKind::Chat)
             .await?;
 
-        let outbound = self.outbound.clone();
-        let sessions = self.sessions.clone();
-        let session_id = params.session_id.clone();
-        let thread_id = params.thread_id.clone();
-        let turn_id_clone = turn_id.clone();
+        let (engine_opt, project_id) = self.sessions.engine_for(&params.session_id).await?;
 
-        let handle = tokio::spawn(async move {
-            run_chat_turn(
-                llm,
-                outbound,
-                sessions,
-                session_id,
-                thread_id,
-                turn_id_clone,
-                Some(system_prompt),
-                messages,
-            )
-            .await;
-        });
-        let _ = self
-            .sessions
-            .set_abort(&params.session_id, &turn_id, handle.abort_handle())
-            .await;
+        match engine_opt {
+            Some(engine) => {
+                // ---- P5 path: snaca-engine drives the turn ----
+                // Engine owns user/assistant/tool message persistence,
+                // tool selection, the loop, and approval gating.
+                let outbound = self.outbound.clone();
+                let sessions = self.sessions.clone();
+                let session_id = params.session_id.clone();
+                let thread_id = params.thread_id.clone();
+                let turn_id_clone = turn_id.clone();
+                let user_text = params.content.clone();
+                let gate = default_approval_gate();
+
+                let handle = tokio::spawn(async move {
+                    run_engine_turn(
+                        engine,
+                        outbound,
+                        sessions,
+                        session_id,
+                        project_id,
+                        thread_id,
+                        turn_id_clone,
+                        user_text,
+                        gate,
+                    )
+                    .await;
+                });
+                let _ = self
+                    .sessions
+                    .set_abort(&params.session_id, &turn_id, handle.abort_handle())
+                    .await;
+            }
+            None => {
+                // ---- Legacy P1 path: bare LLM round-trip. ----
+                // Used when engine wiring failed at session.open (logged
+                // there). Kept as a temporary safety net; Phase F removes
+                // run_chat_turn once the engine path is the only one.
+                warn!(
+                    session_id = %params.session_id,
+                    "engine unavailable for session; falling back to run_chat_turn"
+                );
+                let llm = self.get_llm().await?;
+                let user_msg = Message::user_text(params.content.clone());
+                self.sessions
+                    .append_message(&params.session_id, &params.thread_id, user_msg, None)
+                    .await?;
+                let system_prompt = build_system_prompt(&params.context);
+                let messages = self
+                    .sessions
+                    .recent_messages(&params.session_id, &params.thread_id, MAX_HISTORY_MESSAGES)
+                    .await;
+
+                let outbound = self.outbound.clone();
+                let sessions = self.sessions.clone();
+                let session_id = params.session_id.clone();
+                let thread_id = params.thread_id.clone();
+                let turn_id_clone = turn_id.clone();
+
+                let handle = tokio::spawn(async move {
+                    run_chat_turn(
+                        llm,
+                        outbound,
+                        sessions,
+                        session_id,
+                        thread_id,
+                        turn_id_clone,
+                        Some(system_prompt),
+                        messages,
+                    )
+                    .await;
+                });
+                let _ = self
+                    .sessions
+                    .set_abort(&params.session_id, &turn_id, handle.abort_handle())
+                    .await;
+            }
+        }
 
         Ok(ChatSendResult { turn_id })
     }
