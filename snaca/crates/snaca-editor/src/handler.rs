@@ -298,6 +298,12 @@ impl MessageHandler for EditorHandler {
     ) -> Result<ChatSendResult, ProtocolError> {
         self.require_initialized().await?;
         let llm = self.get_llm().await?;
+        info!(
+            session_id = %params.session_id,
+            thread_id = %params.thread_id,
+            content_len = params.content.len(),
+            "chat.send received"
+        );
 
         // 1. Append the new user message to thread history *before* the
         //    turn starts so begin_turn's session validation already sees a

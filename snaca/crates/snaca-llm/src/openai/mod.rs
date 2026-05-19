@@ -25,7 +25,7 @@ use crate::transport::{log_response_headers, wrap_byte_stream};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use wire::{ChatResponse, WireErrorEnvelope};
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com";
@@ -120,8 +120,11 @@ impl LlmClient for OpenAIClient {
             // DeepSeek's `prompt_cache_hit_tokens`; advertised as unsupported
             // until a dedicated mapper lands.
             prompt_cache: false,
-            // Vanilla chat-completions models do not stream chain-of-thought.
-            thinking: false,
+            // Vanilla `gpt-4o` etc. do not stream chain-of-thought, but the
+            // shared OpenAI-compat gateways (DeepSeek-R1, Qwen-QwQ, …) do —
+            // `reasoning_content` is parsed and surfaced as Thinking deltas
+            // when present, so advertise the capability honestly.
+            thinking: true,
             streaming: true,
         }
     }
@@ -182,8 +185,10 @@ impl LlmClient for OpenAIClient {
             request.model = self.config.default_model.clone();
         }
         let body = convert::build_chat_request(&request, true)?;
-        debug!(
+        let endpoint = self.endpoint();
+        info!(
             provider = "openai",
+            endpoint = %endpoint,
             model = %body.model,
             messages = body.messages.len(),
             tools = body.tools.len(),
@@ -192,7 +197,7 @@ impl LlmClient for OpenAIClient {
 
         let resp = self
             .http
-            .post(self.endpoint())
+            .post(&endpoint)
             .bearer_auth(&self.config.api_key)
             .header("accept", "text/event-stream")
             .json(&body)
@@ -200,6 +205,7 @@ impl LlmClient for OpenAIClient {
             .await?;
 
         let status = resp.status();
+        info!(provider = "openai", status = %status, "streaming response headers received");
         if !status.is_success() {
             let retry_after = resp
                 .headers()

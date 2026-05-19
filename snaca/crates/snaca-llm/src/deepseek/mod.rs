@@ -21,7 +21,7 @@ use crate::transport::{log_response_headers, wrap_byte_stream};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use wire::{ChatResponse, WireErrorEnvelope};
 
 const DEFAULT_BASE_URL: &str = "https://api.deepseek.com";
@@ -186,8 +186,10 @@ impl LlmClient for DeepSeekClient {
             request.model = self.config.default_model.clone();
         }
         let body = convert::build_chat_request(&request, true)?;
-        debug!(
+        let endpoint = self.endpoint();
+        info!(
             provider = "deepseek",
+            endpoint = %endpoint,
             model = %body.model,
             messages = body.messages.len(),
             tools = body.tools.len(),
@@ -196,7 +198,7 @@ impl LlmClient for DeepSeekClient {
 
         let resp = self
             .http
-            .post(self.endpoint())
+            .post(&endpoint)
             .bearer_auth(&self.config.api_key)
             .header("accept", "text/event-stream")
             .json(&body)
@@ -204,6 +206,7 @@ impl LlmClient for DeepSeekClient {
             .await?;
 
         let status = resp.status();
+        info!(provider = "deepseek", status = %status, "streaming response headers received");
         if !status.is_success() {
             let retry_after = resp
                 .headers()

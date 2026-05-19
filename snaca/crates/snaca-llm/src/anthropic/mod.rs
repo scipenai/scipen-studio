@@ -25,7 +25,7 @@ use crate::transport::{log_response_headers, wrap_byte_stream};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use wire::{MessagesResponse, WireErrorEnvelope};
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
@@ -212,8 +212,10 @@ impl LlmClient for AnthropicClient {
             true,
             self.config.enable_prompt_cache,
         )?;
-        debug!(
+        let endpoint = self.endpoint();
+        info!(
             provider = "anthropic",
+            endpoint = %endpoint,
             model = %body.model,
             messages = body.messages.len(),
             tools = body.tools.len(),
@@ -222,7 +224,7 @@ impl LlmClient for AnthropicClient {
 
         let resp = self
             .http
-            .post(self.endpoint())
+            .post(&endpoint)
             .header("x-api-key", &self.config.api_key)
             .header("anthropic-version", &self.config.anthropic_version)
             .header("content-type", "application/json")
@@ -232,6 +234,7 @@ impl LlmClient for AnthropicClient {
             .await?;
 
         let status = resp.status();
+        info!(provider = "anthropic", status = %status, "streaming response headers received");
         if !status.is_success() {
             // Drain body so the user sees the provider's error envelope.
             let retry_after = resp
