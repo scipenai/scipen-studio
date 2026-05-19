@@ -131,7 +131,7 @@
       "selection": "Selection",
       "ui": "UI",
       "shortcuts": "Shortcuts",
-      "ai": "AI Completion",
+      "ai": "AI Agent",
       "update": "Update"
     }
   },
@@ -166,18 +166,17 @@
   },
   "aiSettings": {
     "chatProvider": "AI Agent",
-    "chatProviderDesc": "Used by the SNACA Agent for chat, tool calls, Diff review, and all project-memory features",
+    "chatProviderDesc": "Used by the SNACA Agent for chat, tool calls, Diff review, and Ctrl+K inline completion",
     "chatModel": "Agent Model",
     "chatModelDesc": "Pick a stronger reasoning model, e.g. deepseek-chat, claude-sonnet-4",
-    "completionProvider": "AI Completion",
     "provider": "Provider",
-    "providerDesc": "Select the model provider for AI completion",
+    "providerDesc": "Select the model provider for AI",
     "apiKey": "API Key",
     "apiKeyDesc": "API key for the provider",
     "baseUrl": "Base URL",
     "baseUrlDesc": "API endpoint URL, leave empty for default",
-    "model": "Model",
-    "modelDesc": "Model ID for completion (low-latency models recommended, e.g. gpt-4o-mini)",
+    "model": "Completion Model",
+    "modelDesc": "Model ID for Ctrl+K inline completion (low-latency models recommended, e.g. gpt-4o-mini); leave blank to reuse the Agent model",
     "testConnection": "Test Connection",
     "testSuccess": "Connection successful",
     "testFailed": "Connection failed"
@@ -402,7 +401,7 @@
       "ui": "Adjust theme, interface density, and sidebar presentation.",
       "shortcuts": "Customize command shortcuts and interaction habits.",
       "selection": "Configure selection assistant and shortcut trigger mode.",
-      "ai": "Configure AI inline completion provider, API key, and model.",
+      "ai": "Configure provider, API key, and models for the AI Agent and inline completion.",
       "update": "Check for and install application updates."
     }
   },

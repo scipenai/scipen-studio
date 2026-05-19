@@ -552,7 +552,12 @@ function resolveChatProvider(config: IConfigManager): ResolvedChatProvider | nul
   } catch {
     return null;
   }
-  const selection: ModelSelection | null = ai.selectedModels.chat;
+  // Prefer the explicit chat selection; if absent, fall back to the
+  // completion selection (the Settings UI keeps them aligned, but legacy
+  // configs may only carry `completion`). Same providerId either way →
+  // same credentials.
+  const selection: ModelSelection | null =
+    ai.selectedModels.chat ?? ai.selectedModels.completion;
   if (!selection) return null;
 
   const providers: AIProviderDTO[] = ai.providers;

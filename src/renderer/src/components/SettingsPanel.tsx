@@ -167,7 +167,7 @@ export const SettingsPanel: React.FC = () => {
         </div>
       </div>
 
-      <div className="min-w-0 flex-1 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <div
           className="border-b px-5 py-4"
           style={{
@@ -184,7 +184,7 @@ export const SettingsPanel: React.FC = () => {
         </div>
 
         <div
-          className="h-full overflow-y-auto px-5 py-4"
+          className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
           style={{ background: 'var(--color-bg-secondary)' }}
         >
           <TabContent activeTab={activeTab} />

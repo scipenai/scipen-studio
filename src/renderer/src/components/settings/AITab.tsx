@@ -1,11 +1,10 @@
 /**
- * @file AITab.tsx - AI Settings Tab
- * @description Two independent sections:
- *   - Chat (SNACA): provider/apiKey/apiHost/model for the SNACA assistant
- *   - Completion (Ctrl+K): provider/apiKey/apiHost/model for inline ghost-text
- *
- *   Credentials are deduped by `providerId`: if Chat and Completion pick the
- *   same provider, they share apiKey + apiHost; editing one side updates both.
+ * @file AITab.tsx - AI Agent Settings Tab
+ * @description Single "AI Agent" section: one provider + apiKey + apiHost,
+ *   shared by SNACA (chat / tools / Diff review) and Ctrl+K (ghost-text).
+ *   Two model inputs sit underneath: Agent Model (selectedModels.chat) and
+ *   Completion Model (selectedModels.completion). Completion is optional —
+ *   when blank it falls back to the Agent model.
  */
 
 import { Loader2 } from 'lucide-react';
@@ -43,8 +42,6 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
 const selectClassName =
   'w-full px-3 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]';
 
-type Role = 'chat' | 'completion';
-
 function makeProvider(id: ProviderId): AIProviderDTO {
   const opt = PROVIDER_OPTIONS.find((o) => o.id === id);
   return {
@@ -62,70 +59,64 @@ export const AITab: React.FC = () => {
   const { t } = useTranslation();
   const settingsService = getSettingsService();
 
-  // Credentials keyed by providerId. Same id → one set of key/host shared
-  // between Chat and Completion.
-  const [providersById, setProvidersById] = useState<Record<string, AIProviderDTO>>({});
-  const [chatSel, setChatSel] = useState<ModelSelection>({
-    providerId: 'deepseek',
-    modelId: '',
-  });
-  const [completionSel, setCompletionSel] = useState<ModelSelection>({
-    providerId: 'openai',
-    modelId: '',
-  });
-  const [chatModelInput, setChatModelInput] = useState('');
-  const [completionModelInput, setCompletionModelInput] = useState('');
+  const [provider, setProvider] = useState<AIProviderDTO | null>(null);
+  const [chatModel, setChatModel] = useState('');
+  const [completionModel, setCompletionModel] = useState('');
 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  // Initial load.
+  // Initial load. Picks a provider in this order: chat selection → completion
+  // selection → first existing → deepseek default. Models inputs default to
+  // whatever the user already selected; completion left blank means "same as
+  // chat" downstream.
   useEffect(() => {
     (async () => {
       const config = await settingsService.getAIConfig();
 
-      const map: Record<string, AIProviderDTO> = {};
-      for (const p of config.providers) map[p.id] = p;
+      const chatSel = config.selectedModels.chat;
+      const complSel = config.selectedModels.completion;
+      const activeId: ProviderId =
+        (chatSel?.providerId ?? complSel?.providerId ?? config.providers[0]?.id ?? 'deepseek') as
+          ProviderId;
 
-      const chat: ModelSelection = config.selectedModels.chat ?? {
-        providerId: (config.providers[0]?.id ?? 'deepseek') as ProviderId,
-        modelId: '',
-      };
-      const completion: ModelSelection = config.selectedModels.completion ?? {
-        providerId: chat.providerId,
-        modelId: '',
-      };
-
-      // Ensure both selected providers exist in the map.
-      if (!map[chat.providerId]) map[chat.providerId] = makeProvider(chat.providerId);
-      if (!map[completion.providerId]) {
-        map[completion.providerId] = makeProvider(completion.providerId);
-      }
-
-      setProvidersById(map);
-      setChatSel(chat);
-      setCompletionSel(completion);
-      setChatModelInput(chat.modelId);
-      setCompletionModelInput(completion.modelId);
+      const existing = config.providers.find((p) => p.id === activeId);
+      setProvider(existing ?? makeProvider(activeId));
+      setChatModel(chatSel?.modelId ?? '');
+      setCompletionModel(complSel?.modelId ?? '');
     })();
   }, [settingsService]);
 
-  // Build the AIConfigDTO to persist from current state.
+  // Persist whenever any field updates. Writes a single provider entry plus
+  // chat/completion selections that share the providerId.
   const persist = useCallback(
     async (next: {
-      providersById?: Record<string, AIProviderDTO>;
-      chatSel?: ModelSelection;
-      completionSel?: ModelSelection;
+      provider?: AIProviderDTO;
+      chatModel?: string;
+      completionModel?: string;
     }) => {
-      const pmap = next.providersById ?? providersById;
-      const chat = next.chatSel ?? chatSel;
-      const compl = next.completionSel ?? completionSel;
+      const p = next.provider ?? provider;
+      if (!p) return;
+      const chat = next.chatModel ?? chatModel;
+      const compl = next.completionModel ?? completionModel;
+
+      // Completion model is optional. When blank, fall back to the chat
+      // model so AIService.createCompletionModel() still has something to
+      // hit.
+      const effectiveCompletion = compl || chat;
+
+      const chatSelection: ModelSelection | null = chat
+        ? { providerId: p.id, modelId: chat }
+        : null;
+      const completionSelection: ModelSelection | null = effectiveCompletion
+        ? { providerId: p.id, modelId: effectiveCompletion }
+        : null;
 
       const dto: { providers: AIProviderDTO[]; selectedModels: SelectedModels } = {
-        providers: Object.values(pmap),
+        providers: [p],
         selectedModels: {
-          chat,
-          completion: compl,
+          chat: chatSelection,
+          completion: completionSelection,
           vision: null,
           tts: null,
           stt: null,
@@ -133,55 +124,48 @@ export const AITab: React.FC = () => {
       };
       await settingsService.setAIConfig(dto);
     },
-    [providersById, chatSel, completionSel, settingsService]
+    [provider, chatModel, completionModel, settingsService]
   );
 
-  // ----- generic helpers wired into per-role inputs -----
+  // ----- per-input handlers -----
 
-  const updateCredentials = useCallback(
-    (providerId: ProviderId, patch: Partial<Pick<AIProviderDTO, 'apiKey' | 'apiHost'>>) => {
-      const existing = providersById[providerId] ?? makeProvider(providerId);
-      const merged = { ...existing, ...patch };
-      const nextMap = { ...providersById, [providerId]: merged };
-      setProvidersById(nextMap);
-      void persist({ providersById: nextMap });
+  const updateProvider = useCallback(
+    (patch: Partial<AIProviderDTO>) => {
+      if (!provider) return;
+      const merged: AIProviderDTO = { ...provider, ...patch };
+      setProvider(merged);
+      void persist({ provider: merged });
     },
-    [providersById, persist]
+    [provider, persist]
   );
 
   const changeProvider = useCallback(
-    (role: Role, id: ProviderId) => {
+    (id: ProviderId) => {
       setTestResult(null);
-      const ensured = providersById[id] ?? makeProvider(id);
-      const nextMap = providersById[id] ? providersById : { ...providersById, [id]: ensured };
-      if (role === 'chat') {
-        const next: ModelSelection = { providerId: id, modelId: chatModelInput };
-        setProvidersById(nextMap);
-        setChatSel(next);
-        void persist({ providersById: nextMap, chatSel: next });
-      } else {
-        const next: ModelSelection = { providerId: id, modelId: completionModelInput };
-        setProvidersById(nextMap);
-        setCompletionSel(next);
-        void persist({ providersById: nextMap, completionSel: next });
-      }
+      const next = makeProvider(id);
+      // Preserve the prior key when it makes sense — users often paste the
+      // same key for `custom` providers regardless of the dropdown choice.
+      if (provider?.apiKey) next.apiKey = provider.apiKey;
+      setProvider(next);
+      void persist({ provider: next });
     },
-    [providersById, chatModelInput, completionModelInput, persist]
+    [provider, persist]
   );
 
-  const commitModel = useCallback(
-    (role: Role, modelId: string) => {
-      if (role === 'chat') {
-        const next: ModelSelection = { providerId: chatSel.providerId, modelId };
-        setChatSel(next);
-        void persist({ chatSel: next });
-      } else {
-        const next: ModelSelection = { providerId: completionSel.providerId, modelId };
-        setCompletionSel(next);
-        void persist({ completionSel: next });
-      }
+  const commitChatModel = useCallback(
+    (value: string) => {
+      setChatModel(value);
+      void persist({ chatModel: value });
     },
-    [chatSel.providerId, completionSel.providerId, persist]
+    [persist]
+  );
+
+  const commitCompletionModel = useCallback(
+    (value: string) => {
+      setCompletionModel(value);
+      void persist({ completionModel: value });
+    },
+    [persist]
   );
 
   const handleTestConnection = useCallback(async () => {
@@ -201,20 +185,22 @@ export const AITab: React.FC = () => {
     }
   }, [t]);
 
-  // ----- derived: provider entry for each section -----
+  // Placeholder host shown in the input — derived from the provider option.
+  const hostPlaceholder = useMemo(() => {
+    if (!provider) return 'https://...';
+    return PROVIDER_OPTIONS.find((o) => o.id === provider.id)?.defaultHost ?? 'https://...';
+  }, [provider]);
 
-  const chatProvider = useMemo<AIProviderDTO>(
-    () => providersById[chatSel.providerId] ?? makeProvider(chatSel.providerId),
-    [providersById, chatSel.providerId]
-  );
-  const completionProvider = useMemo<AIProviderDTO>(
-    () => providersById[completionSel.providerId] ?? makeProvider(completionSel.providerId),
-    [providersById, completionSel.providerId]
-  );
+  if (!provider) {
+    return (
+      <div className="text-sm text-[var(--color-text-muted)] py-4">
+        {t('aiSettings.chatProvider')}...
+      </div>
+    );
+  }
 
   return (
     <>
-      {/* ========== Chat (SNACA) ========== */}
       <SectionTitle>{t('aiSettings.chatProvider')}</SectionTitle>
       <p className="text-xs text-[var(--color-text-muted)] mb-3 -mt-1">
         {t('aiSettings.chatProviderDesc')}
@@ -222,8 +208,8 @@ export const AITab: React.FC = () => {
 
       <SettingItem label={t('aiSettings.provider')} description={t('aiSettings.providerDesc')}>
         <select
-          value={chatSel.providerId}
-          onChange={(e) => changeProvider('chat', e.target.value as ProviderId)}
+          value={provider.id}
+          onChange={(e) => changeProvider(e.target.value as ProviderId)}
           className={selectClassName}
         >
           {PROVIDER_OPTIONS.map((opt) => (
@@ -237,8 +223,8 @@ export const AITab: React.FC = () => {
       <SettingItem label={t('aiSettings.apiKey')} description={t('aiSettings.apiKeyDesc')}>
         <input
           type="password"
-          value={chatProvider.apiKey}
-          onChange={(e) => updateCredentials(chatSel.providerId, { apiKey: e.target.value })}
+          value={provider.apiKey}
+          onChange={(e) => updateProvider({ apiKey: e.target.value })}
           placeholder="sk-..."
           className={inputClassName}
         />
@@ -247,11 +233,9 @@ export const AITab: React.FC = () => {
       <SettingItem label={t('aiSettings.baseUrl')} description={t('aiSettings.baseUrlDesc')}>
         <input
           type="text"
-          value={chatProvider.apiHost}
-          onChange={(e) => updateCredentials(chatSel.providerId, { apiHost: e.target.value })}
-          placeholder={
-            PROVIDER_OPTIONS.find((o) => o.id === chatSel.providerId)?.defaultHost ?? 'https://...'
-          }
+          value={provider.apiHost}
+          onChange={(e) => updateProvider({ apiHost: e.target.value })}
+          placeholder={hostPlaceholder}
           className={inputClassName}
         />
       </SettingItem>
@@ -259,53 +243,10 @@ export const AITab: React.FC = () => {
       <SettingItem label={t('aiSettings.chatModel')} description={t('aiSettings.chatModelDesc')}>
         <input
           type="text"
-          value={chatModelInput}
-          onChange={(e) => setChatModelInput(e.target.value)}
-          onBlur={() => commitModel('chat', chatModelInput)}
+          value={chatModel}
+          onChange={(e) => setChatModel(e.target.value)}
+          onBlur={() => commitChatModel(chatModel)}
           placeholder="deepseek-chat"
-          className={inputClassName}
-        />
-      </SettingItem>
-
-      {/* ========== Completion (Ctrl+K) ========== */}
-      <div className="mt-6" />
-      <SectionTitle>{t('aiSettings.completionProvider')}</SectionTitle>
-
-      <SettingItem label={t('aiSettings.provider')} description={t('aiSettings.providerDesc')}>
-        <select
-          value={completionSel.providerId}
-          onChange={(e) => changeProvider('completion', e.target.value as ProviderId)}
-          className={selectClassName}
-        >
-          {PROVIDER_OPTIONS.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </SettingItem>
-
-      <SettingItem label={t('aiSettings.apiKey')} description={t('aiSettings.apiKeyDesc')}>
-        <input
-          type="password"
-          value={completionProvider.apiKey}
-          onChange={(e) => updateCredentials(completionSel.providerId, { apiKey: e.target.value })}
-          placeholder="sk-..."
-          className={inputClassName}
-        />
-      </SettingItem>
-
-      <SettingItem label={t('aiSettings.baseUrl')} description={t('aiSettings.baseUrlDesc')}>
-        <input
-          type="text"
-          value={completionProvider.apiHost}
-          onChange={(e) =>
-            updateCredentials(completionSel.providerId, { apiHost: e.target.value })
-          }
-          placeholder={
-            PROVIDER_OPTIONS.find((o) => o.id === completionSel.providerId)?.defaultHost ??
-            'https://...'
-          }
           className={inputClassName}
         />
       </SettingItem>
@@ -313,10 +254,10 @@ export const AITab: React.FC = () => {
       <SettingItem label={t('aiSettings.model')} description={t('aiSettings.modelDesc')}>
         <input
           type="text"
-          value={completionModelInput}
-          onChange={(e) => setCompletionModelInput(e.target.value)}
-          onBlur={() => commitModel('completion', completionModelInput)}
-          placeholder="gpt-4o-mini"
+          value={completionModel}
+          onChange={(e) => setCompletionModel(e.target.value)}
+          onBlur={() => commitCompletionModel(completionModel)}
+          placeholder={chatModel || 'gpt-4o-mini'}
           className={inputClassName}
         />
       </SettingItem>
@@ -325,7 +266,7 @@ export const AITab: React.FC = () => {
         <button
           type="button"
           onClick={handleTestConnection}
-          disabled={testing || !completionProvider.apiKey}
+          disabled={testing || !provider.apiKey}
           className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] disabled:opacity-50 flex items-center gap-1.5"
         >
           {testing && <Loader2 size={14} className="animate-spin" />}

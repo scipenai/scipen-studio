@@ -131,7 +131,7 @@
       "selection": "划词助手",
       "ui": "界面",
       "shortcuts": "快捷键",
-      "ai": "AI 补全",
+      "ai": "AI Agent",
       "update": "更新"
     }
   },
@@ -166,18 +166,17 @@
   },
   "aiSettings": {
     "chatProvider": "AI Agent",
-    "chatProviderDesc": "用于 SNACA Agent 的对话、工具调用、Diff 审阅等所有项目记忆相关能力",
+    "chatProviderDesc": "用于 SNACA Agent 的对话、工具调用、Diff 审阅,以及 Ctrl+K 内联补全",
     "chatModel": "Agent 模型",
     "chatModelDesc": "建议选择推理较强的模型，如 deepseek-chat、claude-sonnet-4 等",
-    "completionProvider": "AI 补全",
     "provider": "服务提供商",
-    "providerDesc": "选择 AI 补全使用的模型提供商",
+    "providerDesc": "选择 AI 使用的模型提供商",
     "apiKey": "API Key",
     "apiKeyDesc": "提供商的 API 密钥",
     "baseUrl": "Base URL",
     "baseUrlDesc": "API 接口地址，留空使用默认值",
-    "model": "模型",
-    "modelDesc": "用于补全的模型 ID（建议选择低延迟模型，如 gpt-4o-mini）",
+    "model": "补全模型",
+    "modelDesc": "用于 Ctrl+K 内联补全的模型 ID（建议低延迟模型，如 gpt-4o-mini）；留空时沿用 Agent 模型",
     "testConnection": "测试连接",
     "testSuccess": "连接成功",
     "testFailed": "连接失败"
@@ -402,7 +401,7 @@
       "ui": "主题、界面密度与侧栏相关的表现设置。",
       "shortcuts": "常用命令的快捷键映射与操作习惯。",
       "selection": "划词助手与快捷键触发方式。",
-      "ai": "AI 内联补全的提供商、密钥与模型配置。",
+      "ai": "AI Agent 与内联补全的提供商、密钥与模型配置。",
       "update": "检查并安装应用更新。"
     }
   },
