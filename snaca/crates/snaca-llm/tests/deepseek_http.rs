@@ -227,3 +227,33 @@ async fn empty_api_key_rejected_at_construction() {
         Ok(_) => panic!("expected construction to fail with empty api key"),
     }
 }
+
+/// Studio's UI stores `apiHost = https://api.deepseek.com/v1` so the Vercel
+/// AI SDK works; when SNACA receives the same value it must NOT double up
+/// the `/v1` segment.
+#[tokio::test]
+async fn endpoint_idempotent_when_base_url_already_ends_with_v1() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(ok_response(
+            json!({"role": "assistant", "content": "ok"}),
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // Append `/v1` to the wiremock base URL and verify the endpoint still
+    // resolves to `/v1/chat/completions` rather than `/v1/v1/...`.
+    let base_with_v1 = format!("{}/v1", server.uri().trim_end_matches('/'));
+    let cfg = DeepSeekConfig::new("test-api-key").with_base_url(base_with_v1);
+    let client = DeepSeekClient::new(cfg).unwrap();
+    let resp = client
+        .create_message(
+            MessageRequest::new("deepseek-chat")
+                .with_messages(vec![Message::user_text("hi")]),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.stop_reason, StopReason::EndTurn);
+}

@@ -98,7 +98,16 @@ impl DeepSeekClient {
     }
 
     fn endpoint(&self) -> String {
-        format!("{}/v1/chat/completions", self.config.base_url.trim_end_matches('/'))
+        // Accept `base_url` with or without a trailing `/v1` — some hosts
+        // (OpenAI Vercel-SDK conventions) store `https://api.example.com/v1`,
+        // others store the bare host. Either way we land on the canonical
+        // OpenAI-compatible `/v1/chat/completions` route.
+        let base = self.config.base_url.trim_end_matches('/');
+        if base.ends_with("/v1") {
+            format!("{base}/chat/completions")
+        } else {
+            format!("{base}/v1/chat/completions")
+        }
     }
 }
 

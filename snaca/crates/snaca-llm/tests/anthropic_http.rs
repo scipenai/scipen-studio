@@ -203,3 +203,37 @@ async fn empty_api_key_rejected_at_construction() {
         Ok(_) => panic!("expected construction to fail with empty api key"),
     }
 }
+
+/// Mirrors the DeepSeek case: hosts may store `base_url` already ending in
+/// `/v1` (matching the OpenAI/Vercel SDK convention). The Anthropic client
+/// must absorb the duplication rather than emit `/v1/v1/messages`.
+#[tokio::test]
+async fn endpoint_idempotent_when_base_url_already_ends_with_v1() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "msg_test",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-test",
+            "content": [{"type": "text", "text": "ok"}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 1, "output_tokens": 1}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let base_with_v1 = format!("{}/v1", server.uri().trim_end_matches('/'));
+    let cfg = AnthropicConfig::new("test-anthropic-key").with_base_url(base_with_v1);
+    let client = AnthropicClient::new(cfg).unwrap();
+    let resp = client
+        .create_message(
+            MessageRequest::new("claude-test")
+                .with_messages(vec![Message::user_text("hi")]),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.stop_reason, StopReason::EndTurn);
+}

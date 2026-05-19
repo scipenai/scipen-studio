@@ -116,10 +116,14 @@ impl AnthropicClient {
     }
 
     fn endpoint(&self) -> String {
-        format!(
-            "{}/v1/messages",
-            self.config.base_url.trim_end_matches('/')
-        )
+        // Accept `base_url` with or without a trailing `/v1` so hosts can
+        // store the same value the OpenAI-compatible SDKs expect.
+        let base = self.config.base_url.trim_end_matches('/');
+        if base.ends_with("/v1") {
+            format!("{base}/messages")
+        } else {
+            format!("{base}/v1/messages")
+        }
     }
 }
 
