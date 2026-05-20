@@ -162,6 +162,8 @@ impl MessageHandler for EditorHandler {
             host = %params.host.name,
             host_version = %params.host.version,
             model = %params.snaca_config.llm.model,
+            approval_mode = ?params.snaca_config.approval_mode,
+            engine_overrides = %format_engine_overrides(&params.snaca_config.engine),
             "init complete"
         );
 
@@ -205,7 +207,12 @@ impl MessageHandler for EditorHandler {
             inner.snaca_config = Some(params.snaca_config.clone());
             inner.llm_client = Some(new_llm);
         }
-        debug!(model = %params.snaca_config.llm.model, "config.reload applied");
+        info!(
+            model = %params.snaca_config.llm.model,
+            approval_mode = ?params.snaca_config.approval_mode,
+            engine_overrides = %format_engine_overrides(&params.snaca_config.engine),
+            "config.reload applied"
+        );
         Ok(ConfigReloadResult {
             applied: true,
             restart_required: false,
@@ -744,6 +751,37 @@ fn build_system_prompt(context: &ChatContext) -> String {
         BASE_SYSTEM_PROMPT.to_string()
     } else {
         format!("{BASE_SYSTEM_PROMPT}\n\n{xml}")
+    }
+}
+
+/// Render a compact one-line summary of the engine overrides the host
+/// supplied. Used at init / config.reload so operators can verify the
+/// fields landed on the wire — and notice when Studio sent nothing
+/// (the engine then keeps `EngineConfig::default_for(model)`).
+fn format_engine_overrides(ec: &snaca_editor_protocol::types::config::EngineConfig) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(v) = ec.max_iterations { parts.push(format!("max_iterations={v}")); }
+    if let Some(v) = ec.loop_guard_max_repeats { parts.push(format!("loop_guard={v}")); }
+    if let Some(v) = ec.concurrent_tool_limit { parts.push(format!("concurrent={v}")); }
+    if let Some(v) = ec.max_tokens { parts.push(format!("max_tokens={v}")); }
+    if let Some(v) = ec.history_limit { parts.push(format!("history_limit={v}")); }
+    if let Some(v) = ec.compact_after_input_tokens {
+        parts.push(format!("compact_after={v}"));
+    }
+    if let Some(v) = ec.compact_keep_recent { parts.push(format!("compact_keep={v}")); }
+    if let Some(v) = ec.protect_first_n { parts.push(format!("protect_first={v}")); }
+    if let Some(v) = ec.compact_max_retries { parts.push(format!("compact_retries={v}")); }
+    if ec.system_prompt.as_ref().is_some_and(|s| !s.is_empty()) {
+        parts.push("system_prompt=set".into());
+    }
+    if let Some(b) = ec.memory_extractor { parts.push(format!("memory_extractor={b}")); }
+    if let Some(e) = ec.memory_embedder {
+        parts.push(format!("memory_embedder={e:?}"));
+    }
+    if parts.is_empty() {
+        "<defaults>".into()
+    } else {
+        parts.join(", ")
     }
 }
 

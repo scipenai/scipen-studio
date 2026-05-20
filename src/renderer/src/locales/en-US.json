@@ -621,11 +621,11 @@
       "title": "Approval mode",
       "desc": "Controls how SNACA asks before file mutations / shell tools run.",
       "mode": "Mode",
-      "modeDesc": "Changes require a SNACA sidecar restart to take effect.",
+      "modeDesc": "Takes effect on the next turn — no session restart needed.",
       "interactive": "Interactive (recommended)",
       "autoAllow": "Auto-allow all",
       "autoDeny": "Auto-deny all",
-      "restartHint": "⚠ Changing this restarts the SNACA sidecar; the active session resumes automatically."
+      "restartHint": ""
     },
     "engine": {
       "title": "Engine advanced",
@@ -644,12 +644,6 @@
       "concurrentToolsDesc": "Max concurrent tool calls within one turn.",
       "compactAfter": "compact_after_input_tokens",
       "compactAfterDesc": "Trigger auto-compaction once input tokens cross this threshold.",
-      "memoryExtractor": "Memory Extractor",
-      "memoryExtractorDesc": "Run the LLM-backed memory extractor after each turn.",
-      "memoryEmbedder": "Memory Embedder",
-      "memoryEmbedderDesc": "Backend for memory vector recall. fastembed requires the matching build feature.",
-      "on": "Enabled",
-      "off": "Disabled",
       "restartHint": "⚠ Changes restart the SNACA sidecar."
     }
   },

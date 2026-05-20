@@ -23,11 +23,14 @@ import { agentClient } from '../../services/agent/AgentClientService';
 import { SectionTitle, SettingItem, inputClassName } from './SettingsUI';
 
 type ApprovalMode = 'interactive' | 'auto_allow' | 'auto_deny';
-type MemoryEmbedder = 'none' | 'hash' | 'fastembed';
 
 /** Subset of `SnacaConfig.engine` we surface in the UI. Keys mirror the
  *  wire shape (snake_case) so persisted values pass straight through to
- *  `buildSnacaConfigFromSettings`. */
+ *  `buildSnacaConfigFromSettings`. We only expose fields that
+ *  `build_session_engine` actually reads — `memory_extractor` /
+ *  `memory_embedder` are protocol-only stubs in the current SNACA build
+ *  and would silently no-op, so they stay hidden until the engine
+ *  wires them. */
 interface EngineOverrides {
   max_iterations?: number;
   loop_guard_max_repeats?: number;
@@ -35,8 +38,6 @@ interface EngineOverrides {
   max_tokens?: number;
   history_limit?: number;
   compact_after_input_tokens?: number;
-  memory_extractor?: boolean;
-  memory_embedder?: MemoryEmbedder;
 }
 
 const NUMBER_FIELDS: Array<{
@@ -198,9 +199,6 @@ export const AgentTab: React.FC = () => {
           <option value="auto_deny">{t('settingsAgent.approval.autoDeny')}</option>
         </select>
       </SettingItem>
-      <p className="text-[11px] text-amber-400/80 mb-1">
-        {t('settingsAgent.approval.restartHint')}
-      </p>
 
       {/* ---------- Engine advanced ---------- */}
       <SectionTitle>{t('settingsAgent.engine.title')}</SectionTitle>
@@ -238,42 +236,6 @@ export const AgentTab: React.FC = () => {
               </SettingItem>
             );
           })}
-
-          <SettingItem
-            label={t('settingsAgent.engine.memoryExtractor')}
-            description={t('settingsAgent.engine.memoryExtractorDesc')}
-          >
-            <select
-              value={engine.memory_extractor === false ? 'off' : 'on'}
-              onChange={(e) =>
-                persistEngine({ ...engine, memory_extractor: e.target.value === 'on' })
-              }
-              className={selectClassName}
-            >
-              <option value="on">{t('settingsAgent.engine.on')}</option>
-              <option value="off">{t('settingsAgent.engine.off')}</option>
-            </select>
-          </SettingItem>
-
-          <SettingItem
-            label={t('settingsAgent.engine.memoryEmbedder')}
-            description={t('settingsAgent.engine.memoryEmbedderDesc')}
-          >
-            <select
-              value={engine.memory_embedder ?? 'none'}
-              onChange={(e) =>
-                persistEngine({
-                  ...engine,
-                  memory_embedder: e.target.value as MemoryEmbedder,
-                })
-              }
-              className={selectClassName}
-            >
-              <option value="none">none</option>
-              <option value="hash">hash</option>
-              <option value="fastembed">fastembed</option>
-            </select>
-          </SettingItem>
 
           <p className="text-[11px] text-amber-400/80 mt-2">
             {t('settingsAgent.engine.restartHint')}

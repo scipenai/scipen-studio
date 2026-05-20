@@ -309,6 +309,31 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
       void reloadSidecar();
     }, 300);
   };
+
+  /**
+   * Push a fresh `SnacaConfig` over the live JSON-RPC connection without
+   * killing the session. Use for fields SNACA re-reads on each turn
+   * (currently only `approval_mode` — LLM model still needs a restart
+   * because `Arc<dyn LlmClient>` snapshots are taken per request).
+   */
+  let reloadConfigTimer: NodeJS.Timeout | null = null;
+  const scheduleConfigReload = (): void => {
+    if (reloadConfigTimer) return;
+    reloadConfigTimer = setTimeout(() => {
+      reloadConfigTimer = null;
+      if (!isConnected()) return;
+      const snacaConfig = buildSnacaConfigFromSettings(config);
+      client
+        .configReload(snacaConfig)
+        .then(() => logger.info('config.reload applied', { approvalMode: snacaConfig.approval_mode }))
+        .catch((err) => {
+          logger.warn('config.reload failed; falling back to sidecar restart', {
+            error: (err as Error).message,
+          });
+          scheduleSidecarReload();
+        });
+    }, 300);
+  };
   /**
    * Open (or re-open) a session against `params` and write the result
    * into `state`. Closes any prior session first. Caller owns retry —
@@ -405,13 +430,16 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
   store.add({
     dispose: config.subscribe(ConfigKeys.AISelectedModels, scheduleSidecarReload),
   });
-  // Approval gate + Engine knobs are read by SNACA at `init` time
-  // (approval_mode flows into the per-turn gate; engine.* fields land
-  // on `Engine::new`). Changes therefore require a sidecar restart to
-  // take effect — config.reload alone only rebuilds the LLM client.
+  // `approval_mode` is re-read on every chat.send via
+  // `inner.snaca_config.approval_mode` (handler.rs:384), so a
+  // config.reload (which rewrites that field) is enough — no need to
+  // restart the sidecar / kill the session.
   store.add({
-    dispose: config.subscribe(ConfigKeys.AgentApprovalMode, scheduleSidecarReload),
+    dispose: config.subscribe(ConfigKeys.AgentApprovalMode, scheduleConfigReload),
   });
+  // `engine.*` knobs land on `Engine::new` inside `build_session_engine`
+  // (session.open path). config.reload can't change an already-built
+  // engine instance, so a full sidecar restart is required.
   store.add({
     dispose: config.subscribe(ConfigKeys.AgentEngineConfig, scheduleSidecarReload),
   });
@@ -420,6 +448,10 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
       if (restartTimer) {
         clearTimeout(restartTimer);
         restartTimer = null;
+      }
+      if (reloadConfigTimer) {
+        clearTimeout(reloadConfigTimer);
+        reloadConfigTimer = null;
       }
     },
   });

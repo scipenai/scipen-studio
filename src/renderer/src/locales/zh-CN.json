@@ -621,11 +621,11 @@
       "title": "审批模式",
       "desc": "控制 SNACA 在执行文件改动/Bash 工具前如何请求确认。",
       "mode": "模式",
-      "modeDesc": "改动后需要重启 SNACA 子进程才会生效。",
+      "modeDesc": "下一个 turn 即生效,无需重启会话。",
       "interactive": "交互式 (推荐)",
       "autoAllow": "全部自动放行",
       "autoDeny": "全部自动拒绝",
-      "restartHint": "⚠ 改动会触发 SNACA sidecar 重启;当前会话会自动续接。"
+      "restartHint": ""
     },
     "engine": {
       "title": "Engine 高级参数",
@@ -644,12 +644,6 @@
       "concurrentToolsDesc": "同一 turn 内并发工具调用上限。",
       "compactAfter": "compact_after_input_tokens",
       "compactAfterDesc": "输入 tokens 达到该值时触发自动压缩。",
-      "memoryExtractor": "Memory Extractor",
-      "memoryExtractorDesc": "turn 结束后是否运行 LLM 抽取并写入 Memory。",
-      "memoryEmbedder": "Memory Embedder",
-      "memoryEmbedderDesc": "记忆向量检索后端。fastembed 需要相应特性编译。",
-      "on": "开启",
-      "off": "关闭",
       "restartHint": "⚠ 改动会触发 SNACA sidecar 重启。"
     }
   },
