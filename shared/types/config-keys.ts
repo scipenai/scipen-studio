@@ -13,6 +13,14 @@ export enum ConfigKeys {
   AIProviders = 'ai.providers',
   AISelectedModels = 'ai.selectedModels',
 
+  // ====== Agent (SNACA runtime) Configuration ======
+  // Approval gate behaviour for file-mutation / shell tools.
+  // 'interactive' | 'auto_allow' | 'auto_deny'.
+  AgentApprovalMode = 'agent.approvalMode',
+  // Engine tunables — partial `SnacaConfig.engine` overrides stored as
+  // a single JSON object. Unset fields fall back to model-aware defaults.
+  AgentEngineConfig = 'agent.engineConfig',
+
   // ====== Editor Configuration ======
   EditorFontSize = 'editor.fontSize',
   EditorFontFamily = 'editor.fontFamily',

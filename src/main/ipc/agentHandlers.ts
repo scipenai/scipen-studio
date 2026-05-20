@@ -405,6 +405,16 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
   store.add({
     dispose: config.subscribe(ConfigKeys.AISelectedModels, scheduleSidecarReload),
   });
+  // Approval gate + Engine knobs are read by SNACA at `init` time
+  // (approval_mode flows into the per-turn gate; engine.* fields land
+  // on `Engine::new`). Changes therefore require a sidecar restart to
+  // take effect — config.reload alone only rebuilds the LLM client.
+  store.add({
+    dispose: config.subscribe(ConfigKeys.AgentApprovalMode, scheduleSidecarReload),
+  });
+  store.add({
+    dispose: config.subscribe(ConfigKeys.AgentEngineConfig, scheduleSidecarReload),
+  });
   store.add({
     dispose: () => {
       if (restartTimer) {
@@ -761,14 +771,49 @@ export function buildSnacaConfigFromSettings(config: IConfigManager): SnacaConfi
       model: resolved?.modelId ?? process.env.SNACA_MODEL ?? 'deepseek-chat',
       base_url: resolved?.baseUrl ?? process.env.SNACA_BASE_URL ?? 'https://api.deepseek.com',
     },
-    engine: {},
+    engine: readEngineOverrides(config),
     // `interactive` routes file-mutation tools (Edit/Write/MultiEdit)
     // through Studio's Monaco Diff Review and high-risk tools (Bash)
     // through the in-chat approval card. `auto_allow` would let SNACA
-    // edit files / run shell commands without any user review — that's
-    // a CI/server-side default, not what a desktop user expects.
-    approval_mode: 'interactive',
+    // edit files / run shell commands without any user review — that
+    // is a CI / server-side default, not what a desktop user expects;
+    // we keep it as the floor and let advanced users opt out via the
+    // Agent settings tab.
+    approval_mode: readApprovalMode(config),
   };
+}
+
+/**
+ * Read the persisted approval-mode override. Falls back to
+ * `interactive` (the safe default) when unset or unrecognised.
+ */
+function readApprovalMode(config: IConfigManager): 'interactive' | 'auto_allow' | 'auto_deny' {
+  const raw = config.get<string | undefined>(ConfigKeys.AgentApprovalMode, undefined);
+  if (raw === 'auto_allow' || raw === 'auto_deny' || raw === 'interactive') {
+    return raw;
+  }
+  return 'interactive';
+}
+
+/**
+ * Read engine overrides persisted under `AgentEngineConfig`. Only fields
+ * that pass shape validation are forwarded; everything else falls back
+ * to SNACA's model-aware defaults via the empty default `{}`.
+ *
+ * Stored shape mirrors `EngineConfigSchema` (camelCase to snake_case
+ * translation kept out of the renderer since both sides only use the
+ * wire form — there is no rendering tier for these advanced knobs).
+ */
+function readEngineOverrides(config: IConfigManager): Record<string, unknown> {
+  const raw = config.get<unknown>(ConfigKeys.AgentEngineConfig, undefined);
+  if (!raw || typeof raw !== 'object') return {};
+  // Drop nulls / undefineds so SNACA's `default_for(model)` keeps the
+  // model-tuned defaults instead of receiving an explicit null.
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter(
+      ([, v]) => v !== null && v !== undefined && v !== ''
+    )
+  );
 }
 
 /**

@@ -616,7 +616,42 @@
     "openMemory": "Open Memory Viewer",
     "skillsLabel": "Skills",
     "skillsDesc": "Project- and tenant-scoped skill library. Edit the .md files in your editor.",
-    "openSkills": "Open Skills Viewer"
+    "openSkills": "Open Skills Viewer",
+    "approval": {
+      "title": "Approval mode",
+      "desc": "Controls how SNACA asks before file mutations / shell tools run.",
+      "mode": "Mode",
+      "modeDesc": "Changes require a SNACA sidecar restart to take effect.",
+      "interactive": "Interactive (recommended)",
+      "autoAllow": "Auto-allow all",
+      "autoDeny": "Auto-deny all",
+      "restartHint": "⚠ Changing this restarts the SNACA sidecar; the active session resumes automatically."
+    },
+    "engine": {
+      "title": "Engine advanced",
+      "expand": "Expand",
+      "collapse": "Collapse",
+      "desc": "Override SNACA engine defaults. Leave blank to keep the model-aware default. Changes restart the sidecar.",
+      "maxIterations": "max_iterations",
+      "maxIterationsDesc": "Max LLM iterations per turn — prevents runaway loops.",
+      "loopGuard": "loop_guard_max_repeats",
+      "loopGuardDesc": "Abort after N consecutive identical tool-call patterns (anti-loop heuristic).",
+      "historyLimit": "history_limit",
+      "historyLimitDesc": "Cap on history messages injected per turn.",
+      "maxTokens": "max_tokens",
+      "maxTokensDesc": "Per-request max_tokens cap.",
+      "concurrentTools": "concurrent_tool_limit",
+      "concurrentToolsDesc": "Max concurrent tool calls within one turn.",
+      "compactAfter": "compact_after_input_tokens",
+      "compactAfterDesc": "Trigger auto-compaction once input tokens cross this threshold.",
+      "memoryExtractor": "Memory Extractor",
+      "memoryExtractorDesc": "Run the LLM-backed memory extractor after each turn.",
+      "memoryEmbedder": "Memory Embedder",
+      "memoryEmbedderDesc": "Backend for memory vector recall. fastembed requires the matching build feature.",
+      "on": "Enabled",
+      "off": "Disabled",
+      "restartHint": "⚠ Changes restart the SNACA sidecar."
+    }
   },
   "memoryViewer": {
     "title": "Memory & Skills",

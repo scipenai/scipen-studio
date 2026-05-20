@@ -616,7 +616,42 @@
     "openMemory": "打开 Memory Viewer",
     "skillsLabel": "Skills",
     "skillsDesc": "项目级与租户级的 Skill 库,在编辑器中以 .md 文件维护。",
-    "openSkills": "打开 Skills Viewer"
+    "openSkills": "打开 Skills Viewer",
+    "approval": {
+      "title": "审批模式",
+      "desc": "控制 SNACA 在执行文件改动/Bash 工具前如何请求确认。",
+      "mode": "模式",
+      "modeDesc": "改动后需要重启 SNACA 子进程才会生效。",
+      "interactive": "交互式 (推荐)",
+      "autoAllow": "全部自动放行",
+      "autoDeny": "全部自动拒绝",
+      "restartHint": "⚠ 改动会触发 SNACA sidecar 重启;当前会话会自动续接。"
+    },
+    "engine": {
+      "title": "Engine 高级参数",
+      "expand": "展开",
+      "collapse": "收起",
+      "desc": "覆盖 SNACA 引擎的默认参数。留空使用模型相关的默认值。修改后会重启 sidecar。",
+      "maxIterations": "max_iterations",
+      "maxIterationsDesc": "单 turn 最大 LLM 迭代次数,防失控循环。",
+      "loopGuard": "loop_guard_max_repeats",
+      "loopGuardDesc": "同一工具调用模式连续触发多少次后中止 (反 LLM 无限调工具)。",
+      "historyLimit": "history_limit",
+      "historyLimitDesc": "每 turn 注入的历史消息条数上限。",
+      "maxTokens": "max_tokens",
+      "maxTokensDesc": "每次 LLM 请求的 max_tokens 上限。",
+      "concurrentTools": "concurrent_tool_limit",
+      "concurrentToolsDesc": "同一 turn 内并发工具调用上限。",
+      "compactAfter": "compact_after_input_tokens",
+      "compactAfterDesc": "输入 tokens 达到该值时触发自动压缩。",
+      "memoryExtractor": "Memory Extractor",
+      "memoryExtractorDesc": "turn 结束后是否运行 LLM 抽取并写入 Memory。",
+      "memoryEmbedder": "Memory Embedder",
+      "memoryEmbedderDesc": "记忆向量检索后端。fastembed 需要相应特性编译。",
+      "on": "开启",
+      "off": "关闭",
+      "restartHint": "⚠ 改动会触发 SNACA sidecar 重启。"
+    }
   },
   "memoryViewer": {
     "title": "Memory & Skills",
