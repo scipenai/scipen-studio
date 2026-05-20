@@ -647,8 +647,7 @@
       "modeDesc": "Takes effect on the next turn — no session restart needed.",
       "interactive": "Interactive (recommended)",
       "autoAllow": "Auto-allow all",
-      "autoDeny": "Auto-deny all",
-      "restartHint": ""
+      "autoDeny": "Auto-deny all"
     },
     "engine": {
       "title": "Engine advanced",

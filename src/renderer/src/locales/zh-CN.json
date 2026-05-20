@@ -647,8 +647,7 @@
       "modeDesc": "下一个 turn 即生效,无需重启会话。",
       "interactive": "交互式 (推荐)",
       "autoAllow": "全部自动放行",
-      "autoDeny": "全部自动拒绝",
-      "restartHint": ""
+      "autoDeny": "全部自动拒绝"
     },
     "engine": {
       "title": "Engine 高级参数",

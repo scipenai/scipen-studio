@@ -81,7 +81,13 @@ export const McpServersSection: React.FC = () => {
       }
       const next = servers.filter((_, i) => i !== idx);
       persist(next);
-      if (expandedIndex === idx) setExpandedIndex(null);
+      // Adjust expandedIndex against the new array. Deleting at or
+      // below the expanded row would otherwise leave the expansion
+      // pointing at the wrong server (or out of bounds).
+      if (expandedIndex !== null) {
+        if (expandedIndex === idx) setExpandedIndex(null);
+        else if (expandedIndex > idx) setExpandedIndex(expandedIndex - 1);
+      }
     },
     [servers, persist, t, expandedIndex]
   );
