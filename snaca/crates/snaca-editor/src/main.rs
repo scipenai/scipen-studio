@@ -51,11 +51,23 @@ struct Cli {
     /// Log filter (overridable via `RUST_LOG`).
     #[arg(long)]
     log_filter: Option<String>,
+    /// Pre-download the fastembed ONNX model into the cache dir and
+    /// exit. Used by the Studio "select fastembed" UI flow before
+    /// persisting the setting — avoids a multi-minute hang inside the
+    /// next `init`. Reads the cache dir from `SCIPEN_FASTEMBED_CACHE_DIR`
+    /// when set; falls back to fastembed-rs's default (`~/.cache/fastembed`).
+    /// Only available when built with `--features fastembed`.
+    #[arg(long)]
+    download_fastembed: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     setup_tracing(cli.log_filter.as_deref());
+
+    if cli.download_fastembed {
+        return run_download_fastembed();
+    }
 
     info!(
         version = env!("CARGO_PKG_VERSION"),
@@ -69,6 +81,42 @@ fn main() -> anyhow::Result<()> {
         .context("build tokio runtime")?;
 
     runtime.block_on(run(cli))
+}
+
+/// Stand up `FastEmbedEmbedder` once so its lazy download into the
+/// cache directory completes, then exit. The host (Studio) captures
+/// stderr for progress; success is signalled by exit code 0 and the
+/// `READY` final line on stdout.
+#[cfg(feature = "fastembed")]
+fn run_download_fastembed() -> anyhow::Result<()> {
+    use snaca_memory::{FastEmbedConfig, FastEmbedEmbedder};
+    let cache_dir = std::env::var_os("SCIPEN_FASTEMBED_CACHE_DIR")
+        .map(std::path::PathBuf::from);
+    let mut cfg = FastEmbedConfig::default();
+    cfg.cache_dir = cache_dir.clone();
+    cfg.show_download_progress = true;
+    eprintln!(
+        "[snaca-editor] starting fastembed model fetch (cache_dir={})",
+        cache_dir
+            .as_deref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<default>".into())
+    );
+    FastEmbedEmbedder::try_new(cfg)
+        .context("fastembed download/init failed")?;
+    // Marker line the host watches for so it can distinguish a graceful
+    // exit from a process that died silently.
+    println!("READY");
+    Ok(())
+}
+
+#[cfg(not(feature = "fastembed"))]
+fn run_download_fastembed() -> anyhow::Result<()> {
+    Err(anyhow::anyhow!(
+        "snaca-editor was built without the `fastembed` feature; rebuild with \
+         `cargo build -p snaca-editor --features fastembed` to enable on-demand \
+         ONNX model downloads"
+    ))
 }
 
 async fn run(cli: Cli) -> anyhow::Result<()> {

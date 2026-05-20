@@ -65,16 +65,26 @@ const skipCargo =
 if (skipCargo) {
   log(`staged binary up-to-date; skipping cargo build (use --force to override)`);
 } else {
-  log(`running cargo build --release -p snaca-editor`);
-  const result = spawnSync(
-    'cargo',
-    ['build', '--release', '-p', 'snaca-editor'],
-    {
-      cwd: snacaDir,
-      stdio: 'inherit',
-      shell: isWin, // resolve cargo via PATH on Windows
-    }
-  );
+  // `--features fastembed` enables the ONNX embedder backend. The
+  // model weights themselves are NOT bundled — they download lazily on
+  // first use into `SCIPEN_FASTEMBED_CACHE_DIR`. Without the feature,
+  // selecting "fastembed" in Studio Settings silently falls back to
+  // HashEmbedder. Set `SCIPEN_SNACA_FEATURES=""` to opt out (CI builds
+  // that don't ship to end users).
+  const featuresArg =
+    process.env.SCIPEN_SNACA_FEATURES !== undefined
+      ? process.env.SCIPEN_SNACA_FEATURES
+      : 'fastembed';
+  const cargoArgs = ['build', '--release', '-p', 'snaca-editor'];
+  if (featuresArg.trim()) {
+    cargoArgs.push('--features', featuresArg);
+  }
+  log(`running cargo ${cargoArgs.join(' ')}`);
+  const result = spawnSync('cargo', cargoArgs, {
+    cwd: snacaDir,
+    stdio: 'inherit',
+    shell: isWin, // resolve cargo via PATH on Windows
+  });
   if (result.status !== 0) {
     err(`cargo build failed (exit ${result.status ?? 'null'})`);
     process.exit(result.status ?? 1);

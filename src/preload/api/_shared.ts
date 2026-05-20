@@ -184,6 +184,7 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Agent_OpenMemoryViewer,
   IpcChannel.Agent_ResolveEditProposal,
   IpcChannel.Agent_ContextFlushResponse,
+  IpcChannel.Agent_FastEmbedDownload,
 
   // ====== Chat ======
 
@@ -243,6 +244,7 @@ export const ALLOWED_EVENT_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Agent_Log,
   IpcChannel.Agent_EditApplied,
   IpcChannel.Agent_ContextFlushRequest,
+  IpcChannel.Agent_FastEmbedDownloadProgress,
 
   IpcChannel.App_UpdateStatus,
   IpcChannel.AI_StreamChunk,

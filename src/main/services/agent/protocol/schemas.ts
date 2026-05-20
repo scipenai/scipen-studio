@@ -233,6 +233,16 @@ export const EngineConfigSchema = z.object({
   memory_extractor: z.boolean().optional(),
   memory_extractor_model: z.string().optional(),
   memory_embedder: MemoryEmbedderKindSchema.optional(),
+  memory_reranker: z.boolean().optional(),
+  memory_reranker_model: z.string().optional(),
+  compact_summary_max_tokens: z.number().int().positive().optional(),
+  history_max_bytes: z.number().int().positive().optional(),
+  // 0 means "disabled" — schema accepts >=0 and lets the sidecar interpret.
+  turn_timeout_secs: z.number().int().nonnegative().optional(),
+  collapse_tool_results_threshold: z.number().int().nonnegative().optional(),
+  stream_tool_execution: z.boolean().optional(),
+  max_output_token_escalation_attempts: z.number().int().nonnegative().optional(),
+  max_output_token_ceiling: z.number().int().positive().optional(),
 });
 export type EngineConfig = z.infer<typeof EngineConfigSchema>;
 

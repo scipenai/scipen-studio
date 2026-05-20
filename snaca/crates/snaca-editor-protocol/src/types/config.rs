@@ -79,6 +79,29 @@ pub struct EngineConfig {
     pub memory_extractor_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_embedder: Option<MemoryEmbedder>,
+    /// Opt-in LLM reranker over cosine recall (one extra round trip per turn).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_reranker: Option<bool>,
+    /// `None` ⇒ reuse `llm.model`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_reranker_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact_summary_max_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_max_bytes: Option<u64>,
+    /// `None` / `0` ⇒ no wall-clock cap on a turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_timeout_secs: Option<u64>,
+    /// `0` disables collapsing of historical read-only tool results.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collapse_tool_results_threshold: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_tool_execution: Option<bool>,
+    /// `0` disables the `max_tokens` escalation retry loop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_token_escalation_attempts: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_token_ceiling: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

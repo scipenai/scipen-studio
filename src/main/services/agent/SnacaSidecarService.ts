@@ -56,6 +56,16 @@ export class SnacaSidecarService extends Disposable implements ISnacaSidecarServ
     return this._state;
   }
 
+  get binaryPath(): string {
+    return this.opts.binaryPath;
+  }
+
+  resolveEnv(): NodeJS.ProcessEnv {
+    return typeof this.opts.env === 'function'
+      ? this.opts.env()
+      : (this.opts.env ?? {});
+  }
+
   isRunning(): boolean {
     return this._state.kind === 'running';
   }

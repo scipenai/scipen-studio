@@ -780,6 +780,27 @@ fn format_engine_overrides(ec: &snaca_editor_protocol::types::config::EngineConf
     if let Some(e) = ec.memory_embedder {
         parts.push(format!("memory_embedder={e:?}"));
     }
+    if let Some(b) = ec.memory_reranker { parts.push(format!("memory_reranker={b}")); }
+    if ec.memory_reranker_model.as_ref().is_some_and(|s| !s.is_empty()) {
+        parts.push("memory_reranker_model=set".into());
+    }
+    if let Some(v) = ec.compact_summary_max_tokens {
+        parts.push(format!("compact_summary_max_tokens={v}"));
+    }
+    if let Some(v) = ec.history_max_bytes { parts.push(format!("history_max_bytes={v}")); }
+    if let Some(v) = ec.turn_timeout_secs { parts.push(format!("turn_timeout_secs={v}")); }
+    if let Some(v) = ec.collapse_tool_results_threshold {
+        parts.push(format!("collapse_tool_results_threshold={v}"));
+    }
+    if let Some(b) = ec.stream_tool_execution {
+        parts.push(format!("stream_tool_execution={b}"));
+    }
+    if let Some(v) = ec.max_output_token_escalation_attempts {
+        parts.push(format!("max_output_token_escalation_attempts={v}"));
+    }
+    if let Some(v) = ec.max_output_token_ceiling {
+        parts.push(format!("max_output_token_ceiling={v}"));
+    }
     if parts.is_empty() {
         "<defaults>".into()
     } else {

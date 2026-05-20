@@ -763,6 +763,32 @@ fn build_session_engine(
             engine_config.system_prompt = sp.clone();
         }
     }
+    if let Some(v) = ec.compact_summary_max_tokens {
+        if v > 0 {
+            engine_config.compact_summary_max_tokens = v;
+        }
+    }
+    if let Some(v) = ec.history_max_bytes {
+        engine_config.history_max_bytes = v as usize;
+    }
+    if let Some(v) = ec.turn_timeout_secs {
+        // 0 disables — same convention as snaca-server.
+        engine_config.turn_timeout_secs = if v == 0 { None } else { Some(v) };
+    }
+    if let Some(v) = ec.collapse_tool_results_threshold {
+        engine_config.collapse_tool_results_threshold = v as usize;
+    }
+    if let Some(b) = ec.stream_tool_execution {
+        engine_config.stream_tool_execution = b;
+    }
+    if let Some(v) = ec.max_output_token_escalation_attempts {
+        engine_config.max_output_token_escalation_attempts = v;
+    }
+    if let Some(v) = ec.max_output_token_ceiling {
+        if v > 0 {
+            engine_config.max_output_token_ceiling = v;
+        }
+    }
 
     let tools = base_tool_registry();
 
@@ -806,17 +832,22 @@ fn build_session_engine(
         .memory_extractor_model
         .clone()
         .unwrap_or_else(|| snaca_config.llm.model.clone());
-    let embedder: std::sync::Arc<dyn snaca_memory::Embedder> =
-        std::sync::Arc::new(snaca_memory::HashEmbedder::default());
-    if matches!(
-        snaca_config.engine.memory_embedder,
-        Some(snaca_editor_protocol::types::config::MemoryEmbedder::Fastembed)
-    ) {
-        warn!(
-            "memory_embedder=fastembed requested but the editor binary doesn't bundle the model; \
-             falling back to HashEmbedder"
-        );
-    }
+    let embedder: Option<std::sync::Arc<dyn snaca_memory::Embedder>> = match snaca_config
+        .engine
+        .memory_embedder
+    {
+        Some(snaca_editor_protocol::types::config::MemoryEmbedder::None) => None,
+        Some(snaca_editor_protocol::types::config::MemoryEmbedder::Fastembed) => Some(
+            build_fastembed_embedder().unwrap_or_else(|| {
+                warn!(
+                    "memory_embedder=fastembed selected but unavailable; \
+                     falling back to HashEmbedder (recall quality degraded)"
+                );
+                std::sync::Arc::new(snaca_memory::HashEmbedder::default())
+            }),
+        ),
+        _ => Some(std::sync::Arc::new(snaca_memory::HashEmbedder::default())),
+    };
 
     // TaskRegistry — lets the Bash tool's `run_in_background = true`
     // path spawn long-lived child tasks that TaskOutput can poll. Same
@@ -833,8 +864,24 @@ fn build_session_engine(
     });
     engine = engine
         .with_tool_factory(factory)
-        .with_task_registry(task_registry)
-        .with_embedder(embedder);
+        .with_task_registry(task_registry);
+    if let Some(e) = embedder {
+        engine = engine.with_embedder(e);
+    }
+    // Reranker — opt-in. One extra LLM round trip per recall;
+    // `memory_reranker_model` falls back to the chat model so
+    // single-credential setups work without extra config.
+    if snaca_config.engine.memory_reranker.unwrap_or(false) {
+        let rerank_model = snaca_config
+            .engine
+            .memory_reranker_model
+            .clone()
+            .unwrap_or_else(|| snaca_config.llm.model.clone());
+        let reranker: snaca_engine::SharedReranker = std::sync::Arc::new(
+            snaca_engine::LlmReranker::new(llm.clone(), rerank_model),
+        );
+        engine = engine.with_reranker(reranker);
+    }
     if extractor_enabled {
         // Always wrap in the PII filter (email / phone / api key / bearer
         // token patterns). Studio is a single-user desktop where memory
@@ -856,4 +903,30 @@ fn build_session_engine(
         engine = engine.with_memory_sink(sink);
     }
     Some(Arc::new(engine))
+}
+
+/// Stand up the production `FastEmbedEmbedder` when the binary was
+/// built with `--features fastembed`. Cache dir comes from
+/// `SCIPEN_FASTEMBED_CACHE_DIR` (host sets it to Studio's data root).
+/// Returns `None` on missing feature or init failure; callers fall
+/// back to `HashEmbedder`.
+#[cfg(feature = "fastembed")]
+fn build_fastembed_embedder() -> Option<std::sync::Arc<dyn snaca_memory::Embedder>> {
+    let cache_dir = std::env::var_os("SCIPEN_FASTEMBED_CACHE_DIR")
+        .map(std::path::PathBuf::from);
+    let mut cfg = snaca_memory::FastEmbedConfig::default();
+    cfg.cache_dir = cache_dir;
+    cfg.show_download_progress = false;
+    match snaca_memory::FastEmbedEmbedder::try_new(cfg) {
+        Ok(e) => Some(std::sync::Arc::new(e)),
+        Err(err) => {
+            warn!(error = %err, "fastembed init failed; recall will use HashEmbedder");
+            None
+        }
+    }
+}
+
+#[cfg(not(feature = "fastembed"))]
+fn build_fastembed_embedder() -> Option<std::sync::Arc<dyn snaca_memory::Embedder>> {
+    None
 }
