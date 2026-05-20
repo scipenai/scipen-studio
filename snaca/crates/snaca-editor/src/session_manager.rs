@@ -818,17 +818,38 @@ fn build_session_engine(
         );
     }
 
+    // TaskRegistry — lets the Bash tool's `run_in_background = true`
+    // path spawn long-lived child tasks that TaskOutput can poll. Same
+    // single shared registry the server uses; tenant/project scoping
+    // happens inside.
+    let task_registry: std::sync::Arc<dyn std::any::Any + Send + Sync> =
+        snaca_tools::TaskRegistry::new();
+
     let mut engine = Engine::new(llm.clone(), tools.clone(), db, layout.clone(), engine_config);
     let factory = std::sync::Arc::new(crate::mcp_runtime::EditorToolFactory {
         base: tools,
         mcp: mcp_manager,
         skills: skill_provider,
     });
-    engine = engine.with_tool_factory(factory).with_embedder(embedder);
+    engine = engine
+        .with_tool_factory(factory)
+        .with_task_registry(task_registry)
+        .with_embedder(embedder);
     if extractor_enabled {
-        let extractor: snaca_engine::SharedExtractor = std::sync::Arc::new(
+        // Always wrap in the PII filter (email / phone / api key / bearer
+        // token patterns). Studio is a single-user desktop where memory
+        // is local Markdown; the cost of a PII leak in a long-lived
+        // entry far outweighs a few false-positive rejects, and the
+        // host has no opt-out to expose. Mirrors snaca-server's default
+        // path; we just don't surface the bypass switch.
+        let raw: snaca_engine::SharedExtractor = std::sync::Arc::new(
             snaca_engine::LlmMemoryExtractor::new(llm, extractor_model).with_workspace(layout),
         );
+        let extractor: snaca_engine::SharedExtractor =
+            std::sync::Arc::new(snaca_engine::FilteredMemoryExtractor::new(
+                raw,
+                snaca_engine::SensitiveFilter::default_set(),
+            ));
         engine = engine.with_memory_extractor(extractor);
     }
     if let Some(sink) = memory_sink {
