@@ -164,6 +164,7 @@ impl MessageHandler for EditorHandler {
             model = %params.snaca_config.llm.model,
             approval_mode = ?params.snaca_config.approval_mode,
             engine_overrides = %format_engine_overrides(&params.snaca_config.engine),
+            mcp_servers = params.snaca_config.mcp_servers.as_deref().map(|s| s.len()).unwrap_or(0),
             "init complete"
         );
 
@@ -211,6 +212,7 @@ impl MessageHandler for EditorHandler {
             model = %params.snaca_config.llm.model,
             approval_mode = ?params.snaca_config.approval_mode,
             engine_overrides = %format_engine_overrides(&params.snaca_config.engine),
+            mcp_servers = params.snaca_config.mcp_servers.as_deref().map(|s| s.len()).unwrap_or(0),
             "config.reload applied"
         );
         Ok(ConfigReloadResult {

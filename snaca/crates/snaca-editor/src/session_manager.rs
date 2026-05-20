@@ -765,7 +765,37 @@ fn build_session_engine(
     }
 
     let tools = base_tool_registry();
-    let mut engine = Engine::new(llm, tools, db, layout, engine_config);
+
+    // MCP integration — translate the wire-shape mcp_servers list into
+    // the runtime form and stand up a manager. The manager itself is
+    // free of subprocesses until the engine's first `tools_for(...)`
+    // call. Per-server connect failures are swallowed by McpPool so
+    // base tools keep working even if an MCP entry is broken.
+    let wire_servers = snaca_config.mcp_servers.as_deref().unwrap_or(&[]);
+    let mut runtime_servers: Vec<snaca_mcp::McpServerConfig> = Vec::new();
+    for s in wire_servers {
+        if let Err(err) = snaca_mcp::config::validate_server_name(&s.name) {
+            warn!(server = %s.name, error = %err, "skipping mcp server with invalid name");
+            continue;
+        }
+        runtime_servers.push(crate::mcp_runtime::convert_protocol_to_mcp_config(s));
+    }
+    if let Some(dup) = snaca_mcp::config::find_duplicate_server_name(&runtime_servers) {
+        warn!(name = %dup, "duplicate mcp server name; keeping first, dropping rest");
+        let mut seen = std::collections::HashSet::new();
+        runtime_servers.retain(|c| seen.insert(c.name.clone()));
+    }
+    let mcp_manager = std::sync::Arc::new(snaca_mcp::McpManager::from_configs(&runtime_servers));
+    // Periodic reaper — evicts idle MCP clients. 60s aligns with the
+    // pool's default idle TTL granularity.
+    mcp_manager.start_reaper(std::time::Duration::from_secs(60));
+
+    let mut engine = Engine::new(llm, tools.clone(), db, layout, engine_config);
+    let factory = std::sync::Arc::new(crate::mcp_runtime::EditorToolFactory {
+        base: tools,
+        mcp: mcp_manager,
+    });
+    engine = engine.with_tool_factory(factory);
     if let Some(sink) = memory_sink {
         engine = engine.with_memory_sink(sink);
     }

@@ -18,6 +18,7 @@ snaca-core.workspace = true
 snaca-llm.workspace = true
 snaca-state.workspace = true
 snaca-engine.workspace = true
+snaca-mcp.workspace = true
 snaca-memory.workspace = true
 snaca-skills.workspace = true
 snaca-tools.workspace = true

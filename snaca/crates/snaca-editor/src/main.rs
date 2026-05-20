@@ -21,6 +21,7 @@ mod config;
 mod context_inject;
 mod handler;
 mod llm;
+mod mcp_runtime;
 mod memory_handler;
 mod outbound;
 mod session;
