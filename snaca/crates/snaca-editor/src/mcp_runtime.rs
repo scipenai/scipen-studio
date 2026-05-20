@@ -17,6 +17,8 @@ use snaca_engine::RuntimeToolFactory;
 use snaca_mcp::config::McpServerConfig as RuntimeMcpServerConfig;
 use snaca_mcp::McpManager;
 use snaca_mcp::McpTransport as RuntimeMcpTransport;
+use snaca_skills::SkillProvider;
+use snaca_tools::SkillTool;
 use snaca_tools_api::{ToolRegistry, ToolRegistryBuilder};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -54,12 +56,14 @@ pub fn convert_protocol_to_mcp_config(p: &WireMcpServerConfig) -> RuntimeMcpServ
 /// `RuntimeToolFactory` for the editor sidecar.
 ///
 /// `base` is captured at session.open and reused every turn — base
-/// tools are stateless. `mcp` is shared (`Arc<McpManager>`) because
-/// `tools_for` is `&self`; the manager owns the per-server connection
-/// pools and reaper task.
+/// tools are stateless. `mcp` and `skills` are shared (`Arc<...>`)
+/// because the trait method is `&self`; both own their own per-call
+/// caching (MCP via connection pool + reaper; skills via LayoutSkill
+/// Provider's TTL cache).
 pub struct EditorToolFactory {
     pub base: ToolRegistry,
     pub mcp: Arc<McpManager>,
+    pub skills: Arc<dyn SkillProvider>,
 }
 
 #[async_trait]
@@ -76,6 +80,14 @@ impl RuntimeToolFactory for EditorToolFactory {
         // misconfigured MCP server can't take the whole turn down.
         for tool in self.mcp.tools_for(tenant, project).await {
             builder = builder.add_arc(tool);
+        }
+        // Skills — adapted to a single `SkillTool` so the LLM can
+        // dispatch by name (tenant + project rank already resolved
+        // inside the provider). Skip when no skills loaded so the
+        // tool surface stays minimal.
+        let skills_registry = self.skills.skills_for(tenant, project).await;
+        if !skills_registry.is_empty() {
+            builder = builder.add(SkillTool::new(skills_registry));
         }
         builder.build()
     }
@@ -132,20 +144,19 @@ mod tests {
 
     #[tokio::test]
     async fn factory_returns_base_when_no_mcp() {
-        // Empty McpManager means no MCP tools — factory should just
-        // pass through the base registry verbatim.
+        // Empty McpManager + empty skills provider means no extra
+        // layers — factory passes the base registry through verbatim.
         let base = snaca_tools::base_tool_registry();
         let base_names: Vec<String> = base.names().map(String::from).collect();
         let factory = EditorToolFactory {
             base,
             mcp: Arc::new(McpManager::from_configs(&[])),
+            skills: Arc::new(snaca_skills::StaticSkillProvider::empty()),
         };
         let tenant = TenantId::new("local");
         let project = ProjectId::from_raw("test");
         let registry = factory.build(&tenant, &project).await;
         let got: Vec<String> = registry.names().map(String::from).collect();
-        // Same set (order may differ — both are sorted in schemas but
-        // iter() is HashMap order).
         let mut expected = base_names.clone();
         expected.sort();
         let mut got_sorted = got.clone();

@@ -790,12 +790,47 @@ fn build_session_engine(
     // pool's default idle TTL granularity.
     mcp_manager.start_reaper(std::time::Duration::from_secs(60));
 
-    let mut engine = Engine::new(llm, tools.clone(), db, layout, engine_config);
+    // Skill provider — re-scans tenant + project skill dirs on demand
+    // with a 5s TTL cache (LayoutSkillProvider default), so a freshly
+    // edited .md is picked up by the next turn without a session restart.
+    let skill_provider: std::sync::Arc<dyn snaca_skills::SkillProvider> =
+        std::sync::Arc::new(snaca_skills::LayoutSkillProvider::new(layout.clone()));
+
+    // Memory wiring — defaults differ from snaca-server because Studio is
+    // a single-user desktop app: we want recall + auto-extract on by
+    // default so MemoryViewer surfaces real data without a power-user
+    // config dance. Hosts can disable extractor via `engine.memory_extractor = false`.
+    let extractor_enabled = snaca_config.engine.memory_extractor.unwrap_or(true);
+    let extractor_model = snaca_config
+        .engine
+        .memory_extractor_model
+        .clone()
+        .unwrap_or_else(|| snaca_config.llm.model.clone());
+    let embedder: std::sync::Arc<dyn snaca_memory::Embedder> =
+        std::sync::Arc::new(snaca_memory::HashEmbedder::default());
+    if matches!(
+        snaca_config.engine.memory_embedder,
+        Some(snaca_editor_protocol::types::config::MemoryEmbedder::Fastembed)
+    ) {
+        warn!(
+            "memory_embedder=fastembed requested but the editor binary doesn't bundle the model; \
+             falling back to HashEmbedder"
+        );
+    }
+
+    let mut engine = Engine::new(llm.clone(), tools.clone(), db, layout.clone(), engine_config);
     let factory = std::sync::Arc::new(crate::mcp_runtime::EditorToolFactory {
         base: tools,
         mcp: mcp_manager,
+        skills: skill_provider,
     });
-    engine = engine.with_tool_factory(factory);
+    engine = engine.with_tool_factory(factory).with_embedder(embedder);
+    if extractor_enabled {
+        let extractor: snaca_engine::SharedExtractor = std::sync::Arc::new(
+            snaca_engine::LlmMemoryExtractor::new(llm, extractor_model).with_workspace(layout),
+        );
+        engine = engine.with_memory_extractor(extractor);
+    }
     if let Some(sink) = memory_sink {
         engine = engine.with_memory_sink(sink);
     }
