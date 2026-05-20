@@ -209,6 +209,54 @@ class ChatStreamStoreImpl {
   }
 
   /**
+   * Aggregate `usage` across the current and every completed turn of the
+   * active thread. Returned as a plain object so the StatusBar can render
+   * directly; missing fields default to 0. Cost is summed only when at
+   * least one turn reported it — otherwise left undefined so the UI can
+   * hide the column instead of showing a meaningless `$0`.
+   */
+  getThreadUsageTotal(): ChatTurnUsage {
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let cachedInputTokens = 0;
+    let costUsd: number | undefined;
+    const accumulate = (u?: ChatTurnUsage): void => {
+      if (!u) return;
+      inputTokens += u.inputTokens;
+      outputTokens += u.outputTokens;
+      cachedInputTokens += u.cachedInputTokens;
+      if (typeof u.costUsd === 'number') {
+        costUsd = (costUsd ?? 0) + u.costUsd;
+      }
+    };
+    accumulate(this.currentTurn?.usage);
+    for (const t of this.completedTurns.values()) accumulate(t.usage);
+    return { inputTokens, outputTokens, cachedInputTokens, costUsd };
+  }
+
+  /**
+   * Short label describing what the agent is doing right now — used by
+   * the StatusBar. Returns `null` when there is no active turn (idle).
+   * Tool labels prefer the most recent `progress` step; falls back to
+   * `pending` while no tool has started yet (LLM is still composing).
+   */
+  getAgentActivity(): { label: string; toolName?: string } | null {
+    const turn = this.currentTurn;
+    if (!turn || !turn.pending) return null;
+    // Look for the last tool in progress; if found, surface its name.
+    const progressing = [...turn.toolCalls]
+      .reverse()
+      .find((c) => c.status === 'progress' || c.status === 'pending');
+    if (progressing) {
+      return {
+        label: progressing.status === 'progress' ? 'tool' : 'queued',
+        toolName: progressing.tool,
+      };
+    }
+    return { label: 'thinking' };
+  }
+
+  /**
    * Snapshot of every cached thread id (for thread-list views that want a
    * stable equality reference across re-renders). The set itself isn't
    * exposed — callers only need length / membership signals via

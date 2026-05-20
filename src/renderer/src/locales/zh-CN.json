@@ -608,6 +608,24 @@
     "modifiedSnippet": "修改前后对比"
   },
   "tools": {},
+  "chatError": {
+    "generic": "AI 处理出错",
+    "llmAuth": "AI 密钥失效或未授权",
+    "llmRateLimited": "上游 AI 服务暂时限流,请稍后重试",
+    "llmContextOverflow": "上下文过长,即使压缩也超过模型限制",
+    "timeout": "请求超时",
+    "notInitialized": "Agent 子进程尚未就绪",
+    "openSettings": "打开设置"
+  },
+  "agentStatus": {
+    "idle": "Agent 空闲",
+    "thinking": "Agent 思考中",
+    "tool": "工具",
+    "queued": "排队中",
+    "stop": "停止",
+    "cached": "缓存",
+    "usageHint": "本对话累计 token / 估算成本"
+  },
   "settingsAgent": {
     "viewer": "Agent 数据查看",
     "viewerDesc": "查看 Agent 自动沉淀到本项目的记忆与可用 Skills。这些数据驱动 AI 的长期上下文与能力扩展。",

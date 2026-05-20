@@ -608,6 +608,24 @@
     "modifiedSnippet": "Before / after preview"
   },
   "tools": {},
+  "chatError": {
+    "generic": "AI processing failed",
+    "llmAuth": "AI key invalid or unauthorized",
+    "llmRateLimited": "Upstream AI service rate-limited; retry shortly",
+    "llmContextOverflow": "Context too long even after compaction",
+    "timeout": "Request timed out",
+    "notInitialized": "Agent sidecar is not ready yet",
+    "openSettings": "Open Settings"
+  },
+  "agentStatus": {
+    "idle": "Agent idle",
+    "thinking": "Agent thinking",
+    "tool": "Tool",
+    "queued": "Queued",
+    "stop": "Stop",
+    "cached": "cached",
+    "usageHint": "Cumulative tokens / estimated cost for this conversation"
+  },
   "settingsAgent": {
     "viewer": "Agent data viewer",
     "viewerDesc": "Inspect Agent memory and the skills currently loaded for this project. Both feed the AI's long-term context and capabilities.",

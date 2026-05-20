@@ -23,6 +23,7 @@ import {
 import { agentEditProposalBridge } from '../../services/agent/AgentEditProposalBridge';
 import { useTranslation, type TranslationKey } from '../../locales';
 import { openFileInEditor } from '../../services/core/FileOpenService';
+import { getUIService } from '../../services/core/ServiceRegistry';
 import { MarkdownContent } from './MarkdownContent';
 import { ThinkingRenderer } from './ThinkingRenderer';
 
@@ -63,7 +64,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
             </div>
           )
         )}
-        {turn.error && <ErrorBlock message={turn.error.message} />}
+        {turn.error && <ErrorBlock error={turn.error} />}
         {turn.usage && !turn.pending && <UsageLine turn={turn} />}
       </div>
     );
@@ -213,10 +214,76 @@ function statusGlyph(status: 'pending' | 'progress' | 'success' | 'error'): stri
   }
 }
 
-function ErrorBlock({ message }: { message: string }): ReactElement {
+/**
+ * SNACA editor-protocol application error codes — mirror of
+ * `snaca_editor_protocol::ErrorCode::as_i32` (see error.rs in snaca).
+ * Numeric literals because the protocol/schemas layer typed them as
+ * `number` once they cross the wire.
+ */
+const ERR_NOT_INITIALIZED = -32000;
+const ERR_LLM_AUTH = -32009;
+const ERR_LLM_CONTEXT_OVERFLOW = -32010;
+const ERR_LLM_RATE_LIMITED = -32011;
+const ERR_TIMEOUT = -32014;
+
+interface FriendlyError {
+  /** One-line, action-oriented summary. */
+  title: string;
+  /** Raw error message preserved for debuggability. */
+  detail: string;
+  /** If set, surface as a button below the message. */
+  action?: 'open_settings';
+}
+
+function buildFriendlyError(
+  error: { code: number; message: string; recoverable: boolean },
+  t: (key: TranslationKey) => string
+): FriendlyError {
+  const detail = error.message;
+  switch (error.code) {
+    case ERR_LLM_AUTH:
+      return { title: t('chatError.llmAuth'), detail, action: 'open_settings' };
+    case ERR_LLM_RATE_LIMITED:
+      return { title: t('chatError.llmRateLimited'), detail };
+    case ERR_LLM_CONTEXT_OVERFLOW:
+      return { title: t('chatError.llmContextOverflow'), detail };
+    case ERR_TIMEOUT:
+      return { title: t('chatError.timeout'), detail };
+    case ERR_NOT_INITIALIZED:
+      return { title: t('chatError.notInitialized'), detail };
+    default:
+      // Fall through to the raw message so users still see the upstream
+      // text rather than a generic "something went wrong".
+      return { title: t('chatError.generic'), detail };
+  }
+}
+
+function ErrorBlock({
+  error,
+}: {
+  error: { code: number; message: string; recoverable: boolean };
+}): ReactElement {
+  const { t } = useTranslation();
+  const friendly = buildFriendlyError(error, t);
+  const onOpenSettings = useCallback(() => {
+    // Same path the command palette uses to open the settings panel —
+    // routes through UIService so layout state stays in one place.
+    getUIService().setSidebarTab('settings');
+  }, []);
+
   return (
     <div className="mt-2 rounded border border-red-400/40 bg-red-400/10 p-2 text-[11px] text-red-300">
-      {message}
+      <div className="font-medium">{friendly.title}</div>
+      <div className="mt-1 text-red-300/70 break-all">{friendly.detail}</div>
+      {friendly.action === 'open_settings' && (
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded border border-red-400/40 hover:bg-red-400/20 text-red-200"
+        >
+          {t('chatError.openSettings')}
+        </button>
+      )}
     </div>
   );
 }

@@ -11,6 +11,7 @@ import { RunOnceScheduler } from '../../../../../shared/utils';
 import logoS from '../../assets/logo-s.svg';
 import { useClickOutside, useEvent } from '../../hooks';
 import { getLanguageForFile } from '../../utils';
+import { AgentStatusSegment } from './AgentStatusSegment';
 import { getEditorService, getSettingsService } from '../../services/core/ServiceRegistry';
 import {
   useActiveTabPath,
@@ -399,6 +400,9 @@ export const StatusBar: React.FC = () => {
         >
           {getLanguageType()}
         </div>
+
+        {/* SNACA agent status — current turn / tokens / stop */}
+        <AgentStatusSegment />
 
         {/* SciPen Studio Brand */}
         <div
