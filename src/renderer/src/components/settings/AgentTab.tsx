@@ -20,6 +20,7 @@ import { api } from '../../api';
 import { ConfigKeys } from '../../../../../shared/types/config-keys';
 import { useTranslation } from '../../locales';
 import { agentClient } from '../../services/agent/AgentClientService';
+import { McpServersSection } from './McpServersSection';
 import { SectionTitle, SettingItem, inputClassName } from './SettingsUI';
 
 type ApprovalMode = 'interactive' | 'auto_allow' | 'auto_deny';
@@ -199,6 +200,9 @@ export const AgentTab: React.FC = () => {
           <option value="auto_deny">{t('settingsAgent.approval.autoDeny')}</option>
         </select>
       </SettingItem>
+
+      {/* ---------- MCP Servers ---------- */}
+      <McpServersSection />
 
       {/* ---------- Engine advanced ---------- */}
       <SectionTitle>{t('settingsAgent.engine.title')}</SectionTitle>

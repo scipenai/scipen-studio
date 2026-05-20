@@ -33,6 +33,8 @@ import {
   type EditConfirmParams,
   type LlmProvider,
   type PlanConfirmParams,
+  McpServerConfigSchema,
+  type McpServerConfig,
   type SnacaConfig,
   type ToolConfirmParams,
 } from '../services/agent/protocol/schemas';
@@ -443,6 +445,12 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
   store.add({
     dispose: config.subscribe(ConfigKeys.AgentEngineConfig, scheduleSidecarReload),
   });
+  // MCP server definitions feed into the McpManager that gets baked
+  // into Engine's RuntimeToolFactory at session.open. Same restart
+  // story as engine.*.
+  store.add({
+    dispose: config.subscribe(ConfigKeys.AgentMcpServers, scheduleSidecarReload),
+  });
   store.add({
     dispose: () => {
       if (restartTimer) {
@@ -804,6 +812,7 @@ export function buildSnacaConfigFromSettings(config: IConfigManager): SnacaConfi
       base_url: resolved?.baseUrl ?? process.env.SNACA_BASE_URL ?? 'https://api.deepseek.com',
     },
     engine: readEngineOverrides(config),
+    mcp_servers: readMcpServers(config),
     // `interactive` routes file-mutation tools (Edit/Write/MultiEdit)
     // through Studio's Monaco Diff Review and high-risk tools (Bash)
     // through the in-chat approval card. `auto_allow` would let SNACA
@@ -846,6 +855,31 @@ function readEngineOverrides(config: IConfigManager): Record<string, unknown> {
       ([, v]) => v !== null && v !== undefined && v !== ''
     )
   );
+}
+
+/**
+ * Read MCP server definitions from settings and pass them straight
+ * through to the wire. Each entry is validated via the protocol
+ * `McpServerConfigSchema`; invalid rows are dropped (logged) so a
+ * single bad config can't deny init. Returns `undefined` (instead of
+ * `[]`) when nothing is configured so the SNACA side sees the field
+ * absent — matches the protocol's `Option<Vec<...>>`.
+ */
+function readMcpServers(config: IConfigManager): McpServerConfig[] | undefined {
+  const raw = config.get<unknown>(ConfigKeys.AgentMcpServers, undefined);
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const out: McpServerConfig[] = [];
+  for (const entry of raw) {
+    const parsed = McpServerConfigSchema.safeParse(entry);
+    if (!parsed.success) {
+      logger.warn('skipping invalid mcp server entry', {
+        issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
+      });
+      continue;
+    }
+    out.push(parsed.data);
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 /**

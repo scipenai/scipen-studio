@@ -20,6 +20,10 @@ export enum ConfigKeys {
   // Engine tunables — partial `SnacaConfig.engine` overrides stored as
   // a single JSON object. Unset fields fall back to model-aware defaults.
   AgentEngineConfig = 'agent.engineConfig',
+  // MCP server definitions — array of `{ name, transport, command?,
+  // args?, env?, url?, init_timeout_secs? }`. Wire-shape; passed
+  // straight to `SnacaConfig.mcp_servers`.
+  AgentMcpServers = 'agent.mcpServers',
 
   // ====== Editor Configuration ======
   EditorFontSize = 'editor.fontSize',
