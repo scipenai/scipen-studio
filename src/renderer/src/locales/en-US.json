@@ -617,6 +617,9 @@
     "notInitialized": "Agent sidecar is not ready yet",
     "openSettings": "Open Settings"
   },
+  "atFileDropdown": {
+    "noMatch": "No matching files"
+  },
   "agentStatus": {
     "idle": "Agent idle",
     "thinking": "Agent thinking",

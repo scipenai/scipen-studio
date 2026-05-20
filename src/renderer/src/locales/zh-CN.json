@@ -617,6 +617,9 @@
     "notInitialized": "Agent 子进程尚未就绪",
     "openSettings": "打开设置"
   },
+  "atFileDropdown": {
+    "noMatch": "没有匹配的文件"
+  },
   "agentStatus": {
     "idle": "Agent 空闲",
     "thinking": "Agent 思考中",

@@ -8,9 +8,18 @@
  * `intent` it receives, never by querying mode state. This keeps the
  * consume-then-reset semantics atomic and physically prevents the
  * "forgot to clear taskMode after send" class of bugs.
+ *
+ * `@` autocomplete is wired by composing three pieces:
+ *   - `useMentionTrigger` parses the token under the caret
+ *   - `useFilePathIndex` exposes the project's file list (watcher-backed)
+ *   - `AtFileDropdown` renders + keyboard-navigates the candidate set
+ * Each piece is independent; this component only wires data flow.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMentionTrigger } from '../../hooks/useMentionTrigger';
+import { useFilePathIndex } from '../../services/core/hooks';
+import { AtFileDropdown, scoreFilePath } from './AtFileDropdown';
 
 export type SendIntent = 'chat' | 'composer';
 
@@ -50,6 +59,8 @@ interface AgentChatInputProps {
   composer?: ComposerChipConfig;
 }
 
+const DROPDOWN_MAX_ITEMS = 12;
+
 export function AgentChatInput({
   busy,
   disabled,
@@ -62,7 +73,10 @@ export function AgentChatInput({
 }: AgentChatInputProps): React.ReactElement {
   const [value, setValue] = useState<string>('');
   const [armed, setArmed] = useState<boolean>(false);
+  const [caretPos, setCaretPos] = useState<number>(0);
+  const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const filePathIndex = useFilePathIndex();
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -87,6 +101,75 @@ export function AgentChatInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seedValue is intentionally not a dep
   }, [seedKey]);
 
+  // ----- @ autocomplete -----
+
+  const trigger = useMentionTrigger(value, caretPos);
+
+  // Skip dropdown when the token carries a colon — those belong to
+  // reserved prefixes like `@label:foo` / `@cite:bar` which will get
+  // their own picker. File dropdown only competes for plain paths.
+  const dropdownActive = trigger !== null && !trigger.query.includes(':');
+
+  const candidates = useMemo(() => {
+    if (!dropdownActive || !trigger) return [];
+    if (filePathIndex.length === 0) return [];
+    const scored: Array<{ path: string; score: number }> = [];
+    for (const path of filePathIndex) {
+      const score = scoreFilePath(path, trigger.query);
+      if (score >= 0) scored.push({ path, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, DROPDOWN_MAX_ITEMS).map((s) => s.path);
+  }, [dropdownActive, trigger, filePathIndex]);
+
+  // Reset selection whenever the candidate set changes shape — avoids
+  // pointing at an out-of-range index after the query narrows.
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [trigger?.query, candidates.length]);
+
+  const applyMention = useCallback(
+    (path: string) => {
+      if (!trigger) return;
+      // Append a trailing space so a subsequent `@` keeps triggering.
+      const before = value.slice(0, trigger.replaceFrom);
+      const after = value.slice(trigger.replaceTo);
+      const inserted = `@${path} `;
+      const next = `${before}${inserted}${after}`;
+      const nextCaret = before.length + inserted.length;
+      setValue(next);
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(nextCaret, nextCaret);
+        setCaretPos(nextCaret);
+      });
+    },
+    [trigger, value]
+  );
+
+  const cancelDropdown = useCallback(() => {
+    // Nudging caret out of the token via a noop selection update would
+    // also work; simplest is just to clear `trigger` indirectly by
+    // moving caret one past the @ block. But the trigger is derived,
+    // so the cleanest path is to add a space which breaks the token.
+    if (!trigger) return;
+    const before = value.slice(0, trigger.replaceTo);
+    const after = value.slice(trigger.replaceTo);
+    setValue(`${before} ${after}`);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const next = trigger.replaceTo + 1;
+      el.focus();
+      el.setSelectionRange(next, next);
+      setCaretPos(next);
+    });
+  }, [trigger, value]);
+
+  // ----- send -----
+
   const submit = useCallback(() => {
     const text = value.trim();
     if (!text || busy || disabled) return;
@@ -94,7 +177,51 @@ export function AgentChatInput({
     onSend(text, intent);
     setValue('');
     setArmed(false);
+    setCaretPos(0);
   }, [value, busy, disabled, onSend, armed]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Dropdown captures Up / Down / Enter / Tab / Esc when active so
+      // the user can navigate without the textarea hijacking the keys.
+      if (dropdownActive && candidates.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSelectedIndex((idx) => Math.min(idx + 1, candidates.length - 1));
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSelectedIndex((idx) => Math.max(idx - 1, 0));
+          return;
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault();
+          applyMention(candidates[selectedIndex]);
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          cancelDropdown();
+          return;
+        }
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submit();
+      }
+    },
+    [dropdownActive, candidates, selectedIndex, applyMention, cancelDropdown, submit]
+  );
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setValue(e.target.value);
+    setCaretPos(e.target.selectionStart ?? 0);
+  }, []);
+
+  const syncCaret = useCallback((e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    setCaretPos(e.currentTarget.selectionStart ?? 0);
+  }, []);
 
   return (
     <div className="border-t border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2.5">
@@ -117,19 +244,24 @@ export function AgentChatInput({
         </div>
       )}
       <div className="relative rounded-md border border-[var(--color-border)] bg-[var(--color-bg-elevated)] focus-within:border-[var(--color-accent)]">
+        {dropdownActive && (
+          <AtFileDropdown
+            items={candidates}
+            selectedIndex={selectedIndex}
+            onSelect={applyMention}
+            onCancel={cancelDropdown}
+          />
+        )}
         <textarea
           ref={textareaRef}
           value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder={placeholder ?? (disabled ? '初始化中…' : '问点什么 (Enter 发送, Shift+Enter 换行)')}
+          onChange={handleChange}
+          onKeyUp={syncCaret}
+          onClick={syncCaret}
+          placeholder={placeholder ?? (disabled ? '初始化中…' : '问点什么 (Enter 发送, Shift+Enter 换行, @ 引用文件)')}
           disabled={disabled}
           rows={1}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
-          }}
+          onKeyDown={handleKeyDown}
           className="w-full resize-none bg-transparent px-3 py-2 pr-12 text-[13px] leading-[1.55] text-[var(--color-text-primary)] caret-[var(--color-accent)] outline-none placeholder:text-[var(--color-text-muted)] disabled:cursor-not-allowed"
         />
         <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1">
