@@ -32,6 +32,7 @@ import { useEvent } from '../../hooks';
 import { useTranslation } from '../../locales';
 import { agentClient, type ThreadSummary } from '../../services/agent/AgentClientService';
 import { buildChatContext } from '../../services/agent/ChatContextBuilder';
+import { buildMentions } from '../../services/AtMentionResolver';
 import { chatStreamStore } from '../../services/agent/ChatStreamStore';
 import { getUIService } from '../../services/core/ServiceRegistry';
 import type { AskAIAboutErrorRequest } from '../../services/core/UIService';
@@ -169,19 +170,28 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
     async (text: string, intent: SendIntent) => {
       try {
         const context = buildChatContext();
+        // Resolve `@path` tokens into structured `Mention[]` so the LLM
+        // receives the inline file content via SNACA's typed channel
+        // rather than as opaque chat text. cleanedText keeps the user
+        // message readable (tokens become `[attached: path]` markers).
+        const { mentions, cleanedText } = await buildMentions(text, workspaceRoot);
+        if (mentions.length > 0) {
+          context.mentions = [...(context.mentions ?? []), ...mentions];
+        }
+        const payload = cleanedText;
         if (intent === 'composer') {
-          const { turnId } = await agentClient.startComposer(text, context, 'plan_first');
-          chatStreamStore.beginComposerTurn(turnId, text);
+          const { turnId } = await agentClient.startComposer(payload, context, 'plan_first');
+          chatStreamStore.beginComposerTurn(turnId, payload);
         } else {
-          const { turnId } = await agentClient.sendChat(text, context);
-          chatStreamStore.beginUserTurn(turnId, text);
+          const { turnId } = await agentClient.sendChat(payload, context);
+          chatStreamStore.beginUserTurn(turnId, payload);
         }
         void refreshThreads();
       } catch (err) {
         setStartup({ kind: 'error', message: extractErrorMessage(err) });
       }
     },
-    [refreshThreads]
+    [refreshThreads, workspaceRoot]
   );
 
   const handleCancel = useCallback(async () => {
