@@ -46,19 +46,6 @@ export interface SidecarOptions {
 export interface ISnacaSidecarService extends Partial<IDisposable> {
   /** Current process state. Sync read. */
   readonly state: SidecarState;
-  /**
-   * Absolute path of the binary this service spawns. Exposed so other
-   * handlers (e.g. the fastembed pre-download flow) can launch the
-   * same executable with alternate CLI flags without duplicating the
-   * path-resolution logic.
-   */
-  readonly binaryPath: string;
-  /** Env additions injected into each spawn. Resolved fresh each time
-   *  so Settings changes propagate after a restart. Exposed for
-   *  one-off subprocess launches (e.g. fastembed pre-download) that
-   *  want the same `SNACA_API_KEY` / `SCIPEN_FASTEMBED_CACHE_DIR`
-   *  routing the sidecar gets. */
-  resolveEnv(): NodeJS.ProcessEnv;
   /** Emitted on every `state` transition. */
   readonly onStateChange: Event<SidecarState>;
   /** Emitted whenever a complete stdout line arrives (NDJSON frame). */

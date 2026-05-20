@@ -221,16 +221,6 @@ export const agentApi = {
   openMemoryViewer: (initialTab?: 'memory' | 'skills'): Promise<number> =>
     ipcRenderer.invoke(IpcChannel.Agent_OpenMemoryViewer, { initialTab }),
 
-  /**
-   * Pre-fetch the fastembed ONNX model into Studio's cache. Resolves
-   * with `{ ok: true }` when the model is ready, or `{ ok: false, error }`
-   * if download / extract failed. Idempotent — calling on an already
-   * cached model returns quickly without re-downloading. Used by
-   * Settings before persisting `memory_embedder = "fastembed"`.
-   */
-  downloadFastEmbed: (): Promise<{ ok: true } | { ok: false; error: string }> =>
-    ipcRenderer.invoke(IpcChannel.Agent_FastEmbedDownload),
-
   // ------ Streaming events ------
 
   onSidecarStateChange: createSafeListener<SidecarState>(IpcChannel.Agent_SidecarStateChanged),
@@ -246,13 +236,6 @@ export const agentApi = {
   ),
   onUsageUpdate: createSafeListener<UsageUpdateParams>(IpcChannel.Agent_UsageUpdate),
   onMemoryUpdated: createSafeListener<MemoryUpdatedParams>(IpcChannel.Agent_MemoryUpdated),
-  /** Opaque stderr lines from the running fastembed download. Subscribed
-   *  by the Settings download modal so users see signs of life on slow
-   *  networks. Each line is whatever fastembed-rs / indicatif emit —
-   *  treat as display-only text. */
-  onFastEmbedDownloadProgress: createSafeListener<string>(
-    IpcChannel.Agent_FastEmbedDownloadProgress
-  ),
   onError: createSafeListener<ErrorNotificationParams>(IpcChannel.Agent_Error),
   onLog: createSafeListener<LogWriteParams>(IpcChannel.Agent_Log),
   onEditApplied: createSafeListener<AgentEditAppliedPayload>(IpcChannel.Agent_EditApplied),

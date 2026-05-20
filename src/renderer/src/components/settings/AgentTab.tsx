@@ -43,13 +43,10 @@ interface EngineOverrides {
   collapse_tool_results_threshold?: number;
   max_output_token_escalation_attempts?: number;
   max_output_token_ceiling?: number;
+  mcp_idle_ttl_secs?: number;
+  mcp_reaper_period_secs?: number;
   stream_tool_execution?: boolean;
-  memory_reranker?: boolean;
-  memory_reranker_model?: string;
-  memory_embedder?: MemoryEmbedderKind;
 }
-
-type MemoryEmbedderKind = 'none' | 'hash' | 'fastembed';
 
 type NumberKey =
   | 'max_iterations'
@@ -63,9 +60,11 @@ type NumberKey =
   | 'turn_timeout_secs'
   | 'collapse_tool_results_threshold'
   | 'max_output_token_escalation_attempts'
-  | 'max_output_token_ceiling';
+  | 'max_output_token_ceiling'
+  | 'mcp_idle_ttl_secs'
+  | 'mcp_reaper_period_secs';
 
-type BoolKey = 'stream_tool_execution' | 'memory_reranker';
+type BoolKey = 'stream_tool_execution';
 
 const NUMBER_FIELDS: Array<{
   key: NumberKey;
@@ -151,18 +150,37 @@ const NUMBER_FIELDS: Array<{
     descKey: 'settingsAgent.engine.maxOutputTokenCeilingDesc',
     placeholder: '32768',
   },
+  {
+    key: 'mcp_idle_ttl_secs',
+    labelKey: 'settingsAgent.engine.mcpIdleTtlSecs',
+    descKey: 'settingsAgent.engine.mcpIdleTtlSecsDesc',
+    placeholder: '600',
+    allowZero: true,
+  },
+  {
+    key: 'mcp_reaper_period_secs',
+    labelKey: 'settingsAgent.engine.mcpReaperPeriodSecs',
+    descKey: 'settingsAgent.engine.mcpReaperPeriodSecsDesc',
+    placeholder: '60',
+    allowZero: true,
+  },
 ];
 
-const BOOL_FIELDS: Array<{ key: BoolKey; labelKey: string; descKey: string }> = [
+/** Boolean knobs. `engineDefault` is what SNACA uses when the field is
+ *  unset — the UI displays that value so users see actual behaviour
+ *  rather than an ambiguous "default" option. Any interaction always
+ *  persists an explicit `true` or `false`. */
+const BOOL_FIELDS: Array<{
+  key: BoolKey;
+  labelKey: string;
+  descKey: string;
+  engineDefault: boolean;
+}> = [
   {
     key: 'stream_tool_execution',
     labelKey: 'settingsAgent.engine.streamToolExecution',
     descKey: 'settingsAgent.engine.streamToolExecutionDesc',
-  },
-  {
-    key: 'memory_reranker',
-    labelKey: 'settingsAgent.engine.memoryReranker',
-    descKey: 'settingsAgent.engine.memoryRerankerDesc',
+    engineDefault: true,
   },
 ];
 
@@ -231,113 +249,13 @@ export const AgentTab: React.FC = () => {
     [engine, persistEngine]
   );
   const updateBool = useCallback(
-    (key: BoolKey, value: boolean | undefined) => {
+    (key: BoolKey, value: boolean) => {
       const next = { ...engine };
-      if (value === undefined) {
-        delete next[key];
-      } else {
-        next[key] = value;
-      }
+      next[key] = value;
       persistEngine(next);
     },
     [engine, persistEngine]
   );
-  const updateString = useCallback(
-    (key: 'memory_reranker_model', raw: string) => {
-      const trimmed = raw.trim();
-      const next = { ...engine };
-      if (!trimmed) {
-        delete next[key];
-      } else {
-        next[key] = trimmed;
-      }
-      persistEngine(next);
-    },
-    [engine, persistEngine]
-  );
-
-  // --- FastEmbed pre-download state ---
-  //
-  // The dropdown is bound to the persisted `engine.memory_embedder`.
-  // Selecting "fastembed" opens this modal instead of writing through;
-  // only on a successful `downloadFastEmbed` do we persist. The dropdown
-  // therefore reflects "what's actually in use", not "what the user
-  // clicked".
-  type DownloadPhase = 'idle' | 'downloading' | 'success' | 'failed';
-  const [downloadPhase, setDownloadPhase] = useState<DownloadPhase>('idle');
-  const [downloadProgress, setDownloadProgress] = useState<string>('');
-  const [downloadError, setDownloadError] = useState<string>('');
-  const [modalOpen, setModalOpen] = useState(false);
-
-  // Subscribe to stderr-derived progress while the modal is showing.
-  // Each line replaces the previous one — we don't accumulate a log,
-  // just give the user a live "still working" signal.
-  useEffect(() => {
-    if (!modalOpen) return undefined;
-    return agentClient.onFastEmbedDownloadProgress((line) => {
-      setDownloadProgress(line);
-    });
-  }, [modalOpen]);
-
-  const persistEmbedder = useCallback(
-    (kind: MemoryEmbedderKind) => {
-      const next = { ...engine };
-      if (kind === 'hash') {
-        // Hash is the engine default; storing it is redundant noise and
-        // makes the wire payload bigger. Drop it instead.
-        delete next.memory_embedder;
-      } else {
-        next.memory_embedder = kind;
-      }
-      persistEngine(next);
-    },
-    [engine, persistEngine]
-  );
-
-  const startFastEmbedDownload = useCallback(async () => {
-    setDownloadPhase('downloading');
-    setDownloadProgress('');
-    setDownloadError('');
-    const result = await agentClient.downloadFastEmbed();
-    if (result.ok) {
-      persistEmbedder('fastembed');
-      setDownloadPhase('success');
-    } else {
-      setDownloadPhase('failed');
-      setDownloadError(result.error);
-    }
-  }, [persistEmbedder]);
-
-  const onEmbedderChange = useCallback(
-    (kind: MemoryEmbedderKind) => {
-      // The current persisted choice. Hash defaults to "no override" so
-      // an absent field reads as 'hash' for UI purposes.
-      const current: MemoryEmbedderKind = engine.memory_embedder ?? 'hash';
-      if (kind === current) return;
-      if (kind === 'fastembed') {
-        // Defer the persist until after the download flow succeeds.
-        setDownloadPhase('idle');
-        setDownloadProgress('');
-        setDownloadError('');
-        setModalOpen(true);
-      } else {
-        persistEmbedder(kind);
-      }
-    },
-    [engine.memory_embedder, persistEmbedder]
-  );
-
-  const closeModal = useCallback(() => {
-    // Closing mid-download abandons UI tracking — the child process
-    // keeps running. Subsequent sidecar inits will pick up the cached
-    // model if/when it finishes. We only persist on explicit success
-    // so a partial download won't break the next session.
-    setModalOpen(false);
-    setDownloadPhase('idle');
-    setDownloadProgress('');
-    setDownloadError('');
-  }, []);
-
   const buttonClass =
     'inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded border ' +
     'border-[var(--color-border)] bg-[var(--color-bg-secondary)] ' +
@@ -433,25 +351,21 @@ export const AgentTab: React.FC = () => {
           })}
 
           {BOOL_FIELDS.map((field) => {
-            const value = engine[field.key];
+            // Unset persisted value → show the engine default so the UI
+            // reflects what's actually happening. Any user interaction
+            // then writes an explicit boolean.
+            const effective = engine[field.key] ?? field.engineDefault;
             return (
               <SettingItem
                 key={field.key}
                 label={t(field.labelKey as never)}
                 description={t(field.descKey as never)}
               >
-                {/* tri-state: undefined (engine default) / true / false. Mapped
-                    through a select rather than a checkbox so "leave as default"
-                    is a distinct choice from "explicitly off". */}
                 <select
-                  value={value === undefined ? '' : value ? 'true' : 'false'}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    updateBool(field.key, v === '' ? undefined : v === 'true');
-                  }}
+                  value={effective ? 'true' : 'false'}
+                  onChange={(e) => updateBool(field.key, e.target.value === 'true')}
                   className={selectClassName}
                 >
-                  <option value="">{t('settingsAgent.engine.boolDefault' as never)}</option>
                   <option value="true">{t('settingsAgent.engine.boolOn' as never)}</option>
                   <option value="false">{t('settingsAgent.engine.boolOff' as never)}</option>
                 </select>
@@ -459,150 +373,12 @@ export const AgentTab: React.FC = () => {
             );
           })}
 
-          <SettingItem
-            label={t('settingsAgent.engine.memoryEmbedder' as never)}
-            description={t('settingsAgent.engine.memoryEmbedderDesc' as never)}
-          >
-            <select
-              value={engine.memory_embedder ?? 'hash'}
-              onChange={(e) => onEmbedderChange(e.target.value as MemoryEmbedderKind)}
-              className={selectClassName}
-            >
-              <option value="none">{t('settingsAgent.engine.embedderNone' as never)}</option>
-              <option value="hash">{t('settingsAgent.engine.embedderHash' as never)}</option>
-              <option value="fastembed">
-                {t('settingsAgent.engine.embedderFastembed' as never)}
-              </option>
-            </select>
-          </SettingItem>
-
-          <SettingItem
-            label={t('settingsAgent.engine.memoryRerankerModel' as never)}
-            description={t('settingsAgent.engine.memoryRerankerModelDesc' as never)}
-          >
-            <input
-              type="text"
-              value={engine.memory_reranker_model ?? ''}
-              placeholder="deepseek-chat"
-              onChange={(e) => updateString('memory_reranker_model', e.target.value)}
-              className={inputClassName}
-            />
-          </SettingItem>
-
           <p className="text-[11px] text-amber-400/80 mt-2">
             {t('settingsAgent.engine.restartHint')}
           </p>
         </>
       )}
 
-      {/* ---------- FastEmbed download modal ---------- */}
-      {modalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          // Click on backdrop closes only when not downloading — we'd
-          // rather the user explicitly cancel than rage-quit a flow.
-          onClick={() => {
-            if (downloadPhase !== 'downloading') closeModal();
-          }}
-        >
-          <div
-            className="w-[420px] max-w-[90vw] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-4 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-sm font-semibold text-[var(--color-text-primary)] mb-2">
-              {t('settingsAgent.engine.fastembedModalTitle' as never)}
-            </h3>
-            <p className="text-xs text-[var(--color-text-muted)] mb-3">
-              {t('settingsAgent.engine.fastembedModalDesc' as never)}
-            </p>
-
-            {downloadPhase === 'downloading' && (
-              <div className="mb-3 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-2">
-                <p className="text-xs text-[var(--color-text-primary)] mb-1">
-                  {t('settingsAgent.engine.fastembedDownloading' as never)}
-                </p>
-                <p className="text-[11px] text-[var(--color-text-muted)] font-mono break-all line-clamp-2">
-                  {downloadProgress || '…'}
-                </p>
-              </div>
-            )}
-
-            {downloadPhase === 'success' && (
-              <p className="mb-3 text-xs text-emerald-400">
-                {t('settingsAgent.engine.fastembedSuccess' as never)}
-              </p>
-            )}
-
-            {downloadPhase === 'failed' && (
-              <div className="mb-3 rounded border border-red-500/40 bg-red-500/10 p-2">
-                <p className="text-xs text-red-400 mb-1">
-                  {t('settingsAgent.engine.fastembedFailed' as never)}
-                </p>
-                <p className="text-[11px] text-[var(--color-text-muted)] font-mono break-all">
-                  {downloadError}
-                </p>
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2">
-              {downloadPhase === 'idle' && (
-                <>
-                  <button
-                    type="button"
-                    onClick={closeModal}
-                    className="px-3 py-1.5 text-xs rounded border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
-                  >
-                    {t('settingsAgent.engine.fastembedCancel' as never)}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={startFastEmbedDownload}
-                    className="px-3 py-1.5 text-xs rounded bg-[var(--color-accent)] text-white hover:opacity-90"
-                  >
-                    {t('settingsAgent.engine.fastembedStart' as never)}
-                  </button>
-                </>
-              )}
-              {downloadPhase === 'downloading' && (
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="px-3 py-1.5 text-xs rounded border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
-                >
-                  {t('settingsAgent.engine.fastembedCancel' as never)}
-                </button>
-              )}
-              {downloadPhase === 'failed' && (
-                <>
-                  <button
-                    type="button"
-                    onClick={closeModal}
-                    className="px-3 py-1.5 text-xs rounded border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
-                  >
-                    {t('settingsAgent.engine.fastembedClose' as never)}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={startFastEmbedDownload}
-                    className="px-3 py-1.5 text-xs rounded bg-[var(--color-accent)] text-white hover:opacity-90"
-                  >
-                    {t('settingsAgent.engine.fastembedRetry' as never)}
-                  </button>
-                </>
-              )}
-              {downloadPhase === 'success' && (
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="px-3 py-1.5 text-xs rounded bg-[var(--color-accent)] text-white hover:opacity-90"
-                >
-                  {t('settingsAgent.engine.fastembedClose' as never)}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 };

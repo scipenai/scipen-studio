@@ -323,19 +323,6 @@ class AgentClientServiceImpl {
   onMemoryUpdated(cb: (e: any) => void): () => void {
     return this.api.onMemoryUpdated(cb);
   }
-  /** Pre-fetch the fastembed ONNX model. Called by Settings before
-   *  persisting `memory_embedder = "fastembed"`. Resolves with
-   *  `{ ok: true }` on success or `{ ok: false, error }` on failure;
-   *  the renderer should not throw on rejection — the result shape is
-   *  the failure channel. */
-  downloadFastEmbed(): Promise<{ ok: true } | { ok: false; error: string }> {
-    return this.api.downloadFastEmbed();
-  }
-  /** Subscribe to opaque stderr lines from the running fastembed
-   *  download. Returns an unsubscribe fn. */
-  onFastEmbedDownloadProgress(cb: (line: string) => void): () => void {
-    return this.api.onFastEmbedDownloadProgress(cb);
-  }
   onLog(cb: (e: any) => void): () => void {
     return this.api.onLog(cb);
   }

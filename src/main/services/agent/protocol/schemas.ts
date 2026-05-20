@@ -232,9 +232,6 @@ export const EngineConfigSchema = z.object({
   system_prompt: z.string().optional(),
   memory_extractor: z.boolean().optional(),
   memory_extractor_model: z.string().optional(),
-  memory_embedder: MemoryEmbedderKindSchema.optional(),
-  memory_reranker: z.boolean().optional(),
-  memory_reranker_model: z.string().optional(),
   compact_summary_max_tokens: z.number().int().positive().optional(),
   history_max_bytes: z.number().int().positive().optional(),
   // 0 means "disabled" — schema accepts >=0 and lets the sidecar interpret.
@@ -243,6 +240,9 @@ export const EngineConfigSchema = z.object({
   stream_tool_execution: z.boolean().optional(),
   max_output_token_escalation_attempts: z.number().int().nonnegative().optional(),
   max_output_token_ceiling: z.number().int().positive().optional(),
+  // 0 keeps MCP clients alive forever / disables the reaper.
+  mcp_idle_ttl_secs: z.number().int().nonnegative().optional(),
+  mcp_reaper_period_secs: z.number().int().nonnegative().optional(),
 });
 export type EngineConfig = z.infer<typeof EngineConfigSchema>;
 

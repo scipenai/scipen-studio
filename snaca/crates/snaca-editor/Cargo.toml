@@ -40,14 +40,5 @@ futures.workspace = true
 tokio-util.workspace = true
 sha2 = "0.10"
 
-[features]
-default = []
-# Compile the fastembed (ONNX) embedder backend into the binary. The
-# model weights themselves are NOT bundled — they're downloaded on
-# first use into `SCIPEN_FASTEMBED_CACHE_DIR` (or `~/.cache/fastembed/`
-# when the env var is unset). Mirrors `snaca-server`'s feature shape so
-# CI can drive both crates with the same flag.
-fastembed = ["snaca-memory/fastembed"]
-
 [dev-dependencies]
 tempfile = "3"

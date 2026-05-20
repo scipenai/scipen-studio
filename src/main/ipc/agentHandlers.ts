@@ -11,10 +11,7 @@
  * calls have somewhere to land.
  */
 
-import { BrowserWindow, ipcMain, shell, app } from 'electron';
-import { spawn } from 'child_process';
-import { createInterface as createReadlineInterface } from 'readline';
-import * as path from 'path';
+import { BrowserWindow, ipcMain, shell } from 'electron';
 import { z } from 'zod';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import { ConfigKeys } from '../../../shared/types/config-keys';
@@ -766,83 +763,7 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
     return await client.skillsReload({ session_id: requireSession() });
   });
 
-  ipcMain.handle(
-    IpcChannel.Agent_FastEmbedDownload,
-    async (): Promise<{ ok: true } | { ok: false; error: string }> => {
-      return await runFastEmbedDownload(sidecar);
-    }
-  );
-
   return store;
-}
-
-/**
- * Spawn the staged `snaca-editor` binary with `--download-fastembed`,
- * forward each stderr line to all open renderer windows as a
- * `Agent_FastEmbedDownloadProgress` event, and resolve with
- * `{ ok: true }` when the child exits 0. Failures (binary missing,
- * non-zero exit, no `READY` marker on stdout) resolve with
- * `{ ok: false, error }` so the Settings UI can revert the dropdown
- * without raising. The fastembed feature was built into the sidecar
- * by `build-snaca.js` (default `SCIPEN_SNACA_FEATURES=fastembed`); a
- * binary built without the feature exits with an explanatory error
- * from `snaca-editor --download-fastembed` itself.
- */
-async function runFastEmbedDownload(
-  sidecar: ISnacaSidecarService
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  return await new Promise((resolve) => {
-    let child;
-    try {
-      child = spawn(sidecar.binaryPath, ['--download-fastembed'], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, ...sidecar.resolveEnv() },
-        windowsHide: true,
-      });
-    } catch (e) {
-      resolve({ ok: false, error: (e as Error).message });
-      return;
-    }
-
-    // The `READY` marker on stdout is the only authoritative
-    // success signal — exit 0 alone could mean fastembed-rs
-    // silently bailed early (very unlikely, but cheap to assert).
-    let sawReady = false;
-    let lastStderrLine = '';
-
-    const stdoutLines = createReadlineInterface({ input: child.stdout! });
-    stdoutLines.on('line', (line) => {
-      if (line.trim() === 'READY') sawReady = true;
-    });
-
-    const stderrLines = createReadlineInterface({ input: child.stderr! });
-    stderrLines.on('line', (line) => {
-      if (!line.trim()) return;
-      lastStderrLine = line;
-      for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed()) {
-          win.webContents.send(IpcChannel.Agent_FastEmbedDownloadProgress, line);
-        }
-      }
-    });
-
-    child.on('error', (e) => {
-      resolve({ ok: false, error: `spawn failed: ${e.message}` });
-    });
-    child.on('exit', (code) => {
-      if (code === 0 && sawReady) {
-        resolve({ ok: true });
-      } else {
-        resolve({
-          ok: false,
-          error:
-            code !== 0
-              ? `snaca-editor --download-fastembed exited ${code}: ${lastStderrLine || '<no stderr>'}`
-              : `snaca-editor exited 0 but never emitted READY (build missing fastembed feature?)`,
-        });
-      }
-    });
-  });
 }
 
 // ----- helpers -----
@@ -987,9 +908,7 @@ function readMcpServers(config: IConfigManager): McpServerConfig[] | undefined {
 /**
  * Build the env injected into the spawned sidecar. `SNACA_API_KEY` is
  * sourced from the selected chat provider; `process.env.SNACA_API_KEY` is
- * a developer-only fallback. `SCIPEN_FASTEMBED_CACHE_DIR` pins the ONNX
- * model cache to Studio's userData so the download lives under
- * `<userData>/fastembed-cache/` instead of polluting `~/.cache/fastembed/`.
+ * a developer-only fallback.
  */
 export function buildSnacaSidecarEnv(config: IConfigManager): NodeJS.ProcessEnv {
   const resolved = resolveChatProvider(config);
@@ -997,17 +916,7 @@ export function buildSnacaSidecarEnv(config: IConfigManager): NodeJS.ProcessEnv 
   return {
     [SNACA_API_KEY_ENV]: apiKey,
     RUST_LOG: process.env.SNACA_LOG ?? 'snaca_editor=info,info',
-    SCIPEN_FASTEMBED_CACHE_DIR: getFastEmbedCacheDir(),
   };
-}
-
-/**
- * Absolute path to Studio's fastembed ONNX cache. The directory may
- * not exist yet — `--download-fastembed` creates it on first use. Kept
- * stable across sidecar restarts so a one-time download survives.
- */
-export function getFastEmbedCacheDir(): string {
-  return path.join(app.getPath('userData'), 'fastembed-cache');
 }
 
 interface ResolvedChatProvider {

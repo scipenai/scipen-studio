@@ -777,13 +777,6 @@ fn format_engine_overrides(ec: &snaca_editor_protocol::types::config::EngineConf
         parts.push("system_prompt=set".into());
     }
     if let Some(b) = ec.memory_extractor { parts.push(format!("memory_extractor={b}")); }
-    if let Some(e) = ec.memory_embedder {
-        parts.push(format!("memory_embedder={e:?}"));
-    }
-    if let Some(b) = ec.memory_reranker { parts.push(format!("memory_reranker={b}")); }
-    if ec.memory_reranker_model.as_ref().is_some_and(|s| !s.is_empty()) {
-        parts.push("memory_reranker_model=set".into());
-    }
     if let Some(v) = ec.compact_summary_max_tokens {
         parts.push(format!("compact_summary_max_tokens={v}"));
     }
@@ -800,6 +793,12 @@ fn format_engine_overrides(ec: &snaca_editor_protocol::types::config::EngineConf
     }
     if let Some(v) = ec.max_output_token_ceiling {
         parts.push(format!("max_output_token_ceiling={v}"));
+    }
+    if let Some(v) = ec.mcp_idle_ttl_secs {
+        parts.push(format!("mcp_idle_ttl_secs={v}"));
+    }
+    if let Some(v) = ec.mcp_reaper_period_secs {
+        parts.push(format!("mcp_reaper_period_secs={v}"));
     }
     if parts.is_empty() {
         "<defaults>".into()

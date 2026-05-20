@@ -12,7 +12,7 @@ pub mod range;
 pub use capabilities::{HostCapabilities, SnacaCapabilities};
 pub use config::{
     EngineConfig, LlmConfig, LlmProvider, LoggingConfig, McpServerConfig, McpTransport,
-    MemoryEmbedder, ApprovalMode, RetryConfig, SnacaConfig,
+    ApprovalMode, RetryConfig, SnacaConfig,
 };
 pub use context::{
     ActiveFileContext, Attachment, ChatContext, DiagnosticItem, DiagnosticSeverity,

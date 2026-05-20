@@ -78,14 +78,6 @@ pub struct EngineConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_extractor_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub memory_embedder: Option<MemoryEmbedder>,
-    /// Opt-in LLM reranker over cosine recall (one extra round trip per turn).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub memory_reranker: Option<bool>,
-    /// `None` ⇒ reuse `llm.model`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub memory_reranker_model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_summary_max_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub history_max_bytes: Option<u64>,
@@ -102,6 +94,12 @@ pub struct EngineConfig {
     pub max_output_token_escalation_attempts: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_output_token_ceiling: Option<u32>,
+    /// `0` keeps every MCP client alive forever.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_idle_ttl_secs: Option<u64>,
+    /// `0` disables the periodic idle-eviction reaper.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_reaper_period_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,14 +108,6 @@ pub enum ApprovalMode {
     Interactive,
     AutoAllow,
     AutoDeny,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MemoryEmbedder {
-    None,
-    Hash,
-    Fastembed,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -14,7 +14,8 @@ use snaca_editor_protocol::messages::usage::{UsageTotals, UsageUpdateParams};
 use snaca_editor_protocol::types::config::{LlmProvider, SnacaConfig};
 use snaca_llm::{
     anthropic::AnthropicConfig, deepseek::DeepSeekConfig, openai::OpenAIConfig, AnthropicClient,
-    ContentDelta, DeepSeekClient, LlmClient, MessageRequest, OpenAIClient, StreamEvent,
+    ContentDelta, DeepSeekClient, LlmClient, MessageRequest, OpenAIClient, RetryConfig,
+    RetryingLlmClient, StreamEvent,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -47,6 +48,10 @@ pub fn build_llm_client(cfg: &SnacaConfig) -> Result<Arc<dyn LlmClient>, Protoco
         .map(Duration::from_secs)
         .unwrap_or(Duration::from_secs(120));
 
+    // RetryingLlmClient is generic over the concrete provider client, so
+    // wrap *before* erasing to `Arc<dyn>`. Mirrors snaca-server. Provides
+    // exponential backoff on 429 / 5xx / transient timeouts.
+    let retry_cfg = build_retry_config(cfg.llm.retry.as_ref());
     let client: Arc<dyn LlmClient> = match cfg.llm.provider {
         LlmProvider::OpenaiCompatible => {
             let mut oc = OpenAIConfig::new(api_key)
@@ -55,12 +60,13 @@ pub fn build_llm_client(cfg: &SnacaConfig) -> Result<Arc<dyn LlmClient>, Protoco
             if let Some(url) = cfg.llm.base_url.clone() {
                 oc = oc.with_base_url(url);
             }
-            Arc::new(OpenAIClient::new(oc).map_err(|e| {
+            let raw = OpenAIClient::new(oc).map_err(|e| {
                 ProtocolError::new(
                     ErrorCode::ConfigInvalid,
                     format!("OpenAI client init failed: {e}"),
                 )
-            })?)
+            })?;
+            Arc::new(RetryingLlmClient::new(raw, retry_cfg))
         }
         LlmProvider::Deepseek => {
             let mut dc = DeepSeekConfig::new(api_key)
@@ -69,12 +75,13 @@ pub fn build_llm_client(cfg: &SnacaConfig) -> Result<Arc<dyn LlmClient>, Protoco
             if let Some(url) = cfg.llm.base_url.clone() {
                 dc = dc.with_base_url(url);
             }
-            Arc::new(DeepSeekClient::new(dc).map_err(|e| {
+            let raw = DeepSeekClient::new(dc).map_err(|e| {
                 ProtocolError::new(
                     ErrorCode::ConfigInvalid,
                     format!("DeepSeek client init failed: {e}"),
                 )
-            })?)
+            })?;
+            Arc::new(RetryingLlmClient::new(raw, retry_cfg))
         }
         LlmProvider::Anthropic => {
             let mut ac = AnthropicConfig::new(api_key)
@@ -83,12 +90,13 @@ pub fn build_llm_client(cfg: &SnacaConfig) -> Result<Arc<dyn LlmClient>, Protoco
             if let Some(url) = cfg.llm.base_url.clone() {
                 ac = ac.with_base_url(url);
             }
-            Arc::new(AnthropicClient::new(ac).map_err(|e| {
+            let raw = AnthropicClient::new(ac).map_err(|e| {
                 ProtocolError::new(
                     ErrorCode::ConfigInvalid,
                     format!("Anthropic client init failed: {e}"),
                 )
-            })?)
+            })?;
+            Arc::new(RetryingLlmClient::new(raw, retry_cfg))
         }
     };
 
@@ -99,6 +107,19 @@ pub fn build_llm_client(cfg: &SnacaConfig) -> Result<Arc<dyn LlmClient>, Protoco
         "LLM client constructed"
     );
     Ok(client)
+}
+
+fn build_retry_config(
+    wire: Option<&snaca_editor_protocol::types::config::RetryConfig>,
+) -> RetryConfig {
+    let defaults = RetryConfig::default();
+    let Some(w) = wire else { return defaults; };
+    RetryConfig {
+        max_attempts: w.max_attempts,
+        base_delay: Duration::from_millis(w.base_delay_ms),
+        max_delay: Duration::from_secs(w.max_delay_secs),
+        jitter_ratio: w.jitter_ratio as f64,
+    }
 }
 
 /// Run one chat turn end-to-end against a real LLM.

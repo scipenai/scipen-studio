@@ -52,6 +52,19 @@ impl McpManager {
         }
     }
 
+    /// Same as `from_configs` but with an explicit idle TTL. No sandboxing.
+    /// `Duration::ZERO` keeps every spawned client alive forever.
+    pub fn from_configs_with_ttl(configs: &[McpServerConfig], idle_ttl: Duration) -> Self {
+        Self {
+            pools: configs
+                .iter()
+                .cloned()
+                .map(|c| Arc::new(McpPool::new(c).with_idle_ttl(idle_ttl)))
+                .collect(),
+            reaper: StdMutex::new(None),
+        }
+    }
+
     /// Multi-tenant constructor — each spawned MCP child is confined via
     /// landlock to its `(tenant, project)` workspace plus `/tmp` and the
     /// standard read-only system dirs (Linux only; ignored on other

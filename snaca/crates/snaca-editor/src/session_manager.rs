@@ -811,10 +811,20 @@ fn build_session_engine(
         let mut seen = std::collections::HashSet::new();
         runtime_servers.retain(|c| seen.insert(c.name.clone()));
     }
-    let mcp_manager = std::sync::Arc::new(snaca_mcp::McpManager::from_configs(&runtime_servers));
-    // Periodic reaper — evicts idle MCP clients. 60s aligns with the
-    // pool's default idle TTL granularity.
-    mcp_manager.start_reaper(std::time::Duration::from_secs(60));
+    let idle_ttl = snaca_config
+        .engine
+        .mcp_idle_ttl_secs
+        .map(std::time::Duration::from_secs)
+        .unwrap_or(snaca_mcp::pool::DEFAULT_IDLE_TTL);
+    let reaper_period = snaca_config
+        .engine
+        .mcp_reaper_period_secs
+        .map(std::time::Duration::from_secs)
+        .unwrap_or(std::time::Duration::from_secs(60));
+    let mcp_manager = std::sync::Arc::new(
+        snaca_mcp::McpManager::from_configs_with_ttl(&runtime_servers, idle_ttl),
+    );
+    mcp_manager.start_reaper(reaper_period);
 
     // Skill provider — re-scans tenant + project skill dirs on demand
     // with a 5s TTL cache (LayoutSkillProvider default), so a freshly
@@ -822,32 +832,15 @@ fn build_session_engine(
     let skill_provider: std::sync::Arc<dyn snaca_skills::SkillProvider> =
         std::sync::Arc::new(snaca_skills::LayoutSkillProvider::new(layout.clone()));
 
-    // Memory wiring — defaults differ from snaca-server because Studio is
-    // a single-user desktop app: we want recall + auto-extract on by
-    // default so MemoryViewer surfaces real data without a power-user
-    // config dance. Hosts can disable extractor via `engine.memory_extractor = false`.
-    let extractor_enabled = snaca_config.engine.memory_extractor.unwrap_or(true);
+    // Memory wiring — Studio relies on the in-turn `MemoryWriteTool` for
+    // memory persistence. The post-turn auto-extractor is therefore opt-in
+    // (default off) so each turn doesn't carry an extra LLM round trip.
+    let extractor_enabled = snaca_config.engine.memory_extractor.unwrap_or(false);
     let extractor_model = snaca_config
         .engine
         .memory_extractor_model
         .clone()
         .unwrap_or_else(|| snaca_config.llm.model.clone());
-    let embedder: Option<std::sync::Arc<dyn snaca_memory::Embedder>> = match snaca_config
-        .engine
-        .memory_embedder
-    {
-        Some(snaca_editor_protocol::types::config::MemoryEmbedder::None) => None,
-        Some(snaca_editor_protocol::types::config::MemoryEmbedder::Fastembed) => Some(
-            build_fastembed_embedder().unwrap_or_else(|| {
-                warn!(
-                    "memory_embedder=fastembed selected but unavailable; \
-                     falling back to HashEmbedder (recall quality degraded)"
-                );
-                std::sync::Arc::new(snaca_memory::HashEmbedder::default())
-            }),
-        ),
-        _ => Some(std::sync::Arc::new(snaca_memory::HashEmbedder::default())),
-    };
 
     // TaskRegistry — lets the Bash tool's `run_in_background = true`
     // path spawn long-lived child tasks that TaskOutput can poll. Same
@@ -865,23 +858,6 @@ fn build_session_engine(
     engine = engine
         .with_tool_factory(factory)
         .with_task_registry(task_registry);
-    if let Some(e) = embedder {
-        engine = engine.with_embedder(e);
-    }
-    // Reranker — opt-in. One extra LLM round trip per recall;
-    // `memory_reranker_model` falls back to the chat model so
-    // single-credential setups work without extra config.
-    if snaca_config.engine.memory_reranker.unwrap_or(false) {
-        let rerank_model = snaca_config
-            .engine
-            .memory_reranker_model
-            .clone()
-            .unwrap_or_else(|| snaca_config.llm.model.clone());
-        let reranker: snaca_engine::SharedReranker = std::sync::Arc::new(
-            snaca_engine::LlmReranker::new(llm.clone(), rerank_model),
-        );
-        engine = engine.with_reranker(reranker);
-    }
     if extractor_enabled {
         // Always wrap in the PII filter (email / phone / api key / bearer
         // token patterns). Studio is a single-user desktop where memory
@@ -903,30 +879,4 @@ fn build_session_engine(
         engine = engine.with_memory_sink(sink);
     }
     Some(Arc::new(engine))
-}
-
-/// Stand up the production `FastEmbedEmbedder` when the binary was
-/// built with `--features fastembed`. Cache dir comes from
-/// `SCIPEN_FASTEMBED_CACHE_DIR` (host sets it to Studio's data root).
-/// Returns `None` on missing feature or init failure; callers fall
-/// back to `HashEmbedder`.
-#[cfg(feature = "fastembed")]
-fn build_fastembed_embedder() -> Option<std::sync::Arc<dyn snaca_memory::Embedder>> {
-    let cache_dir = std::env::var_os("SCIPEN_FASTEMBED_CACHE_DIR")
-        .map(std::path::PathBuf::from);
-    let mut cfg = snaca_memory::FastEmbedConfig::default();
-    cfg.cache_dir = cache_dir;
-    cfg.show_download_progress = false;
-    match snaca_memory::FastEmbedEmbedder::try_new(cfg) {
-        Ok(e) => Some(std::sync::Arc::new(e)),
-        Err(err) => {
-            warn!(error = %err, "fastembed init failed; recall will use HashEmbedder");
-            None
-        }
-    }
-}
-
-#[cfg(not(feature = "fastembed"))]
-fn build_fastembed_embedder() -> Option<std::sync::Arc<dyn snaca_memory::Embedder>> {
-    None
 }

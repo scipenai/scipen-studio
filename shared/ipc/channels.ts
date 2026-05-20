@@ -222,16 +222,6 @@ export enum IpcChannel {
   // Memory / skills viewer secondary window
   Agent_OpenMemoryViewer = 'agent:open-memory-viewer',
   /**
-   * Pre-download the fastembed ONNX model into Studio's cache dir
-   * (`<userData>/fastembed-cache/`). Spawns the staged `snaca-editor`
-   * binary with `--download-fastembed`, captures stderr for progress,
-   * resolves with `{ ok: true }` on exit code 0. Used by the Settings
-   * UI before persisting `memory_embedder = "fastembed"` so the user
-   * sees explicit progress instead of a multi-minute hang on the next
-   * sidecar init.
-   */
-  Agent_FastEmbedDownload = 'agent:fastembed-download',
-  /**
    * Renderer-decided resolution of an `edit.propose` event. Main reads the
    * file, validates `base_hash`, applies the (possibly partial) hunks, and
    * forwards `editConfirm` to SNACA. Differs from `Agent_ConfirmEdit` which
@@ -272,14 +262,6 @@ export enum IpcChannel {
    * `{ ok: false }` to SNACA so the LLM doesn't hang.
    */
   Agent_ContextFlushRequest = 'agent:context-flush-request',
-  /**
-   * Streaming progress lines from the running fastembed download
-   * triggered by `Agent_FastEmbedDownload`. Each event carries an
-   * opaque stderr line (fastembed-rs prints `indicatif` bars there).
-   * Renderer treats this as "still alive, here's something to show"
-   * — we don't parse byte counts, just surface raw text.
-   */
-  Agent_FastEmbedDownloadProgress = 'agent:fastembed-download-progress',
 
   // ====== Chat ======
 
