@@ -46,6 +46,8 @@ interface EngineOverrides {
   mcp_idle_ttl_secs?: number;
   mcp_reaper_period_secs?: number;
   stream_tool_execution?: boolean;
+  memory_extractor?: boolean;
+  memory_extractor_model?: string;
 }
 
 type NumberKey =
@@ -64,7 +66,7 @@ type NumberKey =
   | 'mcp_idle_ttl_secs'
   | 'mcp_reaper_period_secs';
 
-type BoolKey = 'stream_tool_execution';
+type BoolKey = 'stream_tool_execution' | 'memory_extractor';
 
 const NUMBER_FIELDS: Array<{
   key: NumberKey;
@@ -182,6 +184,12 @@ const BOOL_FIELDS: Array<{
     descKey: 'settingsAgent.engine.streamToolExecutionDesc',
     engineDefault: true,
   },
+  {
+    key: 'memory_extractor',
+    labelKey: 'settingsAgent.engine.memoryExtractor',
+    descKey: 'settingsAgent.engine.memoryExtractorDesc',
+    engineDefault: false,
+  },
 ];
 
 const selectClassName =
@@ -252,6 +260,19 @@ export const AgentTab: React.FC = () => {
     (key: BoolKey, value: boolean) => {
       const next = { ...engine };
       next[key] = value;
+      persistEngine(next);
+    },
+    [engine, persistEngine]
+  );
+  const updateString = useCallback(
+    (key: 'memory_extractor_model', raw: string) => {
+      const trimmed = raw.trim();
+      const next = { ...engine };
+      if (!trimmed) {
+        delete next[key];
+      } else {
+        next[key] = trimmed;
+      }
       persistEngine(next);
     },
     [engine, persistEngine]
@@ -372,6 +393,19 @@ export const AgentTab: React.FC = () => {
               </SettingItem>
             );
           })}
+
+          <SettingItem
+            label={t('settingsAgent.engine.memoryExtractorModel' as never)}
+            description={t('settingsAgent.engine.memoryExtractorModelDesc' as never)}
+          >
+            <input
+              type="text"
+              value={engine.memory_extractor_model ?? ''}
+              placeholder="deepseek-chat"
+              onChange={(e) => updateString('memory_extractor_model', e.target.value)}
+              className={inputClassName}
+            />
+          </SettingItem>
 
           <p className="text-[11px] text-amber-400/80 mt-2">
             {t('settingsAgent.engine.restartHint')}
