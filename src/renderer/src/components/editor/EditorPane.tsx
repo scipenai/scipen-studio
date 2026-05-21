@@ -314,11 +314,26 @@ export const EditorPane: React.FC = React.memo(() => {
         );
         previousTabPathRef.current = editorService.activeTabPath;
         initializeLSPDocument(editor);
+
+        // Surface any review created while the editor was unmounted. The
+        // tab-switch effect (below) short-circuits when `previousTabPathRef`
+        // already matches the active tab — so without this call, a review
+        // produced by an `edit.propose` arriving in chat-only mode never
+        // gets decorations when the user finally opens the editor.
+        const initialIdentity =
+          initialTab._id || normalizeReviewPath(editorService.activeTabPath);
+        restoreReviewForTab(editor, monacoInstance, initialIdentity);
       }
 
       isEditorMountedRef.current = true;
     },
-    [editorSettings.autoCompletion, uiTheme, runDiagnostics, setupLSPDiagnostics]
+    [
+      editorSettings.autoCompletion,
+      uiTheme,
+      runDiagnostics,
+      setupLSPDiagnostics,
+      restoreReviewForTab,
+    ]
   );
 
   useEffect(() => {

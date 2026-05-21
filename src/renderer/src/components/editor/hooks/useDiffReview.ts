@@ -26,6 +26,34 @@ import {
 } from '../DiffReviewRenderer';
 import { computeSingleEdit } from '../utils/editorModelHelpers';
 
+/**
+ * Scroll the first hunk into view when it would otherwise be off-screen.
+ *
+ * Inline action buttons (`DiffReviewInlineWidget`) are positioned via
+ * `editor.getTopForLineNumber`, which returns absolute pixel offsets — so a
+ * hunk at line 200 in a tall file gets placed thousands of pixels below the
+ * editor viewport and is clipped by the container's `overflow: hidden`.
+ *
+ * Visible symptom: the toolbar shows a pending review and "Accept All" works,
+ * but the user can't see what changed or accept individual hunks. Revealing
+ * the first hunk after every render restores per-hunk visibility.
+ *
+ * Already-visible hunks short-circuit so we don't jerk the scroll when a bot
+ * edit lands inside the user's current viewport.
+ */
+function revealFirstHunkIfOffScreen(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  review: PendingReview
+): void {
+  const firstHunk = review.hunks[0];
+  if (!firstHunk) return;
+  const visible = editor.getVisibleRanges();
+  const target = firstHunk.startLine;
+  const inView = visible.some((r) => target >= r.startLineNumber && target <= r.endLineNumber);
+  if (inView) return;
+  editor.revealLineInCenter(target);
+}
+
 export interface UseDiffReviewParams {
   editorRef: React.RefObject<monaco.editor.IStandaloneCodeEditor | null>;
   monacoRef: React.RefObject<Monaco | null>;
@@ -309,6 +337,7 @@ export function useDiffReview({
       if (editor && monacoInstance) {
         if (diffStateRef.current) clearDiffReview(editor, diffStateRef.current);
         diffStateRef.current = renderDiffReviewWithSweep(editor, monacoInstance, addedReview);
+        revealFirstHunkIfOffScreen(editor, addedReview);
       }
     }
   });
@@ -424,6 +453,7 @@ export function useDiffReview({
       if (!review) return;
       if (diffStateRef.current) clearDiffReview(editor, diffStateRef.current);
       diffStateRef.current = renderDiffReviewWithSweep(editor, monacoInstance, review);
+      revealFirstHunkIfOffScreen(editor, review);
       setReviewTick((t) => t + 1);
     },
     []
@@ -457,6 +487,7 @@ export function useDiffReview({
         diffStateRef.current = pendingEdit
           ? renderDiffReviewWithSweep(editor, monacoInstance, review)
           : renderDiffReview(editor, monacoInstance, review);
+        revealFirstHunkIfOffScreen(editor, review);
         setReviewTick((t) => t + 1);
       }
     },
