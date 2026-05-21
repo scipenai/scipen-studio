@@ -12,9 +12,9 @@
  *     the LLM doesn't hang.
  *   - For `file_content`: reads disk directly via `IFileSystemService` and
  *     attaches a sha256.
- *   - For everything else (`codebase_search` / `symbol_def` /
- *     `diagnostics`): `{ ok: false, error: 'not_supported' }` — those are
- *     deferred to a later phase that owns the index.
+ *   - For `zotero_search` / `zotero_lookup` / `zotero_annotations`: forwards
+ *     to the renderer via `Agent_ContextZoteroRequest`, parks the request,
+ *     and resolves when the renderer answers (or 5s timeout fires).
  *
  * Single-instance service. DI: `{ getRendererWebContents, fileSystem }`.
  */
@@ -87,14 +87,6 @@ export class ContextRequestService implements IContextRequestService {
       case 'zotero_lookup':
       case 'zotero_annotations':
         return this.handleZotero(req);
-      case 'codebase_search':
-      case 'symbol_def':
-      case 'diagnostics':
-        return {
-          request_id: req.request_id,
-          ok: false,
-          error: `kind '${req.kind}' not supported by host yet`,
-        };
     }
   }
 

@@ -67,9 +67,12 @@ pub enum ContextKind {
 pub enum ContextRequestKind {
     FlushUnsaved,
     FileContent,
-    CodebaseSearch,
-    SymbolDef,
-    Diagnostics,
+    /// Renderer-served full-text search over the user's Zotero library.
+    ZoteroSearch,
+    /// Renderer-served citation key / itemKey lookup with CSL metadata.
+    ZoteroLookup,
+    /// Renderer-served fetch of annotations attached to a Zotero item.
+    ZoteroAnnotations,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

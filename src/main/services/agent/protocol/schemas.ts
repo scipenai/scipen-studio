@@ -158,9 +158,9 @@ export type ApprovalModeKind = z.infer<typeof ApprovalModeKindSchema>;
 export const ContextRequestKindSchema = z.enum([
   'flush_unsaved',
   'file_content',
-  'codebase_search',
-  'symbol_def',
-  'diagnostics',
+  'zotero_search',
+  'zotero_lookup',
+  'zotero_annotations',
 ]);
 export type ContextRequestKind = z.infer<typeof ContextRequestKindSchema>;
 
@@ -614,9 +614,6 @@ export type PlanUpdateParams = z.infer<typeof PlanUpdateParamsSchema>;
 
 // ============ Context request / respond ============
 
-export const CodebaseSearchScopeSchema = z.enum(['current_file', 'project']);
-export type CodebaseSearchScope = z.infer<typeof CodebaseSearchScopeSchema>;
-
 export const ContextRequestPayloadSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('flush_unsaved'),
@@ -625,25 +622,6 @@ export const ContextRequestPayloadSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('file_content'),
     params: z.object({ path: z.string() }),
-  }),
-  z.object({
-    kind: z.literal('codebase_search'),
-    params: z.object({
-      query: z.string(),
-      top_k: z.number().int().positive().optional(),
-      scope: CodebaseSearchScopeSchema.optional(),
-    }),
-  }),
-  z.object({
-    kind: z.literal('symbol_def'),
-    params: z.object({
-      name: z.string(),
-      type_hint: z.string().optional(),
-    }),
-  }),
-  z.object({
-    kind: z.literal('diagnostics'),
-    params: z.object({ path: z.string().optional() }),
   }),
   // ----- Zotero-backed context kinds (M1) -----
   // SNACA tools use these to query the host's Zotero index without
@@ -692,32 +670,6 @@ export const ContextPayloadSchema = z.discriminatedUnion('kind', [
     path: z.string(),
     content: z.string(),
     sha256: z.string(),
-  }),
-  z.object({
-    kind: z.literal('codebase_search'),
-    results: z.array(
-      z.object({
-        path: z.string(),
-        range: RangeSchema,
-        snippet: z.string(),
-        score: z.number(),
-      })
-    ),
-  }),
-  z.object({
-    kind: z.literal('symbol_def'),
-    matches: z.array(z.object({ path: z.string(), range: RangeSchema })),
-  }),
-  z.object({
-    kind: z.literal('diagnostics'),
-    items: z.array(
-      z.object({
-        path: z.string(),
-        severity: z.string(),
-        message: z.string(),
-        range: RangeSchema.optional(),
-      })
-    ),
   }),
   // ----- Zotero response payloads (M1) -----
   z.object({

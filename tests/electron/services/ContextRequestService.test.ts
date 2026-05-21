@@ -163,33 +163,6 @@ describe('ContextRequestService', () => {
     expect(result.error).toContain('ENOENT');
   });
 
-  // ============ not-yet-supported kinds ============
-
-  it.each(['codebase_search', 'symbol_def', 'diagnostics'] as const)(
-    '%s: replies ok=false with "not supported"',
-    async (kind) => {
-      const { service } = makeService();
-
-      // Each kind has different `params` shape; build per-kind.
-      const params =
-        kind === 'codebase_search'
-          ? { query: 'foo' }
-          : kind === 'symbol_def'
-            ? { name: 'Foo' }
-            : { path: '/a.tex' };
-
-      const result = await service.handle({
-        request_id: `req-${kind}`,
-        turn_id: 'turn-1',
-        kind,
-        params,
-      } as Parameters<typeof service.handle>[0]);
-
-      expect(result.ok).toBe(false);
-      expect(result.error).toMatch(/not supported/i);
-    }
-  );
-
   // ============ lifecycle ============
 
   it('dispose: rejects pending flush promises and refuses subsequent calls', async () => {
