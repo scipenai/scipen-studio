@@ -236,7 +236,7 @@ export function AgentChatInput({
             className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               armed
                 ? 'bg-[var(--color-accent)] text-white'
-                : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]'
+                : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
             }`}
           >
             🛠 {composer.label}
@@ -270,7 +270,7 @@ export function AgentChatInput({
               type="button"
               onClick={onCancel}
               title="取消"
-              className="rounded-md bg-[var(--color-bg-secondary)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-primary)] hover:text-[var(--color-text)]"
+              className="rounded-md bg-[var(--color-bg-secondary)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-primary)] hover:text-[var(--color-text-primary)]"
             >
               停止
             </button>

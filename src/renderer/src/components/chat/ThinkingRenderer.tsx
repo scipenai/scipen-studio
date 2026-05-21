@@ -26,7 +26,7 @@ export function ThinkingRenderer({ text, streaming }: ThinkingRendererProps): Re
       <button
         type="button"
         onClick={() => setExpanded((e) => !e)}
-        className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+        className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
       >
         <span className="flex items-center gap-1.5">
           <svg width="10" height="10" viewBox="0 0 10 10" className={expanded ? 'rotate-90 transition' : 'transition'}>

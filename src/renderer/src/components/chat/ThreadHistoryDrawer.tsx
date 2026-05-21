@@ -88,7 +88,7 @@ export function ThreadHistoryDrawer({
         <div className="flex items-center gap-1">
           <button
             type="button"
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text)]"
+            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
             title={t('thread.newThread')}
             onClick={onCreate}
           >
@@ -96,7 +96,7 @@ export function ThreadHistoryDrawer({
           </button>
           <button
             type="button"
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text)]"
+            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
             title={t('common.cancel')}
             onClick={onClose}
           >
@@ -146,11 +146,11 @@ export function ThreadHistoryDrawer({
                         }
                       }}
                       placeholder={t('thread.renamePlaceholder')}
-                      className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-1.5 py-0.5 text-[12px] text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
+                      className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-1.5 py-0.5 text-[12px] text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
                     />
                   ) : (
                     <>
-                      <div className="truncate text-[var(--color-text)]">
+                      <div className="truncate text-[var(--color-text-primary)]">
                         {thread.title || t('thread.untitled')}
                       </div>
                       <div className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
@@ -165,7 +165,7 @@ export function ThreadHistoryDrawer({
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
                     <button
                       type="button"
-                      className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text)]"
+                      className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
                       title={t('thread.rename')}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -219,7 +219,7 @@ function DeleteButton({ onConfirm, confirmText, title }: DeleteButtonProps): Rea
     <button
       type="button"
       className={`rounded p-1 hover:bg-[var(--color-bg-tertiary)] ${
-        armed ? 'text-red-500' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]'
+        armed ? 'text-red-500' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
       }`}
       title={armed ? confirmText : title}
       onClick={(e) => {

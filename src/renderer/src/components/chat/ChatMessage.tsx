@@ -18,6 +18,7 @@ import {
   type ChatPlan,
   type ChatPlanFile,
   type ChatProposalRecord,
+  type ChatTimelineEvent,
   type ChatTurn,
 } from '../../services/agent/ChatStreamStore';
 import { agentEditProposalBridge } from '../../services/agent/AgentEditProposalBridge';
@@ -38,31 +39,49 @@ interface ChatMessageProps {
   completedTurn?: ChatTurn;
 }
 
+/**
+ * Plan-aware text gating: composer-plan turns stream the plan body as raw
+ * JSON, then the host parses it into a structured PlanCard. The raw JSON
+ * is redundant noise once the card materializes — and even while still
+ * streaming it's an unreadable partial fenced block. Suppress in either
+ * case so the card is the only plan surface.
+ */
+function shouldSuppressPlanText(turn: ChatTurn | undefined): boolean {
+  if (!turn) return false;
+  if (turn.plan) return true;
+  return turn.origin === 'composer' && turn.pending;
+}
+
 export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps): ReactElement {
   if (turn) {
+    const suppressText = shouldSuppressPlanText(turn);
+    const showWaiting =
+      turn.pending && !suppressText && turn.events.length === 0;
+    const showPlanComposing =
+      suppressText && turn.pending && !turn.plan;
     return (
       <div className="mb-3 rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] p-2.5">
         <RoleBadge role="assistant" pending />
-        {turn.hasThinking && <ThinkingRenderer text={turn.thinkingText} streaming={turn.pending} />}
+        <Timeline
+          events={turn.events}
+          toolCalls={turn.toolCalls}
+          pending={turn.pending}
+          suppressText={suppressText}
+        />
         {turn.plan && <PlanCard plan={turn.plan} turnId={turn.turnId} />}
         <ApprovalList approvals={turn.approvals} />
-        <ToolCalls calls={turn.toolCalls} />
         <ProposalsList proposals={turn.proposals} />
-        {turn.text ? (
-          <div className="text-[13px] leading-[1.6]">
-            <MarkdownContent content={turn.text} />
-            {turn.pending && (
-              <span className="ml-0.5 inline-block h-3 w-px animate-pulse bg-[var(--color-accent)] align-middle" />
-            )}
+        {showPlanComposing && (
+          <div className="flex items-center gap-1.5 text-[12px] text-[var(--color-text-muted)]">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-accent)]" />
+            正在生成计划…
           </div>
-        ) : (
-          turn.pending &&
-          !turn.hasThinking && (
-            <div className="flex items-center gap-1.5 text-[12px] text-[var(--color-text-muted)]">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-accent)]" />
-              等待回复…
-            </div>
-          )
+        )}
+        {showWaiting && (
+          <div className="flex items-center gap-1.5 text-[12px] text-[var(--color-text-muted)]">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-accent)]" />
+            等待回复…
+          </div>
         )}
         {turn.error && <ErrorBlock error={turn.error} />}
         {turn.usage && !turn.pending && <UsageLine turn={turn} />}
@@ -83,21 +102,79 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
     );
   }
 
+  const suppressText = shouldSuppressPlanText(completedTurn);
+  // Records persisted before text became a timeline event have thinking +
+  // tool events but no text event — fall back to rendering `message.text`
+  // at the end so legacy threads still show the assistant's reply.
+  const hasTextEvent =
+    completedTurn?.events?.some((e) => e.kind === 'text') ?? false;
+  const renderLegacyTail = !suppressText && !hasTextEvent && message.text.length > 0;
   return (
     <div className="mb-3 rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] p-2.5">
       <RoleBadge role="assistant" />
-      {completedTurn?.hasThinking && (
-        <ThinkingRenderer text={completedTurn.thinkingText} streaming={false} />
+      {completedTurn && (
+        <Timeline
+          events={completedTurn.events}
+          toolCalls={completedTurn.toolCalls}
+          pending={false}
+          suppressText={suppressText}
+        />
       )}
       {completedTurn?.plan && (
         <PlanCard plan={completedTurn.plan} turnId={completedTurn.turnId} />
       )}
-      {completedTurn && <ToolCalls calls={completedTurn.toolCalls} />}
       {completedTurn && <ProposalsList proposals={completedTurn.proposals} />}
-      <div className="text-[13px] leading-[1.6]">
-        <MarkdownContent content={message.text} />
-      </div>
+      {renderLegacyTail && (
+        <div className="text-[13px] leading-[1.6]">
+          <MarkdownContent content={message.text} />
+        </div>
+      )}
       {completedTurn?.usage && <UsageLine turn={completedTurn} />}
+    </div>
+  );
+}
+
+function Timeline({
+  events,
+  toolCalls,
+  pending,
+  suppressText,
+}: {
+  events: ChatTimelineEvent[];
+  toolCalls: ChatTurn['toolCalls'];
+  pending: boolean;
+  /** Composer-plan turns hide raw JSON text events in favor of PlanCard. */
+  suppressText: boolean;
+}): ReactElement | null {
+  if (events.length === 0) return null;
+  return (
+    <div className="mb-2 space-y-1.5">
+      {events.map((ev, i) => {
+        const isLast = i === events.length - 1;
+        if (ev.kind === 'thinking') {
+          return (
+            <ThinkingRenderer
+              key={`th-${i}`}
+              text={ev.text}
+              streaming={isLast && pending}
+            />
+          );
+        }
+        if (ev.kind === 'text') {
+          if (suppressText) return null;
+          return (
+            <div key={`tx-${i}`} className="text-[13px] leading-[1.6]">
+              <MarkdownContent content={ev.text} />
+              {isLast && pending && (
+                <span className="ml-0.5 inline-block h-3 w-px animate-pulse bg-[var(--color-accent)] align-middle" />
+              )}
+            </div>
+          );
+        }
+        const call = toolCalls.find((t) => t.toolCallId === ev.toolCallId);
+        if (!call) return null;
+        return <ToolCallCard key={ev.toolCallId} call={call} />;
+      })}
     </div>
   );
 }
@@ -117,17 +194,6 @@ function RoleBadge({
   );
 }
 
-function ToolCalls({ calls }: { calls: ChatTurn['toolCalls'] }): ReactElement | null {
-  if (calls.length === 0) return null;
-  return (
-    <div className="mb-2 space-y-1">
-      {calls.map((tc) => (
-        <ToolCallCard key={tc.toolCallId} call={tc} />
-      ))}
-    </div>
-  );
-}
-
 function ToolCallCard({ call }: { call: ChatTurn['toolCalls'][number] }): ReactElement {
   const [open, setOpen] = useState(false);
   const argsPreview = formatArgsPreview(call.args);
@@ -143,7 +209,7 @@ function ToolCallCard({ call }: { call: ChatTurn['toolCalls'][number] }): ReactE
           className={`flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
         />
         <span className={`font-medium ${statusColor(call.status)}`}>{statusGlyph(call.status)}</span>
-        <span className="font-medium text-[var(--color-text)]">{call.tool}</span>
+        <span className="font-medium text-[var(--color-text-primary)]">{call.tool}</span>
         {argsPreview && (
           <span className="truncate text-[var(--color-text-muted)]">{argsPreview}</span>
         )}
@@ -179,7 +245,7 @@ function DetailBlock({
         {label}
       </div>
       <pre
-        className={`max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded bg-[var(--color-bg-primary)] px-2 py-1 leading-[1.5] text-[var(--color-text)] ${
+        className={`max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded bg-[var(--color-bg-primary)] px-2 py-1 leading-[1.5] text-[var(--color-text-primary)] ${
           mono ? 'font-mono text-[10px]' : 'text-[11px]'
         }`}
       >
@@ -348,17 +414,18 @@ function PlanCard({ plan, turnId }: { plan: ChatPlan; turnId: string }): ReactEl
           size={11}
           className={`flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
         />
-        <span className="font-medium text-[var(--color-text)]">{t('chat.planLabel')}</span>
+        <span className="font-medium text-[var(--color-text-primary)]">{t('chat.planLabel')}</span>
         <span className="text-[var(--color-text-muted)]">
-          {plan.files.length} {t('chat.planItemsSuffix')}
-          {plan.awaiting && ` · ${t('chat.planAwaitingConfirm')}`}
+          {plan.files.length > 0 && `${plan.files.length} ${t('chat.planItemsSuffix')}`}
+          {plan.files.length > 0 && plan.awaiting && ' · '}
+          {plan.awaiting && t('chat.planAwaitingConfirm')}
         </span>
       </button>
       {open && (
         <div className="border-t border-[var(--color-border-subtle)] px-2.5 py-2 space-y-1.5">
           {plan.rationale && (
-            <div className="text-[11px] leading-[1.55] text-[var(--color-text-muted)] whitespace-pre-wrap">
-              {plan.rationale}
+            <div className="chat-markdown text-[12px] leading-[1.55] text-[var(--color-text-secondary)]">
+              <MarkdownContent content={plan.rationale} />
             </div>
           )}
           {plan.files.length > 0 && (
@@ -382,7 +449,7 @@ function PlanCard({ plan, turnId }: { plan: ChatPlan; turnId: string }): ReactEl
                 type="button"
                 disabled={submitting}
                 onClick={() => decide('reject')}
-                className="rounded border border-[var(--color-border-subtle)] px-2.5 py-1 text-[11px] text-[var(--color-text)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-50"
+                className="rounded border border-[var(--color-border-subtle)] px-2.5 py-1 text-[11px] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-50"
               >
                 {t('chat.planReject')}
               </button>
@@ -402,13 +469,13 @@ function PlanFileRow({ file }: { file: ChatPlanFile }): ReactElement {
       <Icon size={12} className={`mt-0.5 flex-shrink-0 ${planActionColor(file.action)}`} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className="truncate font-mono text-[10px] text-[var(--color-text)]">
+          <span className="truncate font-mono text-[10px] text-[var(--color-text-primary)]">
             {file.agentRelativePath}
           </span>
           {file.renameTo && (
             <>
               <CornerDownLeft size={10} className="flex-shrink-0 -rotate-90 text-[var(--color-text-muted)]" />
-              <span className="truncate font-mono text-[10px] text-[var(--color-text)]">
+              <span className="truncate font-mono text-[10px] text-[var(--color-text-primary)]">
                 {file.renameTo}
               </span>
             </>
@@ -523,7 +590,7 @@ function ProposalRow({ proposal }: { proposal: ChatProposalRecord }): ReactEleme
       }
     >
       <FilePen size={11} className="flex-shrink-0 text-[var(--color-accent)]" />
-      <span className="truncate font-mono text-[10px] text-[var(--color-text)]">{fileName}</span>
+      <span className="truncate font-mono text-[10px] text-[var(--color-text-primary)]">{fileName}</span>
       <span className="flex-shrink-0 text-[var(--color-text-muted)]">
         · {proposal.hunkCount} {t('chat.proposalChangesSuffix')}
       </span>
@@ -614,7 +681,7 @@ function ApprovalCard({ approval }: { approval: ChatApprovalRequest }): ReactEle
         <div className="mb-1.5 text-[var(--color-text-muted)]">{approval.summary}</div>
       )}
       {argsPreview && (
-        <pre className="mb-2 max-h-24 overflow-y-auto whitespace-pre-wrap rounded bg-[var(--color-bg-primary)] px-1.5 py-1 font-mono text-[10px] text-[var(--color-text)]">
+        <pre className="mb-2 max-h-24 overflow-y-auto whitespace-pre-wrap rounded bg-[var(--color-bg-primary)] px-1.5 py-1 font-mono text-[10px] text-[var(--color-text-primary)]">
           {argsPreview}
         </pre>
       )}
@@ -622,21 +689,21 @@ function ApprovalCard({ approval }: { approval: ChatApprovalRequest }): ReactEle
         <button
           type="button"
           onClick={() => void decide('allow')}
-          className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-0.5 text-[10px] hover:bg-[var(--color-bg-hover)]"
+          className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-0.5 text-[10px] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
         >
           {t('chat.approvalAllowOnce')}
         </button>
         <button
           type="button"
           onClick={() => void decide('allow_always')}
-          className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-0.5 text-[10px] hover:bg-[var(--color-bg-hover)]"
+          className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-0.5 text-[10px] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
         >
           {t('chat.approvalAllowAlways')}
         </button>
         <button
           type="button"
           onClick={() => void decide('deny')}
-          className="rounded border border-red-400/40 bg-red-400/10 px-2 py-0.5 text-[10px] text-red-300 hover:bg-red-400/20"
+          className="rounded border border-[var(--color-error)]/50 bg-[var(--color-error-muted)] px-2 py-0.5 text-[10px] text-[var(--color-error)] hover:opacity-90"
         >
           {t('chat.approvalDeny')}
         </button>

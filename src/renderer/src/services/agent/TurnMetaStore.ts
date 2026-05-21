@@ -22,6 +22,7 @@
 import type {
   ChatPlan,
   ChatProposalRecord,
+  ChatTimelineEvent,
   ChatTurnUsage,
 } from './ChatStreamStore';
 
@@ -34,6 +35,8 @@ export interface TurnMetaRecord {
   key: string;
   threadId: string;
   turnId: string;
+  /** Absent on records written before the timeline rollout — treat as 'chat'. */
+  origin?: 'chat' | 'composer';
   thinking: string;
   toolCalls: Array<{
     toolCallId: string;
@@ -43,6 +46,8 @@ export interface TurnMetaRecord {
     message?: string;
     result?: string;
   }>;
+  /** Absent on legacy records — caller fabricates from thinking + toolCalls. */
+  events?: ChatTimelineEvent[];
   proposals: ChatProposalRecord[];
   plan: ChatPlan | null;
   usage?: ChatTurnUsage;

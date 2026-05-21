@@ -88,11 +88,26 @@ export interface ChatApprovalRequest {
   status: 'pending' | 'resolved';
 }
 
+/**
+ * Ordered timeline entry for in-order rendering. Each consecutive run of
+ * deltas of the same kind collapses into a single event; switching kinds
+ * starts a fresh segment. Reasoning models routinely interleave thinking,
+ * tool calls, and partial answers (think → tool → text → think → tool →
+ * text), and a flat `thinkingText` + trailing `text` would erase that
+ * order — the timeline restores it.
+ */
+export type ChatTimelineEvent =
+  | { kind: 'thinking'; text: string }
+  | { kind: 'tool_ref'; toolCallId: string }
+  | { kind: 'text'; text: string };
+
 export interface ChatTurn {
   turnId: string;
-  /** Whether the turn has emitted any thinking text. */
-  hasThinking: boolean;
-  /** Concatenated thinking content (for thinking models). */
+  /** Composer plan turns stream raw JSON in `text`; PlanCard supersedes
+   *  that, so the UI hides the JSON when `origin === 'composer'`. */
+  origin: 'chat' | 'composer';
+  /** Concatenated thinking content (kept for IDB persistence + auto-scroll
+   *  delta detection in ChatSidebar). The timeline view drives rendering. */
   thinkingText: string;
   /** Concatenated final assistant text. */
   text: string;
@@ -105,6 +120,8 @@ export interface ChatTurn {
     message?: string;
     result?: string;
   }>;
+  /** Ordered timeline of thinking + tool events for in-order rendering. */
+  events: ChatTimelineEvent[];
   /** Edit proposals raised during this turn (host_applies path). */
   proposals: ChatProposalRecord[];
   /** Latest plan.update snapshot, if SNACA emitted one. */
@@ -434,9 +451,19 @@ class ChatStreamStoreImpl {
   /**
    * Composer entry. Renders the user prompt with a "task mode" marker so the
    * thread visibly distinguishes a plan-first composer turn from chat.
+   *
+   * Tags `currentTurn.origin = 'composer'` so the UI knows the streaming
+   * JSON in `turn.text` is the plan body — to be suppressed in favor of
+   * the structured PlanCard once `plan.update` arrives. The race noted on
+   * `beginUserTurn` (deltas arriving before the turn record exists) is
+   * already handled there; we just need to stamp origin afterwards.
    */
   beginComposerTurn(turnId: string, instruction: string): void {
     this.beginUserTurn(turnId, `🛠 ${instruction}`);
+    if (this.currentTurn?.turnId === turnId) {
+      this.currentTurn.origin = 'composer';
+      this.fire();
+    }
   }
 
   /**
@@ -475,13 +502,28 @@ class ChatStreamStoreImpl {
     const turn = this.acquireTurn(turnId);
 
     switch (evt.kind) {
-      case 'text':
+      case 'text': {
         turn.text += evt.text;
+        const last = turn.events[turn.events.length - 1];
+        if (last && last.kind === 'text') {
+          last.text += evt.text;
+        } else {
+          turn.events.push({ kind: 'text', text: evt.text });
+        }
         break;
-      case 'thinking':
+      }
+      case 'thinking': {
         turn.thinkingText += evt.text;
-        turn.hasThinking = true;
+        // Coalesce consecutive thinking deltas into the same timeline block;
+        // a tool_use between two thinking runs starts a fresh block.
+        const last = turn.events[turn.events.length - 1];
+        if (last && last.kind === 'thinking') {
+          last.text += evt.text;
+        } else {
+          turn.events.push({ kind: 'thinking', text: evt.text });
+        }
         break;
+      }
       case 'tool_use':
         turn.toolCalls.push({
           toolCallId: evt.tool_call_id,
@@ -489,6 +531,7 @@ class ChatStreamStoreImpl {
           args: evt.args,
           status: 'pending',
         });
+        turn.events.push({ kind: 'tool_ref', toolCallId: evt.tool_call_id });
         break;
       case 'tool_progress': {
         const tc = turn.toolCalls.find((t) => t.toolCallId === evt.tool_call_id);
@@ -712,8 +755,10 @@ class ChatStreamStoreImpl {
         key: turnMetaKey(threadId, turn.turnId),
         threadId,
         turnId: turn.turnId,
+        origin: turn.origin,
         thinking: turn.thinkingText,
         toolCalls: turn.toolCalls,
+        events: turn.events,
         proposals: turn.proposals,
         plan: turn.plan,
         usage: turn.usage,
@@ -743,10 +788,11 @@ class ChatStreamStoreImpl {
 function makeEmptyTurn(turnId: string): ChatTurn {
   return {
     turnId,
-    hasThinking: false,
+    origin: 'chat',
     thinkingText: '',
     text: '',
     toolCalls: [],
+    events: [],
     proposals: [],
     plan: null,
     approvals: [],
@@ -760,12 +806,22 @@ function makeEmptyTurn(turnId: string): ChatTurn {
  * this turn via `turnId`), so the synthetic turn here is metadata-only.
  */
 function recordToCompletedTurn(r: TurnMetaRecord): ChatTurn {
+  // Records written before the timeline rollout only have thinkingText +
+  // toolCalls. We synthesize a degenerate timeline (one thinking block
+  // followed by all tools) so the renderer doesn't have to branch on
+  // legacy shape — interleaving is lost for those, but order across
+  // thinking and tools is best-effort by definition once a turn ends.
+  const events: ChatTimelineEvent[] =
+    r.events && r.events.length > 0
+      ? r.events
+      : fabricateTimelineFromLegacy(r.thinking, r.toolCalls);
   return {
     turnId: r.turnId,
-    hasThinking: r.thinking.length > 0,
+    origin: r.origin ?? 'chat',
     thinkingText: r.thinking,
     text: '', // canonical text comes from messages[], not the turn
     toolCalls: r.toolCalls,
+    events,
     proposals: r.proposals.map(migrateProposal),
     plan: r.plan ? { ...r.plan, files: r.plan.files.map(migratePlanFile) } : null,
     // Approval cards are ephemeral — never restored from cache.
@@ -774,6 +830,16 @@ function recordToCompletedTurn(r: TurnMetaRecord): ChatTurn {
     doneReason: 'completed',
     usage: r.usage,
   };
+}
+
+function fabricateTimelineFromLegacy(
+  thinking: string,
+  toolCalls: ChatTurn['toolCalls']
+): ChatTimelineEvent[] {
+  const events: ChatTimelineEvent[] = [];
+  if (thinking.length > 0) events.push({ kind: 'thinking', text: thinking });
+  for (const tc of toolCalls) events.push({ kind: 'tool_ref', toolCallId: tc.toolCallId });
+  return events;
 }
 
 /**
