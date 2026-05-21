@@ -8,7 +8,11 @@
 
 import { BrowserWindow } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
-import type { ZoteroSettingsDTO, ZoteroSettingsPatchDTO } from '../../../shared/types/zotero';
+import type {
+  ZoteroAnnotationDTO,
+  ZoteroSettingsDTO,
+  ZoteroSettingsPatchDTO,
+} from '../../../shared/types/zotero';
 import { ConfigKeys } from '../../../shared/types/config-keys';
 import { configManager } from '../services/ConfigManager';
 import { createLogger } from '../services/LoggerService';
@@ -149,6 +153,22 @@ export function registerZoteroHandlers(): void {
   registerHandler(IpcChannel.Zotero_SyncBibTex, () => getBibTexSyncService().syncNow());
   registerHandler(IpcChannel.Zotero_GetBibTexSyncStatus, () =>
     getBibTexSyncService().getStatus()
+  );
+
+  ipcMain.handle(
+    IpcChannel.Zotero_GetItemAnnotations,
+    async (_event, rawItemKey: unknown): Promise<ZoteroAnnotationDTO[]> => {
+      if (typeof rawItemKey !== 'string' || rawItemKey.length === 0) return [];
+      try {
+        return await getZoteroLocalApiClient().getItemAnnotations(rawItemKey);
+      } catch (err) {
+        logger.warn('[Zotero] getItemAnnotations failed', {
+          itemKey: rawItemKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return [];
+      }
+    }
   );
 
   logger.info('[IPC] Zotero handlers registered');

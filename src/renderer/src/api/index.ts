@@ -739,7 +739,11 @@ export const selection = {
 // ==================== Zotero API ====================
 
 import type {
+  BBTCitationEntryDTO,
+  ZoteroAnnotationDTO,
   ZoteroDetectionResultDTO,
+  ZoteroGetItemsOptionsDTO,
+  ZoteroItemDTO,
   ZoteroPingResultDTO,
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
@@ -773,6 +777,13 @@ export const zotero = {
   syncBibTex: () => invoke<BibTexSyncStatusDTO>(IpcChannel.Zotero_SyncBibTex),
   getBibTexSyncStatus: () =>
     invoke<BibTexSyncStatusDTO>(IpcChannel.Zotero_GetBibTexSyncStatus),
+  getAllCitations: () => invoke<BBTCitationEntryDTO[]>(IpcChannel.Zotero_GetAllCitations),
+  getItemsPage: (opts?: ZoteroGetItemsOptionsDTO) =>
+    invoke<ZoteroItemDTO[]>(IpcChannel.Zotero_GetItemsPage, opts),
+  getCslByKey: (citationKey: string) =>
+    invoke<unknown | null>(IpcChannel.Zotero_GetCslByKey, citationKey),
+  getItemAnnotations: (itemKey: string) =>
+    invoke<ZoteroAnnotationDTO[]>(IpcChannel.Zotero_GetItemAnnotations, itemKey),
   onSettingsChanged: (callback: (settings: ZoteroSettingsDTO) => void) =>
     on(IpcChannel.Zotero_SettingsChanged, (data) => callback(data as ZoteroSettingsDTO)),
   onEvent: (callback: (event: ZoteroEventDTO) => void) =>

@@ -20,6 +20,20 @@ export interface ContextFlushResponsePayload {
   flushedFiles: string[];
 }
 
+/**
+ * Renderer's reply to a `Agent_ContextZoteroRequest`. The `data` field
+ * is shaped per-kind by the responder; the service just hands it back
+ * to the awaiting handler which wraps it in the right Zod-validated
+ * `ContextPayload` variant.
+ */
+export interface ContextZoteroResponsePayload {
+  requestId: string;
+  ok: boolean;
+  /** Per-kind body; see `ContextZoteroResponder` for shapes. */
+  data?: unknown;
+  error?: string;
+}
+
 export interface IContextRequestService extends IDisposable {
   /**
    * Reverse-RPC dispatcher. Wire this to
@@ -33,4 +47,11 @@ export interface IContextRequestService extends IDisposable {
    * pending promise that `handle()` is awaiting.
    */
   completeFlush(payload: ContextFlushResponsePayload): void;
+
+  /**
+   * Called by the IPC layer when the renderer replies to a
+   * `Agent_ContextZoteroRequest`. Resolves the pending promise that
+   * `handle()` is awaiting for one of the three `zotero_*` kinds.
+   */
+  completeZotero(payload: ContextZoteroResponsePayload): void;
 }

@@ -14,6 +14,7 @@
 import { useEffect } from 'react';
 import { agentClient } from '../services/agent/AgentClientService';
 import { agentEditProposalBridge } from '../services/agent/AgentEditProposalBridge';
+import { getContextZoteroResponder } from '../services/agent/ContextZoteroResponder';
 import { recentEditsTracker } from '../services/agent/RecentEditsTracker';
 import { getEditorService } from '../services/core';
 import { api } from '../api';
@@ -25,6 +26,8 @@ export function useAgentBridge(): void {
   useEffect(() => {
     agentEditProposalBridge.init();
     recentEditsTracker.init();
+    const zoteroResponder = getContextZoteroResponder();
+    zoteroResponder.start();
 
     const offEditApplied = agentClient.onEditApplied((evt) => {
       const editor = getEditorService();
@@ -62,6 +65,7 @@ export function useAgentBridge(): void {
     return () => {
       offEditApplied();
       offFlush();
+      zoteroResponder.stop();
     };
   }, []);
 }

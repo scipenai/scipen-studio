@@ -9,6 +9,7 @@
 import { ipcRenderer } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import type {
+  ZoteroAnnotationDTO,
   ZoteroDetectionResultDTO,
   ZoteroPingResultDTO,
   ZoteroSettingsDTO,
@@ -91,6 +92,10 @@ export const zoteroApi = {
   /** 读当前 BibTeX 同步状态(idle / syncing / ok / conflict / error)。 */
   getBibTexSyncStatus: (): Promise<BibTexSyncStatusDTO> =>
     ipcRenderer.invoke(IpcChannel.Zotero_GetBibTexSyncStatus),
+
+  /** Fetch annotations attached to one Zotero item (PDF attachment). */
+  getItemAnnotations: (itemKey: string): Promise<ZoteroAnnotationDTO[]> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_GetItemAnnotations, itemKey),
 
   /**
    * 订阅 Zotero 设置变更事件。

@@ -241,6 +241,15 @@ class AgentClientServiceImpl {
     return this.api.respondContextFlush(payload);
   }
 
+  respondContextZotero(payload: {
+    requestId: string;
+    ok: boolean;
+    data?: unknown;
+    error?: string;
+  }): Promise<{ ok: true }> {
+    return this.api.respondContextZotero(payload);
+  }
+
   // ---- Memory viewer ----
 
   memoryList(scope?: 'user' | 'feedback' | 'project' | 'reference'): Promise<any> {
@@ -341,6 +350,16 @@ class AgentClientServiceImpl {
     cb: (e: { requestId: string; paths?: string[] }) => void
   ): () => void {
     return this.api.onContextFlushRequest(cb);
+  }
+
+  onContextZoteroRequest(
+    cb: (e: {
+      requestId: string;
+      kind: 'zotero_search' | 'zotero_lookup' | 'zotero_annotations';
+      params: Record<string, unknown>;
+    }) => void
+  ): () => void {
+    return this.api.onContextZoteroRequest(cb);
   }
 }
 

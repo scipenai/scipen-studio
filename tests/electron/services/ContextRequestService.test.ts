@@ -224,4 +224,169 @@ describe('ContextRequestService', () => {
     expect(after.ok).toBe(false);
     expect(after.error).toMatch(/disposed/i);
   });
+
+  // ============ zotero_* ============
+
+  it('zotero_search: forwards request and resolves when completeZotero arrives', async () => {
+    const { service, send } = makeService();
+
+    const handlePromise = service.handle({
+      request_id: 'req-z1',
+      turn_id: 'turn-1',
+      kind: 'zotero_search',
+      params: { query: 'attention', limit: 5 },
+    });
+
+    expect(send).toHaveBeenCalledWith(IpcChannel.Agent_ContextZoteroRequest, {
+      requestId: 'req-z1',
+      kind: 'zotero_search',
+      params: { query: 'attention', limit: 5 },
+    });
+
+    service.completeZotero({
+      requestId: 'req-z1',
+      ok: true,
+      data: {
+        results: [
+          {
+            item_key: 'K1',
+            citation_key: 'vaswani2017attention',
+            title: 'Attention Is All You Need',
+            year: 2017,
+            score: 99,
+          },
+        ],
+      },
+    });
+
+    const result = await handlePromise;
+    expect(result.ok).toBe(true);
+    expect(result.payload).toEqual({
+      kind: 'zotero_search',
+      results: [
+        {
+          item_key: 'K1',
+          citation_key: 'vaswani2017attention',
+          title: 'Attention Is All You Need',
+          year: 2017,
+          score: 99,
+        },
+      ],
+    });
+  });
+
+  it('zotero_lookup: surfaces found=false verbatim', async () => {
+    const { service } = makeService();
+    const handlePromise = service.handle({
+      request_id: 'req-z2',
+      turn_id: 'turn-1',
+      kind: 'zotero_lookup',
+      params: { key: 'unknown2099' },
+    });
+    service.completeZotero({
+      requestId: 'req-z2',
+      ok: true,
+      data: { found: false },
+    });
+    const result = await handlePromise;
+    expect(result.ok).toBe(true);
+    expect(result.payload).toEqual({ kind: 'zotero_lookup', found: false, item: undefined });
+  });
+
+  it('zotero_annotations: empty array is a valid response', async () => {
+    const { service } = makeService();
+    const handlePromise = service.handle({
+      request_id: 'req-z3',
+      turn_id: 'turn-1',
+      kind: 'zotero_annotations',
+      params: { item_key: 'PARENT' },
+    });
+    service.completeZotero({
+      requestId: 'req-z3',
+      ok: true,
+      data: { annotations: [] },
+    });
+    const result = await handlePromise;
+    expect(result.ok).toBe(true);
+    expect(result.payload).toEqual({ kind: 'zotero_annotations', annotations: [] });
+  });
+
+  it('zotero: renderer ok=false bubbles up as host ok=false with the error message', async () => {
+    const { service } = makeService();
+    const handlePromise = service.handle({
+      request_id: 'req-z4',
+      turn_id: 'turn-1',
+      kind: 'zotero_search',
+      params: { query: 'foo' },
+    });
+    service.completeZotero({
+      requestId: 'req-z4',
+      ok: false,
+      error: 'Zotero not connected',
+    });
+    const result = await handlePromise;
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('Zotero not connected');
+  });
+
+  it('zotero: timeout after 5s converts to ok:false', async () => {
+    const { service } = makeService();
+    const handlePromise = service.handle({
+      request_id: 'req-z5',
+      turn_id: 'turn-1',
+      kind: 'zotero_lookup',
+      params: { key: 'x' },
+    });
+    // Run past the 5s reverse-RPC budget. Inner promise rejects → catch
+    // converts to ok:false; advance microtasks too so the chained .catch
+    // settles before we await the outer promise.
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(0);
+    const result = await handlePromise;
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/did not respond/i);
+  });
+
+  it('zotero: missing renderer fails immediately without waiting', async () => {
+    const { service } = makeService({ webContents: [] });
+    const result = await service.handle({
+      request_id: 'req-z6',
+      turn_id: 'turn-1',
+      kind: 'zotero_search',
+      params: { query: 'foo' },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/no renderer attached/i);
+  });
+
+  it('zotero: shapeZoteroPayload tolerates missing fields with safe defaults', async () => {
+    const { service } = makeService();
+    const handlePromise = service.handle({
+      request_id: 'req-z7',
+      turn_id: 'turn-1',
+      kind: 'zotero_search',
+      params: { query: 'foo' },
+    });
+    // Renderer replies ok:true but data is missing — service should
+    // default to empty results array rather than send undefined.
+    service.completeZotero({ requestId: 'req-z7', ok: true });
+    const result = await handlePromise;
+    expect(result.ok).toBe(true);
+    expect(result.payload).toEqual({ kind: 'zotero_search', results: [] });
+  });
+
+  it('dispose: pending zotero requests reject with disposed reason', async () => {
+    const { service } = makeService();
+    const pending = service.handle({
+      request_id: 'req-z8',
+      turn_id: 'turn-1',
+      kind: 'zotero_search',
+      params: { query: 'q' },
+    });
+    service.dispose();
+    await vi.advanceTimersByTimeAsync(0);
+    const result = await pending;
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/disposed/i);
+  });
 });

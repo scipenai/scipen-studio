@@ -90,6 +90,25 @@ export interface AgentContextFlushResponsePayload {
   flushedFiles: string[];
 }
 
+/** Payload of an inbound `Agent_ContextZoteroRequest`. */
+export interface AgentContextZoteroRequestPayload {
+  requestId: string;
+  kind: 'zotero_search' | 'zotero_lookup' | 'zotero_annotations';
+  /**
+   * Per-kind params; shape mirrors `ContextRequestPayload` in
+   * protocol/schemas.ts (snake_case wire form).
+   */
+  params: Record<string, unknown>;
+}
+
+/** Renderer's reply via `Agent_ContextZoteroResponse`. */
+export interface AgentContextZoteroResponsePayload {
+  requestId: string;
+  ok: boolean;
+  data?: unknown;
+  error?: string;
+}
+
 export interface AgentConfirmToolParams {
   toolCallId: string;
   decision: 'allow' | 'deny' | 'allow_always' | 'deny_always';
@@ -181,6 +200,14 @@ export const agentApi = {
   respondContextFlush: (payload: AgentContextFlushResponsePayload): Promise<{ ok: true }> =>
     ipcRenderer.invoke(IpcChannel.Agent_ContextFlushResponse, payload),
 
+  /**
+   * Reply to a `Agent_ContextZoteroRequest` event with the renderer-served
+   * Zotero data (or an error). Main resolves the pending reverse-RPC back
+   * to SNACA.
+   */
+  respondContextZotero: (payload: AgentContextZoteroResponsePayload): Promise<{ ok: true }> =>
+    ipcRenderer.invoke(IpcChannel.Agent_ContextZoteroResponse, payload),
+
   // ------ Memory viewer ------
 
   memoryList: (scope?: MemoryScope): Promise<MemoryListResult> =>
@@ -241,5 +268,8 @@ export const agentApi = {
   onEditApplied: createSafeListener<AgentEditAppliedPayload>(IpcChannel.Agent_EditApplied),
   onContextFlushRequest: createSafeListener<AgentContextFlushRequestPayload>(
     IpcChannel.Agent_ContextFlushRequest
+  ),
+  onContextZoteroRequest: createSafeListener<AgentContextZoteroRequestPayload>(
+    IpcChannel.Agent_ContextZoteroRequest
   ),
 };

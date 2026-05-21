@@ -645,6 +645,31 @@ export const ContextRequestPayloadSchema = z.discriminatedUnion('kind', [
     kind: z.literal('diagnostics'),
     params: z.object({ path: z.string().optional() }),
   }),
+  // ----- Zotero-backed context kinds (M1) -----
+  // SNACA tools use these to query the host's Zotero index without
+  // standing up a separate MCP server. The renderer owns the actual
+  // data (ZoteroBibIndex + LocalAPI cache); host forwards request to
+  // the active window and parks the reply until the renderer responds
+  // (or the 5s timeout fires).
+  z.object({
+    kind: z.literal('zotero_search'),
+    params: z.object({
+      query: z.string().min(1),
+      limit: z.number().int().positive().max(50).optional(),
+    }),
+  }),
+  z.object({
+    kind: z.literal('zotero_lookup'),
+    params: z.object({
+      // Either a BBT citation key or an 8-char Zotero itemKey;
+      // resolver tries both forms.
+      key: z.string().min(1),
+    }),
+  }),
+  z.object({
+    kind: z.literal('zotero_annotations'),
+    params: z.object({ item_key: z.string().min(1) }),
+  }),
 ]);
 export type ContextRequestPayload = z.infer<typeof ContextRequestPayloadSchema>;
 
@@ -691,6 +716,51 @@ export const ContextPayloadSchema = z.discriminatedUnion('kind', [
         severity: z.string(),
         message: z.string(),
         range: RangeSchema.optional(),
+      })
+    ),
+  }),
+  // ----- Zotero response payloads (M1) -----
+  z.object({
+    kind: z.literal('zotero_search'),
+    results: z.array(
+      z.object({
+        item_key: z.string(),
+        citation_key: z.string().optional(),
+        title: z.string().optional(),
+        creators_label: z.string().optional(),
+        year: z.number().int().optional(),
+        score: z.number(),
+      })
+    ),
+  }),
+  z.object({
+    kind: z.literal('zotero_lookup'),
+    found: z.boolean(),
+    item: z
+      .object({
+        item_key: z.string(),
+        citation_key: z.string().optional(),
+        title: z.string().optional(),
+        creators_label: z.string().optional(),
+        year: z.number().int().optional(),
+        abstract: z.string().optional(),
+        // BBT CSL JSON is opaque; we pass it through as a raw object so
+        // SNACA tools can extract any field they need.
+        csl: z.unknown().optional(),
+      })
+      .optional(),
+  }),
+  z.object({
+    kind: z.literal('zotero_annotations'),
+    annotations: z.array(
+      z.object({
+        item_key: z.string(),
+        parent_item_key: z.string(),
+        annotation_type: z.string(),
+        text: z.string().optional(),
+        comment: z.string().optional(),
+        color: z.string().optional(),
+        page_label: z.string().optional(),
       })
     ),
   }),

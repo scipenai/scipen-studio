@@ -143,3 +143,14 @@ export interface ZoteroGetItemsOptionsDTO {
   /** 分页偏移,与 limit 配对。 */
   start?: number;
 }
+
+/**
+ * BBT citation entry — bare-minimum projection of a Better BibTeX record
+ * needed by renderer-side indices / dropdowns. Keep `libraryID` so callers
+ * can de-duplicate when a paper exists in multiple Zotero libraries.
+ */
+export interface BBTCitationEntryDTO {
+  citationKey: string;
+  itemKey: string;
+  libraryID: number;
+}

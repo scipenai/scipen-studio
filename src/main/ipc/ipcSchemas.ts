@@ -595,6 +595,18 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
       }),
     ]),
   ],
+  // SNACA zotero_* reverse-RPC reply (renderer → main).
+  [
+    IpcChannel.Agent_ContextZoteroResponse,
+    z.tuple([
+      z.object({
+        requestId: z.string().min(1).max(128),
+        ok: z.boolean(),
+        data: z.unknown().optional(),
+        error: z.string().max(2048).optional(),
+      }),
+    ]),
+  ],
 
   // ==================== Memory / Skills viewer (P6-C) ====================
   // The renderer-facing IPC takes only a payload object; session_id is
@@ -897,6 +909,24 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.Zotero_GetDiagnostics, z.tuple([])],
   [IpcChannel.Zotero_SyncBibTex, z.tuple([])],
   [IpcChannel.Zotero_GetBibTexSyncStatus, z.tuple([])],
+  [IpcChannel.Zotero_GetAllCitations, z.tuple([])],
+  // Pagination opts must shape-match ZoteroGetItemsOptionsDTO; reject
+  // unknown keys at the perimeter rather than relying on downstream code
+  // to ignore them.
+  [
+    IpcChannel.Zotero_GetItemsPage,
+    z.tuple([
+      z
+        .object({
+          limit: z.number().int().positive().optional(),
+          start: z.number().int().nonnegative().optional(),
+        })
+        .strict()
+        .optional(),
+    ]),
+  ],
+  [IpcChannel.Zotero_GetCslByKey, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_GetItemAnnotations, z.tuple([z.string().min(1)])],
   // 部分更新 settings:strict 模式只接受白名单字段,未知字段被 IPC 边界拒绝
   // 而非静默持久化。integrationEnabled 是 D 方案主开关,必须在白名单内。
   [

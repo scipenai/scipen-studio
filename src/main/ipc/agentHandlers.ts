@@ -142,6 +142,16 @@ const contextFlushResponseSchema = z.object({
   flushedFiles: z.array(z.string().max(4096)).max(512),
 });
 
+const contextZoteroResponseSchema = z.object({
+  requestId: z.string().min(1).max(128),
+  ok: z.boolean(),
+  // Per-kind shape — validated structurally inside the renderer
+  // responder before this point. We accept opaque data here and let
+  // ContextRequestService normalize it before sending to SNACA.
+  data: z.unknown().optional(),
+  error: z.string().max(2048).optional(),
+});
+
 // Renderer-side (camelCase) shapes for tool/edit confirm; the wire
 // schemas in protocol/schemas.ts are snake_case and only used right
 // before forwarding to the SNACA client.
@@ -674,6 +684,19 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
         'contextFlushResponse payload'
       );
       contextRequest.completeFlush(payload);
+      return { ok: true };
+    }
+  );
+
+  ipcMain.handle(
+    IpcChannel.Agent_ContextZoteroResponse,
+    (_e, rawPayload: unknown): { ok: true } => {
+      const payload = parseOrThrow(
+        contextZoteroResponseSchema,
+        rawPayload,
+        'contextZoteroResponse payload'
+      );
+      contextRequest.completeZotero(payload);
       return { ok: true };
     }
   );

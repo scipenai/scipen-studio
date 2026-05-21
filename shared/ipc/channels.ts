@@ -198,6 +198,28 @@ export enum IpcChannel {
   Zotero_DetectInstallation = 'zotero:detect-installation',
   /** Ping the Zotero Local API at localhost:23119. Returns { ok, version?, error? }. */
   Zotero_PingLocalApi = 'zotero:ping-local-api',
+  /**
+   * Pull every BBT citation entry for the cold-boot index build. Returns
+   * `BBTCitationEntry[]`; empty array when BBT is not installed (caller
+   * falls back to itemKey-based index via Zotero_GetItemsPage).
+   */
+  Zotero_GetAllCitations = 'zotero:get-all-citations',
+  /**
+   * Fetch one paginated page of Zotero items via the Local API (no BBT
+   * required). Used by the index Worker when BBT is missing, and by
+   * cache-miss lookups to refresh stale entries. Args: `{ start, limit }`.
+   */
+  Zotero_GetItemsPage = 'zotero:get-items-page',
+  /**
+   * Look up CSL JSON for one BBT citation key. Returns `null` when BBT
+   * is not installed or the key is unknown.
+   */
+  Zotero_GetCslByKey = 'zotero:get-csl-by-key',
+  /**
+   * Fetch annotations attached to one Zotero item (PDF attachment).
+   * Used by the SNACA `zotero_annotations` reverse-RPC kind.
+   */
+  Zotero_GetItemAnnotations = 'zotero:get-item-annotations',
   /** Broadcast: any Zotero setting changed; payload is the same shape as GetSettings. */
   Zotero_SettingsChanged = 'zotero:settings-changed',
   /**
