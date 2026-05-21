@@ -44,6 +44,7 @@
     "download:lsp": "npm run download:texlab && npm run download:tinymist && npm run download:marksman",
     "copy:public-assets": "node scripts/copy-public-assets.js",
     "build:snaca": "node scripts/build-snaca.js",
+    "deploy:snaca": "node scripts/build-snaca.js --install",
     "prebuild": "npm run download:lsp && npm run copy:public-assets && npm run build:snaca",
     "test": "vitest",
     "test:run": "vitest run",
