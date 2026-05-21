@@ -4,7 +4,6 @@
   "appId": "com.scipen.studio",
   "asar": true,
   "asarUnpack": [
-    "node_modules/better-sqlite3/**/*",
     "node_modules/pdfjs-dist/**/*",
     "node_modules/bindings/**/*",
     "node_modules/file-uri-to-path/**/*",
@@ -22,7 +21,6 @@
   },
   "files": [
     "out",
-    "node_modules/better-sqlite3/**/*",
     "node_modules/pdfjs-dist/**/*",
     "node_modules/bindings/**/*",
     "node_modules/file-uri-to-path/**/*"
@@ -32,11 +30,6 @@
     {
       "from": "resources/icon.png",
       "to": "icon.png"
-    },
-    {
-      "from": "node_modules/better-sqlite3/build",
-      "to": "better-sqlite3/build",
-      "filter": ["**/*"]
     },
     // LSP binaries (tinymist, texlab, marksman) — populated by `npm run download:lsp` before build.
     {
