@@ -40,8 +40,8 @@ use snaca_llm::{
 };
 use snaca_state::{Database, NewMessage, NewThread, PersistedDecision};
 use snaca_tools_api::{
-    ApprovalRequirement, OutboundFile, Tool, ToolContext, ToolError, ToolOutput, ToolRegistry,
-    ToolResult,
+    ApprovalRequirement, ContextRequester, OutboundFile, Tool, ToolContext, ToolError,
+    ToolOutput, ToolRegistry, ToolResult,
 };
 use snaca_workspace::WorkspaceLayout;
 use std::collections::{HashMap, VecDeque};
@@ -121,6 +121,16 @@ pub struct Engine {
     /// opaque Arc so the engine doesn't need to know the concrete
     /// type (it lives in `snaca-tools`).
     task_registry: Option<Arc<dyn std::any::Any + Send + Sync>>,
+    /// Per-turn factory for reverse-RPC channels back to the editor host.
+    /// The wiring layer (snaca-editor) supplies a closure that takes
+    /// the current `turn_id` and returns an `Arc<dyn ContextRequester>`
+    /// scoped to that turn. None → host-context tools (zotero_*)
+    /// surface a clear "unavailable" error.
+    ///
+    /// Why per-turn rather than static: the requester captures
+    /// `turn_id` for host-side telemetry; a static instance would
+    /// either drop that signal or require interior mutability.
+    context_requester_factory: Option<ContextRequesterFactory>,
     /// Per-(thread, message) cancellation tokens for in-flight turns.
     /// The engine registers a token when `handle_turn_full` enters
     /// and removes it on exit (via `InflightGuard`); external
@@ -145,6 +155,14 @@ pub struct Engine {
     /// itself is also stateless across restarts.
     surfaced_memories: SurfacedMemoryMap,
 }
+
+/// Closure that builds a per-turn reverse-RPC channel back to the
+/// editor host. Engine calls this once at the start of every turn that
+/// has tools attached; the returned requester is dropped when the turn
+/// ends. Stored as `Arc<dyn Fn>` so the engine can clone the factory
+/// across spawned tasks without `H: Clone`.
+pub type ContextRequesterFactory =
+    Arc<dyn Fn(String) -> Arc<dyn ContextRequester> + Send + Sync>;
 
 /// One entry on the surfaced-memories dedup ring — the `(scope, name)`
 /// pair that uniquely identifies a memory file in a project.
@@ -193,6 +211,7 @@ impl Engine {
             reranker: None,
             memory_sink: None,
             task_registry: None,
+            context_requester_factory: None,
             inflight: Arc::new(Mutex::new(HashMap::new())),
             surfaced_memories: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -248,6 +267,18 @@ impl Engine {
         registry: Arc<dyn std::any::Any + Send + Sync>,
     ) -> Self {
         self.task_registry = Some(registry);
+        self
+    }
+
+    /// Attach a per-turn factory for reverse-RPC channels. The wiring
+    /// layer supplies a closure that takes the current `turn_id` and
+    /// returns an `Arc<dyn ContextRequester>`. Engine calls it once at
+    /// turn entry and drops the result when the turn ends.
+    pub fn with_context_requester_factory(
+        mut self,
+        factory: ContextRequesterFactory,
+    ) -> Self {
+        self.context_requester_factory = Some(factory);
         self
     }
 
@@ -505,6 +536,14 @@ impl Engine {
         // error instead of silently degrading.
         if let Some(reg) = self.task_registry.clone() {
             tool_ctx = tool_ctx.with_task_registry(reg);
+        }
+        // Per-turn reverse-RPC channel. Zotero context tools refuse
+        // gracefully when no factory is attached, so deployments
+        // without a paired editor host stay functional for everything
+        // else.
+        if let Some(factory) = self.context_requester_factory.clone() {
+            let requester = factory(turn_message_id.clone());
+            tool_ctx = tool_ctx.with_context_requester(requester);
         }
 
         // Wrap the rest of the turn in `tokio::select!` so external

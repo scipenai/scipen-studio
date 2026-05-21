@@ -23,6 +23,7 @@ pub mod task_registry;
 pub mod task_stop;
 pub mod todo_write;
 pub mod write;
+pub mod zotero;
 
 pub use bash::BashTool;
 pub use edit::EditTool;
@@ -39,6 +40,7 @@ pub use task_registry::{TaskId, TaskRegistry, TaskSnapshot, TaskStatus};
 pub use task_stop::TaskStopTool;
 pub use todo_write::{TodoItem, TodoStatus, TodoWriteTool};
 pub use write::WriteTool;
+pub use zotero::{ZoteroAnnotationsTool, ZoteroLookupTool, ZoteroSearchTool};
 
 use snaca_skills::SkillRegistry;
 use snaca_tools_api::{ToolRegistry, ToolRegistryBuilder};
@@ -94,4 +96,10 @@ fn base_tool_registry_builder() -> ToolRegistryBuilder {
         // the base set is safe in every deployment shape.
         .add(TaskOutputTool)
         .add(TaskStopTool)
+        // Zotero context tools (M1). They surface a clear "host without
+        // reverse-RPC" error in deployments that don't expose one, so
+        // adding them to the base set is safe even outside scipen-studio.
+        .add(ZoteroSearchTool)
+        .add(ZoteroLookupTool)
+        .add(ZoteroAnnotationsTool)
 }

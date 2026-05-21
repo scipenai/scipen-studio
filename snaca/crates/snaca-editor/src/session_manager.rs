@@ -176,6 +176,7 @@ impl SessionManager {
             db.clone(),
             snaca_config,
             memory_sink,
+            self.outbound.get().cloned(),
         );
 
         let mut session = Session::new(
@@ -710,6 +711,7 @@ fn build_session_engine(
     db: Database,
     snaca_config: &SnacaConfig,
     memory_sink: Option<Arc<dyn snaca_engine::MemoryEventSink>>,
+    outbound: Option<Arc<crate::outbound::OutboundWriter>>,
 ) -> Option<Arc<Engine>> {
     let layout = match WorkspaceLayout::new(metadata_root.clone()) {
         Ok(l) => l,
@@ -858,6 +860,20 @@ fn build_session_engine(
     engine = engine
         .with_tool_factory(factory)
         .with_task_registry(task_registry);
+    // Per-turn reverse-RPC channel — only wired when outbound is
+    // available. In the embedded-test path outbound is None, so the
+    // factory stays absent and Zotero context tools surface a clear
+    // "unavailable" error instead of crashing the engine.
+    if let Some(ob) = outbound {
+        let factory_fn: snaca_engine::ContextRequesterFactory =
+            std::sync::Arc::new(move |turn_id| {
+                std::sync::Arc::new(crate::context_requester::EditorContextRequester::new(
+                    ob.clone(),
+                    turn_id,
+                ))
+            });
+        engine = engine.with_context_requester_factory(factory_fn);
+    }
     if extractor_enabled {
         // Always wrap in the PII filter (email / phone / api key / bearer
         // token patterns). Studio is a single-user desktop where memory

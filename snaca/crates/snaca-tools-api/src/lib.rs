@@ -29,12 +29,14 @@
 //! ```
 
 pub mod context;
+pub mod context_request;
 pub mod error;
 pub mod output;
 pub mod registry;
 pub mod tool;
 
 pub use context::{OutboundFile, ReadRecord, ReadTracker, ToolContext};
+pub use context_request::{ContextRequestError, ContextRequester};
 pub use error::{ToolError, ToolResult};
 pub use output::ToolOutput;
 pub use registry::{ToolRegistry, ToolRegistryBuilder, ToolSchema};

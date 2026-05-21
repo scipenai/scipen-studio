@@ -18,7 +18,9 @@
 mod approval_gate;
 mod composer;
 mod config;
+mod context_correlator;
 mod context_inject;
+mod context_requester;
 mod handler;
 mod llm;
 mod mcp_runtime;
@@ -35,10 +37,12 @@ use crate::outbound::OutboundWriter;
 use crate::session_manager::SessionManager;
 use anyhow::Context;
 use clap::Parser;
+use snaca_editor_protocol::codec;
+use snaca_editor_protocol::jsonrpc::JsonRpcMessage;
 use snaca_editor_protocol::Dispatcher;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
@@ -93,11 +97,32 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     let stdin = BufReader::new(tokio::io::stdin());
     let mut lines = stdin.lines();
 
+    // `context.request` (SNACA → host) is the lone reverse-RPC; the host's
+    // matching `context.respond` comes back as a JSON-RPC Response, which
+    // Dispatcher::process_line silently ignores by design. We pre-decode
+    // each line so Responses can be routed into the correlator while
+    // everything else still flows through the dispatcher's normal path.
+    let correlator = outbound.correlator();
+
     loop {
         match lines.next_line().await {
             Ok(Some(line)) => {
                 let line_bytes = line.into_bytes();
                 if line_bytes.iter().all(|b| b.is_ascii_whitespace()) {
+                    continue;
+                }
+                // Probe-decode to spot Responses early. Errors fall
+                // through to the dispatcher which has the canonical
+                // parse-error handling (returns JSON-RPC error with
+                // id=null). Decoding twice is cheap — frames are tens
+                // to low-hundreds of bytes.
+                if let Ok(JsonRpcMessage::Response(resp)) = codec::decode(&line_bytes) {
+                    if !correlator.complete(&resp) {
+                        debug!(
+                            id = ?resp.id,
+                            "ignoring unmatched context.respond (stale or never registered)"
+                        );
+                    }
                     continue;
                 }
                 if let Some(reply) = dispatcher.process_line(&line_bytes).await {

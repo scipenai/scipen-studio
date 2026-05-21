@@ -1,5 +1,6 @@
 //! Per-call context passed to tool implementations.
 
+use crate::context_request::ContextRequester;
 use snaca_core::{ProjectId, SessionId, TenantId};
 use std::any::Any;
 use std::collections::HashMap;
@@ -93,6 +94,12 @@ struct Inner {
     /// CPU-bound tools that want to exit cleanly mid-loop can call
     /// `is_cancelled()` between iterations.
     cancellation_token: Option<CancellationToken>,
+    /// Reverse-RPC bridge to the host. The editor binary attaches one
+    /// per turn so context tools (zotero_*) can fetch host-resident
+    /// data. `None` in headless / direct-embed deployments where no
+    /// editor host is connected — affected tools surface a clear
+    /// "unavailable" error instead of crashing.
+    context_requester: Option<Arc<dyn ContextRequester>>,
 }
 
 impl ToolContext {
@@ -112,6 +119,7 @@ impl ToolContext {
                 read_tracker: None,
                 task_registry: None,
                 cancellation_token: None,
+                context_requester: None,
             }),
         }
     }
@@ -132,6 +140,7 @@ impl ToolContext {
             read_tracker: self.inner.read_tracker.clone(),
             task_registry: self.inner.task_registry.clone(),
             cancellation_token: self.inner.cancellation_token.clone(),
+            context_requester: self.inner.context_requester.clone(),
         };
         self.inner = Arc::new(inner);
         self
@@ -152,6 +161,7 @@ impl ToolContext {
             read_tracker: Some(tracker),
             task_registry: self.inner.task_registry.clone(),
             cancellation_token: self.inner.cancellation_token.clone(),
+            context_requester: self.inner.context_requester.clone(),
         };
         self.inner = Arc::new(inner);
         self
@@ -172,6 +182,7 @@ impl ToolContext {
             read_tracker: self.inner.read_tracker.clone(),
             task_registry: Some(registry),
             cancellation_token: self.inner.cancellation_token.clone(),
+            context_requester: self.inner.context_requester.clone(),
         };
         self.inner = Arc::new(inner);
         self
@@ -194,6 +205,7 @@ impl ToolContext {
             read_tracker: self.inner.read_tracker.clone(),
             task_registry: self.inner.task_registry.clone(),
             cancellation_token: Some(token),
+            context_requester: self.inner.context_requester.clone(),
         };
         self.inner = Arc::new(inner);
         self
@@ -204,6 +216,33 @@ impl ToolContext {
     /// attached (tests, direct embedding without background tasks).
     pub fn task_registry_opaque(&self) -> Option<Arc<dyn Any + Send + Sync>> {
         self.inner.task_registry.clone()
+    }
+
+    /// Attach a reverse-RPC channel back to the host. Used by context
+    /// tools (zotero_*) to fetch host-resident data; unset in headless
+    /// deployments where no editor host is connected.
+    pub fn with_context_requester(mut self, requester: Arc<dyn ContextRequester>) -> Self {
+        let inner = Inner {
+            tenant_id: self.inner.tenant_id.clone(),
+            project_id: self.inner.project_id.clone(),
+            session_id: self.inner.session_id,
+            workspace_root: self.inner.workspace_root.clone(),
+            outbound_files: self.inner.outbound_files.clone(),
+            read_tracker: self.inner.read_tracker.clone(),
+            task_registry: self.inner.task_registry.clone(),
+            cancellation_token: self.inner.cancellation_token.clone(),
+            context_requester: Some(requester),
+        };
+        self.inner = Arc::new(inner);
+        self
+    }
+
+    /// Borrow the attached reverse-RPC channel. Tools that need it must
+    /// surface a clear "unavailable" error when this is `None` rather
+    /// than panic — direct-embed test paths legitimately don't supply
+    /// one.
+    pub fn context_requester(&self) -> Option<&Arc<dyn ContextRequester>> {
+        self.inner.context_requester.as_ref()
     }
 
     pub fn tenant_id(&self) -> &TenantId {

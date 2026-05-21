@@ -13,25 +13,55 @@
 
 #![allow(dead_code)]
 
+use crate::context_correlator::ContextCorrelator;
 use serde::Serialize;
 use snaca_editor_protocol::codec;
 use snaca_editor_protocol::jsonrpc::{JsonRpcNotification, JsonRpcRequest, JsonRpcRequestId};
 use snaca_editor_protocol::messages::snaca_to_host as p;
 use snaca_editor_protocol::messages::{
-    context_req::ContextRequestParams, edit::*, error_notif::ErrorNotificationParams,
-    log::LogWriteParams, memory::MemoryUpdatedParams, plan::PlanUpdateParams,
-    tool::ToolApprovalRequestParams, turn::TurnDeltaParams, usage::UsageUpdateParams,
+    context_req::{ContextPayload, ContextRequestParams, ContextRequestPayload},
+    edit::*,
+    error_notif::ErrorNotificationParams,
+    log::LogWriteParams,
+    memory::MemoryUpdatedParams,
+    plan::PlanUpdateParams,
+    tool::ToolApprovalRequestParams,
+    turn::TurnDeltaParams,
+    usage::UsageUpdateParams,
 };
 use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncWriteExt, Stdout};
 use tokio::sync::Mutex;
+
+/// Per-call budget for one `context.request` round-trip. Mirrors the
+/// host's `Agent_ContextZoteroRequest` 5s parking timeout so neither
+/// side parks longer than the other.
+pub const CONTEXT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[derive(Debug, thiserror::Error)]
+pub enum ContextCallError {
+    #[error("context.request timed out after {0:?}")]
+    Timeout(Duration),
+    #[error("host returned ok=false: {0}")]
+    HostError(String),
+    #[error("io error writing context.request: {0}")]
+    Io(#[from] io::Error),
+    #[error("correlator channel closed without response")]
+    Closed,
+}
 
 pub struct OutboundWriter {
     stdout: Mutex<Stdout>,
     /// Monotonic counter for SNACA → host **requests** (only used for
     /// `context.request`, which is the lone reverse-RPC method).
     next_request_id: AtomicU64,
+    /// Awaits responses for outstanding `context.request` calls. Wired
+    /// from `main.rs` which pre-decodes Response frames and routes them
+    /// here.
+    correlator: Arc<ContextCorrelator>,
 }
 
 impl OutboundWriter {
@@ -39,7 +69,14 @@ impl OutboundWriter {
         Self {
             stdout: Mutex::new(stdout),
             next_request_id: AtomicU64::new(1),
+            correlator: Arc::new(ContextCorrelator::new()),
         }
+    }
+
+    /// Borrow the correlator so the binary's reader loop can route
+    /// inbound `Response` frames into it.
+    pub fn correlator(&self) -> Arc<ContextCorrelator> {
+        self.correlator.clone()
     }
 
     /// Allocate a fresh JSON-RPC id for SNACA-originated requests (used
@@ -146,11 +183,61 @@ impl OutboundWriter {
 
     /// Initiates a `context.request` reverse-RPC. Returns the allocated
     /// request id; caller should await a matching `context.respond` via
-    /// its correlator (not implemented in P0 — placeholder for next phase).
+    /// the correlator (`call_context` does this for you).
     pub async fn emit_context_request(
         &self,
         params: ContextRequestParams,
     ) -> io::Result<JsonRpcRequestId> {
         self.emit_request(p::CONTEXT_REQUEST, params).await
+    }
+
+    /// Round-trip helper: emit `context.request`, await the matching
+    /// `context.respond`, return the host's payload. Handles the
+    /// correlator bookkeeping and the 5s timeout so callers (tools)
+    /// only see a flat `Result<ContextPayload, ContextCallError>`.
+    pub async fn call_context(
+        &self,
+        turn_id: impl Into<String>,
+        payload: ContextRequestPayload,
+    ) -> Result<ContextPayload, ContextCallError> {
+        let request_id = self.fresh_request_id();
+        let request_id_str = match &request_id {
+            JsonRpcRequestId::String(s) => s.clone(),
+            JsonRpcRequestId::Number(n) => n.to_string(),
+            JsonRpcRequestId::Null => "null".into(),
+        };
+
+        // Register *before* writing — otherwise an extremely fast host
+        // could land a Response before we register and we'd miss it.
+        let rx = self.correlator.register(&request_id);
+
+        let params = ContextRequestParams {
+            request_id: request_id_str,
+            turn_id: turn_id.into(),
+            req: payload,
+        };
+        if let Err(io_err) = self.emit_request(p::CONTEXT_REQUEST, params).await {
+            // Clean up the pending entry so the slot doesn't leak.
+            self.correlator.unregister(&request_id);
+            return Err(ContextCallError::Io(io_err));
+        }
+
+        let respond = match tokio::time::timeout(CONTEXT_REQUEST_TIMEOUT, rx).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(_)) => return Err(ContextCallError::Closed),
+            Err(_) => {
+                self.correlator.unregister(&request_id);
+                return Err(ContextCallError::Timeout(CONTEXT_REQUEST_TIMEOUT));
+            }
+        };
+
+        if !respond.ok {
+            return Err(ContextCallError::HostError(
+                respond.error.unwrap_or_else(|| "unspecified".into()),
+            ));
+        }
+        respond
+            .payload
+            .ok_or_else(|| ContextCallError::HostError("ok=true with no payload".into()))
     }
 }
