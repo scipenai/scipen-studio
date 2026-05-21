@@ -108,7 +108,10 @@ impl ContextCorrelator {
     }
 }
 
-fn id_to_string(id: &JsonRpcRequestId) -> String {
+/// Stable String key for a JSON-RPC id. Exposed so callers that
+/// register requests can re-derive the same key when they need to
+/// write the value into a ContextRequestParams (which is `String`).
+pub fn id_to_string(id: &JsonRpcRequestId) -> String {
     match id {
         JsonRpcRequestId::String(s) => s.clone(),
         JsonRpcRequestId::Number(n) => n.to_string(),

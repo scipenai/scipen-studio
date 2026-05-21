@@ -201,11 +201,7 @@ impl OutboundWriter {
         payload: ContextRequestPayload,
     ) -> Result<ContextPayload, ContextCallError> {
         let request_id = self.fresh_request_id();
-        let request_id_str = match &request_id {
-            JsonRpcRequestId::String(s) => s.clone(),
-            JsonRpcRequestId::Number(n) => n.to_string(),
-            JsonRpcRequestId::Null => "null".into(),
-        };
+        let request_id_str = crate::context_correlator::id_to_string(&request_id);
 
         // Register *before* writing — otherwise an extremely fast host
         // could land a Response before we register and we'd miss it.

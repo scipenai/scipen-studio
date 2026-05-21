@@ -25,9 +25,9 @@ use snaca_tools_api::{
 // Common helpers
 // ============================================================
 
-fn require_requester<'a>(
-    ctx: &'a ToolContext,
-) -> Result<&'a std::sync::Arc<dyn ContextRequester>, ToolError> {
+fn require_requester(
+    ctx: &ToolContext,
+) -> Result<&std::sync::Arc<dyn ContextRequester>, ToolError> {
     ctx.context_requester().ok_or_else(|| {
         ToolError::Execution(
             "Zotero tools require an editor host with reverse-RPC enabled; \
