@@ -187,14 +187,38 @@ function applyHunks(
   hunks: LineHunk[],
   errors: Array<{ hunkId: string; message: string }>
 ): string {
+  // Normalize EVERYTHING to LF before hunk arithmetic. SNACA's Rust backend
+  // reads files raw and stores the source EOL verbatim in `old_text` /
+  // `new_text` (see approval_gate.rs ~L115-156), while line numbers are
+  // counted by `\n` only. So on Windows we see LF line numbers but CRLF
+  // text payloads — comparing them against a CRLF-content slice fails the
+  // `old_text === slice` check, which silently aborts every write.
+  //
+  // Normalizing all three (content + old_text + new_text) lets the
+  // comparison and splicing operate in a single, predictable EOL space.
+  // We restore the original on-disk EOL before returning so the file keeps
+  // its convention (mixed-EOL files homogenize to the dominant style,
+  // matching how most editors behave).
+  const originalEol = content.includes('\r\n') ? '\r\n' : '\n';
+  const normalized = originalEol === '\r\n' ? content.replace(/\r\n/g, '\n') : content;
+  const normalizedHunks = hunks.map((h) =>
+    h.old_text.includes('\r\n') || h.new_text.includes('\r\n')
+      ? {
+          ...h,
+          old_text: h.old_text.replace(/\r\n/g, '\n'),
+          new_text: h.new_text.replace(/\r\n/g, '\n'),
+        }
+      : h
+  );
+
   // Sort by start descending so earlier hunks' offsets stay valid as we splice.
-  const sorted = [...hunks].sort((a, b) => {
+  const sorted = [...normalizedHunks].sort((a, b) => {
     const dl = b.range.start.line - a.range.start.line;
     if (dl !== 0) return dl;
     return b.range.start.column - a.range.start.column;
   });
 
-  let result = content;
+  let result = normalized;
   for (const hunk of sorted) {
     const startOffset = lineColumnToOffset(result, hunk.range.start.line, hunk.range.start.column);
     const endOffset = lineColumnToOffset(result, hunk.range.end.line, hunk.range.end.column);
@@ -208,7 +232,7 @@ function applyHunks(
     }
     result = result.slice(0, startOffset) + hunk.new_text + result.slice(endOffset);
   }
-  return result;
+  return originalEol === '\r\n' ? result.replace(/\n/g, '\r\n') : result;
 }
 
 /** Convert {line, column} (0-based, UTF-16 code units) to a string index. */

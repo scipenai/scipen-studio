@@ -158,8 +158,13 @@ class AgentEditProposalBridgeImpl {
       return;
     }
 
-    const originalContent = tab.content;
-    const newContent = applyHunksToString(originalContent, hunks);
+    const originalContent = normalizeEol(tab.content);
+    const normalizedHunks = hunks.map((h) => ({
+      ...h,
+      old_text: normalizeEol(h.old_text),
+      new_text: normalizeEol(h.new_text),
+    }));
+    const newContent = applyHunksToString(originalContent, normalizedHunks);
 
     const reviewService = getDiffReviewService();
     const review = reviewService.createReview(absoluteFile, absoluteFile, originalContent, newContent, {
@@ -248,6 +253,25 @@ class AgentEditProposalBridgeImpl {
     if (editor.tabs.some((t) => sameAbsolutePath(t.path, absoluteFile))) return;
     await openFileInEditor(absoluteFile);
   }
+}
+
+/**
+ * Strip CRLF → LF before running the diff.
+ *
+ * Windows file reads come back with CRLF terminators; SNACA's agent always
+ * emits LF in `new_text`. Without normalization, `applyHunksToString` splices
+ * LF into a CRLF document at the hunk boundaries and the line-level diff
+ * sees every line as "added LF / removed LF\r" — the result is N tiny
+ * whitespace-only hunks, each rendering as a blank popover preview. The
+ * user sees decorations everywhere but can't tell what changed, and
+ * Accept-All silently rewrites EOL.
+ *
+ * Normalizing here keeps the diff aligned with what the user sees in
+ * Monaco (Monaco displays both EOL styles identically) and matches what
+ * the main side will write to disk on accept.
+ */
+function normalizeEol(s: string): string {
+  return s.replace(/\r\n/g, '\n');
 }
 
 /**
