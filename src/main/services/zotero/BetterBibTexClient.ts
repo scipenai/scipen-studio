@@ -96,6 +96,7 @@ export class BetterBibTexClient {
       return version !== undefined ? { ok: true, version } : { ok: true };
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
+      logger.warn('[BBT] ping failed', { error: reason });
       return { ok: false, error: reason };
     }
   }

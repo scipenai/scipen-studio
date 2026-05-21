@@ -43,6 +43,32 @@ function isValidEmbeddingProvider(value: unknown): value is ValidEmbeddingProvid
   return typeof value === 'string' && (VALID_EMBEDDING_PROVIDERS as readonly string[]).includes(value);
 }
 
+/**
+ * Flatten an error into a log-friendly object. Node's undici (`fetch
+ * failed`) tucks the real socket-level reason on `err.cause` — without
+ * surfacing it, every network glitch reads as the same opaque "fetch
+ * failed", which made the M1 Zotero rollout hard to debug.
+ */
+function describeFetchError(err: unknown): Record<string, unknown> {
+  if (!(err instanceof Error)) return { error: String(err) };
+  const cause = (err as { cause?: unknown }).cause;
+  const out: Record<string, unknown> = { error: err.message };
+  if (cause instanceof Error) {
+    out.causeMessage = cause.message;
+    const code = (cause as { code?: unknown }).code;
+    if (code !== undefined) out.causeCode = code;
+    const errno = (cause as { errno?: unknown }).errno;
+    if (errno !== undefined) out.causeErrno = errno;
+    const syscall = (cause as { syscall?: unknown }).syscall;
+    if (syscall !== undefined) out.causeSyscall = syscall;
+    const address = (cause as { address?: unknown }).address;
+    if (address !== undefined) out.causeAddress = address;
+    const port = (cause as { port?: unknown }).port;
+    if (port !== undefined) out.causePort = port;
+  }
+  return out;
+}
+
 function readSettings(): ZoteroSettingsDTO {
   const provider = configManager.get<string>(ConfigKeys.ZoteroEmbeddingProvider, 'zhipu');
   return {
@@ -168,9 +194,7 @@ export function registerZoteroHandlers(): void {
       try {
         return await getBetterBibTexClient().getAllCitations();
       } catch (err) {
-        logger.warn('[Zotero] getAllCitations failed', {
-          error: err instanceof Error ? err.message : String(err),
-        });
+        logger.warn('[Zotero] getAllCitations failed', describeFetchError(err));
         return [];
       }
     }
@@ -186,9 +210,7 @@ export function registerZoteroHandlers(): void {
           start: typeof opts.start === 'number' ? opts.start : undefined,
         });
       } catch (err) {
-        logger.warn('[Zotero] getItems failed', {
-          error: err instanceof Error ? err.message : String(err),
-        });
+        logger.warn('[Zotero] getItemsPage failed', describeFetchError(err));
         return [];
       }
     }
@@ -211,7 +233,7 @@ export function registerZoteroHandlers(): void {
       } catch (err) {
         logger.warn('[Zotero] getItemAnnotations failed', {
           itemKey: rawItemKey,
-          error: err instanceof Error ? err.message : String(err),
+          ...describeFetchError(err),
         });
         return [];
       }

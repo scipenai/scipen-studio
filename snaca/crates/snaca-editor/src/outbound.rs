@@ -79,11 +79,11 @@ impl OutboundWriter {
         self.correlator.clone()
     }
 
-    /// Allocate a fresh JSON-RPC id for SNACA-originated requests (used
-    /// by the binary's reverse-RPC correlator when implementing
-    /// `context.request`). The string form matches what hosts will echo
-    /// back in their `context.respond.request_id`.
-    pub fn fresh_request_id(&self) -> JsonRpcRequestId {
+    /// Allocate a fresh JSON-RPC id for SNACA-originated requests.
+    /// Crate-private so the id allocation only happens inside
+    /// [`call_context`]; that's the one place we can guarantee the id
+    /// gets registered with the correlator before the request leaves.
+    fn fresh_request_id(&self) -> JsonRpcRequestId {
         let n = self.next_request_id.fetch_add(1, Ordering::Relaxed);
         JsonRpcRequestId::String(format!("snaca-req-{n}"))
     }
@@ -112,17 +112,18 @@ impl OutboundWriter {
         self.write_value(&notif).await
     }
 
-    /// Emit a SNACA-originated request (currently only `context.request`).
-    pub async fn emit_request<P: Serialize>(
+    /// Write one JSON-RPC Request with a caller-supplied id. Crate-
+    /// private: any reverse-RPC must go through [`call_context`] so id
+    /// allocation and correlator registration stay atomic.
+    async fn write_request<P: Serialize>(
         &self,
+        id: JsonRpcRequestId,
         method: &str,
         params: P,
-    ) -> io::Result<JsonRpcRequestId> {
+    ) -> io::Result<()> {
         let params_val = serde_json::to_value(params).map_err(io::Error::other)?;
-        let id = self.fresh_request_id();
-        let req = JsonRpcRequest::new(id.clone(), method, Some(params_val));
-        self.write_value(&req).await?;
-        Ok(id)
+        let req = JsonRpcRequest::new(id, method, Some(params_val));
+        self.write_value(&req).await
     }
 
     // ---------------- Typed convenience emitters ----------------
@@ -181,20 +182,10 @@ impl OutboundWriter {
         self.emit_notification(p::LOG_WRITE, params).await
     }
 
-    /// Initiates a `context.request` reverse-RPC. Returns the allocated
-    /// request id; caller should await a matching `context.respond` via
-    /// the correlator (`call_context` does this for you).
-    pub async fn emit_context_request(
-        &self,
-        params: ContextRequestParams,
-    ) -> io::Result<JsonRpcRequestId> {
-        self.emit_request(p::CONTEXT_REQUEST, params).await
-    }
-
     /// Round-trip helper: emit `context.request`, await the matching
-    /// `context.respond`, return the host's payload. Handles the
-    /// correlator bookkeeping and the 5s timeout so callers (tools)
-    /// only see a flat `Result<ContextPayload, ContextCallError>`.
+    /// `context.respond`, return the host's payload. Only supported way
+    /// to make a reverse-RPC — guarantees the wire id equals the
+    /// correlator key (split ids previously caused 5 s timeouts).
     pub async fn call_context(
         &self,
         turn_id: impl Into<String>,
@@ -212,7 +203,10 @@ impl OutboundWriter {
             turn_id: turn_id.into(),
             req: payload,
         };
-        if let Err(io_err) = self.emit_request(p::CONTEXT_REQUEST, params).await {
+        if let Err(io_err) = self
+            .write_request(request_id.clone(), p::CONTEXT_REQUEST, params)
+            .await
+        {
             // Clean up the pending entry so the slot doesn't leak.
             self.correlator.unregister(&request_id);
             return Err(ContextCallError::Io(io_err));
@@ -235,5 +229,73 @@ impl OutboundWriter {
         respond
             .payload
             .ok_or_else(|| ContextCallError::HostError("ok=true with no payload".into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context_correlator::id_to_string;
+    use snaca_editor_protocol::jsonrpc::JsonRpcResponse;
+    use snaca_editor_protocol::messages::context_req::{
+        ContextPayload, ContextRequestPayload, ZoteroSearchParams,
+    };
+
+    /// Regression: the wire JSON-RPC `id` must equal the correlator
+    /// key. A prior split (one id for register, another for emit) made
+    /// every reverse-RPC time out because the response id never matched
+    /// any pending entry.
+    #[tokio::test]
+    async fn call_context_id_matches_correlator_key() {
+        let outbound = std::sync::Arc::new(OutboundWriter::new(tokio::io::stdout()));
+        let correlator = outbound.correlator();
+        let predicted_id_str = "snaca-req-1";
+
+        let outbound_task = outbound.clone();
+        let handle = tokio::spawn(async move {
+            outbound_task
+                .call_context(
+                    "turn-1",
+                    ContextRequestPayload::ZoteroSearch {
+                        params: ZoteroSearchParams {
+                            query: "x".into(),
+                            limit: None,
+                        },
+                    },
+                )
+                .await
+        });
+
+        // Let call_context register before we feed the response.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        let resp = JsonRpcResponse::ok(
+            JsonRpcRequestId::String(predicted_id_str.into()),
+            serde_json::json!({
+                "request_id": predicted_id_str,
+                "ok": true,
+                "payload": { "kind": "zotero_search", "results": [] }
+            }),
+        );
+        assert!(
+            correlator.complete(&resp),
+            "wire id drifted from correlator key — call_context allocated \
+             a fresh id during write instead of reusing the registered one"
+        );
+
+        let payload = handle.await.expect("task panicked").expect("call_context errored");
+        match payload {
+            ContextPayload::ZoteroSearch { results } => assert!(results.is_empty()),
+            other => panic!("unexpected payload kind: {other:?}"),
+        }
+    }
+
+    /// Id format guard — keep `fresh_request_id` and `id_to_string` in
+    /// lockstep so host-side response routing keeps working.
+    #[test]
+    fn fresh_id_serializes_to_correlator_key() {
+        let ob = OutboundWriter::new(tokio::io::stdout());
+        let id = ob.fresh_request_id();
+        assert!(id_to_string(&id).starts_with("snaca-req-"));
     }
 }
