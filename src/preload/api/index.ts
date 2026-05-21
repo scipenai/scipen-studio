@@ -13,6 +13,7 @@ export { settingsApi } from './settings';
 export { selectionApi } from './selection';
 export { overleafLiveApi } from './overleafLive';
 export { agentApi } from './agent';
+export { zoteroApi } from './zotero';
 
 // Re-export shared utilities for the main preload script
 export {

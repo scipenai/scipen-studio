@@ -23,6 +23,7 @@ export { registerCollaborationOwnerHandlers } from './collaborationOwnerHandlers
 export { registerOverleafLiveHandlers } from './overleafLiveHandlers';
 export { registerUpdateHandlers, type UpdateHandlersDeps } from './updateHandlers';
 export { registerAgentHandlers, type AgentHandlersDeps } from './agentHandlers';
+export { registerZoteroHandlers } from './zoteroHandlers';
 
 // ====== Type-Safe IPC Utilities ======
 export {

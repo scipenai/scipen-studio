@@ -63,6 +63,7 @@ import {
   registerSettingsHandlers,
   registerUpdateHandlers,
   registerWindowHandlers,
+  registerZoteroHandlers,
 } from './ipc';
 import { UpdateService } from './services/UpdateService';
 
@@ -782,6 +783,7 @@ function registerIpcHandlers() {
   registerConfigHandlers();
   registerDialogHandlers();
   registerSettingsHandlers();
+  registerZoteroHandlers();
   registerCollaborationOwnerHandlers();
   registerOverleafHandlers({
     getProjectMetaService,

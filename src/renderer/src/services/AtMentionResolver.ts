@@ -78,6 +78,10 @@ export async function buildMentions(
     // Reserved prefixes for non-file kinds — currently no handler, so
     // they pass through to the LLM as plain text. UI entry points will
     // bypass `buildMentions` and attach the structured Mention directly.
+    //
+    // TODO(zotero-M1-batch3): `cite:` prefix triggers ZoteroBibIndex
+    //   lookup; on cache miss, fire `useZoteroWizard.open()` to launch
+    //   the just-in-time setup wizard (PM-3).
     if (/^(label|cite|fig|tab|sec|symbol|url|https?):/i.test(rawToken)) {
       continue;
     }

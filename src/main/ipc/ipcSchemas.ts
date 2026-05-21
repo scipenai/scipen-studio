@@ -886,5 +886,34 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.Typst_Available, z.tuple([])],
   [IpcChannel.Compile_GetStatus, z.tuple([])],
 
+  // ==================== Zotero Integration ====================
+  // Read-only / no-param channels — empty tuples document the contract
+  // and keep the IPC schema coverage gate happy.
+  [IpcChannel.Zotero_GetSettings, z.tuple([])],
+  [IpcChannel.Zotero_DetectInstallation, z.tuple([])],
+  [IpcChannel.Zotero_PingLocalApi, z.tuple([])],
+  [IpcChannel.Zotero_ClearMinerUApiKey, z.tuple([])],
+  [IpcChannel.Zotero_ClearEmbeddingApiKey, z.tuple([])],
+  // Patch settings: only well-known keys allowed. Unknown keys are
+  // rejected at the IPC perimeter rather than silently persisted.
+  [
+    IpcChannel.Zotero_SetSettings,
+    z.tuple([
+      z
+        .object({
+          path: z.string().optional(),
+          localApiEnabled: z.boolean().optional(),
+          embeddingProvider: z.enum(['zhipu', 'aliyun', 'openai']).optional(),
+          activeRecommendation: z.boolean().optional(),
+        })
+        .strict(),
+    ]),
+  ],
+  // API tokens have no length contract from the providers; we just
+  // require a non-empty string. The actual provider validation happens
+  // when the first real call is made.
+  [IpcChannel.Zotero_SetMinerUApiKey, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_SetEmbeddingApiKey, z.tuple([z.string().min(1)])],
+
   // ==================== Project Binding ==================== (removed in P3 cleanup)
 ]);

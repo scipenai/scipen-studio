@@ -184,6 +184,17 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Agent_OpenMemoryViewer,
   IpcChannel.Agent_ResolveEditProposal,
   IpcChannel.Agent_ContextFlushResponse,
+  IpcChannel.Agent_ContextZoteroResponse,
+
+  // ====== Zotero Integration ======
+  IpcChannel.Zotero_GetSettings,
+  IpcChannel.Zotero_SetSettings,
+  IpcChannel.Zotero_SetMinerUApiKey,
+  IpcChannel.Zotero_ClearMinerUApiKey,
+  IpcChannel.Zotero_SetEmbeddingApiKey,
+  IpcChannel.Zotero_ClearEmbeddingApiKey,
+  IpcChannel.Zotero_DetectInstallation,
+  IpcChannel.Zotero_PingLocalApi,
 
   // ====== Chat ======
 
@@ -243,6 +254,8 @@ export const ALLOWED_EVENT_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Agent_Log,
   IpcChannel.Agent_EditApplied,
   IpcChannel.Agent_ContextFlushRequest,
+  IpcChannel.Agent_ContextZoteroRequest,
+  IpcChannel.Zotero_SettingsChanged,
 
   IpcChannel.App_UpdateStatus,
   IpcChannel.AI_StreamChunk,

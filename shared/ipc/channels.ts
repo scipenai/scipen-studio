@@ -181,6 +181,26 @@ export enum IpcChannel {
   OverleafLive_TreeChanged = 'overleaf-live:tree-changed',
   OverleafLive_Error = 'overleaf-live:error',
 
+  // ====== Zotero Integration ======
+  /** Get all Zotero settings (non-sensitive fields + boolean flags for API key presence). */
+  Zotero_GetSettings = 'zotero:get-settings',
+  /** Set non-sensitive Zotero settings (path / localApiEnabled / embeddingProvider / activeRecommendation). */
+  Zotero_SetSettings = 'zotero:set-settings',
+  /** Write the MinerU API token to OS keychain. */
+  Zotero_SetMinerUApiKey = 'zotero:set-mineru-api-key',
+  /** Clear the stored MinerU API token. */
+  Zotero_ClearMinerUApiKey = 'zotero:clear-mineru-api-key',
+  /** Write the embedding-provider API key to OS keychain. */
+  Zotero_SetEmbeddingApiKey = 'zotero:set-embedding-api-key',
+  /** Clear the stored embedding-provider API key. */
+  Zotero_ClearEmbeddingApiKey = 'zotero:clear-embedding-api-key',
+  /** Auto-detect a local Zotero installation. Returns { found, path?, version? }. */
+  Zotero_DetectInstallation = 'zotero:detect-installation',
+  /** Ping the Zotero Local API at localhost:23119. Returns { ok, version?, error? }. */
+  Zotero_PingLocalApi = 'zotero:ping-local-api',
+  /** Broadcast: any Zotero setting changed; payload is the same shape as GetSettings. */
+  Zotero_SettingsChanged = 'zotero:settings-changed',
+
   // ====== Studio IM ====== (removed in P3 cleanup)
 
   // ====== Collaboration Owner ======
@@ -262,6 +282,20 @@ export enum IpcChannel {
    * `{ ok: false }` to SNACA so the LLM doesn't hang.
    */
   Agent_ContextFlushRequest = 'agent:context-flush-request',
+  /**
+   * Reverse-RPC from main to renderer for Zotero-backed context requests.
+   * Carries `{ requestId, kind: 'zotero_search' | 'zotero_lookup' |
+   * 'zotero_annotations', payload }`. Renderer replies via
+   * `Agent_ContextZoteroResponse`. Mirrors the `Agent_ContextFlush*` pair —
+   * see ContextRequestService for the parking + timeout mechanics.
+   */
+  Agent_ContextZoteroRequest = 'agent:context-zotero-request',
+  /**
+   * Renderer's reply to an `Agent_ContextZoteroRequest` event (invoke).
+   * Carries `{ requestId, ok, data?, error? }` so the main-side
+   * ContextRequestService can resolve the pending reverse-RPC promise.
+   */
+  Agent_ContextZoteroResponse = 'agent:context-zotero-response',
 
   // ====== Chat ======
 

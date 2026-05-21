@@ -87,6 +87,10 @@ class ConfigManagerImpl implements IConfigManager {
       [ConfigKeys.TelemetryEnabled]: false,
       [ConfigKeys.AutoUpdate]: true,
       [ConfigKeys.RecentProjects]: [],
+      [ConfigKeys.ZoteroPath]: '',
+      [ConfigKeys.ZoteroLocalApiEnabled]: false,
+      [ConfigKeys.ZoteroEmbeddingProvider]: 'zhipu',
+      [ConfigKeys.ZoteroActiveRecommendation]: false,
     };
   }
 

@@ -41,6 +41,21 @@ export enum ConfigKeys {
   OverleafServerUrl = 'overleaf.serverUrl',
   OverleafCookies = 'overleaf.cookies',
 
+  // ====== Zotero Integration ======
+  // Filesystem path to the running Zotero installation; auto-detected on
+  // first launch, manually editable in settings.
+  ZoteroPath = 'zotero.path',
+  // Whether the user has confirmed the Local API toggle is enabled in
+  // Zotero (Settings → Advanced → "Allow other applications…"). Set by
+  // wizard after a successful ping; gates @cite + hover behaviour.
+  ZoteroLocalApiEnabled = 'zotero.localApiEnabled',
+  // Embedding provider selection for M3 active recommendation:
+  // 'zhipu' | 'aliyun' | 'openai'.
+  ZoteroEmbeddingProvider = 'zotero.embeddingProvider',
+  // Master toggle for M3 active citation suggestion panel (default off
+  // until A/B internal tests show ≥40% acceptance rate).
+  ZoteroActiveRecommendation = 'zotero.activeRecommendation',
+
   // ====== Window Configuration ======
   WindowWidth = 'window.width',
   WindowHeight = 'window.height',

@@ -750,5 +750,44 @@
     "body": "Body",
     "previewPlaceholder": "Select an entry on the left to view",
     "noPreview": "(no preview)"
+  },
+  "zoteroWizard": {
+    "title": "Connect Zotero",
+    "subtitle": "Finish 3 quick steps and @cite any paper in the editor",
+    "stepLabel": "Step {{current}} of {{total}}",
+    "back": "Back",
+    "next": "Next",
+    "finish": "Finish",
+    "skipBBT": "Skip for now",
+    "checking": "Checking…",
+    "step1": {
+      "title": "Is Zotero installed?",
+      "okTitle": "Zotero detected",
+      "okHint": "Found data directory at {{path}}",
+      "missingTitle": "Zotero not found",
+      "missingHint": "Zotero is the open-source reference manager. Deep integration requires it.",
+      "downloadLink": "Download from zotero.org",
+      "haveInstalledBtn": "I just installed it"
+    },
+    "step2": {
+      "title": "Is Local API enabled?",
+      "okTitle": "Local API enabled",
+      "okHint": "Reached Zotero at localhost:23119",
+      "missingTitle": "Local API is disabled",
+      "missingHint": "Zotero → Settings → Advanced → enable \"Allow other applications on this computer to communicate with Zotero\"",
+      "instructionsLink": "View illustrated guide",
+      "verifyBtn": "Enabled — recheck"
+    },
+    "step3": {
+      "title": "Install Better BibTeX? (Strongly recommended)",
+      "okTitle": "Better BibTeX ready",
+      "okHint": "Human-readable citation keys are available (e.g., smith2024deep)",
+      "missingTitle": "Better BibTeX not installed",
+      "missingHint": "BBT gives readable citation keys; skipping still works but falls back to 8-char Zotero codes (e.g., 8FXYZ123)",
+      "installLink": "Install BBT from Zotero plugins",
+      "haveInstalledBtn": "Installed it",
+      "skipNoteTitle": "Skipped",
+      "skipNoteHint": "Citation keys fall back to itemKeys — all features work but readability drops"
+    }
   }
 }

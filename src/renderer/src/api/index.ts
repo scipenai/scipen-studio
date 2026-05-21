@@ -736,6 +736,32 @@ export const selection = {
     on(IpcChannel.Selection_TextCaptured, (data) => callback(data as SelectionCaptureDTO)),
 };
 
+// ==================== Zotero API ====================
+
+import type {
+  ZoteroDetectionResultDTO,
+  ZoteroPingResultDTO,
+  ZoteroSettingsDTO,
+  ZoteroSettingsPatchDTO,
+} from '../../../../shared/types/zotero';
+
+export const zotero = {
+  getSettings: () => invoke<ZoteroSettingsDTO>(IpcChannel.Zotero_GetSettings),
+  setSettings: (patch: ZoteroSettingsPatchDTO) =>
+    invoke<{ success: boolean }>(IpcChannel.Zotero_SetSettings, patch),
+  setMinerUApiKey: (token: string) =>
+    invoke<{ success: boolean }>(IpcChannel.Zotero_SetMinerUApiKey, token),
+  clearMinerUApiKey: () => invoke<{ success: boolean }>(IpcChannel.Zotero_ClearMinerUApiKey),
+  setEmbeddingApiKey: (token: string) =>
+    invoke<{ success: boolean }>(IpcChannel.Zotero_SetEmbeddingApiKey, token),
+  clearEmbeddingApiKey: () => invoke<{ success: boolean }>(IpcChannel.Zotero_ClearEmbeddingApiKey),
+  detectInstallation: () =>
+    invoke<ZoteroDetectionResultDTO>(IpcChannel.Zotero_DetectInstallation),
+  pingLocalApi: () => invoke<ZoteroPingResultDTO>(IpcChannel.Zotero_PingLocalApi),
+  onSettingsChanged: (callback: (settings: ZoteroSettingsDTO) => void) =>
+    on(IpcChannel.Zotero_SettingsChanged, (data) => callback(data as ZoteroSettingsDTO)),
+};
+
 // ==================== Unified exports ====================
 
 export const api = {
@@ -756,6 +782,7 @@ export const api = {
   log,
   fileWatcher,
   selection,
+  zotero,
 };
 
 export default api;
