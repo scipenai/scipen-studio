@@ -37,6 +37,20 @@ export interface ZoteroSettingsDTO {
   hasMinerUApiKey: boolean;
   /** OS keychain 中是否已存入 embedding 提供商 API key。 */
   hasEmbeddingApiKey: boolean;
+  /**
+   * `references.bib` 自动同步配置。M2 加入:订阅 main 的 canonical 索引,
+   * 用 BBT export 把全库写到项目 root 的 `.bib` 文件,让 LaTeX/biber 编译能找到。
+   */
+  bibTexSync: BibTexSyncConfigDTO;
+}
+
+/** `references.bib` 自动同步的设置项。 */
+export interface BibTexSyncConfigDTO {
+  enabled: boolean;
+  /** 项目 root 下的目标文件名。默认 'references.bib'。 */
+  fileName: string;
+  /** BBT translator 名;'BetterBibLaTeX'(默认) / 'BetterBibTeX' / 'BibLaTeX' / 'BibTeX'。 */
+  translator: string;
 }
 
 /**
@@ -46,7 +60,12 @@ export interface ZoteroSettingsDTO {
 export type ZoteroSettingsPatchDTO = Partial<
   Pick<
     ZoteroSettingsDTO,
-    'integrationEnabled' | 'path' | 'localApiEnabled' | 'embeddingProvider' | 'activeRecommendation'
+    | 'integrationEnabled'
+    | 'path'
+    | 'localApiEnabled'
+    | 'embeddingProvider'
+    | 'activeRecommendation'
+    | 'bibTexSync'
   >
 >;
 

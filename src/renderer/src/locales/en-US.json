@@ -817,7 +817,26 @@
     "redetect": "Redetect installation",
     "redetectDesc": "Useful only after manually moving your Zotero install path",
     "execute": "Run",
-    "busy": "Working"
+    "busy": "Working",
+    "bibtexSync": {
+      "title": "references.bib auto-sync",
+      "description": "Export the Zotero library as a BibTeX file under the project root so LaTeX/biber can resolve every \\cite{}",
+      "enable": "Enable auto-sync",
+      "enableDesc": "Re-writes the .bib file within 500ms of any Zotero change; skips when the file has been externally modified",
+      "fileName": "Target file name",
+      "fileNameDesc": "BibTeX file generated under the project root; defaults to references.bib",
+      "translator": "BibTeX flavor",
+      "translatorDesc": "BetterBibLaTeX is modern + UTF-8 friendly (recommended); BibTeX is classic for legacy projects",
+      "syncNow": "Sync now",
+      "status": {
+        "idle": "Idle",
+        "syncing": "Syncing…",
+        "ok": "Synced",
+        "skipped": "No change (skipped)",
+        "conflict": "Conflict: .bib was modified externally; sync paused",
+        "error": "Error"
+      }
+    }
   },
   "zotero": {
     "status": {

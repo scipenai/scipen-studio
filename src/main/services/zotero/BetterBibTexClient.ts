@@ -126,6 +126,22 @@ export class BetterBibTexClient {
   }
 
   /**
+   * 导出一组 citation key 对应的 BibTeX(默认 BetterBibLaTeX —— UTF-8 友好、
+   * 现代字段全)。translator 可传 'BetterBibLaTeX' / 'BetterBibTeX' /
+   * 'BibLaTeX' / 'BibTeX' 等 BBT 已注册的 translator 名。
+   *
+   * `citationKeys` 为空数组时 BBT 返回空字符串(BBT 的行为)。
+   */
+  async exportBibTex(
+    citationKeys: string[],
+    translator: string = 'BetterBibLaTeX'
+  ): Promise<string> {
+    if (citationKeys.length === 0) return '';
+    const result = await this.call<string>('item.export', [citationKeys, translator]);
+    return typeof result === 'string' ? result : '';
+  }
+
+  /**
    * Look up the CSL (Citation Style Language) representation for one
    * citation key. Returns null when the key is unknown.
    */

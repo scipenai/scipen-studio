@@ -69,6 +69,7 @@ import { UpdateService } from './services/UpdateService';
 import { ConfigKeys } from '../../shared/types/config-keys';
 import { configManager } from './services/ConfigManager';
 import { getZoteroOrchestrator } from './services/zotero/ZoteroOrchestrator';
+import { getBibTexSyncService } from './services/zotero/BibTexSyncService';
 
 const Dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -567,6 +568,20 @@ app.whenReady().then(async () => {
       .bootstrap()
       .catch((err) => log.warn('[Main] Zotero bootstrap failed:', err));
   }
+
+  // 启动 references.bib 同步服务 —— 订阅 main 索引事件,debounce 写盘。
+  // 即使 isZoteroConfigured=false 也启动,这样设置里翻 enable 立刻生效。
+  // 项目路径由 fileTreeHandlers 在 Project_Open / Project_OpenByPath 时注入。
+  const bibTexSyncConfig = {
+    enabled: configManager.get<boolean>(ConfigKeys.ZoteroBibTexSyncEnabled, true),
+    fileName: configManager.get<string>(ConfigKeys.ZoteroBibTexSyncFileName, 'references.bib'),
+    translator: configManager.get<string>(
+      ConfigKeys.ZoteroBibTexSyncTranslator,
+      'BetterBibLaTeX'
+    ),
+  };
+  getBibTexSyncService().setConfig(bibTexSyncConfig);
+  getBibTexSyncService().start();
 
   // Handle file association on Windows startup
   if (process.platform === 'win32') {

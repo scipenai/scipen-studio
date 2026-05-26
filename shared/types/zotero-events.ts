@@ -112,3 +112,15 @@ export interface RefreshResultDTO {
   status: BibStatus;
   detail?: string;
 }
+
+/**
+ * `references.bib` 同步当前状态。renderer 用此判断 UI 标识(成功 / 跳过 /
+ * 冲突 / 失败)。完整生命周期见 `BibTexSyncService`。
+ */
+export type BibTexSyncStatusDTO =
+  | { kind: 'idle' }
+  | { kind: 'syncing' }
+  | { kind: 'ok'; filePath: string; bytesWritten: number; lastSyncedAt: string }
+  | { kind: 'skipped-no-change'; filePath: string; lastSyncedAt: string }
+  | { kind: 'conflict'; filePath: string; reason: string }
+  | { kind: 'error'; reason: string };

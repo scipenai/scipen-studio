@@ -65,6 +65,10 @@ export enum ConfigKeys {
   // Master toggle for M3 active citation suggestion panel (default off
   // until A/B internal tests show ≥40% acceptance rate).
   ZoteroActiveRecommendation = 'zotero.activeRecommendation',
+  // references.bib 自动同步 —— BibTexSyncService 订阅 main 索引,debounce 写盘。
+  ZoteroBibTexSyncEnabled = 'zotero.bibTexSync.enabled',
+  ZoteroBibTexSyncFileName = 'zotero.bibTexSync.fileName',
+  ZoteroBibTexSyncTranslator = 'zotero.bibTexSync.translator',
 
   // ====== Window Configuration ======
   WindowWidth = 'window.width',

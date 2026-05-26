@@ -43,7 +43,10 @@ export function registerCiteCompletionProviders(monacoInstance: Monaco): void {
   for (const languageId of LANGUAGE_IDS) {
     monacoInstance.languages.registerCompletionItemProvider(languageId, {
       triggerCharacters: ['{', '@', ',', ' '],
-      provideCompletionItems: (model, position) => {
+      provideCompletionItems: (
+        model: monaco.editor.ITextModel,
+        position: monaco.Position
+      ) => {
         const ctx = detectContext(model, position, languageId);
         if (!ctx) return { suggestions: [] };
         return buildSuggestions(monacoInstance, position, ctx);

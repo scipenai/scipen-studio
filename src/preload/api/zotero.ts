@@ -15,6 +15,7 @@ import type {
   ZoteroSettingsPatchDTO,
 } from '../../../shared/types/zotero';
 import type {
+  BibTexSyncStatusDTO,
   GetSnapshotRequestDTO,
   GetSnapshotResultDTO,
   RefreshResultDTO,
@@ -82,6 +83,14 @@ export const zoteroApi = {
   /** 取诊断快照(状态/数据源健康/itemCount/etag/lastSyncedAt 等)。 */
   getDiagnostics: (): Promise<ZoteroDiagnosticsDTO> =>
     ipcRenderer.invoke(IpcChannel.Zotero_GetDiagnostics),
+
+  /** 强制触发一次 `references.bib` 同步(穿透 enabled 网关与 debounce)。 */
+  syncBibTex: (): Promise<BibTexSyncStatusDTO> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_SyncBibTex),
+
+  /** 读当前 BibTeX 同步状态(idle / syncing / ok / conflict / error)。 */
+  getBibTexSyncStatus: (): Promise<BibTexSyncStatusDTO> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_GetBibTexSyncStatus),
 
   /**
    * 订阅 Zotero 设置变更事件。

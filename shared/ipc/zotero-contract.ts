@@ -13,6 +13,7 @@ import type {
   ZoteroPingResultDTO,
 } from '../types/zotero';
 import type {
+  BibTexSyncStatusDTO,
   GetSnapshotRequestDTO,
   GetSnapshotResultDTO,
   RefreshResultDTO,
@@ -63,5 +64,13 @@ export interface IPCZoteroContract {
   [IpcChannel.Zotero_GetDiagnostics]: {
     args: [];
     result: ZoteroDiagnosticsDTO;
+  };
+  [IpcChannel.Zotero_SyncBibTex]: {
+    args: [];
+    result: BibTexSyncStatusDTO;
+  };
+  [IpcChannel.Zotero_GetBibTexSyncStatus]: {
+    args: [];
+    result: BibTexSyncStatusDTO;
   };
 }

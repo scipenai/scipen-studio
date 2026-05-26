@@ -895,6 +895,8 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.Zotero_ClearEmbeddingApiKey, z.tuple([])],
   [IpcChannel.Zotero_RequestRefresh, z.tuple([])],
   [IpcChannel.Zotero_GetDiagnostics, z.tuple([])],
+  [IpcChannel.Zotero_SyncBibTex, z.tuple([])],
+  [IpcChannel.Zotero_GetBibTexSyncStatus, z.tuple([])],
   // 部分更新 settings:strict 模式只接受白名单字段,未知字段被 IPC 边界拒绝
   // 而非静默持久化。integrationEnabled 是 D 方案主开关,必须在白名单内。
   [
@@ -907,6 +909,14 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
           localApiEnabled: z.boolean().optional(),
           embeddingProvider: z.enum(['zhipu', 'aliyun', 'openai']).optional(),
           activeRecommendation: z.boolean().optional(),
+          bibTexSync: z
+            .object({
+              enabled: z.boolean(),
+              fileName: z.string().min(1),
+              translator: z.string().min(1),
+            })
+            .strict()
+            .optional(),
         })
         .strict(),
     ]),

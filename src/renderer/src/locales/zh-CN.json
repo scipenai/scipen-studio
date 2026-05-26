@@ -817,7 +817,26 @@
     "redetect": "重新检测安装",
     "redetectDesc": "只在用户手动调整 Zotero 安装路径时需要",
     "execute": "执行",
-    "busy": "处理中"
+    "busy": "处理中",
+    "bibtexSync": {
+      "title": "references.bib 自动同步",
+      "description": "把 Zotero 库导出为项目根目录下的 BibTeX 文件,LaTeX/biber 编译能直接读到所有 \\cite{} 引用",
+      "enable": "启用自动同步",
+      "enableDesc": "Zotero 库变更后 500ms 内重写 .bib 文件(检测到外部手改时不覆盖)",
+      "fileName": "目标文件名",
+      "fileNameDesc": "项目根目录下生成的 BibTeX 文件名,默认 references.bib",
+      "translator": "BibTeX 风格",
+      "translatorDesc": "BetterBibLaTeX 现代 UTF-8 友好(推荐);BibTeX 经典风格用于老项目",
+      "syncNow": "立即同步",
+      "status": {
+        "idle": "未同步",
+        "syncing": "正在同步…",
+        "ok": "同步成功",
+        "skipped": "无变化(已跳过)",
+        "conflict": "冲突:外部修改了 .bib,已暂停",
+        "error": "失败"
+      }
+    }
   },
   "zotero": {
     "status": {

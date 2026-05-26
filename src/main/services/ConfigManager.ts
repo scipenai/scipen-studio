@@ -92,6 +92,9 @@ class ConfigManagerImpl implements IConfigManager {
       [ConfigKeys.ZoteroLocalApiEnabled]: false,
       [ConfigKeys.ZoteroEmbeddingProvider]: 'zhipu',
       [ConfigKeys.ZoteroActiveRecommendation]: false,
+      [ConfigKeys.ZoteroBibTexSyncEnabled]: true,
+      [ConfigKeys.ZoteroBibTexSyncFileName]: 'references.bib',
+      [ConfigKeys.ZoteroBibTexSyncTranslator]: 'BetterBibLaTeX',
     };
   }
 

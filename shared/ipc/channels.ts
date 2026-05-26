@@ -215,6 +215,10 @@ export enum IpcChannel {
    * status). Payload is `ZoteroEventDTO`, a discriminated union.
    */
   Zotero_Event = 'zotero:event',
+  /** Force a `references.bib` sync (ignores enabled gate and debounce). */
+  Zotero_SyncBibTex = 'zotero:sync-bibtex',
+  /** Read current BibTeX sync status (idle / syncing / ok / conflict / error). */
+  Zotero_GetBibTexSyncStatus = 'zotero:get-bibtex-sync-status',
 
   // ====== Studio IM ====== (removed in P3 cleanup)
 

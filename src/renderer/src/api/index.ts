@@ -745,6 +745,7 @@ import type {
   ZoteroSettingsPatchDTO,
 } from '../../../../shared/types/zotero';
 import type {
+  BibTexSyncStatusDTO,
   GetSnapshotRequestDTO,
   GetSnapshotResultDTO,
   RefreshResultDTO,
@@ -769,6 +770,9 @@ export const zotero = {
     invoke<GetSnapshotResultDTO>(IpcChannel.Zotero_GetSnapshot, req),
   requestRefresh: () => invoke<RefreshResultDTO>(IpcChannel.Zotero_RequestRefresh),
   getDiagnostics: () => invoke<ZoteroDiagnosticsDTO>(IpcChannel.Zotero_GetDiagnostics),
+  syncBibTex: () => invoke<BibTexSyncStatusDTO>(IpcChannel.Zotero_SyncBibTex),
+  getBibTexSyncStatus: () =>
+    invoke<BibTexSyncStatusDTO>(IpcChannel.Zotero_GetBibTexSyncStatus),
   onSettingsChanged: (callback: (settings: ZoteroSettingsDTO) => void) =>
     on(IpcChannel.Zotero_SettingsChanged, (data) => callback(data as ZoteroSettingsDTO)),
   onEvent: (callback: (event: ZoteroEventDTO) => void) =>

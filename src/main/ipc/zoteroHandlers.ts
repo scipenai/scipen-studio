@@ -23,6 +23,7 @@ import {
 import { getZoteroDiscoveryService } from '../services/zotero/ZoteroDiscoveryService';
 import { getZoteroLocalApiClient } from '../services/zotero/ZoteroLocalApiClient';
 import { getZoteroOrchestrator } from '../services/zotero/ZoteroOrchestrator';
+import { getBibTexSyncService } from '../services/zotero/BibTexSyncService';
 import { registerHandler } from './typedIpc';
 
 const logger = createLogger('ZoteroHandlers');
@@ -47,6 +48,14 @@ function readSettings(): ZoteroSettingsDTO {
     ),
     hasMinerUApiKey: secureHas(SecureStorageKeys.ZoteroMinerUApiKey),
     hasEmbeddingApiKey: secureHas(SecureStorageKeys.ZoteroEmbeddingApiKey),
+    bibTexSync: {
+      enabled: configManager.get<boolean>(ConfigKeys.ZoteroBibTexSyncEnabled, true),
+      fileName: configManager.get<string>(ConfigKeys.ZoteroBibTexSyncFileName, 'references.bib'),
+      translator: configManager.get<string>(
+        ConfigKeys.ZoteroBibTexSyncTranslator,
+        'BetterBibLaTeX'
+      ),
+    },
   };
 }
 
@@ -73,6 +82,13 @@ function applySettingsPatch(patch: ZoteroSettingsPatchDTO): { success: boolean }
   }
   if (typeof patch.activeRecommendation === 'boolean') {
     configManager.set(ConfigKeys.ZoteroActiveRecommendation, patch.activeRecommendation);
+  }
+  if (patch.bibTexSync) {
+    configManager.set(ConfigKeys.ZoteroBibTexSyncEnabled, patch.bibTexSync.enabled);
+    configManager.set(ConfigKeys.ZoteroBibTexSyncFileName, patch.bibTexSync.fileName);
+    configManager.set(ConfigKeys.ZoteroBibTexSyncTranslator, patch.bibTexSync.translator);
+    // 配置变更同步通知 sync service —— 让其立即生效(enable 翻 true 时立刻同步)。
+    getBibTexSyncService().setConfig(patch.bibTexSync);
   }
 
   broadcastSettingsChanged(readSettings());
@@ -124,6 +140,12 @@ export function registerZoteroHandlers(): void {
   );
   registerHandler(IpcChannel.Zotero_GetDiagnostics, () =>
     getZoteroOrchestrator().getDiagnostics()
+  );
+
+  // ---- references.bib 同步(M2 Phase 2)----
+  registerHandler(IpcChannel.Zotero_SyncBibTex, () => getBibTexSyncService().syncNow());
+  registerHandler(IpcChannel.Zotero_GetBibTexSyncStatus, () =>
+    getBibTexSyncService().getStatus()
   );
 
   logger.info('[IPC] Zotero handlers registered');
