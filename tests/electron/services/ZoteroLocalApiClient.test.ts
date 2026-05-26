@@ -1,8 +1,8 @@
 /**
  * @file ZoteroLocalApiClient.test.ts
- * @description Unit tests for the Zotero Local API wrapper. Covers
- *   ping (success/failure/version parsing), getItems projection,
- *   and getItemAnnotations filtering.
+ * @description ZoteroLocalApiClient 单元测试。覆盖 ping(成功/失败/版本解析)、
+ *   getItems 投影(itemType 过滤 / meta fallback / bib 空壳归一)、URL endpoint
+ *   契约,以及 getItemAnnotations。fixture 取自真实 Zotero Local API 联调数据。
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -89,71 +89,21 @@ describe('ZoteroLocalApiClient', () => {
     });
   });
 
-  describe('getItems', () => {
-    it('projects Zotero items to ZoteroItemDTO with creators and year', async () => {
-      const payload = [
-        {
-          key: 'ABC123',
-          bib: '<div>Smith 2024.</div>',
-          citation: '(Smith, 2024)',
-          data: {
-            key: 'ABC123',
-            itemType: 'journalArticle',
-            title: 'Deep Learning',
-            abstractNote: 'A study.',
-            date: '2024-03-15',
-            creators: [
-              { firstName: 'Alice', lastName: 'Smith' },
-              { firstName: 'Bob', lastName: 'Jones' },
-            ],
-          },
-        },
-      ];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
-
+  describe('getItems — URL contract', () => {
+    it('hits /items/top with include=data,bib,citation (regression for D-1 include bug)', async () => {
+      const captured: string[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          captured.push(url);
+          return jsonResponse([]);
+        })
+      );
       const client = new ZoteroLocalApiClient();
-      const items = await client.getItems({ limit: 10 });
-      expect(items).toHaveLength(1);
-      expect(items[0]).toMatchObject({
-        itemKey: 'ABC123',
-        itemType: 'journalArticle',
-        title: 'Deep Learning',
-        creatorsLabel: 'Smith, Jones',
-        year: 2024,
-        abstractNote: 'A study.',
-        bib: '<div>Smith 2024.</div>',
-        citation: '(Smith, 2024)',
-      });
-    });
-
-    it('uses "et al." when 4+ creators', async () => {
-      const payload = [
-        {
-          data: {
-            key: 'X',
-            itemType: 'journalArticle',
-            title: 't',
-            creators: [
-              { lastName: 'A' },
-              { lastName: 'B' },
-              { lastName: 'C' },
-              { lastName: 'D' },
-            ],
-          },
-        },
-      ];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
-      const client = new ZoteroLocalApiClient();
-      const items = await client.getItems();
-      expect(items[0]?.creatorsLabel).toBe('A, B et al.');
-    });
-
-    it('skips entries without data.key', async () => {
-      const payload = [{ data: { itemType: 'note', title: 'no key' } }, { foo: 'bar' }];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
-      const client = new ZoteroLocalApiClient();
-      const items = await client.getItems();
-      expect(items).toEqual([]);
+      await client.getItems();
+      expect(captured[0]).toMatch(/\/api\/users\/0\/items\/top\?/);
+      expect(captured[0]).toMatch(/include=data%2Cbib%2Ccitation|include=data,bib,citation/);
+      expect(captured[0]).toMatch(/style=apa/);
     });
 
     it('clamps limit to MAX_PAGE_SIZE (100) and sends start offset', async () => {
@@ -181,6 +131,150 @@ describe('ZoteroLocalApiClient', () => {
     });
   });
 
+  describe('getItems — projection', () => {
+    it('projects a real journalArticle with creators/year/bib/citation', async () => {
+      const payload = [
+        {
+          key: 'ABC123',
+          bib: '<div class="csl-bib-body"><div class="csl-entry">Smith 2024.</div></div>',
+          citation: '(Smith, 2024)',
+          data: {
+            key: 'ABC123',
+            itemType: 'journalArticle',
+            title: 'Deep Learning',
+            abstractNote: 'A study.',
+            date: '2024-03-15',
+            creators: [
+              { firstName: 'Alice', lastName: 'Smith' },
+              { firstName: 'Bob', lastName: 'Jones' },
+            ],
+          },
+        },
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+
+      const client = new ZoteroLocalApiClient();
+      const items = await client.getItems({ limit: 10 });
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({
+        itemKey: 'ABC123',
+        itemType: 'journalArticle',
+        title: 'Deep Learning',
+        creatorsLabel: 'Smith, Jones',
+        year: 2024,
+        abstractNote: 'A study.',
+        citation: '(Smith, 2024)',
+      });
+      expect(items[0]?.bib).toContain('csl-entry');
+    });
+
+    it('uses "et al." when 4+ creators', async () => {
+      const payload = [
+        {
+          data: {
+            key: 'X',
+            itemType: 'journalArticle',
+            title: 't',
+            creators: [
+              { lastName: 'A' },
+              { lastName: 'B' },
+              { lastName: 'C' },
+              { lastName: 'D' },
+            ],
+          },
+        },
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      const client = new ZoteroLocalApiClient();
+      const items = await client.getItems();
+      expect(items[0]?.creatorsLabel).toBe('A, B et al.');
+    });
+
+    it('falls back to meta.creatorSummary when data.creators is absent', async () => {
+      const payload = [
+        {
+          key: 'K2I2YK7G',
+          data: {
+            key: 'K2I2YK7G',
+            itemType: 'journalArticle',
+            title: 'Implicit Operations Addendum',
+          },
+          meta: { creatorSummary: 'Carai 等', parsedDate: '2025-12-16' },
+        },
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      const client = new ZoteroLocalApiClient();
+      const items = await client.getItems();
+      expect(items[0]?.creatorsLabel).toBe('Carai 等');
+      expect(items[0]?.year).toBe(2025);
+    });
+
+    it('falls back to meta.parsedDate when data.date is absent', async () => {
+      const payload = [
+        {
+          data: {
+            key: 'Y',
+            itemType: 'webpage',
+            title: 'DeepSeek',
+          },
+          meta: { parsedDate: '2026-05-21' },
+        },
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      const client = new ZoteroLocalApiClient();
+      const items = await client.getItems();
+      expect(items[0]?.year).toBe(2026);
+    });
+
+    it('drops attachment / annotation / note even if returned by /items/top', async () => {
+      const payload = [
+        { data: { key: 'A', itemType: 'attachment', title: 'foo.pdf' } },
+        { data: { key: 'B', itemType: 'annotation' } },
+        { data: { key: 'C', itemType: 'note', title: 'memo' } },
+        { data: { key: 'D', itemType: 'journalArticle', title: 'Paper' } },
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      const client = new ZoteroLocalApiClient();
+      const items = await client.getItems();
+      expect(items.map((i) => i.itemKey)).toEqual(['D']);
+    });
+
+    it('normalises an empty csl-bib-body shell to undefined', async () => {
+      const payload = [
+        {
+          key: 'E',
+          bib: '<div class="csl-bib-body" style="line-height: 2;">\n</div>',
+          citation: '',
+          data: { key: 'E', itemType: 'report', title: 'Empty Report' },
+        },
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      const client = new ZoteroLocalApiClient();
+      const items = await client.getItems();
+      expect(items[0]?.bib).toBeUndefined();
+      expect(items[0]?.citation).toBeUndefined();
+    });
+
+    it('warns and skips entries missing data field (include= misconfig sentinel)', async () => {
+      const payload = [
+        { key: 'NO_DATA', bib: '<div>...</div>' }, // 缺 data
+        { data: { key: 'OK', itemType: 'journalArticle', title: 't' } },
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      const client = new ZoteroLocalApiClient();
+      const items = await client.getItems();
+      expect(items.map((i) => i.itemKey)).toEqual(['OK']);
+    });
+
+    it('skips entries without itemKey at all', async () => {
+      const payload = [{ data: { itemType: 'journalArticle', title: 'no key' } }];
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      const client = new ZoteroLocalApiClient();
+      const items = await client.getItems();
+      expect(items).toEqual([]);
+    });
+  });
+
   describe('getItemAnnotations', () => {
     it('returns [] for empty itemKey without fetching', async () => {
       const fetchSpy = vi.fn(async () => jsonResponse([]));
@@ -189,6 +283,21 @@ describe('ZoteroLocalApiClient', () => {
       const result = await client.getItemAnnotations('');
       expect(result).toEqual([]);
       expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('includes data field in URL (regression for D-1 include bug)', async () => {
+      const captured: string[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          captured.push(url);
+          return jsonResponse([]);
+        })
+      );
+      const client = new ZoteroLocalApiClient();
+      await client.getItemAnnotations('PARENT');
+      expect(captured[0]).toMatch(/include=data/);
+      expect(captured[0]).toMatch(/itemType=annotation/);
     });
 
     it('projects annotation children to ZoteroAnnotationDTO', async () => {
@@ -223,9 +332,7 @@ describe('ZoteroLocalApiClient', () => {
     });
 
     it('filters out non-annotation children', async () => {
-      const payload = [
-        { key: 'X', data: { key: 'X', itemType: 'note' } },
-      ];
+      const payload = [{ key: 'X', data: { key: 'X', itemType: 'note' } }];
       vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
       const client = new ZoteroLocalApiClient();
       const result = await client.getItemAnnotations('PARENT');

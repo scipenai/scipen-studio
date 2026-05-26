@@ -1,11 +1,30 @@
 /**
- * @file ZoteroLocalApiClient — wrap calls to Zotero's Local HTTP API
- * @description Zotero 7+ ships an opt-in HTTP server at `localhost:23119`,
- *              enabled by the user via Settings → Advanced → "Allow other
- *              applications on this computer to communicate with Zotero".
- *              All requests target `/api/users/0/...` — the `users/0`
- *              segment is required (omitting it returns 404).
- * @see https://www.zotero.org/support/dev/client_coding/miscellaneous
+ * @file ZoteroLocalApiClient —— 包装对 Zotero Local HTTP API 的调用
+ * @description Zotero 7+ 在 `localhost:23119` 提供按需开启的 HTTP 服务,由用户在
+ *              Settings → Advanced → "Allow other applications on this
+ *              computer to communicate with Zotero" 启用。所有请求打到
+ *              `/api/users/0/...` —— `users/0` 段是必需的(省略返回 404)。
+ *
+ *              三个关键 URL 决策(踩坑后的结论):
+ *
+ *              1. **endpoint 用 `/items/top` 而非 `/items`** —— Zotero 把
+ *                 attachment / annotation / note 也算作 item,如果走 `/items`
+ *                 会回来一堆子项垃圾;`/top` 服务端只返顶级,省带宽 + 语义直接。
+ *                 但 standalone PDF(用户直接拖进库的裸 PDF)仍是顶级,需客户端
+ *                 用 IGNORED_ITEM_TYPES 兜底排除。
+ *
+ *              2. **`include` 必须含 `data`** —— Zotero `include` 参数是
+ *                 "替换"语义,不是"追加"。`include=bib,citation` 会让响应**不含
+ *                 `data` 字段**(D-1 的潜伏 bug,直到联调 curl 才暴露)。我们的
+ *                 投影完全依赖 data.itemType / data.title / data.creators,所以
+ *                 必须显式 `include=data,bib,citation`。
+ *
+ *              3. **元数据 fallback 到 `meta`** —— Zotero 把渲染过的派生字段
+ *                 (creatorSummary / parsedDate)放在 `meta` 而非 `data` 下。
+ *                 用户手填条目时 data.creators 可能为空但 meta.creatorSummary
+ *                 仍有值(Zotero 反推);year 同理 fallback meta.parsedDate。
+ *
+ * @see https://www.zotero.org/support/dev/web_api/v3/basics
  */
 
 import type {
@@ -24,6 +43,20 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
 const MAX_PAGE_SIZE = 100;
 const DEFAULT_PAGE_SIZE = 25;
 
+/** 顶级 endpoint 仍可能放过 standalone attachment / 误入的 note;客户端兜底。 */
+const IGNORED_ITEM_TYPES: ReadonlySet<string> = new Set([
+  'attachment',
+  'annotation',
+  'note',
+]);
+
+/**
+ * Zotero 对无数据 entry 仍渲染一个空 `<div class="csl-bib-body">…</div>` 壳;
+ * 真有内容时内部嵌一个 `<div class="csl-entry">`。我们以 csl-entry 的存在
+ * 区分"空壳"与"有内容",空壳归一为 undefined 避免污染 IPC。
+ */
+const BIB_CONTENT_MARKER = 'csl-entry';
+
 export class ZoteroLocalApiClient {
   private readonly baseUrl: string;
 
@@ -32,9 +65,8 @@ export class ZoteroLocalApiClient {
   }
 
   /**
-   * Verify the Local API is reachable. Returns `ok: false` with a human-
-   * readable reason when Zotero isn't running OR the user hasn't toggled
-   * "Allow other applications…" in Advanced settings.
+   * 验证 Local API 可达。`ok: false` 时返回人类可读理由 —— 区分 "Zotero 没启动"
+   * 与 "Zotero 启动了但 Settings → Advanced 没勾选"。
    */
   async ping(): Promise<ZoteroPingResultDTO> {
     const url = `${this.baseUrl}/api/users/0/items?limit=1&format=json`;
@@ -68,22 +100,15 @@ export class ZoteroLocalApiClient {
   }
 
   /**
-   * Fetch a single page of Zotero items, projected down to `ZoteroItemDTO`.
-   * Callers paginate by advancing `start` until an empty page comes back —
-   * we deliberately don't surface the `Total-Results` header here to keep
-   * the response shape simple. Switch to a header-aware variant only when
-   * a caller actually needs the count.
-   *
-   * `?include=bib,citation` makes Zotero render CSL formatted HTML inline,
-   * sparing us the trip through a separate citation styler. We default
-   * the style to APA which matches the wizard's hover-card sample.
+   * 拉一页顶级文献条目,投影为 `ZoteroItemDTO`。调用方用空页作为分页终止信号 ——
+   * `Total-Results` header 暂不暴露,真要计数再加。
    */
   async getItems(opts: ZoteroGetItemsOptionsDTO = {}): Promise<ZoteroItemDTO[]> {
     const limit = clampPageSize(opts.limit);
     const start = Math.max(0, opts.start ?? 0);
     const url =
-      `${this.baseUrl}/api/users/0/items` +
-      `?format=json&include=bib,citation&style=apa` +
+      `${this.baseUrl}/api/users/0/items/top` +
+      `?format=json&include=data,bib,citation&style=apa` +
       `&limit=${limit}&start=${start}`;
 
     const json = await this.fetchJson<ZoteroRawItem[]>(url);
@@ -92,13 +117,8 @@ export class ZoteroLocalApiClient {
   }
 
   /**
-   * Pull every visible top-level item from the Local API. Walks `getItems`
-   * in fixed-size pages until an empty page comes back. Used by the
-   * bib-index cold boot (方案 D / D-1): renderer never calls this — it
-   * goes through the orchestrator + event bus.
-   *
-   * `maxPages` is a defensive ceiling so a misbehaving Zotero (returning
-   * a non-empty page repeatedly) can't pin the main process.
+   * 拉取所有顶级条目。`getItems` 按页步进直到空页;`maxPages` 是防御性上限。
+   * Renderer 不直接调 —— 走 Orchestrator + EventBus。
    */
   async getAllItems(maxPages = 200): Promise<ZoteroItemDTO[]> {
     const out: ZoteroItemDTO[] = [];
@@ -114,15 +134,13 @@ export class ZoteroLocalApiClient {
   }
 
   /**
-   * Fetch annotations attached to one parent item (attachment).
-   * Zotero exposes children at `/items/{itemKey}/children` — annotations
-   * surface as items whose `itemType === 'annotation'`.
+   * 拉一个父条目下的批注。注意 `include=data` 同样必需,否则 data 字段会缺。
    */
   async getItemAnnotations(itemKey: string): Promise<ZoteroAnnotationDTO[]> {
     if (!itemKey) return [];
     const url =
       `${this.baseUrl}/api/users/0/items/${encodeURIComponent(itemKey)}/children` +
-      `?format=json&itemType=annotation`;
+      `?format=json&include=data&itemType=annotation`;
     const raw = await this.fetchJson<ZoteroRawItem[]>(url);
     return (Array.isArray(raw) ? raw : [])
       .map((entry) => toAnnotationDTO(entry, itemKey))
@@ -178,7 +196,10 @@ function clampPageSize(limit?: number): number {
   return Math.min(Math.max(1, Math.floor(limit)), MAX_PAGE_SIZE);
 }
 
-/** Shape Zotero actually emits — we only type the fields we project. */
+/**
+ * 仅类型化我们投影需要的字段。`data` 必含 —— 若上游缺,说明 include 参数错配,
+ * 应在 toItemDTO 入口 warn 而非静默 return null(便于联调时定位)。
+ */
 interface ZoteroRawItem {
   key?: string;
   data?: {
@@ -195,25 +216,39 @@ interface ZoteroRawItem {
     annotationColor?: string;
     annotationPageLabel?: string;
   };
+  /** Zotero 派生字段:creatorSummary / parsedDate / numChildren。 */
+  meta?: {
+    creatorSummary?: string;
+    parsedDate?: string;
+    numChildren?: number;
+  };
   bib?: string;
   citation?: string;
 }
 
 function toItemDTO(raw: ZoteroRawItem): ZoteroItemDTO | null {
+  if (!raw.data) {
+    logger.warn('Zotero raw item missing `data` field — check include= param', {
+      key: raw.key,
+    });
+    return null;
+  }
   const data = raw.data;
-  if (!data) return null;
   const itemKey = data.key ?? raw.key ?? '';
   if (!itemKey) return null;
 
+  const itemType = data.itemType ?? 'unknown';
+  if (IGNORED_ITEM_TYPES.has(itemType)) return null;
+
   return {
     itemKey,
-    itemType: data.itemType ?? 'unknown',
+    itemType,
     title: data.title ?? '',
-    creatorsLabel: formatCreators(data.creators),
-    year: extractYear(data.date),
+    creatorsLabel: formatCreators(data.creators) ?? raw.meta?.creatorSummary,
+    year: extractYear(data.date) ?? extractYear(raw.meta?.parsedDate),
     abstractNote: data.abstractNote,
-    citation: raw.citation,
-    bib: raw.bib,
+    citation: normalizeCitation(raw.citation),
+    bib: normalizeBib(raw.bib),
   };
 }
 
@@ -254,6 +289,16 @@ function extractYear(date?: string): number | undefined {
   if (!date) return undefined;
   const m = date.match(/\b(1[89]\d{2}|20\d{2}|21\d{2})\b/);
   return m ? Number.parseInt(m[1], 10) : undefined;
+}
+
+function normalizeBib(bib?: string): string | undefined {
+  if (!bib) return undefined;
+  return bib.includes(BIB_CONTENT_MARKER) ? bib : undefined;
+}
+
+function normalizeCitation(citation?: string): string | undefined {
+  if (!citation || citation.trim().length === 0) return undefined;
+  return citation;
 }
 
 function notNull<T>(v: T | null): v is T {
