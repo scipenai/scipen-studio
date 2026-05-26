@@ -288,9 +288,15 @@ export class BibTexSyncService {
 
   /**
    * 确保项目根 .gitignore 含 `.scipen/`。规则:
-   *   - 文件不存在:写一份只含本规则的 .gitignore
-   *   - 文件存在但缺规则:追加一行
-   *   - 已有规则:no-op(行内容 startsWith / exact match,避免 `.scipen/foo` 误命中)
+   *   - 文件不存在 → 写一份只含本规则的 .gitignore
+   *   - 文件存在但缺规则 → 追加一行
+   *   - 已有规则 → no-op
+   *
+   * 命中判定:整行 trim 后 exact 等于 `.scipen/` 或 `.scipen`(两种主流写法)。
+   * 不识别 glob 变体如 `/.scipen/` 或 `**\/.scipen/` —— 用户用这类写法时
+   * 会被视为缺失并追加一行,造成形式上的重复(语义无害,git 忽略行允许重复)。
+   * 接受这个边缘 case 是因为 99% 用户写的就是 `.scipen/`,严格匹配最直观。
+   *
    * 注:不强制用户使用 git;非 git 仓库下 .gitignore 也只是个无害文件。
    */
   private async ensureGitignore(): Promise<void> {

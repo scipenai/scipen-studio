@@ -147,7 +147,7 @@ export class ZoteroOrchestrator {
 
     // Probe + fetch in parallel. Both legs handle their own errors so we
     // can tell apart "LocalApi down" from "BBT down" downstream.
-    const [localApiResult, bbtKeysResult] = await Promise.all([
+    const [localApiResult, bbtHealthResult] = await Promise.all([
       this.fetchLocalApi(),
       this.fetchBbtHealth(),
     ]);
@@ -157,34 +157,35 @@ export class ZoteroOrchestrator {
       // useful. Don't clear the existing index — keep stale data so the
       // editor stays warm; just flip status.
       this.localApiProbe = { ok: false, error: localApiResult.error };
-      this.bbtProbe = bbtKeysResult.ok
+      this.bbtProbe = bbtHealthResult.ok
         ? { ok: true }
-        : { ok: false, error: bbtKeysResult.error };
+        : { ok: false, error: bbtHealthResult.error };
       this.transition('error', localApiResult.error);
       this.bus.emit({ kind: 'bib:status', status: 'error', detail: localApiResult.error });
       return { triggered: true, status: 'error', detail: localApiResult.error };
     }
 
     this.localApiProbe = { ok: true };
-    this.bbtProbe = bbtKeysResult.ok
+    this.bbtProbe = bbtHealthResult.ok
       ? { ok: true }
-      : { ok: false, error: bbtKeysResult.error };
+      : { ok: false, error: bbtHealthResult.error };
 
-    const bbtKeys = bbtKeysResult.ok ? bbtKeysResult.keysByItemKey : new Map<string, string>();
-    const merged = mergeBbtIntoItems(localApiResult.items, bbtKeys);
+    // citation key 由 LocalApi 直接从 data.citationKey 注入,无需 BBT 合并。
+    // mergeBbtIntoItems 仍 export 作为可测试纯函数 + 将来 opt-in reconcile 工具。
+    const items = localApiResult.items;
 
     // First-fill vs incremental:首次 cold boot 时 index 为空 → 走 hydrate,
     // 广播 bib:initial 让 renderer 整库 rehydrate。后续 refresh(window focus
     // 或 manual)走 diff + applyPatch,只广播变化的 bib:patch;无变化时退化
     // 为 bib:status 让 renderer 撤掉 "syncing" 旋转。
     const isFirstFill = this.index.size() === 0;
-    const nextStatus: BibStatus = bbtKeysResult.ok ? 'ready' : 'degraded';
+    const nextStatus: BibStatus = bbtHealthResult.ok ? 'ready' : 'degraded';
 
     if (isFirstFill) {
-      this.index.hydrate(merged, nextStatus);
+      this.index.hydrate(items, nextStatus);
       this.bus.emit({ kind: 'bib:initial', snapshot: this.index.buildSnapshot() });
     } else {
-      const { upserts, deletes } = diffAgainstIndex(this.index, merged);
+      const { upserts, deletes } = diffAgainstIndex(this.index, items);
       const patch = this.index.applyPatch(upserts, deletes, nextStatus);
       if (patch.upserts.length > 0 || patch.deletes.length > 0) {
         this.bus.emit({
@@ -202,7 +203,7 @@ export class ZoteroOrchestrator {
     }
 
     this.lastSyncedAt = new Date(this.now()).toISOString();
-    this.transition(nextStatus, bbtKeysResult.ok ? undefined : 'BBT unavailable');
+    this.transition(nextStatus, bbtHealthResult.ok ? undefined : 'BBT unavailable');
     return { triggered: true, status: nextStatus };
   }
 
@@ -222,24 +223,17 @@ export class ZoteroOrchestrator {
   }
 
   /**
-   * BBT 在主路径上**只用作健康度信号** —— citation key 由 LocalApi 直接从
-   * `data.citationKey`(BBT 7+ 注入到 Zotero data schema)拿,无需 RPC。
-   * BBT down 仅影响 status(ready ↔ degraded),不影响数据可用性。
-   *
-   * 历史的 getAllCitations() / mergeBbtIntoItems() 仍保留作辅助:如果将来
-   * 出现 LocalApi 没拿到 ck 但 BBT 有的边缘 case,Orchestrator 可以 opt-in
-   * 调用补齐。当前主路径走 ping。
+   * BBT 健康度信号 —— citation key 由 LocalApi 直接从 `data.citationKey`
+   * (BBT 7+ 注入到 Zotero data schema)拿,无需 RPC。BBT down 仅影响
+   * status(ready ↔ degraded),不影响数据可用性。
    */
-  private async fetchBbtHealth(): Promise<
-    { ok: true; keysByItemKey: Map<string, string> } | { ok: false; error: string }
-  > {
+  private async fetchBbtHealth(): Promise<{ ok: boolean; error?: string }> {
     try {
       const ping = await this.bbt.ping();
       if (!ping.ok) {
         return { ok: false, error: ping.error ?? 'Better BibTeX RPC unreachable' };
       }
-      // 主路径不依赖 RPC 返回 keys —— LocalApi 已经把 data.citationKey 注入到 DTO。
-      return { ok: true, keysByItemKey: new Map() };
+      return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
