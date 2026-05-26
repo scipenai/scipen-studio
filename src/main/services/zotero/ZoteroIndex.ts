@@ -30,7 +30,7 @@ import type {
   BibSnapshotDTO,
 } from '../../../../shared/types/zotero-events';
 import type { ZoteroItemDTO } from '../../../../shared/types/zotero';
-import { TrigramIndex } from './TrigramIndex';
+import { TrigramIndex } from '../../../../shared/utils/trigram';
 
 /** Maximum delta log entries we keep before forcing renderer to reset. */
 const DEFAULT_DELTA_LOG_CAPACITY = 64;

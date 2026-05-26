@@ -1,7 +1,8 @@
 /**
- * @file Zotero API - Renderer-facing Zotero integration surface
- * @description Settings get/set + secure API key setters + detection/ping + settings-changed listener.
- *              API keys go through dedicated channels and are NEVER returned in plaintext.
+ * @file Zotero API —— renderer 侧 Zotero 集成入口
+ * @description 设置 get/set + 私密 token setters + detection/ping + 设置变更监听 +
+ *              主进程 canonical bib 索引访问(getSnapshot/requestRefresh/getDiagnostics)
+ *              + bib 事件订阅(onEvent)。API key 走专属通道,renderer 永不获取明文。
  * @depends electron.ipcRenderer
  */
 
@@ -13,53 +14,86 @@ import type {
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
 } from '../../../shared/types/zotero';
+import type {
+  GetSnapshotRequestDTO,
+  GetSnapshotResultDTO,
+  RefreshResultDTO,
+  ZoteroDiagnosticsDTO,
+  ZoteroEventDTO,
+} from '../../../shared/types/zotero-events';
 import { createSafeListener } from './_shared';
 
 export const zoteroApi = {
-  /** Read all Zotero settings (API keys never returned in plaintext, only presence booleans). */
+  /** 读取全部 Zotero 设置(API key 仅返回存在性 boolean,不出明文)。 */
   getSettings: (): Promise<ZoteroSettingsDTO> => ipcRenderer.invoke(IpcChannel.Zotero_GetSettings),
 
   /**
-   * Write non-sensitive Zotero settings.
-   * @sideeffect Persists to electron-store and broadcasts `Zotero_SettingsChanged`.
+   * 写入非敏感 Zotero 设置。
+   * @sideeffect 持久化到 electron-store 并广播 `Zotero_SettingsChanged`。
    */
   setSettings: (patch: ZoteroSettingsPatchDTO): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IpcChannel.Zotero_SetSettings, patch),
 
   /**
-   * Store the MinerU API token in OS keychain.
-   * @sideeffect Persists to safeStorage; renderer never sees the plaintext after this call.
+   * 把 MinerU API token 写入操作系统 keychain。
+   * @sideeffect safeStorage 持久化,renderer 之后永远拿不到明文。
    */
   setMinerUApiKey: (token: string): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IpcChannel.Zotero_SetMinerUApiKey, token),
 
-  /** Remove the stored MinerU API token. */
+  /** 删除已存的 MinerU API token。 */
   clearMinerUApiKey: (): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IpcChannel.Zotero_ClearMinerUApiKey),
 
   /**
-   * Store the embedding-provider API key in OS keychain.
-   * @sideeffect Persists to safeStorage.
+   * 把 embedding provider 的 API key 写入操作系统 keychain。
+   * @sideeffect safeStorage 持久化。
    */
   setEmbeddingApiKey: (token: string): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IpcChannel.Zotero_SetEmbeddingApiKey, token),
 
-  /** Remove the stored embedding-provider API key. */
+  /** 删除已存的 embedding API key。 */
   clearEmbeddingApiKey: (): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IpcChannel.Zotero_ClearEmbeddingApiKey),
 
-  /** Auto-detect a local Zotero installation. Used by the setup wizard. */
+  /** 自动检测本地 Zotero 安装。设置向导调用。 */
   detectInstallation: (): Promise<ZoteroDetectionResultDTO> =>
     ipcRenderer.invoke(IpcChannel.Zotero_DetectInstallation),
 
-  /** Ping the Zotero Local API at localhost:23119 to verify the user has enabled it. */
+  /** Ping `localhost:23119`,验证用户已开启 Zotero Local API。 */
   pingLocalApi: (): Promise<ZoteroPingResultDTO> =>
     ipcRenderer.invoke(IpcChannel.Zotero_PingLocalApi),
 
   /**
-   * Subscribe to Zotero settings change events.
-   * @returns Unsubscribe function.
-   * @sideeffect Registers an IPC event listener that must be cleaned up.
+   * 拉取主进程 canonical bib 索引快照。
+   * - 不传 `since` → 全量(BibResetDTO)
+   * - 传 `since=lastEtag` → 增量 patch(BibPatchDTO);若 cursor 过期则回落为全量
+   */
+  getSnapshot: (req: GetSnapshotRequestDTO = {}): Promise<GetSnapshotResultDTO> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_GetSnapshot, req),
+
+  /**
+   * 触发一次刷新(focus/manual/error-recovery)。主进程内部做 cooldown 防抖。
+   * 仅返回触发状态,实际变更通过 `Zotero_Event` 推送。
+   */
+  requestRefresh: (): Promise<RefreshResultDTO> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_RequestRefresh),
+
+  /** 取诊断快照(状态/数据源健康/itemCount/etag/lastSyncedAt 等)。 */
+  getDiagnostics: (): Promise<ZoteroDiagnosticsDTO> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_GetDiagnostics),
+
+  /**
+   * 订阅 Zotero 设置变更事件。
+   * @returns 取消订阅函数。
+   * @sideeffect 注册 IPC 监听,必须显式清理。
    */
   onSettingsChanged: createSafeListener<ZoteroSettingsDTO>(IpcChannel.Zotero_SettingsChanged),
+
+  /**
+   * 订阅主进程 bib 索引广播(initial/patch/status/invalidated 判别联合)。
+   * Renderer 镜像层在此监听并维护本地 items + trigram。
+   * @returns 取消订阅函数。
+   */
+  onEvent: createSafeListener<ZoteroEventDTO>(IpcChannel.Zotero_Event),
 };

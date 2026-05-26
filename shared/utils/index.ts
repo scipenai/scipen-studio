@@ -62,6 +62,10 @@ export {
   safeCancelIdleCallback,
 } from './async';
 
+// ====== Trigram 倒排索引 ======
+
+export { TrigramIndex, extractTrigrams, type TrigramSearchResult } from './trigram';
+
 // ====== Result Type ======
 
 export {

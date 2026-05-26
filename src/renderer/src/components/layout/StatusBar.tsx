@@ -12,6 +12,7 @@ import logoS from '../../assets/logo-s.svg';
 import { useClickOutside, useEvent } from '../../hooks';
 import { getLanguageForFile } from '../../utils';
 import { AgentStatusSegment } from './AgentStatusSegment';
+import { ZoteroStatusBadge } from './ZoteroStatusBadge';
 import { getEditorService, getSettingsService } from '../../services/core/ServiceRegistry';
 import {
   useActiveTabPath,
@@ -403,6 +404,9 @@ export const StatusBar: React.FC = () => {
 
         {/* SNACA agent status — current turn / tokens / stop */}
         <AgentStatusSegment />
+
+        {/* Zotero canonical bib index status badge */}
+        <ZoteroStatusBadge />
 
         {/* SciPen Studio Brand */}
         <div

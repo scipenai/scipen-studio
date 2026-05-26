@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   TrigramIndex,
   extractTrigrams,
-} from '../../../src/main/services/zotero/TrigramIndex';
+} from '../../../shared/utils/trigram';
 
 describe('extractTrigrams', () => {
   it('lowercases and pads tokens with leading/trailing space', () => {

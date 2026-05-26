@@ -32,6 +32,7 @@ import {
   useLocaleSync,
   useMemoryCleanup,
   useThemeSync,
+  useZoteroBibMirror,
 } from './hooks';
 
 setupGlobalErrorHandlers();
@@ -55,6 +56,7 @@ function AppContent() {
   useMemoryCleanup();
   useFileOpen();
   useAgentBridge();
+  useZoteroBibMirror();
 
   useEffect(() => {
     if (sidebarTab === 'im' || sidebarTab === 'files') {

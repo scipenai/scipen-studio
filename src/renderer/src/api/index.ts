@@ -744,6 +744,13 @@ import type {
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
 } from '../../../../shared/types/zotero';
+import type {
+  GetSnapshotRequestDTO,
+  GetSnapshotResultDTO,
+  RefreshResultDTO,
+  ZoteroDiagnosticsDTO,
+  ZoteroEventDTO,
+} from '../../../../shared/types/zotero-events';
 
 export const zotero = {
   getSettings: () => invoke<ZoteroSettingsDTO>(IpcChannel.Zotero_GetSettings),
@@ -758,8 +765,14 @@ export const zotero = {
   detectInstallation: () =>
     invoke<ZoteroDetectionResultDTO>(IpcChannel.Zotero_DetectInstallation),
   pingLocalApi: () => invoke<ZoteroPingResultDTO>(IpcChannel.Zotero_PingLocalApi),
+  getSnapshot: (req: GetSnapshotRequestDTO = {}) =>
+    invoke<GetSnapshotResultDTO>(IpcChannel.Zotero_GetSnapshot, req),
+  requestRefresh: () => invoke<RefreshResultDTO>(IpcChannel.Zotero_RequestRefresh),
+  getDiagnostics: () => invoke<ZoteroDiagnosticsDTO>(IpcChannel.Zotero_GetDiagnostics),
   onSettingsChanged: (callback: (settings: ZoteroSettingsDTO) => void) =>
     on(IpcChannel.Zotero_SettingsChanged, (data) => callback(data as ZoteroSettingsDTO)),
+  onEvent: (callback: (event: ZoteroEventDTO) => void) =>
+    on(IpcChannel.Zotero_Event, (data) => callback(data as ZoteroEventDTO)),
 };
 
 // ==================== Unified exports ====================

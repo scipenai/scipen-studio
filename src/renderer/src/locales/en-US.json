@@ -789,5 +789,28 @@
       "skipNoteTitle": "Skipped",
       "skipNoteHint": "Citation keys fall back to itemKeys — all features work but readability drops"
     }
+  },
+  "zotero": {
+    "status": {
+      "label": "Zotero",
+      "tooltipPrefix": "Zotero index",
+      "idle": "Disabled",
+      "bootstrapping": "Initial load",
+      "syncing": "Syncing",
+      "ready": "Ready",
+      "degraded": "Degraded",
+      "error": "Error"
+    },
+    "diagnostics": {
+      "title": "Zotero index diagnostics",
+      "status": "Status",
+      "itemCount": "Items",
+      "lastSyncedAt": "Last synced",
+      "never": "Never",
+      "localApi": "Local API",
+      "betterBibTex": "Better BibTeX",
+      "refresh": "Refresh now",
+      "close": "Close"
+    }
   }
 }
