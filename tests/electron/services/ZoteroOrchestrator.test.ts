@@ -35,6 +35,8 @@ interface FakeLocalApi {
   getAllItems: () => Promise<ZoteroItemDTO[]>;
 }
 interface FakeBbt {
+  /** 主路径仅用 ping —— citationKey 由 LocalApi 从 data.citationKey 直接拿。 */
+  ping: () => Promise<{ ok: boolean; version?: string; error?: string }>;
   getAllCitations: () => Promise<Array<{ citationKey: string; itemKey: string; libraryID: number }>>;
 }
 
@@ -54,6 +56,7 @@ function makeOrchestrator(
       getAllItems: local.getAllItems ?? (async () => []),
     } as never,
     bbt: {
+      ping: bbt.ping ?? (async () => ({ ok: true, version: '7.0' })),
       getAllCitations: bbt.getAllCitations ?? (async () => []),
     } as never,
     bus,
@@ -62,29 +65,34 @@ function makeOrchestrator(
   });
 }
 
-function item(itemKey: string, title = `Paper ${itemKey}`): ZoteroItemDTO {
+function item(
+  itemKey: string,
+  title = `Paper ${itemKey}`,
+  citationKey?: string
+): ZoteroItemDTO {
   return {
     itemKey,
     itemType: 'journalArticle',
     title,
     creatorsLabel: 'Doe',
     year: 2024,
+    citationKey,
   };
 }
 
 describe('ZoteroOrchestrator / bootstrap', () => {
-  it('LocalApi ok + BBT ok → status ready and items merged with citation keys', async () => {
+  it('LocalApi ok + BBT ok → status ready, items carry citation keys (LocalApi-injected)', async () => {
     const events: ZoteroEventDTO[] = [];
     const orch = makeOrchestrator(
       {
-        getAllItems: async () => [item('AAA'), item('BBB')],
-      },
-      {
-        getAllCitations: async () => [
-          { citationKey: 'smith2024', itemKey: 'AAA', libraryID: 1 },
-          { citationKey: 'jones2023', itemKey: 'BBB', libraryID: 1 },
+        // citationKey 由 LocalApi 从 data.citationKey 拿来,直接出现在 DTO 上 ——
+        // 不再需要 BBT RPC 后置合并。
+        getAllItems: async () => [
+          item('AAA', 'Deep Learning', 'smith2024'),
+          item('BBB', 'Chemistry', 'jones2023'),
         ],
       },
+      {},
       { events }
     );
 
@@ -97,14 +105,12 @@ describe('ZoteroOrchestrator / bootstrap', () => {
     expect(events.some((e) => e.kind === 'bib:initial')).toBe(true);
   });
 
-  it('LocalApi ok + BBT fail → degraded with items but no citation keys', async () => {
+  it('LocalApi ok + BBT ping fail → degraded (items still indexed, ck depends on data)', async () => {
     const events: ZoteroEventDTO[] = [];
     const orch = makeOrchestrator(
       { getAllItems: async () => [item('AAA')] },
       {
-        getAllCitations: async () => {
-          throw new Error('BBT not installed');
-        },
+        ping: async () => ({ ok: false, error: 'BBT not installed' }),
       },
       { events }
     );
@@ -112,6 +118,7 @@ describe('ZoteroOrchestrator / bootstrap', () => {
     const result = await orch.bootstrap();
     expect(result.status).toBe('degraded');
     expect(orch.getDiagnostics().sources.betterBibTex.ok).toBe(false);
+    // 没装 BBT,LocalApi 的 data.citationKey 也是 undefined → DTO.citationKey 也无。
     expect(orch.getIndex().getByItemKey('AAA')?.citationKey).toBeUndefined();
   });
 

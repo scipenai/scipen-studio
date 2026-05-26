@@ -39,8 +39,15 @@ import { createLogger } from '../LoggerService';
 const logger = createLogger('BibTexSyncService');
 
 const DEFAULT_DEBOUNCE_MS = 500;
-const DEFAULT_FILE_NAME = 'references.bib';
+/**
+ * 默认写到 `.scipen/zotero_library.bib` —— 子目录隔离 IDE 自动生成文件,
+ * 文件名暗示"Zotero 自动维护、用户勿手改"。配合 `.gitignore` 自动维护,
+ * 不污染项目根、不进版本控制、和用户手写 `references.bib` 不冲突。
+ */
+const DEFAULT_FILE_NAME = '.scipen/zotero_library.bib';
 const DEFAULT_TRANSLATOR = 'BetterBibLaTeX';
+/** 自动维护项目根 .gitignore,确保自动生成的 .scipen/ 不进版本控制。 */
+const SCIPEN_GITIGNORE_MARKER = '.scipen/';
 
 export type BibTexSyncConfig = BibTexSyncConfigDTO;
 export type BibTexSyncStatus = BibTexSyncStatusDTO;
@@ -238,10 +245,17 @@ export class BibTexSyncService {
     }
 
     try {
+      // 子目录可能不存在(.scipen/ 第一次用),先确保父目录在。
+      const dir = path.dirname(filePath);
+      await this.ensureDir(dir);
       await this.fileIO.writeFile(filePath, bib, 'utf-8');
       const stat = await this.fileIO.stat(filePath);
       this.lastWrittenHash = nextHash;
       this.lastWrittenMtimeMs = stat.mtimeMs;
+      // .gitignore 维护与写盘解耦 —— 失败不影响 sync 状态,只 warn 不抛。
+      void this.ensureGitignore().catch((err) =>
+        logger.warn('ensureGitignore failed', err)
+      );
       this.status = {
         kind: 'ok',
         filePath,
@@ -258,6 +272,46 @@ export class BibTexSyncService {
       this.status = { kind: 'error', reason: `writeFile failed: ${reason}` };
     }
     return this.status;
+  }
+
+  /** 递归 mkdir;已存在则 no-op。fs.promises.mkdir({recursive:true}) 语义。 */
+  private async ensureDir(dir: string): Promise<void> {
+    type MkdirFn = (
+      p: string,
+      opts: { recursive: boolean }
+    ) => Promise<unknown>;
+    const mk = (this.fileIO as { mkdir?: MkdirFn }).mkdir;
+    if (typeof mk === 'function') {
+      await mk(dir, { recursive: true });
+    }
+  }
+
+  /**
+   * 确保项目根 .gitignore 含 `.scipen/`。规则:
+   *   - 文件不存在:写一份只含本规则的 .gitignore
+   *   - 文件存在但缺规则:追加一行
+   *   - 已有规则:no-op(行内容 startsWith / exact match,避免 `.scipen/foo` 误命中)
+   * 注:不强制用户使用 git;非 git 仓库下 .gitignore 也只是个无害文件。
+   */
+  private async ensureGitignore(): Promise<void> {
+    if (!this.projectPath) return;
+    const gitignorePath = path.join(this.projectPath, '.gitignore');
+    let existing = '';
+    try {
+      existing = await this.fileIO.readFile(gitignorePath, 'utf-8');
+    } catch (err) {
+      if (!isFileNotFound(err)) throw err;
+    }
+    const lines = existing.split(/\r?\n/);
+    const already = lines.some(
+      (l) => l.trim() === SCIPEN_GITIGNORE_MARKER || l.trim() === '.scipen'
+    );
+    if (already) return;
+    const next =
+      existing.length === 0
+        ? `${SCIPEN_GITIGNORE_MARKER}\n`
+        : `${existing.endsWith('\n') ? existing : existing + '\n'}${SCIPEN_GITIGNORE_MARKER}\n`;
+    await this.fileIO.writeFile(gitignorePath, next, 'utf-8');
   }
 
   private collectCitationKeys(): string[] {

@@ -574,7 +574,10 @@ app.whenReady().then(async () => {
   // 项目路径由 fileTreeHandlers 在 Project_Open / Project_OpenByPath 时注入。
   const bibTexSyncConfig = {
     enabled: configManager.get<boolean>(ConfigKeys.ZoteroBibTexSyncEnabled, true),
-    fileName: configManager.get<string>(ConfigKeys.ZoteroBibTexSyncFileName, 'references.bib'),
+    fileName: configManager.get<string>(
+      ConfigKeys.ZoteroBibTexSyncFileName,
+      '.scipen/zotero_library.bib'
+    ),
     translator: configManager.get<string>(
       ConfigKeys.ZoteroBibTexSyncTranslator,
       'BetterBibLaTeX'

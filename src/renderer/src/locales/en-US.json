@@ -828,6 +828,8 @@
       "translator": "BibTeX flavor",
       "translatorDesc": "BetterBibLaTeX is modern + UTF-8 friendly (recommended); BibTeX is classic for legacy projects",
       "syncNow": "Sync now",
+      "hintTitle": "Add this line to your main .tex file so LaTeX compilation can resolve \\cite{} references:",
+      "hintDesc": ".scipen/ is auto-added to .gitignore; the file is sync-only — do not hand-edit",
       "status": {
         "idle": "Idle",
         "syncing": "Syncing…",

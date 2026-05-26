@@ -190,6 +190,34 @@ describe('ZoteroLocalApiClient', () => {
       expect(items[0]?.creatorsLabel).toBe('A, B et al.');
     });
 
+    it('reads citationKey from data (BBT-injected schema field, no RPC needed)', async () => {
+      const payload = [
+        {
+          key: 'K2I2YK7G',
+          data: {
+            key: 'K2I2YK7G',
+            itemType: 'journalArticle',
+            title: 't',
+            citationKey: 'caraiAddendumTheoryImplicit2025',
+          },
+        },
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      const client = new ZoteroLocalApiClient();
+      const items = await client.getItems();
+      expect(items[0]?.citationKey).toBe('caraiAddendumTheoryImplicit2025');
+    });
+
+    it('citationKey is undefined when data lacks the BBT-injected field', async () => {
+      const payload = [
+        { data: { key: 'X', itemType: 'journalArticle', title: 't' } },
+      ];
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      const client = new ZoteroLocalApiClient();
+      const items = await client.getItems();
+      expect(items[0]?.citationKey).toBeUndefined();
+    });
+
     it('falls back to meta.creatorSummary when data.creators is absent', async () => {
       const payload = [
         {

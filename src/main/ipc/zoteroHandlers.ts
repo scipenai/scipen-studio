@@ -50,7 +50,10 @@ function readSettings(): ZoteroSettingsDTO {
     hasEmbeddingApiKey: secureHas(SecureStorageKeys.ZoteroEmbeddingApiKey),
     bibTexSync: {
       enabled: configManager.get<boolean>(ConfigKeys.ZoteroBibTexSyncEnabled, true),
-      fileName: configManager.get<string>(ConfigKeys.ZoteroBibTexSyncFileName, 'references.bib'),
+      fileName: configManager.get<string>(
+        ConfigKeys.ZoteroBibTexSyncFileName,
+        '.scipen/zotero_library.bib'
+      ),
       translator: configManager.get<string>(
         ConfigKeys.ZoteroBibTexSyncTranslator,
         'BetterBibLaTeX'

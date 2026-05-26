@@ -149,7 +149,7 @@ export class ZoteroOrchestrator {
     // can tell apart "LocalApi down" from "BBT down" downstream.
     const [localApiResult, bbtKeysResult] = await Promise.all([
       this.fetchLocalApi(),
-      this.fetchBbtKeys(),
+      this.fetchBbtHealth(),
     ]);
 
     if (!localApiResult.ok) {
@@ -221,18 +221,25 @@ export class ZoteroOrchestrator {
     }
   }
 
-  private async fetchBbtKeys(): Promise<
+  /**
+   * BBT 在主路径上**只用作健康度信号** —— citation key 由 LocalApi 直接从
+   * `data.citationKey`(BBT 7+ 注入到 Zotero data schema)拿,无需 RPC。
+   * BBT down 仅影响 status(ready ↔ degraded),不影响数据可用性。
+   *
+   * 历史的 getAllCitations() / mergeBbtIntoItems() 仍保留作辅助:如果将来
+   * 出现 LocalApi 没拿到 ck 但 BBT 有的边缘 case,Orchestrator 可以 opt-in
+   * 调用补齐。当前主路径走 ping。
+   */
+  private async fetchBbtHealth(): Promise<
     { ok: true; keysByItemKey: Map<string, string> } | { ok: false; error: string }
   > {
     try {
-      const all = await this.bbt.getAllCitations();
-      const map = new Map<string, string>();
-      for (const entry of all) {
-        if (entry.itemKey && entry.citationKey) {
-          map.set(entry.itemKey, entry.citationKey);
-        }
+      const ping = await this.bbt.ping();
+      if (!ping.ok) {
+        return { ok: false, error: ping.error ?? 'Better BibTeX RPC unreachable' };
       }
-      return { ok: true, keysByItemKey: map };
+      // 主路径不依赖 RPC 返回 keys —— LocalApi 已经把 data.citationKey 注入到 DTO。
+      return { ok: true, keysByItemKey: new Map() };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }

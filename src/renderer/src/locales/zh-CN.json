@@ -828,6 +828,8 @@
       "translator": "BibTeX 风格",
       "translatorDesc": "BetterBibLaTeX 现代 UTF-8 友好(推荐);BibTeX 经典风格用于老项目",
       "syncNow": "立即同步",
+      "hintTitle": "在你的主 .tex 文件加入下面这行,LaTeX 编译才能解析 \\cite{} 引用:",
+      "hintDesc": ".scipen/ 已自动加入 .gitignore;同步只读、用户不要手改这个文件",
       "status": {
         "idle": "未同步",
         "syncing": "正在同步…",

@@ -7,10 +7,11 @@
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const REFS_PATH = path.join('/proj', 'references.bib');
-const REFS_PATH_1 = path.join('/proj1', 'references.bib');
-const REFS_PATH_2 = path.join('/proj2', 'references.bib');
+const REFS_PATH = path.join('/proj', '.scipen', 'zotero_library.bib');
+const REFS_PATH_1 = path.join('/proj1', '.scipen', 'zotero_library.bib');
+const REFS_PATH_2 = path.join('/proj2', '.scipen', 'zotero_library.bib');
 const BIBLIO_PATH = path.join('/proj', 'biblio.bib');
+const GITIGNORE = path.join('/proj', '.gitignore');
 
 vi.mock('../../../src/main/services/LoggerService', () => ({
   createLogger: () => ({
@@ -58,7 +59,7 @@ function fakeBus(): ZoteroEventBus {
   });
 }
 
-/** 极简 fs mock(in-memory)。 */
+/** 极简 fs mock(in-memory)。支持 writeFile / readFile / stat / mkdir。 */
 function inMemoryFS() {
   const files = new Map<string, { content: string; mtimeMs: number }>();
   let clock = 1000;
@@ -81,6 +82,9 @@ function inMemoryFS() {
         const f = files.get(p);
         if (!f) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
         return { mtimeMs: f.mtimeMs };
+      },
+      async mkdir(_p: string, _opts: { recursive: boolean }): Promise<void> {
+        // in-memory 不需要建目录,no-op。
       },
     } as unknown as typeof import('fs').promises,
   };
@@ -172,7 +176,38 @@ describe('BibTexSyncService', () => {
     await svc.syncNow();
     const status = svc.getStatus();
     expect(status.kind).toBe('skipped-no-change');
-    expect(fs.files.size).toBe(1); // 写盘只一次
+    // .bib 写一次 + .gitignore 写一次 = 2 个 entries;内容相同时不再 write .bib。
+    const bibContent = fs.files.get(REFS_PATH)?.content;
+    expect(bibContent).toBe(bbt.exportResult);
+  });
+
+  it('writes .gitignore with .scipen/ marker on first sync', async () => {
+    const { svc, bus, fs } = setup([item('A', 'a')]);
+    svc.start();
+    svc.setProjectPath('/proj');
+    bus.emit({ kind: 'bib:initial', snapshot: { status: 'ready', etag: 'e1', items: [] } });
+    await flushDebounce();
+
+    const gitignore = fs.files.get(GITIGNORE);
+    expect(gitignore).toBeDefined();
+    expect(gitignore?.content).toContain('.scipen/');
+  });
+
+  it('does not duplicate .scipen/ when .gitignore already lists it', async () => {
+    const { svc, bus, fs } = setup([item('A', 'a')]);
+    // 用户已经在 .gitignore 里加过了。
+    fs.files.set(GITIGNORE, {
+      content: 'node_modules/\n.scipen/\n',
+      mtimeMs: 500,
+    });
+    svc.start();
+    svc.setProjectPath('/proj');
+    bus.emit({ kind: 'bib:initial', snapshot: { status: 'ready', etag: 'e1', items: [] } });
+    await flushDebounce();
+
+    const gitignore = fs.files.get(GITIGNORE);
+    // 仍然是初始内容(我们没 append 第二份)。
+    expect(gitignore?.content).toBe('node_modules/\n.scipen/\n');
   });
 
   it('detects external modification (conflict guard)', async () => {

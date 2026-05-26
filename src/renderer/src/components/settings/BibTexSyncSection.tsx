@@ -132,9 +132,13 @@ export const BibTexSyncSection: React.FC = () => {
               className={inputClassName}
               value={config.fileName}
               onChange={(e) => setConfig({ ...config, fileName: e.target.value })}
-              onBlur={() => void patchConfig({ fileName: config.fileName.trim() || 'references.bib' })}
+              onBlur={() =>
+                void patchConfig({
+                  fileName: config.fileName.trim() || '.scipen/zotero_library.bib',
+                })
+              }
               disabled={saving || !config.enabled}
-              placeholder="references.bib"
+              placeholder=".scipen/zotero_library.bib"
             />
             <div className="mt-1 text-[10px] text-[var(--color-text-muted)]">
               {t('zoteroSettings.bibtexSync.fileNameDesc')}
@@ -182,6 +186,31 @@ export const BibTexSyncSection: React.FC = () => {
           </button>
         </div>
       </SettingCard>
+
+      {/*
+        启用后 LaTeX 编译还是要 .tex 显式 \addbibresource{} —— texlab 看得见
+        .bib 文件不等于 LaTeX 编译能用。给出标准片段供用户复制。
+      */}
+      {config.enabled && (
+        <SettingCard>
+          <div className="text-xs text-[var(--color-text-secondary)] mb-2">
+            {t('zoteroSettings.bibtexSync.hintTitle')}
+          </div>
+          <pre
+            className="px-3 py-2 rounded-lg font-mono text-[11px] overflow-x-auto"
+            style={{
+              background: 'var(--color-bg-tertiary)',
+              color: 'var(--color-text-primary)',
+              border: '1px solid var(--color-border-subtle)',
+            }}
+          >
+{`\\addbibresource{${config.fileName}}`}
+          </pre>
+          <div className="text-[10px] text-[var(--color-text-muted)] mt-1.5">
+            {t('zoteroSettings.bibtexSync.hintDesc')}
+          </div>
+        </SettingCard>
+      )}
     </>
   );
 };

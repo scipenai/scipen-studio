@@ -209,6 +209,8 @@ interface ZoteroRawItem {
     abstractNote?: string;
     date?: string;
     creators?: Array<{ firstName?: string; lastName?: string; name?: string }>;
+    /** BBT 7+ 注入到 Zotero data schema 的字段 —— 装了 BBT 即可见,无需 JSON-RPC。 */
+    citationKey?: string;
     parentItem?: string;
     annotationType?: string;
     annotationText?: string;
@@ -246,6 +248,9 @@ function toItemDTO(raw: ZoteroRawItem): ZoteroItemDTO | null {
     title: data.title ?? '',
     creatorsLabel: formatCreators(data.creators) ?? raw.meta?.creatorSummary,
     year: extractYear(data.date) ?? extractYear(raw.meta?.parsedDate),
+    // BBT 把 citation key 直接写到 Zotero data schema,LocalApi 顺路就拿到了 ——
+    // 不再依赖 BBT JSON-RPC,即便 BBT 的 RPC schema 变化也不影响 ck 可用性。
+    citationKey: data.citationKey || undefined,
     abstractNote: data.abstractNote,
     citation: normalizeCitation(raw.citation),
     bib: normalizeBib(raw.bib),

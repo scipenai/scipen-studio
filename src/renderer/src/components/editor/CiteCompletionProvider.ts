@@ -1,20 +1,25 @@
 /**
  * @file CiteCompletionProvider —— Monaco completion provider,在
- *   `\cite{|}` / `[@|]` / `@|` 处弹文献候选。
+ *   `[@|]` / `@|` 处弹文献候选(markdown / typst)。
+ *
+ * **LaTeX 故意不挂** —— texlab 已经从 BibTexSyncService 自动同步的
+ * `.scipen/zotero_library.bib` 里读出全部 entry 做 `\cite{}` completion,
+ * 单一真相源 = .bib 文件;在 Monaco 上再挂一份会和 LSP 重复 + 重复 entry
+ * 在 dropdown 里出现两次。markdown / typst 没有等价的 LSP cite 路径
+ * (marksman 不做 cite,tinymist 要求显式 import),这里继续补位。
  *
  * 与 `CiteHoverProvider` 共用 mirror 数据源,与 `CitedKeyExtractor` 共用 cite
  * regex 形态。三处保持语义一致:补全 / hover / 引用面板对"什么算 cite"零分歧。
  *
  * 候选数据来自 `ZoteroBibMirror.searchByQueryWithScore`(citation-key 前缀 →
- * token → substring fallback 三档评分)。空索引时返回空,不弹 wizard ——
- * completion 不应该用模态打扰用户;chat composer 的 `@cite:` 流是显式入口。
+ * token → substring fallback 三档评分)。空索引时返回空,不弹 wizard。
  */
 
 import type { Monaco } from '@monaco-editor/react';
 import type * as monaco from 'monaco-editor';
 import { getZoteroBibMirror } from '../../services/zotero/ZoteroBibMirror';
 
-const LANGUAGE_IDS = ['latex', 'typst', 'markdown'] as const;
+const LANGUAGE_IDS = ['typst', 'markdown'] as const;
 const MAX_SUGGESTIONS = 20;
 
 /**
