@@ -28,6 +28,7 @@ import type { IPCLspContract } from './ipc/lsp-contract';
 import type { IPCAiContract } from './ipc/ai-contract';
 import type { IPCOverleafContract } from './ipc/overleaf-contract';
 import type { IPCAppContract } from './ipc/app-contract';
+import type { IPCZoteroContract } from './ipc/zotero-contract';
 
 // ====== Collaboration Owner (window-scoped backend marker) ======
 
@@ -73,12 +74,15 @@ export interface IPCApiContract
     IPCAiContract,
     IPCOverleafContract,
     IPCAppContract,
+    IPCZoteroContract,
     IPCCollaborationOwnerContract {}
 
 // ====== Event Contract (cross-domain, stays here) ======
 
 import type { LSPDiagnostic } from './ipc/lsp-contract';
 import type { AIConfigDTO } from './ipc/types';
+import type { ZoteroSettingsDTO } from './types/zotero';
+import type { ZoteroEventDTO } from './types/zotero-events';
 
 /** IPC event channel types (send/on pattern) */
 export interface IPCEventContract {
@@ -113,6 +117,8 @@ export interface IPCEventContract {
   [IpcChannel.Message_FromMain]: string;
   [IpcChannel.Settings_AIConfigChanged]: AIConfigDTO;
   [IpcChannel.App_UpdateStatus]: import('./ipc/app-contract').UpdateStatus;
+  [IpcChannel.Zotero_SettingsChanged]: ZoteroSettingsDTO;
+  [IpcChannel.Zotero_Event]: ZoteroEventDTO;
 }
 
 // ====== Type Utilities ======

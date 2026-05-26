@@ -1,20 +1,14 @@
 /**
- * @file Zotero IPC Handlers — settings, secure API keys, environment probes
- * @description M1 skeleton: settings get/set + secure key setters work end-to-end.
- *              `Zotero_DetectInstallation` and `Zotero_PingLocalApi` are placeholders
- *              for the M1 wizard work that lands in `ZoteroDiscoveryService` /
- *              `ZoteroLocalApiClient`.
- * @sideeffect Persists to electron-store and OS keychain; broadcasts settings changes.
+ * @file Zotero IPC handlers — settings / 安全 API key / 环境探测 / canonical
+ *       bib index 快照与诊断
+ * @sideeffect 持久化到 electron-store 与 OS keychain;通过 Zotero_SettingsChanged
+ *             广播 settings 变化;不在 handler 内做隐式 cache(wizard finish()
+ *             是唯一写 path / localApiEnabled / integrationEnabled 的位置)。
  */
 
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
-import type {
-  ZoteroDetectionResultDTO,
-  ZoteroPingResultDTO,
-  ZoteroSettingsDTO,
-  ZoteroSettingsPatchDTO,
-} from '../../../shared/types/zotero';
+import type { ZoteroSettingsDTO, ZoteroSettingsPatchDTO } from '../../../shared/types/zotero';
 import { ConfigKeys } from '../../../shared/types/config-keys';
 import { configManager } from '../services/ConfigManager';
 import { createLogger } from '../services/LoggerService';
@@ -28,6 +22,8 @@ import {
 } from '../services/SecureStorageService';
 import { getZoteroDiscoveryService } from '../services/zotero/ZoteroDiscoveryService';
 import { getZoteroLocalApiClient } from '../services/zotero/ZoteroLocalApiClient';
+import { getZoteroOrchestrator } from '../services/zotero/ZoteroOrchestrator';
+import { registerHandler } from './typedIpc';
 
 const logger = createLogger('ZoteroHandlers');
 
@@ -41,6 +37,7 @@ function isValidEmbeddingProvider(value: unknown): value is ValidEmbeddingProvid
 function readSettings(): ZoteroSettingsDTO {
   const provider = configManager.get<string>(ConfigKeys.ZoteroEmbeddingProvider, 'zhipu');
   return {
+    integrationEnabled: configManager.get<boolean>(ConfigKeys.ZoteroIntegrationEnabled, false),
     path: configManager.get<string>(ConfigKeys.ZoteroPath, ''),
     localApiEnabled: configManager.get<boolean>(ConfigKeys.ZoteroLocalApiEnabled, false),
     embeddingProvider: isValidEmbeddingProvider(provider) ? provider : 'zhipu',
@@ -61,89 +58,72 @@ function broadcastSettingsChanged(settings: ZoteroSettingsDTO): void {
   }
 }
 
+function applySettingsPatch(patch: ZoteroSettingsPatchDTO): { success: boolean } {
+  if (typeof patch.integrationEnabled === 'boolean') {
+    configManager.set(ConfigKeys.ZoteroIntegrationEnabled, patch.integrationEnabled);
+  }
+  if (typeof patch.path === 'string') {
+    configManager.set(ConfigKeys.ZoteroPath, patch.path);
+  }
+  if (typeof patch.localApiEnabled === 'boolean') {
+    configManager.set(ConfigKeys.ZoteroLocalApiEnabled, patch.localApiEnabled);
+  }
+  if (isValidEmbeddingProvider(patch.embeddingProvider)) {
+    configManager.set(ConfigKeys.ZoteroEmbeddingProvider, patch.embeddingProvider);
+  }
+  if (typeof patch.activeRecommendation === 'boolean') {
+    configManager.set(ConfigKeys.ZoteroActiveRecommendation, patch.activeRecommendation);
+  }
+
+  broadcastSettingsChanged(readSettings());
+  logger.info('[Zotero] Settings updated', { patchKeys: Object.keys(patch) });
+  return { success: true };
+}
+
 export function registerZoteroHandlers(): void {
-  ipcMain.handle(IpcChannel.Zotero_GetSettings, (): ZoteroSettingsDTO => readSettings());
+  // ---- Settings ----
+  registerHandler(IpcChannel.Zotero_GetSettings, () => readSettings());
+  registerHandler(IpcChannel.Zotero_SetSettings, (patch) => applySettingsPatch(patch));
 
-  ipcMain.handle(
-    IpcChannel.Zotero_SetSettings,
-    (_event, rawPatch: unknown): { success: boolean } => {
-      const patch = (rawPatch ?? {}) as ZoteroSettingsPatchDTO;
-
-      if (typeof patch.path === 'string') {
-        configManager.set(ConfigKeys.ZoteroPath, patch.path);
-      }
-      if (typeof patch.localApiEnabled === 'boolean') {
-        configManager.set(ConfigKeys.ZoteroLocalApiEnabled, patch.localApiEnabled);
-      }
-      if (isValidEmbeddingProvider(patch.embeddingProvider)) {
-        configManager.set(ConfigKeys.ZoteroEmbeddingProvider, patch.embeddingProvider);
-      }
-      if (typeof patch.activeRecommendation === 'boolean') {
-        configManager.set(ConfigKeys.ZoteroActiveRecommendation, patch.activeRecommendation);
-      }
-
-      broadcastSettingsChanged(readSettings());
-      logger.info('[Zotero] Settings updated', { patchKeys: Object.keys(patch) });
-      return { success: true };
-    }
-  );
-
-  ipcMain.handle(
-    IpcChannel.Zotero_SetMinerUApiKey,
-    (_event, rawToken: unknown): { success: boolean } => {
-      if (typeof rawToken !== 'string' || rawToken.length === 0) {
-        return { success: false };
-      }
-      const ok = setZoteroMinerUApiKey(rawToken);
-      if (ok) {
-        broadcastSettingsChanged(readSettings());
-      }
-      return { success: ok };
-    }
-  );
-
-  ipcMain.handle(IpcChannel.Zotero_ClearMinerUApiKey, (): { success: boolean } => {
+  // ---- Secure API keys ----
+  registerHandler(IpcChannel.Zotero_SetMinerUApiKey, (token) => {
+    const ok = setZoteroMinerUApiKey(token);
+    if (ok) broadcastSettingsChanged(readSettings());
+    return { success: ok };
+  });
+  registerHandler(IpcChannel.Zotero_ClearMinerUApiKey, () => {
     deleteZoteroMinerUApiKey();
     broadcastSettingsChanged(readSettings());
     return { success: true };
   });
-
-  ipcMain.handle(
-    IpcChannel.Zotero_SetEmbeddingApiKey,
-    (_event, rawToken: unknown): { success: boolean } => {
-      if (typeof rawToken !== 'string' || rawToken.length === 0) {
-        return { success: false };
-      }
-      const ok = setZoteroEmbeddingApiKey(rawToken);
-      if (ok) {
-        broadcastSettingsChanged(readSettings());
-      }
-      return { success: ok };
-    }
-  );
-
-  ipcMain.handle(IpcChannel.Zotero_ClearEmbeddingApiKey, (): { success: boolean } => {
+  registerHandler(IpcChannel.Zotero_SetEmbeddingApiKey, (token) => {
+    const ok = setZoteroEmbeddingApiKey(token);
+    if (ok) broadcastSettingsChanged(readSettings());
+    return { success: ok };
+  });
+  registerHandler(IpcChannel.Zotero_ClearEmbeddingApiKey, () => {
     deleteZoteroEmbeddingApiKey();
     broadcastSettingsChanged(readSettings());
     return { success: true };
   });
 
-  ipcMain.handle(
-    IpcChannel.Zotero_DetectInstallation,
-    async (): Promise<ZoteroDetectionResultDTO> => {
-      const result = await getZoteroDiscoveryService().detect();
-      if (result.found && result.path && !configManager.get<string>(ConfigKeys.ZoteroPath, '')) {
-        // Cache the detected path so subsequent sessions skip the FS scan.
-        configManager.set(ConfigKeys.ZoteroPath, result.path);
-        broadcastSettingsChanged(readSettings());
-      }
-      return result;
-    }
+  // ---- 探测 / 探活(无副作用,wizard 自己根据返回再决定是否 finish) ----
+  registerHandler(IpcChannel.Zotero_DetectInstallation, () =>
+    getZoteroDiscoveryService().detect()
   );
+  registerHandler(IpcChannel.Zotero_PingLocalApi, () => getZoteroLocalApiClient().ping());
 
-  ipcMain.handle(
-    IpcChannel.Zotero_PingLocalApi,
-    async (): Promise<ZoteroPingResultDTO> => getZoteroLocalApiClient().ping()
+  // ---- Main-canonical bib index(方案 D / D-1) ----
+  // 三个 read 通道是 renderer 读 index 的唯一入口;renderer 镜像本地命中,
+  // 不存在 per-hover / per-keystroke 的 RPC 风暴。
+  registerHandler(IpcChannel.Zotero_GetSnapshot, (req) =>
+    getZoteroOrchestrator().getIndex().buildSnapshotSince(req.since)
+  );
+  registerHandler(IpcChannel.Zotero_RequestRefresh, () =>
+    getZoteroOrchestrator().refresh('manual')
+  );
+  registerHandler(IpcChannel.Zotero_GetDiagnostics, () =>
+    getZoteroOrchestrator().getDiagnostics()
   );
 
   logger.info('[IPC] Zotero handlers registered');

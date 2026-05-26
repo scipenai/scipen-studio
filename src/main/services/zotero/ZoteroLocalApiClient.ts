@@ -92,6 +92,28 @@ export class ZoteroLocalApiClient {
   }
 
   /**
+   * Pull every visible top-level item from the Local API. Walks `getItems`
+   * in fixed-size pages until an empty page comes back. Used by the
+   * bib-index cold boot (方案 D / D-1): renderer never calls this — it
+   * goes through the orchestrator + event bus.
+   *
+   * `maxPages` is a defensive ceiling so a misbehaving Zotero (returning
+   * a non-empty page repeatedly) can't pin the main process.
+   */
+  async getAllItems(maxPages = 200): Promise<ZoteroItemDTO[]> {
+    const out: ZoteroItemDTO[] = [];
+    let start = 0;
+    for (let page = 0; page < maxPages; page++) {
+      const batch = await this.getItems({ start, limit: MAX_PAGE_SIZE });
+      if (batch.length === 0) break;
+      out.push(...batch);
+      if (batch.length < MAX_PAGE_SIZE) break;
+      start += batch.length;
+    }
+    return out;
+  }
+
+  /**
    * Fetch annotations attached to one parent item (attachment).
    * Zotero exposes children at `/items/{itemKey}/children` — annotations
    * surface as items whose `itemType === 'annotation'`.

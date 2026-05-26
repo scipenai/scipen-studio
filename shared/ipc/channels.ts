@@ -200,6 +200,21 @@ export enum IpcChannel {
   Zotero_PingLocalApi = 'zotero:ping-local-api',
   /** Broadcast: any Zotero setting changed; payload is the same shape as GetSettings. */
   Zotero_SettingsChanged = 'zotero:settings-changed',
+  /**
+   * Pull a snapshot (or delta) from the main-canonical bib index. With no
+   * `since` cursor, returns a full rehydrate; with a stale cursor, may
+   * return `reset: true` if the in-memory delta log no longer covers it.
+   */
+  Zotero_GetSnapshot = 'zotero:get-snapshot',
+  /** Trigger a manual refresh from Zotero sources; idempotent and debounced. */
+  Zotero_RequestRefresh = 'zotero:request-refresh',
+  /** Read current diagnostics (source health, item count, etag, status). */
+  Zotero_GetDiagnostics = 'zotero:get-diagnostics',
+  /**
+   * Broadcast channel for bib:* events (initial / patch / invalidated /
+   * status). Payload is `ZoteroEventDTO`, a discriminated union.
+   */
+  Zotero_Event = 'zotero:event',
 
   // ====== Studio IM ====== (removed in P3 cleanup)
 

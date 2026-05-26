@@ -887,20 +887,22 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.Compile_GetStatus, z.tuple([])],
 
   // ==================== Zotero Integration ====================
-  // Read-only / no-param channels — empty tuples document the contract
-  // and keep the IPC schema coverage gate happy.
+  // 只读 / 无参通道
   [IpcChannel.Zotero_GetSettings, z.tuple([])],
   [IpcChannel.Zotero_DetectInstallation, z.tuple([])],
   [IpcChannel.Zotero_PingLocalApi, z.tuple([])],
   [IpcChannel.Zotero_ClearMinerUApiKey, z.tuple([])],
   [IpcChannel.Zotero_ClearEmbeddingApiKey, z.tuple([])],
-  // Patch settings: only well-known keys allowed. Unknown keys are
-  // rejected at the IPC perimeter rather than silently persisted.
+  [IpcChannel.Zotero_RequestRefresh, z.tuple([])],
+  [IpcChannel.Zotero_GetDiagnostics, z.tuple([])],
+  // 部分更新 settings:strict 模式只接受白名单字段,未知字段被 IPC 边界拒绝
+  // 而非静默持久化。integrationEnabled 是 D 方案主开关,必须在白名单内。
   [
     IpcChannel.Zotero_SetSettings,
     z.tuple([
       z
         .object({
+          integrationEnabled: z.boolean().optional(),
           path: z.string().optional(),
           localApiEnabled: z.boolean().optional(),
           embeddingProvider: z.enum(['zhipu', 'aliyun', 'openai']).optional(),
@@ -909,11 +911,21 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
         .strict(),
     ]),
   ],
-  // API tokens have no length contract from the providers; we just
-  // require a non-empty string. The actual provider validation happens
-  // when the first real call is made.
+  // API token 各 provider 没有长度契约,只要求非空字符串。真正的有效性校验在
+  // 首次实际调用时由 provider 判定。
   [IpcChannel.Zotero_SetMinerUApiKey, z.tuple([z.string().min(1)])],
   [IpcChannel.Zotero_SetEmbeddingApiKey, z.tuple([z.string().min(1)])],
+  // bib index 快照拉取:since 是上次落地的 etag,缺省表示"给我全量"。
+  [
+    IpcChannel.Zotero_GetSnapshot,
+    z.tuple([
+      z
+        .object({
+          since: z.string().optional(),
+        })
+        .strict(),
+    ]),
+  ],
 
   // ==================== Project Binding ==================== (removed in P3 cleanup)
 ]);

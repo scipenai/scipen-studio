@@ -120,9 +120,6 @@ export function useZoteroWizard(): ZoteroWizardController {
         status: result.ok ? 'ok' : 'missing',
         error: result.ok ? undefined : result.error,
       });
-      if (result.ok) {
-        await api.zotero.setSettings({ localApiEnabled: true });
-      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.warn('pingLocalApi failed', err);
@@ -184,8 +181,20 @@ export function useZoteroWizard(): ZoteroWizardController {
   }, []);
 
   const finish = useCallback(() => {
+    // wizard 全部副作用集中在此 — 一次性原子落盘三字段:
+    //   integrationEnabled = 用户启用意图(D 方案主开关)
+    //   path / localApiEnabled = 此次走完 wizard 时观察到的真实状态
+    // canGoNext gate 已保证 step1/step2 都通过才能到 finish,故 detection.path
+    // 和 pingResult.ok 都有真实值。半途关 wizard 则零副作用。
+    void api.zotero
+      .setSettings({
+        integrationEnabled: true,
+        path: detection?.path ?? '',
+        localApiEnabled: pingResult?.ok ?? false,
+      })
+      .catch((err) => logger.warn('finish: setSettings failed', err));
     setIsOpen(false);
-  }, []);
+  }, [detection, pingResult]);
 
   return {
     isOpen,

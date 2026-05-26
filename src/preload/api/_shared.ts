@@ -195,6 +195,9 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Zotero_ClearEmbeddingApiKey,
   IpcChannel.Zotero_DetectInstallation,
   IpcChannel.Zotero_PingLocalApi,
+  IpcChannel.Zotero_GetSnapshot,
+  IpcChannel.Zotero_RequestRefresh,
+  IpcChannel.Zotero_GetDiagnostics,
 
   // ====== Chat ======
 
@@ -256,6 +259,7 @@ export const ALLOWED_EVENT_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Agent_ContextFlushRequest,
   IpcChannel.Agent_ContextZoteroRequest,
   IpcChannel.Zotero_SettingsChanged,
+  IpcChannel.Zotero_Event,
 
   IpcChannel.App_UpdateStatus,
   IpcChannel.AI_StreamChunk,

@@ -66,6 +66,9 @@ import {
   registerZoteroHandlers,
 } from './ipc';
 import { UpdateService } from './services/UpdateService';
+import { ConfigKeys } from '../../shared/types/config-keys';
+import { configManager } from './services/ConfigManager';
+import { getZoteroOrchestrator } from './services/zotero/ZoteroOrchestrator';
 
 const Dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -226,6 +229,18 @@ let overleafFileSystem: IOverleafFileSystemService | null = null;
 // ====== Recent Projects ======
 const recentProjectsFile = path.join(app.getPath('userData'), 'recent-projects.json');
 
+/**
+ * SciPen 的 Zotero 集成是否处于"启用"状态 — 唯一的 gate 主开关。
+ * 由 wizard finish() 显式置 true(用户走完所有步骤);Settings 页面可一键关。
+ *
+ * 不读 ZoteroPath:那是数据目录展示字段,文件系统状态不等于用户意图。
+ * 不读 ZoteroLocalApiEnabled:那是 Zotero 客户端 "Allow other applications"
+ * 开关的状态镜像,属于外部状态,用户没法在 SciPen 里关掉它。
+ */
+function isZoteroConfigured(): boolean {
+  return configManager.get<boolean>(ConfigKeys.ZoteroIntegrationEnabled, false);
+}
+
 async function loadRecentProjects(): Promise<
   Array<{
     id: string;
@@ -377,6 +392,15 @@ function createWindow(options?: {
       log.info('[Main] All main windows closed, triggering app.quit()');
       app.quit();
     }
+  });
+
+  // Refresh the bib index on focus when Zotero is configured. Cooldown is
+  // enforced inside the orchestrator, so alt-tab spam is safe to forward.
+  newWindow.on('focus', () => {
+    if (!isZoteroConfigured()) return;
+    getZoteroOrchestrator()
+      .refresh('focus')
+      .catch((err) => log.warn('[Main] Zotero focus-refresh failed:', err));
   });
 
   newWindow.webContents.on('did-finish-load', () => {
@@ -533,6 +557,16 @@ app.whenReady().then(async () => {
   warmupServices().catch((err) => {
     console.error('[Main] Service warmup failed:', err);
   });
+
+  // Kick off the Zotero bib index cold-boot if the wizard already ran.
+  // The orchestrator is internally idempotent and fully async so this
+  // never blocks the renderer load — failures just keep status at
+  // 'error' until the user fixes Zotero and triggers refresh.
+  if (isZoteroConfigured()) {
+    getZoteroOrchestrator()
+      .bootstrap()
+      .catch((err) => log.warn('[Main] Zotero bootstrap failed:', err));
+  }
 
   // Handle file association on Windows startup
   if (process.platform === 'win32') {
