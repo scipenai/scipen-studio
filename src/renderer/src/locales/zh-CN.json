@@ -133,6 +133,7 @@
       "shortcuts": "快捷键",
       "ai": "AI Agent",
       "agent": "Agent 数据",
+      "zotero": "Zotero",
       "update": "更新"
     }
   },
@@ -424,6 +425,7 @@
       "selection": "划词助手与快捷键触发方式。",
       "ai": "AI Agent 与内联补全的提供商、密钥与模型配置。",
       "agent": "查看 Agent 自动沉淀的记忆与可用的 Skills。",
+      "zotero": "启用 Zotero 文献集成,在编辑器中 @cite 任意条目。",
       "update": "检查并安装应用更新。"
     }
   },
@@ -789,6 +791,33 @@
       "skipNoteTitle": "已选择跳过",
       "skipNoteHint": "citation key 退化为 itemKey,所有功能可用但可读性较差"
     }
+  },
+  "zoteroSettings": {
+    "title": "Zotero 集成",
+    "subtitle": "启用后,主进程长驻索引 Zotero 文库,编辑器中可 @cite 任意条目",
+    "basicSettings": "基础设置",
+    "enableIntegration": "启用 Zotero 集成",
+    "enableIntegrationDesc": "首次启用会打开引导向导,完成后主进程开始索引文库",
+    "notEnabledTitle": "尚未启用",
+    "notEnabledDesc": "Zotero 集成依赖本地 Zotero + Local API。3 步配置完毕即可在编辑器中 @cite 任意文献。",
+    "startWizard": "立即引导设置",
+    "indexStatus": "索引状态",
+    "statusLabel": "状态",
+    "itemCount": "条目数",
+    "lastSyncedAt": "上次同步",
+    "never": "从未",
+    "sources": "数据源",
+    "localApi": "Zotero Local API",
+    "betterBibTex": "Better BibTeX",
+    "actions": "操作",
+    "refreshNow": "立即刷新",
+    "refreshNowDesc": "重新从 Zotero 拉取全量条目,合并 BBT 引用键",
+    "reopenWizard": "重新打开向导",
+    "reopenWizardDesc": "Zotero/BBT 安装变化后重新走一遍 3 步配置",
+    "redetect": "重新检测安装",
+    "redetectDesc": "只在用户手动调整 Zotero 安装路径时需要",
+    "execute": "执行",
+    "busy": "处理中"
   },
   "zotero": {
     "status": {

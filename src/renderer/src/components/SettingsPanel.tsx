@@ -4,7 +4,7 @@
  */
 
 import { clsx } from 'clsx';
-import { Brain, Code, FileText, Hand, Keyboard, Palette, RefreshCw, Sparkles } from 'lucide-react';
+import { BookMarked, Brain, Code, FileText, Hand, Keyboard, Palette, RefreshCw, Sparkles } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -20,6 +20,7 @@ import {
   ShortcutsTab,
   UITab,
   UpdateTab,
+  ZoteroTab,
 } from './settings';
 
 type SettingsTab =
@@ -30,6 +31,7 @@ type SettingsTab =
   | 'shortcuts'
   | 'ai'
   | 'agent'
+  | 'zotero'
   | 'update';
 const SETTINGS_PANEL_TAB_KEY = 'ui.settingsPanelTab';
 
@@ -82,6 +84,12 @@ const tabs: {
     summaryKey: 'settingsPanel.summaries.selection',
   },
   {
+    id: 'zotero',
+    labelKey: 'settings.tabs.zotero',
+    icon: <BookMarked size={14} />,
+    summaryKey: 'settingsPanel.summaries.zotero',
+  },
+  {
     id: 'update',
     labelKey: 'settings.tabs.update',
     icon: <RefreshCw size={14} />,
@@ -105,6 +113,8 @@ const TabContent: React.FC<{ activeTab: SettingsTab }> = ({ activeTab }) => {
       return <AITab />;
     case 'agent':
       return <AgentTab />;
+    case 'zotero':
+      return <ZoteroTab />;
     case 'update':
       return <UpdateTab />;
     default:

@@ -14,22 +14,8 @@ import { Loader2 } from 'lucide-react';
 import { useClickOutside } from '../../hooks';
 import { useZoteroBibMirror } from '../../hooks/useZoteroBibMirror';
 import { useTranslation } from '../../locales';
-import type { BibStatus } from '../../../../../shared/types/zotero-events';
+import { BIB_STATUS_COLOR, isBibStatusBusy } from '../../services/zotero/statusColor';
 import { ZoteroDiagnosticsPopover } from './ZoteroDiagnosticsPopover';
-
-/** 状态 → 颜色变量。idle/error 用语义色,中间态用 accent 蓝。 */
-const STATUS_COLOR: Record<BibStatus, string> = {
-  idle: 'var(--color-text-disabled)',
-  bootstrapping: 'var(--color-accent)',
-  syncing: 'var(--color-accent)',
-  ready: 'var(--color-success)',
-  degraded: 'var(--color-warning)',
-  error: 'var(--color-error)',
-};
-
-function isBusy(status: BibStatus): boolean {
-  return status === 'bootstrapping' || status === 'syncing';
-}
 
 export const ZoteroStatusBadge: React.FC = () => {
   const { t } = useTranslation();
@@ -43,7 +29,7 @@ export const ZoteroStatusBadge: React.FC = () => {
 
   const statusLabel = t(`zotero.status.${state.status}` as const);
   const tooltip = `${t('zotero.status.tooltipPrefix')}: ${statusLabel}`;
-  const busy = isBusy(state.status);
+  const busy = isBibStatusBusy(state.status);
 
   return (
     <div
@@ -62,12 +48,12 @@ export const ZoteroStatusBadge: React.FC = () => {
           <Loader2
             size={10}
             className="animate-spin"
-            style={{ color: STATUS_COLOR[state.status] }}
+            style={{ color: BIB_STATUS_COLOR[state.status] }}
           />
         ) : (
           <span
             className="inline-block w-1.5 h-1.5 rounded-full"
-            style={{ background: STATUS_COLOR[state.status] }}
+            style={{ background: BIB_STATUS_COLOR[state.status] }}
           />
         )}
         <span

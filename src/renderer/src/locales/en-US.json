@@ -133,6 +133,7 @@
       "shortcuts": "Shortcuts",
       "ai": "AI Agent",
       "agent": "Agent Data",
+      "zotero": "Zotero",
       "update": "Update"
     }
   },
@@ -424,6 +425,7 @@
       "selection": "Configure selection assistant and shortcut trigger mode.",
       "ai": "Configure provider, API key, and models for the AI Agent and inline completion.",
       "agent": "Browse Agent memory and the skills available to this project.",
+      "zotero": "Enable Zotero integration to @cite any reference from the editor.",
       "update": "Check for and install application updates."
     }
   },
@@ -789,6 +791,33 @@
       "skipNoteTitle": "Skipped",
       "skipNoteHint": "Citation keys fall back to itemKeys — all features work but readability drops"
     }
+  },
+  "zoteroSettings": {
+    "title": "Zotero integration",
+    "subtitle": "Enables a long-running main-process index of your Zotero library; @cite from the editor",
+    "basicSettings": "Basic",
+    "enableIntegration": "Enable Zotero integration",
+    "enableIntegrationDesc": "First enable opens the setup wizard; the main process then indexes your library",
+    "notEnabledTitle": "Not enabled",
+    "notEnabledDesc": "Zotero integration relies on a local Zotero install + Local API. Three quick steps and you can @cite any reference from the editor.",
+    "startWizard": "Open setup wizard",
+    "indexStatus": "Index status",
+    "statusLabel": "Status",
+    "itemCount": "Items",
+    "lastSyncedAt": "Last synced",
+    "never": "Never",
+    "sources": "Data sources",
+    "localApi": "Zotero Local API",
+    "betterBibTex": "Better BibTeX",
+    "actions": "Actions",
+    "refreshNow": "Refresh now",
+    "refreshNowDesc": "Reload all items from Zotero and merge BBT citation keys",
+    "reopenWizard": "Reopen wizard",
+    "reopenWizardDesc": "Re-run the 3-step setup after a Zotero/BBT install change",
+    "redetect": "Redetect installation",
+    "redetectDesc": "Useful only after manually moving your Zotero install path",
+    "execute": "Run",
+    "busy": "Working"
   },
   "zotero": {
     "status": {
