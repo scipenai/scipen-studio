@@ -35,6 +35,8 @@ import {
   useWorkspaceMode,
 } from '../../services/core/hooks';
 import { registerLSPProviders } from '../../utils/LSPProviderRegistry';
+import { registerCiteHoverProviders } from './CiteHoverProvider';
+import { registerCiteCompletionProviders } from './CiteCompletionProvider';
 import { getModelCache } from '../../utils/ModelCache';
 import { EditorToolbar } from './components';
 import {
@@ -282,6 +284,8 @@ export const EditorPane: React.FC = React.memo(() => {
       }
 
       registerLSPProviders(monacoInstance);
+      registerCiteHoverProviders(monacoInstance);
+      registerCiteCompletionProviders(monacoInstance);
       setupLSPDiagnostics(editor, monacoInstance);
 
       try {

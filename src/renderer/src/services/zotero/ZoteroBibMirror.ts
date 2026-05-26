@@ -1,10 +1,10 @@
 /**
  * @file ZoteroBibMirror —— renderer 侧 canonical bib 索引镜像
  * @description 单实例镜像 main 进程的 ZoteroIndex 全量数据 + 增量补丁。
- *              订阅 `Zotero_Event` 通道,内部维护 `items` / `keyToItem` / 本地
- *              `TrigramIndex`,通过 `subscribe` 暴露给 React (兼容
- *              useSyncExternalStore)。诊断信息(数据源健康度)走 IPC 拉取,
- *              不缓存在镜像里 —— 状态条点开时按需读取。
+ *              订阅 `Zotero_Event` 通道,内部维护 `items` / `keyToItem` +
+ *              cite 专用倒排索引(citation-key 前缀 + token + haystack),
+ *              通过 `subscribe` 暴露给 React (兼容 useSyncExternalStore)。
+ *              诊断信息(数据源健康度)走 IPC 拉取,不缓存在镜像里。
  *
  *              Lifecycle:
  *                未启用(idle)→ start() → 订阅事件 + 拉取 getSnapshot 全量
@@ -13,6 +13,9 @@
  *
  *              IPC 时序 — 先订阅再拉快照,任何中途到达的 patch 都不会丢失;
  *              快照与 patch 各自带 etag,本地按"已 apply 过则跳过"的原则做去重。
+ *
+ *              搜索评分见 bibSearchScoring.ts(citation-key 前缀 → token 交集
+ *              → substring fallback 三档),从 m2-stash 的 Worker 端口移植。
  */
 
 import type { ZoteroItemDTO } from '../../../../../shared/types/zotero';
@@ -24,9 +27,14 @@ import type {
   ZoteroDiagnosticsDTO,
   ZoteroEventDTO,
 } from '../../../../../shared/types/zotero-events';
-import { TrigramIndex } from '../../../../../shared/utils/trigram';
 import { api } from '../../api';
 import { createLogger } from '../LogService';
+import {
+  buildHaystack,
+  searchBibCorpus,
+  tokenize,
+  type BibSearchHit,
+} from './bibSearchScoring';
 
 const logger = createLogger('ZoteroBibMirror');
 
@@ -52,8 +60,14 @@ const INITIAL_STATE: ZoteroBibMirrorState = {
 
 export class ZoteroBibMirror {
   private items = new Map<string, ZoteroItemDTO>();
+  /** 大小写敏感的 citationKey → itemKey,getByCitationKey 走这里。 */
   private keyToItem = new Map<string, string>();
-  private trigram = new TrigramIndex<string>();
+  /** 小写 citationKey → itemKey,搜索时前缀匹配用。 */
+  private citationKeyLower = new Map<string, string>();
+  /** token(lowercase ≥2 char)→ itemKey 集合,搜索 token 评分用。 */
+  private tokenIndex = new Map<string, Set<string>>();
+  /** itemKey → 小写拼接 haystack,substring fallback 用。 */
+  private haystacks = new Map<string, string>();
 
   private state: ZoteroBibMirrorState = INITIAL_STATE;
   private stateSnapshot: ZoteroBibMirrorState = INITIAL_STATE;
@@ -96,7 +110,9 @@ export class ZoteroBibMirror {
     this.unsubEvent = null;
     this.items.clear();
     this.keyToItem.clear();
-    this.trigram.clear();
+    this.citationKeyLower.clear();
+    this.tokenIndex.clear();
+    this.haystacks.clear();
     this.state = INITIAL_STATE;
     this.bumpSnapshot();
   }
@@ -137,15 +153,26 @@ export class ZoteroBibMirror {
     return this.items.get(itemKey);
   }
 
+  /**
+   * 返回 cite 候选并附评分(供 dropdown / completion provider 排序展示)。
+   * 评分语义见 `bibSearchScoring.ts`(citation-key 前缀 → token 交集 → substring)。
+   */
+  searchByQueryWithScore(query: string, limit = 20): BibSearchHit[] {
+    return searchBibCorpus(
+      {
+        items: this.items,
+        citationKeyIndex: this.citationKeyLower,
+        tokenIndex: this.tokenIndex,
+        haystacks: this.haystacks,
+      },
+      query,
+      limit
+    );
+  }
+
+  /** 兼容旧调用方:直接拿排序好的 ZoteroItemDTO 列表,丢掉 score。 */
   searchByQuery(query: string, limit = 20): ZoteroItemDTO[] {
-    if (!query.trim()) return [];
-    const hits = this.trigram.search(query, limit);
-    const out: ZoteroItemDTO[] = [];
-    for (const hit of hits) {
-      const item = this.items.get(hit.id);
-      if (item) out.push(item);
-    }
-    return out;
+    return this.searchByQueryWithScore(query, limit).map((h) => h.item);
   }
 
   // ============================================================
@@ -203,7 +230,9 @@ export class ZoteroBibMirror {
   private replaceAll(items: ZoteroItemDTO[], etag: string, status: BibStatus): void {
     this.items.clear();
     this.keyToItem.clear();
-    this.trigram.clear();
+    this.citationKeyLower.clear();
+    this.tokenIndex.clear();
+    this.haystacks.clear();
     for (const item of items) {
       this.indexItem(item);
     }
@@ -224,21 +253,13 @@ export class ZoteroBibMirror {
     status: BibStatus
   ): void {
     for (const itemKey of deletes) {
-      const existing = this.items.get(itemKey);
-      if (!existing) continue;
-      this.items.delete(itemKey);
-      this.trigram.remove(itemKey);
-      if (existing.citationKey) {
-        const back = this.keyToItem.get(existing.citationKey);
-        if (back === itemKey) this.keyToItem.delete(existing.citationKey);
-      }
+      this.unindexItem(itemKey);
     }
     for (const item of upserts) {
       if (!item.itemKey) continue;
-      const prior = this.items.get(item.itemKey);
-      if (prior?.citationKey && prior.citationKey !== item.citationKey) {
-        const back = this.keyToItem.get(prior.citationKey);
-        if (back === item.itemKey) this.keyToItem.delete(prior.citationKey);
+      // upsert 之前先 unindex 旧 item(citationKey/token/haystack 可能改了)。
+      if (this.items.has(item.itemKey)) {
+        this.unindexItem(item.itemKey);
       }
       this.indexItem(item);
     }
@@ -256,15 +277,50 @@ export class ZoteroBibMirror {
     this.items.set(item.itemKey, item);
     if (item.citationKey) {
       this.keyToItem.set(item.citationKey, item.itemKey);
+      this.citationKeyLower.set(item.citationKey.toLowerCase(), item.itemKey);
     }
-    const tokens = [
-      item.citationKey ?? '',
-      item.title ?? '',
-      item.creatorsLabel ?? '',
-      item.year ? String(item.year) : '',
-    ];
-    const compound = tokens.filter(Boolean).join(' ');
-    this.trigram.upsert(item.itemKey, compound, item.citationKey ? 1.5 : 1.0);
+    const haystack = buildHaystack(item);
+    this.haystacks.set(item.itemKey, haystack);
+    const seen = new Set<string>();
+    for (const tok of tokenize(haystack)) {
+      if (seen.has(tok)) continue;
+      seen.add(tok);
+      let set = this.tokenIndex.get(tok);
+      if (!set) {
+        set = new Set();
+        this.tokenIndex.set(tok, set);
+      }
+      set.add(item.itemKey);
+    }
+  }
+
+  private unindexItem(itemKey: string): void {
+    const existing = this.items.get(itemKey);
+    if (!existing) return;
+    this.items.delete(itemKey);
+    if (existing.citationKey) {
+      const lower = existing.citationKey.toLowerCase();
+      if (this.keyToItem.get(existing.citationKey) === itemKey) {
+        this.keyToItem.delete(existing.citationKey);
+      }
+      if (this.citationKeyLower.get(lower) === itemKey) {
+        this.citationKeyLower.delete(lower);
+      }
+    }
+    const haystack = this.haystacks.get(itemKey);
+    this.haystacks.delete(itemKey);
+    if (haystack) {
+      const seen = new Set<string>();
+      for (const tok of tokenize(haystack)) {
+        if (seen.has(tok)) continue;
+        seen.add(tok);
+        const set = this.tokenIndex.get(tok);
+        if (set) {
+          set.delete(itemKey);
+          if (set.size === 0) this.tokenIndex.delete(tok);
+        }
+      }
+    }
   }
 
   // ============================================================

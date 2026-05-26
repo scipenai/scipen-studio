@@ -1,18 +1,19 @@
 /**
- * @file useZoteroWizard.ts — just-in-time Zotero setup wizard controller
- * @description Renderer-side state for the M1 Zotero onboarding wizard.
- *              Wizard does NOT auto-open on app boot (PM-3 decision).
- *              It is opened on demand by the first `@cite:` mention or
- *              first `\cite{}` hover; consumers call `open()` from the
- *              just-in-time trigger sites once those wire-ups land.
+ * @file useZoteroWizard.ts —— just-in-time Zotero 配置向导
+ * @description 架构:module-level store + `useSyncExternalStore` hook,让任意组件
+ *              都能 (a) 读 wizard 状态、(b) 调 `openZoteroWizard()` 触发。Wizard
+ *              UI 只在 App 根挂一份,订阅 store 渲染。
  *
- *              M1 batch 1 ships this hook with REAL detect/ping calls
- *              but no real consumer (wizard UI works end-to-end against
- *              skeleton services). Batch 2 will wire AtMentionResolver
- *              and CiteHoverProvider triggers.
+ *              选择 module 单例而非 Context,因为触发点散在多处(设置面板 / chat
+ *              composer / Monaco hover),Provider 包到根反而绕路。pub-sub store
+ *              更简洁,等价可测。
+ *
+ *              `finish()` 是 wizard 唯一的副作用集中点 —— 原子写入三字段(D 方案
+ *              主开关 integrationEnabled + path + localApiEnabled)。半途关 wizard
+ *              则零副作用,避免出现"半启用"脏状态。
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { api } from '../api';
 import type {
   ZoteroDetectionResultDTO,
@@ -27,193 +28,250 @@ export type WizardStepStatus = 'idle' | 'checking' | 'ok' | 'missing';
 
 export interface WizardStepState {
   status: WizardStepStatus;
-  /** Last error message when status === 'missing' due to a probe failure. */
+  /** status === 'missing' 且 probe 抛错时的错误信息。 */
   error?: string;
 }
 
-export interface ZoteroWizardController {
+export interface ZoteroWizardState {
   isOpen: boolean;
-  open: () => void;
-  close: () => void;
-
-  /** 1-based step index: 1 = Zotero, 2 = Local API, 3 = BBT. */
+  /** 1-based step:1 = Zotero,2 = Local API,3 = BBT。 */
   currentStep: 1 | 2 | 3;
-  goNext: () => void;
-  goBack: () => void;
-
   zoteroStep: WizardStepState;
   detection: ZoteroDetectionResultDTO | null;
-  recheckZotero: () => Promise<void>;
-
   localApiStep: WizardStepState;
   pingResult: ZoteroPingResultDTO | null;
-  recheckLocalApi: () => Promise<void>;
-
   bbtStep: WizardStepState;
   skippedBBT: boolean;
-  skipBBT: () => void;
-  recheckBBT: () => Promise<void>;
-
   settings: ZoteroSettingsDTO | null;
-  finish: () => void;
+}
+
+const INITIAL_STATE: ZoteroWizardState = {
+  isOpen: false,
+  currentStep: 1,
+  zoteroStep: { status: 'idle' },
+  detection: null,
+  localApiStep: { status: 'idle' },
+  pingResult: null,
+  bbtStep: { status: 'idle' },
+  skippedBBT: false,
+  settings: null,
+};
+
+// ============================================================
+// Module-level store
+// ============================================================
+
+let state: ZoteroWizardState = INITIAL_STATE;
+const listeners = new Set<() => void>();
+let settingsUnsub: (() => void) | null = null;
+
+function setState(updater: (prev: ZoteroWizardState) => ZoteroWizardState): void {
+  state = updater(state);
+  for (const l of listeners) l();
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function getSnapshot(): ZoteroWizardState {
+  return state;
+}
+
+// ============================================================
+// Actions(module-level —— 非 hook 上下文也能调用)
+// ============================================================
+
+async function recheckZotero(): Promise<void> {
+  setState((prev) => ({ ...prev, zoteroStep: { status: 'checking' } }));
+  try {
+    const result = await api.zotero.detectInstallation();
+    setState((prev) => ({
+      ...prev,
+      detection: result,
+      zoteroStep: { status: result.found ? 'ok' : 'missing' },
+    }));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn('detectInstallation failed', err);
+    setState((prev) => ({
+      ...prev,
+      detection: null,
+      zoteroStep: { status: 'missing', error: msg },
+    }));
+  }
+}
+
+async function recheckLocalApi(): Promise<void> {
+  setState((prev) => ({ ...prev, localApiStep: { status: 'checking' } }));
+  try {
+    const result = await api.zotero.pingLocalApi();
+    setState((prev) => ({
+      ...prev,
+      pingResult: result,
+      localApiStep: {
+        status: result.ok ? 'ok' : 'missing',
+        error: result.ok ? undefined : result.error,
+      },
+    }));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn('pingLocalApi failed', err);
+    setState((prev) => ({
+      ...prev,
+      pingResult: null,
+      localApiStep: { status: 'missing', error: msg },
+    }));
+  }
+}
+
+// BBT 检测当前借 detection.betterBibTexInstalled —— Discovery service 在
+// detectInstallation 内部已并行 ping 过 BBT。M2 之后引入独立 BBT ping 时
+// 替换此调用。
+async function recheckBBT(): Promise<void> {
+  setState((prev) => ({ ...prev, bbtStep: { status: 'checking' } }));
+  try {
+    const result = await api.zotero.detectInstallation();
+    const ok = result.betterBibTexInstalled === true;
+    setState((prev) => ({
+      ...prev,
+      detection: result,
+      bbtStep: { status: ok ? 'ok' : 'missing' },
+      skippedBBT: false,
+    }));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn('BBT recheck failed', err);
+    setState((prev) => ({
+      ...prev,
+      bbtStep: { status: 'missing', error: msg },
+    }));
+  }
+}
+
+function skipBBT(): void {
+  setState((prev) => ({
+    ...prev,
+    skippedBBT: true,
+    bbtStep: { status: 'missing' },
+  }));
+}
+
+/** 公开 action:弹 wizard。重复调用幂等(已打开时不重置 state)。 */
+export function openZoteroWizard(): void {
+  if (state.isOpen) return;
+  setState((prev) => ({ ...prev, isOpen: true, currentStep: 1 }));
+  void recheckZotero();
+  void api.zotero
+    .getSettings()
+    .then((s) => setState((prev) => ({ ...prev, settings: s })))
+    .catch((err) => logger.warn('initial getSettings failed', err));
+  if (!settingsUnsub) {
+    settingsUnsub = api.zotero.onSettingsChanged((s) => {
+      setState((prev) => ({ ...prev, settings: s }));
+    });
+  }
+}
+
+function closeWizard(): void {
+  setState((prev) => ({ ...prev, isOpen: false }));
+  if (settingsUnsub) {
+    settingsUnsub();
+    settingsUnsub = null;
+  }
+}
+
+function goNext(): void {
+  setState((prev) => {
+    if (prev.currentStep === 1) {
+      void recheckLocalApi();
+      return { ...prev, currentStep: 2 };
+    }
+    if (prev.currentStep === 2) {
+      void recheckBBT();
+      return { ...prev, currentStep: 3 };
+    }
+    return prev;
+  });
+}
+
+function goBack(): void {
+  setState((prev) =>
+    prev.currentStep > 1
+      ? { ...prev, currentStep: (prev.currentStep - 1) as 1 | 2 | 3 }
+      : prev
+  );
 }
 
 /**
- * Just-in-time wizard hook. M1 batch 1 is mock-friendly:
- * `recheck*` methods call real IPC but the wizard UI can override them
- * by injecting a `mockOverride` for storybook-style demos. We do NOT
- * inject mocks here — tests will mock `api.zotero.*` directly.
+ * wizard 唯一副作用集中点 —— 一次原子落盘三字段:
+ *   integrationEnabled = 用户启用意图(D 方案主开关)
+ *   path / localApiEnabled = 此次走完 wizard 观察到的真实状态
+ * canGoNext gate 已保证 step1/step2 都通过才能到 finish,detection.path
+ * 和 pingResult.ok 都有真实值;半途关 wizard 则零副作用。
  */
+function finish(): void {
+  const { detection, pingResult } = state;
+  void api.zotero
+    .setSettings({
+      integrationEnabled: true,
+      path: detection?.path ?? '',
+      localApiEnabled: pingResult?.ok ?? false,
+    })
+    .catch((err) => logger.warn('finish: setSettings failed', err));
+  closeWizard();
+}
+
+// ============================================================
+// Hook surface
+// ============================================================
+
+export interface ZoteroWizardController extends ZoteroWizardState {
+  open: () => void;
+  close: () => void;
+  goNext: () => void;
+  goBack: () => void;
+  recheckZotero: () => Promise<void>;
+  recheckLocalApi: () => Promise<void>;
+  recheckBBT: () => Promise<void>;
+  skipBBT: () => void;
+  finish: () => void;
+}
+
+/** Full controller —— wizard UI 用。订阅 store 状态变化。 */
 export function useZoteroWizard(): ZoteroWizardController {
-  const [isOpen, setIsOpen] = useState(false);
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
-  const [zoteroStep, setZoteroStep] = useState<WizardStepState>({ status: 'idle' });
-  const [detection, setDetection] = useState<ZoteroDetectionResultDTO | null>(null);
+  const open = useCallback(() => openZoteroWizard(), []);
+  const close = useCallback(() => closeWizard(), []);
+  const next = useCallback(() => goNext(), []);
+  const back = useCallback(() => goBack(), []);
+  const fin = useCallback(() => finish(), []);
 
-  const [localApiStep, setLocalApiStep] = useState<WizardStepState>({ status: 'idle' });
-  const [pingResult, setPingResult] = useState<ZoteroPingResultDTO | null>(null);
+  return useMemo(
+    () => ({
+      ...snapshot,
+      open,
+      close,
+      goNext: next,
+      goBack: back,
+      recheckZotero,
+      recheckLocalApi,
+      recheckBBT,
+      skipBBT,
+      finish: fin,
+    }),
+    [snapshot, open, close, next, back, fin]
+  );
+}
 
-  const [bbtStep, setBbtStep] = useState<WizardStepState>({ status: 'idle' });
-  const [skippedBBT, setSkippedBBT] = useState(false);
-
-  const [settings, setSettings] = useState<ZoteroSettingsDTO | null>(null);
-
-  // Latest closure of settings — used in unsub cleanup to avoid stale refs.
-  const unsubRef = useRef<(() => void) | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    void api.zotero
-      .getSettings()
-      .then(setSettings)
-      .catch((err) => logger.warn('initial getSettings failed', err));
-
-    unsubRef.current = api.zotero.onSettingsChanged(setSettings);
-    return () => {
-      unsubRef.current?.();
-      unsubRef.current = null;
-    };
-  }, [isOpen]);
-
-  const recheckZotero = useCallback(async () => {
-    setZoteroStep({ status: 'checking' });
-    try {
-      const result = await api.zotero.detectInstallation();
-      setDetection(result);
-      setZoteroStep({ status: result.found ? 'ok' : 'missing' });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn('detectInstallation failed', err);
-      setDetection(null);
-      setZoteroStep({ status: 'missing', error: msg });
-    }
-  }, []);
-
-  const recheckLocalApi = useCallback(async () => {
-    setLocalApiStep({ status: 'checking' });
-    try {
-      const result = await api.zotero.pingLocalApi();
-      setPingResult(result);
-      setLocalApiStep({
-        status: result.ok ? 'ok' : 'missing',
-        error: result.ok ? undefined : result.error,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn('pingLocalApi failed', err);
-      setPingResult(null);
-      setLocalApiStep({ status: 'missing', error: msg });
-    }
-  }, []);
-
-  // BBT detection currently piggy-backs on detection.betterBibTexInstalled.
-  // M1 batch 2 will introduce BetterBibTexClient with a dedicated ping;
-  // until then `recheckBBT` re-runs `detectInstallation` which carries the
-  // (placeholder) flag forward.
-  const recheckBBT = useCallback(async () => {
-    setBbtStep({ status: 'checking' });
-    try {
-      const result = await api.zotero.detectInstallation();
-      setDetection(result);
-      const ok = result.betterBibTexInstalled === true;
-      setBbtStep({ status: ok ? 'ok' : 'missing' });
-      setSkippedBBT(false);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn('BBT recheck failed', err);
-      setBbtStep({ status: 'missing', error: msg });
-    }
-  }, []);
-
-  const skipBBT = useCallback(() => {
-    setSkippedBBT(true);
-    setBbtStep({ status: 'missing' });
-  }, []);
-
-  const open = useCallback(() => {
-    setIsOpen(true);
-    setCurrentStep(1);
-    void recheckZotero();
-  }, [recheckZotero]);
-
-  const close = useCallback(() => {
-    setIsOpen(false);
-  }, []);
-
-  const goNext = useCallback(() => {
-    setCurrentStep((cur) => {
-      if (cur === 1) {
-        void recheckLocalApi();
-        return 2;
-      }
-      if (cur === 2) {
-        void recheckBBT();
-        return 3;
-      }
-      return cur;
-    });
-  }, [recheckLocalApi, recheckBBT]);
-
-  const goBack = useCallback(() => {
-    setCurrentStep((cur) => (cur > 1 ? ((cur - 1) as 1 | 2 | 3) : cur));
-  }, []);
-
-  const finish = useCallback(() => {
-    // wizard 全部副作用集中在此 — 一次性原子落盘三字段:
-    //   integrationEnabled = 用户启用意图(D 方案主开关)
-    //   path / localApiEnabled = 此次走完 wizard 时观察到的真实状态
-    // canGoNext gate 已保证 step1/step2 都通过才能到 finish,故 detection.path
-    // 和 pingResult.ok 都有真实值。半途关 wizard 则零副作用。
-    void api.zotero
-      .setSettings({
-        integrationEnabled: true,
-        path: detection?.path ?? '',
-        localApiEnabled: pingResult?.ok ?? false,
-      })
-      .catch((err) => logger.warn('finish: setSettings failed', err));
-    setIsOpen(false);
-  }, [detection, pingResult]);
-
-  return {
-    isOpen,
-    open,
-    close,
-    currentStep,
-    goNext,
-    goBack,
-    zoteroStep,
-    detection,
-    recheckZotero,
-    localApiStep,
-    pingResult,
-    recheckLocalApi,
-    bbtStep,
-    skippedBBT,
-    skipBBT,
-    recheckBBT,
-    settings,
-    finish,
-  };
+/**
+ * 轻量 handle —— 给 chat composer / hover provider 等触发位置用,
+ * 只暴露 `open()`,不订阅 state 变化(避免无意义 re-render)。
+ */
+export function useZoteroWizardController(): { open: () => void } {
+  return { open: openZoteroWizard };
 }
