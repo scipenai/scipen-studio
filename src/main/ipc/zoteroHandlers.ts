@@ -9,7 +9,10 @@
 import { BrowserWindow } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import type {
+  BBTCitationEntryDTO,
   ZoteroAnnotationDTO,
+  ZoteroGetItemsOptionsDTO,
+  ZoteroItemDTO,
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
 } from '../../../shared/types/zotero';
@@ -24,6 +27,7 @@ import {
   setZoteroEmbeddingApiKey,
   setZoteroMinerUApiKey,
 } from '../services/SecureStorageService';
+import { getBetterBibTexClient } from '../services/zotero/BetterBibTexClient';
 import { getZoteroDiscoveryService } from '../services/zotero/ZoteroDiscoveryService';
 import { getZoteroLocalApiClient } from '../services/zotero/ZoteroLocalApiClient';
 import { getZoteroOrchestrator } from '../services/zotero/ZoteroOrchestrator';
@@ -155,9 +159,52 @@ export function registerZoteroHandlers(): void {
     getBibTexSyncService().getStatus()
   );
 
-  ipcMain.handle(
+  registerHandler(
+    IpcChannel.Zotero_GetAllCitations,
+    async (): Promise<BBTCitationEntryDTO[]> => {
+      // BBT 可能未装,返回空数组让上层(Index Worker / mirror)走 LocalAPI itemKey 路径。
+      const ping = await getBetterBibTexClient().ping();
+      if (!ping.ok) return [];
+      try {
+        return await getBetterBibTexClient().getAllCitations();
+      } catch (err) {
+        logger.warn('[Zotero] getAllCitations failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return [];
+      }
+    }
+  );
+
+  registerHandler(
+    IpcChannel.Zotero_GetItemsPage,
+    async (rawOpts): Promise<ZoteroItemDTO[]> => {
+      const opts = (rawOpts ?? {}) as ZoteroGetItemsOptionsDTO;
+      try {
+        return await getZoteroLocalApiClient().getItems({
+          limit: typeof opts.limit === 'number' ? opts.limit : undefined,
+          start: typeof opts.start === 'number' ? opts.start : undefined,
+        });
+      } catch (err) {
+        logger.warn('[Zotero] getItems failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return [];
+      }
+    }
+  );
+
+  registerHandler(
+    IpcChannel.Zotero_GetCslByKey,
+    async (rawKey): Promise<unknown | null> => {
+      if (typeof rawKey !== 'string' || rawKey.length === 0) return null;
+      return getBetterBibTexClient().getCslByKey(rawKey);
+    }
+  );
+
+  registerHandler(
     IpcChannel.Zotero_GetItemAnnotations,
-    async (_event, rawItemKey: unknown): Promise<ZoteroAnnotationDTO[]> => {
+    async (rawItemKey): Promise<ZoteroAnnotationDTO[]> => {
       if (typeof rawItemKey !== 'string' || rawItemKey.length === 0) return [];
       try {
         return await getZoteroLocalApiClient().getItemAnnotations(rawItemKey);

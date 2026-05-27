@@ -1,23 +1,23 @@
 /**
  * @file ContextZoteroResponder.test.ts
  * @description Dispatch-level tests for the renderer-side responder.
- *   We mock `agentClient` (the IPC bridge) and `getZoteroBibIndex` /
- *   `api.zotero` (the data sources) so the responder's only job under
- *   test is wiring request kinds to handler bodies + snake_case wire
- *   shapes.
+ *   Mocks `agentClient` (IPC bridge) and `getZoteroBibMirror` / `api.zotero`
+ *   (data sources). The responder's job under test is wiring request kinds
+ *   to handler bodies + snake_case wire shapes.
+ *
+ *   本地用 ZoteroBibMirror(main canonical 镜像)取代远程 ZoteroBibIndex
+ *   Worker;mirror 的 search/get 是同步方法,所以 mock 用 mockReturnValue
+ *   而不是 mockResolvedValue。
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// `vi.mock` is hoisted above import statements, so any external references
-// must go through `vi.hoisted()` to share the same lifted scope.
 const mocks = vi.hoisted(() => ({
   onRequestCb: { current: null as ((req: unknown) => void) | null },
   respondMock: vi.fn(async () => ({ ok: true as const })),
-  bibSearchMock: vi.fn(),
-  bibGetMock: vi.fn(),
-  bibGetByCkMock: vi.fn(),
-  bibEnsureMock: vi.fn(async () => ({ status: 'ready', count: 0, source: 'bbt' })),
+  mirrorSearchMock: vi.fn(),
+  mirrorGetByItemKeyMock: vi.fn(),
+  mirrorGetByCkMock: vi.fn(),
   getCslMock: vi.fn(),
   getAnnotationsMock: vi.fn(),
 }));
@@ -34,12 +34,11 @@ vi.mock('../../../src/renderer/src/services/agent/AgentClientService', () => ({
   },
 }));
 
-vi.mock('../../../src/renderer/src/services/zotero/ZoteroBibIndex', () => ({
-  getZoteroBibIndex: () => ({
-    ensureLoaded: mocks.bibEnsureMock,
-    search: mocks.bibSearchMock,
-    get: mocks.bibGetMock,
-    getByCitationKey: mocks.bibGetByCkMock,
+vi.mock('../../../src/renderer/src/services/zotero/ZoteroBibMirror', () => ({
+  getZoteroBibMirror: () => ({
+    searchByQueryWithScore: mocks.mirrorSearchMock,
+    getByItemKey: mocks.mirrorGetByItemKeyMock,
+    getByCitationKey: mocks.mirrorGetByCkMock,
   }),
 }));
 
@@ -59,10 +58,9 @@ vi.mock('../../../src/renderer/src/services/LogService', () => ({
 const {
   onRequestCb,
   respondMock,
-  bibSearchMock,
-  bibGetMock,
-  bibGetByCkMock,
-  bibEnsureMock,
+  mirrorSearchMock,
+  mirrorGetByItemKeyMock,
+  mirrorGetByCkMock,
   getCslMock,
   getAnnotationsMock,
 } = mocks;
@@ -72,10 +70,9 @@ import { getContextZoteroResponder } from '../../../src/renderer/src/services/ag
 describe('ContextZoteroResponder', () => {
   beforeEach(() => {
     respondMock.mockClear();
-    bibSearchMock.mockReset();
-    bibGetMock.mockReset();
-    bibGetByCkMock.mockReset();
-    bibEnsureMock.mockClear();
+    mirrorSearchMock.mockReset();
+    mirrorGetByItemKeyMock.mockReset();
+    mirrorGetByCkMock.mockReset();
     getCslMock.mockReset();
     getAnnotationsMock.mockReset();
     onRequestCb.current = null;
@@ -95,7 +92,6 @@ describe('ContextZoteroResponder', () => {
   }
 
   async function waitForRespond(): Promise<unknown> {
-    // Wait one microtask flush for the responder's async handler.
     for (let i = 0; i < 10 && respondMock.mock.calls.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 0));
     }
@@ -103,14 +99,16 @@ describe('ContextZoteroResponder', () => {
   }
 
   describe('zotero_search', () => {
-    it('maps BibIndex hits to snake_case wire fields', async () => {
-      bibSearchMock.mockResolvedValueOnce([
+    it('maps mirror hits to snake_case wire fields', async () => {
+      mirrorSearchMock.mockReturnValueOnce([
         {
-          itemKey: 'K1',
-          citationKey: 'smith2024deep',
-          title: 'Deep Learning',
-          creatorsLabel: 'Smith',
-          year: 2024,
+          item: {
+            itemKey: 'K1',
+            citationKey: 'smith2024deep',
+            title: 'Deep Learning',
+            creatorsLabel: 'Smith',
+            year: 2024,
+          },
           score: 99,
         },
       ]);
@@ -135,31 +133,31 @@ describe('ContextZoteroResponder', () => {
     });
 
     it('clamps oversized limit to 50', async () => {
-      bibSearchMock.mockResolvedValueOnce([]);
+      mirrorSearchMock.mockReturnValueOnce([]);
       send({ requestId: 'r2', kind: 'zotero_search', params: { query: 'x', limit: 9999 } });
       await waitForRespond();
-      expect(bibSearchMock).toHaveBeenCalledWith('x', 50);
+      expect(mirrorSearchMock).toHaveBeenCalledWith('x', 50);
     });
 
     it('defaults limit when caller omits it', async () => {
-      bibSearchMock.mockResolvedValueOnce([]);
+      mirrorSearchMock.mockReturnValueOnce([]);
       send({ requestId: 'r3', kind: 'zotero_search', params: { query: 'x' } });
       await waitForRespond();
-      expect(bibSearchMock).toHaveBeenCalledWith('x', 10);
+      expect(mirrorSearchMock).toHaveBeenCalledWith('x', 10);
     });
   });
 
   describe('zotero_lookup', () => {
     it('returns found=false when no entry matches', async () => {
-      bibGetByCkMock.mockReturnValueOnce(undefined);
-      bibGetMock.mockReturnValueOnce(undefined);
+      mirrorGetByCkMock.mockReturnValueOnce(undefined);
+      mirrorGetByItemKeyMock.mockReturnValueOnce(undefined);
       send({ requestId: 'r4', kind: 'zotero_lookup', params: { key: 'nope' } });
       const reply = await waitForRespond();
       expect(reply).toEqual({ requestId: 'r4', ok: true, data: { found: false } });
     });
 
     it('returns item with CSL when entry exists and BBT serves CSL', async () => {
-      bibGetByCkMock.mockReturnValueOnce({
+      mirrorGetByCkMock.mockReturnValueOnce({
         itemKey: 'K1',
         citationKey: 'smith2024',
         title: 'T',
@@ -216,10 +214,12 @@ describe('ContextZoteroResponder', () => {
   });
 
   it('handler throws → fallback ok=false response is sent', async () => {
-    bibSearchMock.mockRejectedValueOnce(new Error('worker crashed'));
+    mirrorSearchMock.mockImplementationOnce(() => {
+      throw new Error('mirror crashed');
+    });
     send({ requestId: 'r9', kind: 'zotero_search', params: { query: 'x' } });
     const reply = (await waitForRespond()) as { ok: boolean; error?: string };
     expect(reply.ok).toBe(false);
-    expect(reply.error).toMatch(/worker crashed/);
+    expect(reply.error).toMatch(/mirror crashed/);
   });
 });

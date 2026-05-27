@@ -1,29 +1,32 @@
 /**
- * @file ContextZoteroResponder — renderer side of the SNACA
- *   reverse-RPC for Zotero-backed context kinds.
+ * @file ContextZoteroResponder — renderer side of the SNACA reverse-RPC
+ *   for Zotero-backed context kinds.
  *
  * Three kinds, all wired here:
- *   - `zotero_search`      → ZoteroBibIndex.search()
- *   - `zotero_lookup`      → ZoteroBibIndex.get/getByCitationKey + getCsl
+ *   - `zotero_search`      → ZoteroBibMirror.searchByQueryWithScore()
+ *   - `zotero_lookup`      → ZoteroBibMirror.getByCitationKey() / getByItemKey() + getCsl
  *   - `zotero_annotations` → api.zotero.getItemAnnotations()
  *
- * The host (main process) parks the request with a 5s timeout, so
- * partial / failed answers are fine — we always send *some* response
- * within budget. Empty arrays are valid; we only signal `ok: false` for
- * exceptional cases (e.g. the index hasn't been wired up at all and
- * even `ensureLoaded` rejected).
+ * Host (main process) parks the request with a 5s timeout, so partial /
+ * failed answers are fine — we always send *some* response within budget.
+ * Empty arrays are valid; `ok: false` only on exceptional errors.
+ *
+ * Local notes vs upstream c38298d port:
+ *   Upstream used `ZoteroBibIndex` Worker. Local uses main canonical +
+ *   `ZoteroBibMirror` (renderer mirror). Mirror lifecycle is App-level
+ *   via `useZoteroMirrorLifecycle`; no `ensureLoaded` here. If mirror
+ *   isn't ready yet (cold boot), search/lookup return empty — the LLM
+ *   sees "no results", which is the right behaviour during warm-up.
  */
 
 import { agentClient } from './AgentClientService';
 import { api } from '../../api';
 import { createLogger } from '../LogService';
-import { getZoteroBibIndex } from '../zotero/ZoteroBibIndex';
+import { getZoteroBibMirror } from '../zotero/ZoteroBibMirror';
 
 const logger = createLogger('ContextZoteroResponder');
 
-/** Default top-N for `zotero_search` when caller omits `limit`. */
 const DEFAULT_SEARCH_LIMIT = 10;
-/** Hard cap matching the host-side schema (max 50). */
 const MAX_SEARCH_LIMIT = 50;
 
 interface InboundRequest {
@@ -44,7 +47,6 @@ export class ContextZoteroResponder {
           kind: req.kind,
           error: err instanceof Error ? err.message : String(err),
         });
-        // Best-effort fallback: respond ok:false so SNACA doesn't hang.
         agentClient
           .respondContextZotero({
             requestId: req.requestId,
@@ -81,8 +83,6 @@ export class ContextZoteroResponder {
     }
   }
 
-  // ============ Per-kind handlers ============
-
   private async handleSearch(req: InboundRequest): Promise<void> {
     const query = typeof req.params.query === 'string' ? req.params.query : '';
     const rawLimit = req.params.limit;
@@ -91,20 +91,18 @@ export class ContextZoteroResponder {
         ? Math.min(MAX_SEARCH_LIMIT, Math.max(1, Math.floor(rawLimit)))
         : DEFAULT_SEARCH_LIMIT;
 
-    const bib = getZoteroBibIndex();
-    await bib.ensureLoaded();
-    const hits = await bib.search(query, limit);
+    const hits = getZoteroBibMirror().searchByQueryWithScore(query, limit);
 
     await agentClient.respondContextZotero({
       requestId: req.requestId,
       ok: true,
       data: {
         results: hits.map((h) => ({
-          item_key: h.itemKey,
-          citation_key: h.citationKey,
-          title: h.title,
-          creators_label: h.creatorsLabel,
-          year: h.year,
+          item_key: h.item.itemKey,
+          citation_key: h.item.citationKey,
+          title: h.item.title,
+          creators_label: h.item.creatorsLabel,
+          year: h.item.year,
           score: h.score,
         })),
       },
@@ -122,9 +120,8 @@ export class ContextZoteroResponder {
       return;
     }
 
-    const bib = getZoteroBibIndex();
-    await bib.ensureLoaded();
-    const entry = bib.getByCitationKey(key) ?? bib.get(key);
+    const mirror = getZoteroBibMirror();
+    const entry = mirror.getByCitationKey(key) ?? mirror.getByItemKey(key);
 
     if (!entry) {
       await agentClient.respondContextZotero({
@@ -135,14 +132,12 @@ export class ContextZoteroResponder {
       return;
     }
 
-    // Best-effort CSL fetch — getCsl is BBT-only and may return null
-    // when BBT isn't installed; that's fine, we just omit it.
     let csl: unknown = undefined;
     if (entry.citationKey) {
       try {
         csl = (await api.zotero.getCslByKey(entry.citationKey)) ?? undefined;
       } catch {
-        // Swallow — CSL is optional metadata.
+        // CSL 可选 metadata,失败不致命。
       }
     }
 
@@ -157,9 +152,7 @@ export class ContextZoteroResponder {
           title: entry.title,
           creators_label: entry.creatorsLabel,
           year: entry.year,
-          // `abstract` isn't on BibIndexEntry — it lives only in the
-          // LocalAPI projection. M2 will fold the hover-card abstract
-          // into the cache; until then we omit.
+          abstract: entry.abstractNote,
           csl,
         },
       },
