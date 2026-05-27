@@ -161,7 +161,6 @@ export class ZoteroOrchestrator {
         ? { ok: true }
         : { ok: false, error: bbtHealthResult.error };
       this.transition('error', localApiResult.error);
-      this.bus.emit({ kind: 'bib:status', status: 'error', detail: localApiResult.error });
       return { triggered: true, status: 'error', detail: localApiResult.error };
     }
 
@@ -196,9 +195,7 @@ export class ZoteroOrchestrator {
           status: nextStatus,
         });
       } else {
-        // Nothing changed; still flip status so renderer can drop a
-        // "syncing" spinner.
-        this.bus.emit({ kind: 'bib:status', status: nextStatus });
+        // 内容无变化,不发 bib:patch;状态回 ready 由下面的 transition() 统一 emit。
       }
     }
 
@@ -239,12 +236,22 @@ export class ZoteroOrchestrator {
     }
   }
 
+  /**
+   * Status 单一通路 —— 任何 status 变化都从这里 emit `bib:status` 到 bus,
+   * renderer mirror 据此 bumpSnapshot,UI(StatusBadge spinner 等)随之同步。
+   *
+   * 之前 transition 只改本地,doRefresh 末尾才手动 emit `bib:status(ready)` —
+   * 导致 syncing/bootstrapping 中间态对 renderer 完全不可见,StatusBar 永远停
+   * 在 ready,"立即刷新"看起来没反应。统一到 transition 之后,所有调用方都
+   * 不用再单独 emit;`bib:patch` / `bib:initial` 自带 status,mirror 端去重处理。
+   */
   private transition(next: BibStatus, detail?: string): void {
     if (this.status === next && this.detail === detail) return;
     logger.info('Status transition', { from: this.status, to: next, detail });
     this.status = next;
     this.detail = detail;
     this.index.setStatus(next);
+    this.bus.emit({ kind: 'bib:status', status: next, detail });
   }
 }
 

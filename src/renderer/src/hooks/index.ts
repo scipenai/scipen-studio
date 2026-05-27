@@ -52,5 +52,5 @@ export { useGlobalShortcuts } from './useGlobalShortcuts';
 export { useMemoryCleanup } from './useMemoryCleanup';
 export { useFileOpen } from './useFileOpen';
 export { useAgentBridge } from './useAgentBridge';
-export { useZoteroBibMirror } from './useZoteroBibMirror';
+export { useZoteroBibMirror, useZoteroMirrorLifecycle } from './useZoteroBibMirror';
 export type { UseZoteroBibMirrorResult } from './useZoteroBibMirror';
