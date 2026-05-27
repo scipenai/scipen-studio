@@ -195,6 +195,12 @@ export class ZoteroBibMirror {
 
   private handleEvent(event: ZoteroEventDTO): void {
     if (this.disposed) return;
+    logger.info('[M2-DEBUG] mirror.handleEvent', {
+      kind: event.kind,
+      eventEtag: 'etag' in event ? event.etag : undefined,
+      mirrorEtag: this.state.etag,
+      currentStatus: this.state.status,
+    });
     switch (event.kind) {
       case 'bib:initial':
         this.applyInitial(event.snapshot);
@@ -236,6 +242,19 @@ export class ZoteroBibMirror {
     for (const item of items) {
       this.indexItem(item);
     }
+    // 诊断:看 K2I2YK7G 这种特定 entry 是否进了 mirror,且 citationKey 是否就位。
+    const debugK2 = this.items.get('K2I2YK7G');
+    logger.info('[M2-DEBUG] mirror.replaceAll', {
+      etag,
+      status,
+      itemsIn: items.length,
+      itemsIndexed: this.items.size,
+      keyToItemSize: this.keyToItem.size,
+      K2I2YK7G: debugK2
+        ? { itemType: debugK2.itemType, citationKey: debugK2.citationKey, title: debugK2.title }
+        : 'NOT_INDEXED',
+      sampleCks: Array.from(this.keyToItem.keys()).slice(0, 5),
+    });
     this.state = {
       status,
       etag,

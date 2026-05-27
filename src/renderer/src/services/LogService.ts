@@ -230,8 +230,11 @@ class LogServiceImpl implements IDisposable {
     // Also output to console
     this.consoleLog(entry);
 
-    // Persist warn/error/fatal to main process file
-    if (level === 'warn' || level === 'error' || level === 'fatal') {
+    // Persist info+ to main process file. info 进盘是诊断刚需 —— prod build 关
+    // DevTools 之后 console 是黑洞,所有 [M2-DEBUG] / lifecycle 日志只能靠这条
+    // 通路落到 main.log 的 [Renderer] 区,不然 prod 出问题没法回放。
+    // debug 仍只走 console,因为它是高频开发噪音,不该污染 prod 盘上文件。
+    if (level === 'info' || level === 'warn' || level === 'error' || level === 'fatal') {
       this.queueForPersistence(entry);
     }
   }

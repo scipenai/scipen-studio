@@ -370,7 +370,9 @@ function createWindow(options?: {
       // sandbox=false is required because electron-vite compiles the preload as ESM (sandbox is incompatible).
       sandbox: false,
       webSecurity: true,
-      devTools: !app.isPackaged,
+      // packaged 默认关 DevTools 是安全姿态;SCIPEN_DEVTOOLS=1 是诊断逃生口,
+      // 不留在 prod 默认行为里,但出问题时不用重新打包就能开。
+      devTools: !app.isPackaged || process.env.SCIPEN_DEVTOOLS === '1',
     },
   });
 
@@ -422,6 +424,10 @@ function createWindow(options?: {
     }
   } else {
     newWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), { hash: hash || undefined });
+    // prod 诊断逃生口:SCIPEN_DEVTOOLS=1 启动时自动 detach 弹 DevTools,不挤主界面。
+    if (process.env.SCIPEN_DEVTOOLS === '1' && !isViewer) {
+      newWindow.webContents.openDevTools({ mode: 'detach' });
+    }
   }
 
   log.info(`[Main] Created window ${windowId}, total windows: ${windows.size}`);
@@ -572,19 +578,26 @@ app.whenReady().then(async () => {
   // 启动 references.bib 同步服务 —— 订阅 main 索引事件,debounce 写盘。
   // 即使 isZoteroConfigured=false 也启动,这样设置里翻 enable 立刻生效。
   // 项目路径由 fileTreeHandlers 在 Project_Open / Project_OpenByPath 时注入。
-  const bibTexSyncConfig = {
-    enabled: configManager.get<boolean>(ConfigKeys.ZoteroBibTexSyncEnabled, true),
-    fileName: configManager.get<string>(
-      ConfigKeys.ZoteroBibTexSyncFileName,
-      '.scipen/zotero_library.bib'
-    ),
-    translator: configManager.get<string>(
-      ConfigKeys.ZoteroBibTexSyncTranslator,
-      'BetterBibLaTeX'
-    ),
-  };
-  getBibTexSyncService().setConfig(bibTexSyncConfig);
-  getBibTexSyncService().start();
+  log.info('[M2-DEBUG] [Main] about to init BibTexSyncService');
+  try {
+    const bibTexSyncConfig = {
+      enabled: configManager.get<boolean>(ConfigKeys.ZoteroBibTexSyncEnabled, true),
+      fileName: configManager.get<string>(
+        ConfigKeys.ZoteroBibTexSyncFileName,
+        '.scipen/zotero_library.bib'
+      ),
+      translator: configManager.get<string>(
+        ConfigKeys.ZoteroBibTexSyncTranslator,
+        'BetterBibLaTeX'
+      ),
+    };
+    log.info('[M2-DEBUG] [Main] BibTexSyncService config', bibTexSyncConfig);
+    getBibTexSyncService().setConfig(bibTexSyncConfig);
+    getBibTexSyncService().start();
+    log.info('[M2-DEBUG] [Main] BibTexSyncService start() returned');
+  } catch (err) {
+    log.error('[M2-DEBUG] [Main] BibTexSyncService init THREW', err);
+  }
 
   // Handle file association on Windows startup
   if (process.platform === 'win32') {
