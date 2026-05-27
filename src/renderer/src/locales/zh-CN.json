@@ -622,6 +622,16 @@
   "atFileDropdown": {
     "noMatch": "没有匹配的文件"
   },
+  "atCiteDropdown": {
+    "noMatch": "无匹配文献",
+    "prompt": "输入关键词搜索文献"
+  },
+  "projectCitedReferences": {
+    "title": "本文引用",
+    "emptyNoCites": "本文档暂未引用任何文献",
+    "emptyNoIndex": "文献库未就绪,请先在设置中连接 Zotero",
+    "firstOf": "共 {{n}} 处引用,跳到第一处"
+  },
   "agentStatus": {
     "idle": "Agent 空闲",
     "thinking": "Agent 思考中",

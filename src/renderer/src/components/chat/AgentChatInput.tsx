@@ -18,7 +18,12 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMentionTrigger } from '../../hooks/useMentionTrigger';
+import { useZoteroWizardController } from '../../hooks/useZoteroWizard';
+import { useTranslation } from '../../locales';
 import { useFilePathIndex } from '../../services/core/hooks';
+import type { BibSearchHit } from '../../services/zotero/bibSearchScoring';
+import { getZoteroBibMirror } from '../../services/zotero/ZoteroBibMirror';
+import { AtCiteDropdown } from './AtCiteDropdown';
 import { AtFileDropdown, scoreFilePath } from './AtFileDropdown';
 
 export type SendIntent = 'chat' | 'composer';
@@ -71,12 +76,15 @@ export function AgentChatInput({
   seedKey,
   composer,
 }: AgentChatInputProps): React.ReactElement {
+  const { t } = useTranslation();
   const [value, setValue] = useState<string>('');
   const [armed, setArmed] = useState<boolean>(false);
   const [caretPos, setCaretPos] = useState<number>(0);
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
+  const [citeCandidates, setCiteCandidates] = useState<BibSearchHit[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const filePathIndex = useFilePathIndex();
+  const wizard = useZoteroWizardController();
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -105,13 +113,20 @@ export function AgentChatInput({
 
   const trigger = useMentionTrigger(value, caretPos);
 
-  // Skip dropdown when the token carries a colon — those belong to
-  // reserved prefixes like `@label:foo` / `@cite:bar` which will get
-  // their own picker. File dropdown only competes for plain paths.
-  const dropdownActive = trigger !== null && !trigger.query.includes(':');
+  // Two-mode dropdown: plain query => file picker; `cite:` prefix =>
+  // citation picker. Mutually exclusive — checking the cite prefix first
+  // keeps the file dropdown unaware of citations.
+  const citeQuery = useMemo(() => {
+    if (!trigger) return null;
+    const m = /^cite:(.*)$/i.exec(trigger.query);
+    return m ? m[1] : null;
+  }, [trigger]);
+
+  const fileDropdownActive = trigger !== null && !trigger.query.includes(':');
+  const citeDropdownActive = trigger !== null && citeQuery !== null;
 
   const candidates = useMemo(() => {
-    if (!dropdownActive || !trigger) return [];
+    if (!fileDropdownActive || !trigger) return [];
     if (filePathIndex.length === 0) return [];
     const scored: Array<{ path: string; score: number }> = [];
     for (const path of filePathIndex) {
@@ -120,13 +135,31 @@ export function AgentChatInput({
     }
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, DROPDOWN_MAX_ITEMS).map((s) => s.path);
-  }, [dropdownActive, trigger, filePathIndex]);
+  }, [fileDropdownActive, trigger, filePathIndex]);
+
+  // ----- citation candidates (sync,from main canonical mirror) -----
+  // mirror.searchByQueryWithScore 是同步;主线程实测 <8ms / 5k entry。空索引
+  // (mirror 还没 hydrate 或 itemCount=0)弹 just-in-time wizard(PM-3)。
+  useEffect(() => {
+    if (!citeDropdownActive || citeQuery === null) {
+      setCiteCandidates([]);
+      return;
+    }
+    const mirror = getZoteroBibMirror();
+    const state = mirror.getState();
+    if (!state.ready || state.itemCount === 0) {
+      wizard.open();
+      setCiteCandidates([]);
+      return;
+    }
+    setCiteCandidates(mirror.searchByQueryWithScore(citeQuery, DROPDOWN_MAX_ITEMS));
+  }, [citeDropdownActive, citeQuery, wizard]);
 
   // Reset selection whenever the candidate set changes shape — avoids
   // pointing at an out-of-range index after the query narrows.
   useEffect(() => {
     setSelectedIndex(0);
-  }, [trigger?.query, candidates.length]);
+  }, [trigger?.query, candidates.length, citeCandidates.length]);
 
   const applyMention = useCallback(
     (path: string) => {
@@ -135,6 +168,29 @@ export function AgentChatInput({
       const before = value.slice(0, trigger.replaceFrom);
       const after = value.slice(trigger.replaceTo);
       const inserted = `@${path} `;
+      const next = `${before}${inserted}${after}`;
+      const nextCaret = before.length + inserted.length;
+      setValue(next);
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(nextCaret, nextCaret);
+        setCaretPos(nextCaret);
+      });
+    },
+    [trigger, value]
+  );
+
+  const applyCiteMention = useCallback(
+    (hit: BibSearchHit) => {
+      if (!trigger) return;
+      // 优先用人类可读 BBT key,BBT 缺失时退到 Zotero itemKey,任一形态都
+      // 给 LLM 一个稳定 identifier。
+      const key = hit.item.citationKey ?? hit.item.itemKey;
+      const before = value.slice(0, trigger.replaceFrom);
+      const after = value.slice(trigger.replaceTo);
+      const inserted = `@cite:${key} `;
       const next = `${before}${inserted}${after}`;
       const nextCaret = before.length + inserted.length;
       setValue(next);
@@ -184,10 +240,13 @@ export function AgentChatInput({
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       // Dropdown captures Up / Down / Enter / Tab / Esc when active so
       // the user can navigate without the textarea hijacking the keys.
-      if (dropdownActive && candidates.length > 0) {
+      const fileNavigable = fileDropdownActive && candidates.length > 0;
+      const citeNavigable = citeDropdownActive && citeCandidates.length > 0;
+      if (fileNavigable || citeNavigable) {
+        const count = fileNavigable ? candidates.length : citeCandidates.length;
         if (e.key === 'ArrowDown') {
           e.preventDefault();
-          setSelectedIndex((idx) => Math.min(idx + 1, candidates.length - 1));
+          setSelectedIndex((idx) => Math.min(idx + 1, count - 1));
           return;
         }
         if (e.key === 'ArrowUp') {
@@ -197,7 +256,8 @@ export function AgentChatInput({
         }
         if (e.key === 'Enter' || e.key === 'Tab') {
           e.preventDefault();
-          applyMention(candidates[selectedIndex]);
+          if (fileNavigable) applyMention(candidates[selectedIndex]);
+          else applyCiteMention(citeCandidates[selectedIndex]);
           return;
         }
         if (e.key === 'Escape') {
@@ -211,7 +271,17 @@ export function AgentChatInput({
         submit();
       }
     },
-    [dropdownActive, candidates, selectedIndex, applyMention, cancelDropdown, submit]
+    [
+      fileDropdownActive,
+      citeDropdownActive,
+      candidates,
+      citeCandidates,
+      selectedIndex,
+      applyMention,
+      applyCiteMention,
+      cancelDropdown,
+      submit,
+    ]
   );
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -244,12 +314,24 @@ export function AgentChatInput({
         </div>
       )}
       <div className="relative rounded-md border border-[var(--color-border)] bg-[var(--color-bg-elevated)] focus-within:border-[var(--color-accent)]">
-        {dropdownActive && (
+        {fileDropdownActive && (
           <AtFileDropdown
             items={candidates}
             selectedIndex={selectedIndex}
             onSelect={applyMention}
             onCancel={cancelDropdown}
+          />
+        )}
+        {citeDropdownActive && (
+          <AtCiteDropdown
+            items={citeCandidates}
+            selectedIndex={selectedIndex}
+            onSelect={applyCiteMention}
+            emptyText={
+              citeQuery && citeQuery.length > 0
+                ? t('atCiteDropdown.noMatch')
+                : t('atCiteDropdown.prompt')
+            }
           />
         )}
         <textarea

@@ -23,6 +23,12 @@ const FileExplorer = lazy(() =>
   import('../FileExplorer').then((module) => ({ default: module.FileExplorer }))
 );
 
+const ProjectCitedReferencesPanel = lazy(() =>
+  import('../zotero/ProjectCitedReferencesPanel').then((module) => ({
+    default: module.ProjectCitedReferencesPanel,
+  }))
+);
+
 export const ResearchWorkspaceShell: React.FC = () => {
   const uiService = useMemo(() => getUIService(), []);
   const projectPath = useProjectPath();
@@ -193,7 +199,12 @@ export const ResearchWorkspaceShell: React.FC = () => {
                       </div>
                     }
                   >
-                    <FileExplorer />
+                    <div className="flex h-full flex-col">
+                      <div className="flex-1 overflow-y-auto">
+                        <FileExplorer />
+                      </div>
+                      <ProjectCitedReferencesPanel />
+                    </div>
                   </Suspense>
                 </motion.div>
               </>

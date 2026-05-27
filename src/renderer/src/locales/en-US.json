@@ -622,6 +622,16 @@
   "atFileDropdown": {
     "noMatch": "No matching files"
   },
+  "atCiteDropdown": {
+    "noMatch": "No matching references",
+    "prompt": "Type to search references"
+  },
+  "projectCitedReferences": {
+    "title": "Cited in this paper",
+    "emptyNoCites": "No citations in this document yet",
+    "emptyNoIndex": "Reference library not ready — connect Zotero in Settings",
+    "firstOf": "Cited {{n}} times — jump to first occurrence"
+  },
   "agentStatus": {
     "idle": "Agent idle",
     "thinking": "Agent thinking",
