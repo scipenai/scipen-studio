@@ -15,9 +15,6 @@ import type { Monaco } from '@monaco-editor/react';
 import type * as monaco from 'monaco-editor';
 import type { ZoteroItemDTO } from '../../../../../shared/types/zotero';
 import { getZoteroBibMirror } from '../../services/zotero/ZoteroBibMirror';
-import { createLogger } from '../../services/LogService';
-
-const logger = createLogger('CiteHoverProvider');
 
 const LANGUAGE_IDS = ['latex', 'typst', 'markdown'] as const;
 
@@ -53,16 +50,7 @@ export function registerCiteHoverProviders(monacoInstance: Monaco): void {
 
 function lookupKey(key: string): ZoteroItemDTO | undefined {
   const mirror = getZoteroBibMirror();
-  const byCk = mirror.getByCitationKey(key);
-  const byItemKey = byCk ? undefined : mirror.getByItemKey(key);
-  const result = byCk ?? byItemKey;
-  logger.info('[M2-DEBUG] hover lookupKey', {
-    key,
-    foundByCk: !!byCk,
-    foundByItemKey: !!byItemKey,
-    resultItemKey: result?.itemKey,
-  });
-  return result;
+  return mirror.getByCitationKey(key) ?? mirror.getByItemKey(key);
 }
 
 function buildHoverContents(entry: ZoteroItemDTO): monaco.IMarkdownString[] {

@@ -578,26 +578,19 @@ app.whenReady().then(async () => {
   // 启动 references.bib 同步服务 —— 订阅 main 索引事件,debounce 写盘。
   // 即使 isZoteroConfigured=false 也启动,这样设置里翻 enable 立刻生效。
   // 项目路径由 fileTreeHandlers 在 Project_Open / Project_OpenByPath 时注入。
-  log.info('[M2-DEBUG] [Main] about to init BibTexSyncService');
-  try {
-    const bibTexSyncConfig = {
-      enabled: configManager.get<boolean>(ConfigKeys.ZoteroBibTexSyncEnabled, true),
-      fileName: configManager.get<string>(
-        ConfigKeys.ZoteroBibTexSyncFileName,
-        '.scipen/zotero_library.bib'
-      ),
-      translator: configManager.get<string>(
-        ConfigKeys.ZoteroBibTexSyncTranslator,
-        'BetterBibLaTeX'
-      ),
-    };
-    log.info('[M2-DEBUG] [Main] BibTexSyncService config', bibTexSyncConfig);
-    getBibTexSyncService().setConfig(bibTexSyncConfig);
-    getBibTexSyncService().start();
-    log.info('[M2-DEBUG] [Main] BibTexSyncService start() returned');
-  } catch (err) {
-    log.error('[M2-DEBUG] [Main] BibTexSyncService init THREW', err);
-  }
+  const bibTexSyncConfig = {
+    enabled: configManager.get<boolean>(ConfigKeys.ZoteroBibTexSyncEnabled, true),
+    fileName: configManager.get<string>(
+      ConfigKeys.ZoteroBibTexSyncFileName,
+      '.scipen/zotero_library.bib'
+    ),
+    translator: configManager.get<string>(
+      ConfigKeys.ZoteroBibTexSyncTranslator,
+      'BetterBibLaTeX'
+    ),
+  };
+  getBibTexSyncService().setConfig(bibTexSyncConfig);
+  getBibTexSyncService().start();
 
   // Handle file association on Windows startup
   if (process.platform === 'win32') {

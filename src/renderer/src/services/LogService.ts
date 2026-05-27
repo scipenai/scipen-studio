@@ -34,7 +34,10 @@ export interface LogFilter {
   traceId?: string;
 }
 
-// Keywords for sensitive data detection
+// Keywords for sensitive data detection.
+// 注意:用 substring 匹配,所以列表里**不要放裸 'key'** —— 它会误伤所有合法字段名
+// (citationKey / itemKey / publicKey / keyToItemSize 等)。需要识别 API key 时
+// 用 apikey / api_key / apiKey 三种具体形态(实际项目里 secret 都带前缀)。
 const SENSITIVE_KEYS = [
   'apikey',
   'api_key',
@@ -47,7 +50,6 @@ const SENSITIVE_KEYS = [
   'auth',
   'credential',
   'private',
-  'key',
   'cookie',
   'session',
   'jwt',

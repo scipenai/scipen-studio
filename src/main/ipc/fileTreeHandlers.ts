@@ -55,7 +55,6 @@ export function registerFileTreeHandlers(deps: FileHandlersDeps): void {
           PathSecurityService.setProjectPath(effectivePath);
           clearAllowedDirectories();
           addAllowedDirectory(effectivePath);
-          logger.info('[M2-DEBUG] Project_OpenByPath → setProjectPath', { effectivePath });
           getBibTexSyncService().setProjectPath(effectivePath);
 
           return { projectPath: effectivePath, fileTree };
@@ -98,7 +97,6 @@ export function registerFileTreeHandlers(deps: FileHandlersDeps): void {
           PathSecurityService.setProjectPath(projectPath);
           clearAllowedDirectories();
           addAllowedDirectory(projectPath);
-          logger.info('[M2-DEBUG] Project_Open → setProjectPath', { projectPath });
           getBibTexSyncService().setProjectPath(projectPath);
 
           return { projectPath, fileTree };

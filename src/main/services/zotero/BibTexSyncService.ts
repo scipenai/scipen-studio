@@ -101,19 +101,13 @@ export class BibTexSyncService {
 
   /** 启动 —— 订阅 bib 事件。可重入(再次 start 是 no-op)。 */
   start(): void {
-    logger.info('[M2-DEBUG] start() called', {
-      alreadyStarted: !!this.unsubBus,
-      projectPath: this.projectPath,
-      config: this.config,
-    });
     if (this.unsubBus) return;
     this.unsubBus = this.bus.on((event) => {
-      logger.info('[M2-DEBUG] bus event received', { kind: event.kind });
       if (event.kind === 'bib:initial' || event.kind === 'bib:patch') {
         this.scheduleSync();
       }
     });
-    logger.info('[M2-DEBUG] BibTexSyncService started (listener attached)');
+    logger.info('BibTexSyncService started');
   }
 
   stop(): void {
@@ -130,10 +124,6 @@ export class BibTexSyncService {
 
   /** 项目切换时更新目标路径。null 关闭自动同步。 */
   setProjectPath(projectPath: string | null): void {
-    logger.info('[M2-DEBUG] setProjectPath()', {
-      from: this.projectPath,
-      to: projectPath,
-    });
     if (this.projectPath === projectPath) return;
     this.projectPath = projectPath;
     // 项目变了,我们之前记的 mtime/hash 对应的是旧项目下的 .bib,要重置;
@@ -172,19 +162,10 @@ export class BibTexSyncService {
   // ============================================================
 
   private scheduleSync(): void {
-    logger.info('[M2-DEBUG] scheduleSync()', {
-      enabled: this.config.enabled,
-      projectPath: this.projectPath,
-      hasTimer: !!this.debounceTimer,
-    });
-    if (!this.config.enabled || !this.projectPath) {
-      logger.info('[M2-DEBUG] scheduleSync skipped (gate)');
-      return;
-    }
+    if (!this.config.enabled || !this.projectPath) return;
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
-      logger.info('[M2-DEBUG] debounce fired → runSync');
       void this.runSync({ force: false });
     }, this.debounceMs);
   }
@@ -199,18 +180,11 @@ export class BibTexSyncService {
   }
 
   private async doSync(opts: { force: boolean }): Promise<BibTexSyncStatus> {
-    logger.info('[M2-DEBUG] doSync entry', {
-      force: opts.force,
-      enabled: this.config.enabled,
-      projectPath: this.projectPath,
-    });
     if (!opts.force && !this.config.enabled) {
-      logger.info('[M2-DEBUG] doSync exit: disabled');
       this.status = { kind: 'idle' };
       return this.status;
     }
     if (!this.projectPath) {
-      logger.info('[M2-DEBUG] doSync exit: no project path');
       this.status = { kind: 'error', reason: 'No active project' };
       return this.status;
     }
@@ -218,28 +192,17 @@ export class BibTexSyncService {
     this.status = { kind: 'syncing' };
 
     const citationKeys = this.collectCitationKeys();
-    logger.info('[M2-DEBUG] collectCitationKeys', {
-      count: citationKeys.length,
-      sample: citationKeys.slice(0, 3),
-    });
     if (citationKeys.length === 0) {
       // 没有任何 BBT key,写一份空文件没意义。把 .bib 留原状态。
-      logger.info('[M2-DEBUG] doSync exit: no citation keys (BBT or mirror has 0 ck)');
       this.status = { kind: 'idle' };
       return this.status;
     }
 
     let bib: string;
     try {
-      logger.info('[M2-DEBUG] calling BBT exportBibTex', {
-        keys: citationKeys.length,
-        translator: this.config.translator,
-      });
       bib = await this.bbt.exportBibTex(citationKeys, this.config.translator);
-      logger.info('[M2-DEBUG] BBT exportBibTex returned', { bytes: bib.length });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      logger.info('[M2-DEBUG] BBT exportBibTex THREW', { reason });
       this.status = { kind: 'error', reason: `BBT export failed: ${reason}` };
       return this.status;
     }
