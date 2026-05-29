@@ -227,7 +227,7 @@ function computeReadability(text: string): 'good' | 'poor' {
   const trimmed = text.trim();
   if (trimmed.length === 0) return 'poor';
   let readable = 0; // 字母(含 CJK)+ 数字
-  let garbled = 0; // � + C0/C1 控制符(排除 \t\n\r)
+  let garbled = 0; // � + C0 控制符(排除 \t\n\r)
   let total = 0; // 非空白字符
   for (const ch of trimmed) {
     if (/\s/u.test(ch)) continue;

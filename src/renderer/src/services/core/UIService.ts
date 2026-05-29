@@ -239,9 +239,6 @@ export class UIService implements IDisposable {
   readonly onDidChangeZoteroPdf: Event<{ itemKey: string; pdfBytes: Uint8Array } | null> =
     this._onDidChangeZoteroPdf.event;
 
-  private readonly _onDidChangeMarkdownSection = new Emitter<string | null>();
-  readonly onDidChangeMarkdownSection: Event<string | null> =
-    this._onDidChangeMarkdownSection.event;
 
   private readonly _onDidChangeFilePdfPreview = new Emitter<{
     filePath: string;
@@ -633,11 +630,9 @@ export class UIService implements IDisposable {
     this._onDidChangeZoteroPdf.fire(value);
   }
 
-  /** scroll-spy 上报 markdown 预览当前章节;仅在变化时 fire,避免滚动刷屏。 */
+  /** scroll-spy 上报 markdown 预览当前章节,发消息时被 ChatContextBuilder 读取。 */
   setCurrentMarkdownSection(value: string | null): void {
-    if (this._currentMarkdownSection === value) return;
     this._currentMarkdownSection = value;
-    this._onDidChangeMarkdownSection.fire(value);
   }
 
   /**
