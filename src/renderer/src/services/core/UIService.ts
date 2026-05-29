@@ -165,6 +165,9 @@ export class UIService implements IDisposable {
   // Zotero 论文 PDF(右栏「论文」tab)—— 与编译产物 _pdfData 独立,互不 clobber。
   private _zoteroPdf: { itemKey: string; pdfBytes: Uint8Array } | null = null;
 
+  // markdown 预览当前滚到的章节标题(scroll-spy)—— 注入 AI 上下文,表达阅读焦点。
+  private _currentMarkdownSection: string | null = null;
+
   // Agent state
   private _agentState: AgentState = {
     isRunning: false,
@@ -235,6 +238,10 @@ export class UIService implements IDisposable {
   } | null>();
   readonly onDidChangeZoteroPdf: Event<{ itemKey: string; pdfBytes: Uint8Array } | null> =
     this._onDidChangeZoteroPdf.event;
+
+  private readonly _onDidChangeMarkdownSection = new Emitter<string | null>();
+  readonly onDidChangeMarkdownSection: Event<string | null> =
+    this._onDidChangeMarkdownSection.event;
 
   private readonly _onDidChangeFilePdfPreview = new Emitter<{
     filePath: string;
@@ -465,6 +472,9 @@ export class UIService implements IDisposable {
   get zoteroPdf(): { itemKey: string; pdfBytes: Uint8Array } | null {
     return this._zoteroPdf;
   }
+  get currentMarkdownSection(): string | null {
+    return this._currentMarkdownSection;
+  }
   get compilationLogs(): CompilationLog[] {
     return this._compilationLogs;
   }
@@ -621,6 +631,13 @@ export class UIService implements IDisposable {
   setZoteroPdf(value: { itemKey: string; pdfBytes: Uint8Array } | null): void {
     this._zoteroPdf = value;
     this._onDidChangeZoteroPdf.fire(value);
+  }
+
+  /** scroll-spy 上报 markdown 预览当前章节;仅在变化时 fire,避免滚动刷屏。 */
+  setCurrentMarkdownSection(value: string | null): void {
+    if (this._currentMarkdownSection === value) return;
+    this._currentMarkdownSection = value;
+    this._onDidChangeMarkdownSection.fire(value);
   }
 
   /**
@@ -815,6 +832,7 @@ export class UIService implements IDisposable {
     this._compilationLogs = [];
     this._pdfData = null;
     this._zoteroPdf = null;
+    this._currentMarkdownSection = null;
     this._disposables.dispose();
   }
 }

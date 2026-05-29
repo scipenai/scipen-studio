@@ -156,6 +156,12 @@ export function buildChatContext(): ChatContext {
     if (intel) ctx.project_intel = intel;
   }
 
+  // ---- 焦点对象身份(易失,表达用户当前注意力)----
+  const zoteroItemKey = ui.zoteroPdf?.itemKey;
+  if (zoteroItemKey) ctx.active_zotero_item = zoteroItemKey;
+  const mdSection = ui.currentMarkdownSection;
+  if (mdSection) ctx.markdown_section = mdSection;
+
   return ctx;
 }
 

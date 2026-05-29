@@ -6,12 +6,13 @@
  */
 
 import type React from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { api } from '../../api';
 import { useTranslation } from '../../locales';
 import { getMarkdownRenderService } from '../../services/core';
 import { useSettings } from '../../services/core/hooks';
+import { useMarkdownSectionSpy } from './useMarkdownSectionSpy';
 import 'katex/dist/katex.min.css';
 
 /** 把 markdown 里的相对图片引用重写成 scipen-file:// 绝对 URL。 */
@@ -34,6 +35,9 @@ export const ZoteroParsedMarkdownView: React.FC<{ itemKey: string }> = ({ itemKe
   const theme = useSettings((s) => s.ui.theme);
   const [html, setHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const containerRef = useRef<HTMLDivElement>(null);
+  // scroll-spy:解析 MD 视图也上报当前章节给 AI 上下文。
+  useMarkdownSectionSpy(containerRef, [html]);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,7 +83,7 @@ export const ZoteroParsedMarkdownView: React.FC<{ itemKey: string }> = ({ itemKe
   }
 
   return (
-    <div className="h-full overflow-auto bg-[var(--color-bg-primary)] p-6">
+    <div ref={containerRef} className="h-full overflow-auto bg-[var(--color-bg-primary)] p-6">
       <article
         className="markdown-content markdown-document-body prose-sm"
         dangerouslySetInnerHTML={{ __html: html }}

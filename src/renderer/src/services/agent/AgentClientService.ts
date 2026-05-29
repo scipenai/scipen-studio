@@ -75,6 +75,10 @@ export interface ChatContext {
   project?: ProjectMeta;
   /** Free-form markdown intel summary; rendered into LLM system prompt. */
   project_intel?: string;
+  /** 右栏正在查看的 Zotero 论文 itemKey(Ctrl+Click \cite 打开)。 */
+  active_zotero_item?: string;
+  /** markdown 预览当前滚到的章节标题(scroll-spy 跟踪)。 */
+  markdown_section?: string;
 }
 
 export interface ThreadSummary {

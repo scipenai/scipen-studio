@@ -92,6 +92,14 @@ pub fn render_xml(ctx: &ChatContext) -> String {
         }
     }
 
+    if let Some(key) = &ctx.active_zotero_item {
+        out.push_str(&format!("  <active_paper zotero_item=\"{}\"/>\n", escape_xml(key)));
+    }
+
+    if let Some(section) = &ctx.markdown_section {
+        out.push_str(&format!("  <reading_section>{}</reading_section>\n", escape_xml(section)));
+    }
+
     out.push_str("</context>\n");
     out
 }
@@ -229,5 +237,19 @@ mod tests {
         };
         let s = render_xml(&ctx);
         assert!(!s.contains("project_intel"));
+    }
+
+    #[test]
+    fn renders_active_paper_and_reading_section() {
+        let ctx = ChatContext {
+            active_zotero_item: Some("8FXYZ123".into()),
+            markdown_section: Some("3.2 Experimental Setup".into()),
+            ..Default::default()
+        };
+        let s = render_xml(&ctx);
+        assert!(s.contains("zotero_item=\"8FXYZ123\""));
+        assert!(s.contains("<reading_section>3.2 Experimental Setup</reading_section>"));
+        // 有内容时不再是空壳。
+        assert!(render_xml_opt(&ctx).is_some());
     }
 }

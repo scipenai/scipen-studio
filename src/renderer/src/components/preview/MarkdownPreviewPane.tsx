@@ -14,6 +14,7 @@ import { useActiveTabPath, useProjectPath, useSettings } from '../../services/co
 import { SyncEventType } from '../../services/core/PreviewTypes';
 import { useTranslation } from '../../locales';
 import type { MarkdownFrontmatterField, MarkdownRenderResult } from '../../types';
+import { useMarkdownSectionSpy } from './useMarkdownSectionSpy';
 import 'katex/dist/katex.min.css';
 
 const DEBOUNCE_MS = 100;
@@ -47,6 +48,8 @@ export const MarkdownPreviewPane: React.FC = memo(() => {
   const containerRef = useRef<HTMLDivElement>(null);
   const delayerRef = useRef<Delayer<void> | null>(null);
   const requestIdRef = useRef(0);
+  // scroll-spy:上报当前章节给 AI 上下文(rendered 变则重建 observer)。
+  useMarkdownSectionSpy(containerRef, [rendered]);
   const frontmatterTitle = useMemo(
     () =>
       rendered

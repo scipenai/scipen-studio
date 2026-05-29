@@ -27,6 +27,15 @@ pub struct ChatContext {
     /// schema upgrades on each new field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_intel: Option<String>,
+    /// Zotero itemKey of the paper currently open in the right-hand panel
+    /// (Ctrl+Click on a `\cite`). Lets the LLM resolve "this paper" without
+    /// asking the user to restate the citation key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_zotero_item: Option<String>,
+    /// Heading the markdown preview is currently scrolled to — the user's
+    /// reading focus. Title text only, never raw scroll coordinates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub markdown_section: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
