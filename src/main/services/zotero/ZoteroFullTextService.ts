@@ -178,8 +178,3 @@ export function getZoteroFullTextService(): ZoteroFullTextService {
   }
   return singleton;
 }
-
-/** Tests only. */
-export function __resetZoteroFullTextSingleton(): void {
-  singleton = null;
-}
