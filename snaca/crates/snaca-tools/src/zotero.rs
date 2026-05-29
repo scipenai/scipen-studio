@@ -1,17 +1,8 @@
 //! Zotero context tools — `zotero_search`, `zotero_lookup`,
-//! `zotero_annotations`.
-//!
-//! These don't touch the filesystem. Instead they call the host through
-//! the reverse-RPC `ContextRequester` channel attached to the
-//! `ToolContext`. The host (`scipen-studio`) serves the request from
-//! its renderer-side `ZoteroBibIndex` + Local API cache.
-//!
-//! Tool naming follows the existing convention (`Read`, `Grep`, ...):
-//! PascalCase identifier mirrors what shows up in LLM tool lists. We
-//! deliberately keep these three as separate tools (rather than one
-//! "Zotero" tool with a `mode` argument) because each has a distinct
-//! input schema and the LLM's tool-selection signal benefits from the
-//! clean separation.
+//! `zotero_annotations`. No filesystem access: each calls the host via
+//! the reverse-RPC `ContextRequester` on `ToolContext`. Kept as three
+//! distinct tools (not one with a `mode` arg) so each carries its own
+//! input schema and the LLM's tool-selection signal stays clean.
 
 use async_trait::async_trait;
 use serde::Deserialize;

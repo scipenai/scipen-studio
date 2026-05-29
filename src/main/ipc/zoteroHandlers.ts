@@ -9,10 +9,7 @@
 import { BrowserWindow } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import type {
-  BBTCitationEntryDTO,
   ZoteroAnnotationDTO,
-  ZoteroGetItemsOptionsDTO,
-  ZoteroItemDTO,
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
 } from '../../../shared/types/zotero';
@@ -183,37 +180,6 @@ export function registerZoteroHandlers(): void {
   registerHandler(IpcChannel.Zotero_SyncBibTex, () => getBibTexSyncService().syncNow());
   registerHandler(IpcChannel.Zotero_GetBibTexSyncStatus, () =>
     getBibTexSyncService().getStatus()
-  );
-
-  registerHandler(
-    IpcChannel.Zotero_GetAllCitations,
-    async (): Promise<BBTCitationEntryDTO[]> => {
-      // BBT 可能未装,返回空数组让上层(Index Worker / mirror)走 LocalAPI itemKey 路径。
-      const ping = await getBetterBibTexClient().ping();
-      if (!ping.ok) return [];
-      try {
-        return await getBetterBibTexClient().getAllCitations();
-      } catch (err) {
-        logger.warn('[Zotero] getAllCitations failed', describeFetchError(err));
-        return [];
-      }
-    }
-  );
-
-  registerHandler(
-    IpcChannel.Zotero_GetItemsPage,
-    async (rawOpts): Promise<ZoteroItemDTO[]> => {
-      const opts = (rawOpts ?? {}) as ZoteroGetItemsOptionsDTO;
-      try {
-        return await getZoteroLocalApiClient().getItems({
-          limit: typeof opts.limit === 'number' ? opts.limit : undefined,
-          start: typeof opts.start === 'number' ? opts.start : undefined,
-        });
-      } catch (err) {
-        logger.warn('[Zotero] getItemsPage failed', describeFetchError(err));
-        return [];
-      }
-    }
   );
 
   registerHandler(

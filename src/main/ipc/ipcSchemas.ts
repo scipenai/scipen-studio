@@ -909,22 +909,6 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.Zotero_GetDiagnostics, z.tuple([])],
   [IpcChannel.Zotero_SyncBibTex, z.tuple([])],
   [IpcChannel.Zotero_GetBibTexSyncStatus, z.tuple([])],
-  [IpcChannel.Zotero_GetAllCitations, z.tuple([])],
-  // Pagination opts must shape-match ZoteroGetItemsOptionsDTO; reject
-  // unknown keys at the perimeter rather than relying on downstream code
-  // to ignore them.
-  [
-    IpcChannel.Zotero_GetItemsPage,
-    z.tuple([
-      z
-        .object({
-          limit: z.number().int().positive().optional(),
-          start: z.number().int().nonnegative().optional(),
-        })
-        .strict()
-        .optional(),
-    ]),
-  ],
   [IpcChannel.Zotero_GetCslByKey, z.tuple([z.string().min(1)])],
   [IpcChannel.Zotero_GetItemAnnotations, z.tuple([z.string().min(1)])],
   // 部分更新 settings:strict 模式只接受白名单字段,未知字段被 IPC 边界拒绝

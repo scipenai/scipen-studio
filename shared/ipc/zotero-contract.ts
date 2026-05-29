@@ -7,11 +7,8 @@
 
 import { IpcChannel } from './channels';
 import type {
-  BBTCitationEntryDTO,
   ZoteroAnnotationDTO,
   ZoteroDetectionResultDTO,
-  ZoteroGetItemsOptionsDTO,
-  ZoteroItemDTO,
   ZoteroPingResultDTO,
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
@@ -76,14 +73,6 @@ export interface IPCZoteroContract {
   [IpcChannel.Zotero_GetBibTexSyncStatus]: {
     args: [];
     result: BibTexSyncStatusDTO;
-  };
-  [IpcChannel.Zotero_GetAllCitations]: {
-    args: [];
-    result: BBTCitationEntryDTO[];
-  };
-  [IpcChannel.Zotero_GetItemsPage]: {
-    args: [opts?: ZoteroGetItemsOptionsDTO];
-    result: ZoteroItemDTO[];
   };
   [IpcChannel.Zotero_GetCslByKey]: {
     args: [citationKey: string];

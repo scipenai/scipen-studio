@@ -24,7 +24,7 @@ pub enum ContextRequestPayload {
         params: FileContentParams,
     },
     /// Full-text or BBT-key search over the user's Zotero library.
-    /// Renderer's `ZoteroBibIndex` Worker serves the lookup.
+    /// Host serves it from its renderer-side bib mirror.
     ZoteroSearch {
         params: ZoteroSearchParams,
     },

@@ -1,20 +1,10 @@
-//! Correlates outbound `context.request` IDs with incoming `context.respond`.
+//! Matches outbound `context.request` IDs to incoming `context.respond`.
 //!
-//! Why a separate module: the dispatcher only handles host → SNACA
-//! requests / notifications. The lone reverse direction
-//! (SNACA → host `context.request` → host → SNACA `context.respond`) is
-//! a JSON-RPC `Response` whose `id` matches the request we sent. Those
-//! frames never go through `Dispatcher::process_line` (it ignores
-//! `Response`s by design); we intercept them in `main.rs` and route here.
-//!
-//! State shape: one shared `HashMap<id, oneshot::Sender<...>>`. Sender
-//! is taken on receipt and the receiver future resolves with the parsed
-//! `ContextRespondParams`. Senders that never get hit (because the host
-//! went silent) drop when the registering task aborts — a manual
-//! `unregister` is exposed so timed-out callers can clean up too.
-//!
-//! Multi-correlator instances are explicitly NOT supported. The
-//! singleton lives next to the OutboundWriter and is shared via Arc.
+//! The host's `context.respond` arrives as a JSON-RPC `Response`, which
+//! `Dispatcher::process_line` ignores by design — `main.rs` intercepts
+//! those frames and routes them here by `id`. `register` hands back a
+//! oneshot receiver; `complete` fulfills it; `unregister` lets a
+//! timed-out caller drop its slot.
 
 use snaca_editor_protocol::jsonrpc::{JsonRpcRequestId, JsonRpcResponse};
 use snaca_editor_protocol::messages::context_req::ContextRespondParams;
