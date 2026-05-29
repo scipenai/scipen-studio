@@ -239,7 +239,6 @@ export class UIService implements IDisposable {
   readonly onDidChangeZoteroPdf: Event<{ itemKey: string; pdfBytes: Uint8Array } | null> =
     this._onDidChangeZoteroPdf.event;
 
-
   private readonly _onDidChangeFilePdfPreview = new Emitter<{
     filePath: string;
     state: FilePdfPreviewState | null;
