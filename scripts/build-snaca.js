@@ -10,12 +10,13 @@
  *      the fresh binary on next launch — saves rebuilding the installer
  *      during Rust-only iteration.
  *
- *   The script is idempotent: if the staged copy is newer than the cargo
- *   output and `--force` is not passed, the cargo step is skipped.
+ *   Always runs cargo build: cargo's own incremental compilation is the
+ *   only thing that actually inspects the source tree. An earlier
+ *   mtime guard compared staged-vs-cargo-output (two copied artifacts)
+ *   and ignored the sources, so Rust edits silently shipped a stale binary.
  *
  * Usage:
- *   node scripts/build-snaca.js              # incremental, stage only
- *   node scripts/build-snaca.js --force      # always re-run cargo
+ *   node scripts/build-snaca.js              # build + stage
  *   node scripts/build-snaca.js --install    # also deploy to installed app
  *   SCIPEN_SKIP_SNACA_BUILD=1 …              # skip entirely (dev who handles it themselves)
  *   SCIPEN_SNACA_INSTALL_DIR=<path>          # override the auto-detected install dir
@@ -24,12 +25,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  statSync,
-} from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -62,30 +58,18 @@ if (!existsSync(snacaDir)) {
   process.exit(0);
 }
 
-const force = process.argv.includes('--force');
-const skipCargo =
-  !force &&
-  existsSync(cargoOutput) &&
-  existsSync(stagedBinary) &&
-  statSync(stagedBinary).mtimeMs >= statSync(cargoOutput).mtimeMs;
-
-if (skipCargo) {
-  log(`staged binary up-to-date; skipping cargo build (use --force to override)`);
-} else {
-  log(`running cargo build --release -p snaca-editor`);
-  const result = spawnSync(
-    'cargo',
-    ['build', '--release', '-p', 'snaca-editor'],
-    {
-      cwd: snacaDir,
-      stdio: 'inherit',
-      shell: isWin, // resolve cargo via PATH on Windows
-    }
-  );
-  if (result.status !== 0) {
-    err(`cargo build failed (exit ${result.status ?? 'null'})`);
-    process.exit(result.status ?? 1);
-  }
+// 总是跑 cargo build:cargo 自身的增量编译会在源码未变时秒级返回,
+// 且它是唯一真正检查源码树的环节。脚本层用 mtime 猜测是否跳过会漏掉
+// 源码变更(曾比较 staged 与 cargo 产物两个副本,改了 Rust 却发旧 binary)。
+log(`running cargo build --release -p snaca-editor`);
+const result = spawnSync('cargo', ['build', '--release', '-p', 'snaca-editor'], {
+  cwd: snacaDir,
+  stdio: 'inherit',
+  shell: isWin, // resolve cargo via PATH on Windows
+});
+if (result.status !== 0) {
+  err(`cargo build failed (exit ${result.status ?? 'null'})`);
+  process.exit(result.status ?? 1);
 }
 
 if (!existsSync(cargoOutput)) {
