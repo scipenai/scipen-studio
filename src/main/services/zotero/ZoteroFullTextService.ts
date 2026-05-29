@@ -59,7 +59,8 @@ export class ZoteroFullTextService {
     const mineru = await this.readMinerUCache(itemKey);
     if (mineru !== null) {
       const truncated = truncateToBytes(mineru, MAX_TEXT_BYTES);
-      return { text: truncated, truncated: truncated !== mineru, tier: 'mineru' };
+      // 结构化 MD 视为高质量(公式/表格已保真),不再自检。
+      return { text: truncated, truncated: truncated !== mineru, tier: 'mineru', quality: 'good' };
     }
 
     const pdfPath = await this.resolvePdfPath(itemKey);
@@ -86,6 +87,8 @@ export class ZoteroFullTextService {
       text: truncatedText,
       truncated: truncatedText !== text,
       tier: 'local',
+      // 对完整抽取(非截断)算可读性,截断只是尾部省略不影响质量判断。
+      quality: computeReadability(text),
     };
   }
 
@@ -212,6 +215,34 @@ export async function resolveZoteroPdfPath(
 
 function emptyResult(): ZoteroFullTextResultDTO {
   return { text: '', truncated: false, tier: 'none' };
+}
+
+/**
+ * 档1 抽取可读性自检。保守判 `poor`(宁可漏报不可误报骚扰用户),只认两个
+ * 明确信号:① 解码失败标志(�)+ 控制符占比偏高 → 字体无 ToUnicode 的
+ * 真乱码;② 可读字符(字母含 CJK / 数字)占比极低 → 扫描版/纯图抽不出文字。
+ * 中文论文的汉字属 `\p{L}`,占比天然高,不会误判。
+ */
+function computeReadability(text: string): 'good' | 'poor' {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return 'poor';
+  let readable = 0; // 字母(含 CJK)+ 数字
+  let garbled = 0; // � + C0/C1 控制符(排除 \t\n\r)
+  let total = 0; // 非空白字符
+  for (const ch of trimmed) {
+    if (/\s/u.test(ch)) continue;
+    total++;
+    const cp = ch.codePointAt(0) ?? 0;
+    if (ch === '�' || (cp < 0x20 && ch !== '\t' && ch !== '\n' && ch !== '\r')) {
+      garbled++;
+    } else if (/\p{L}|\p{N}/u.test(ch)) {
+      readable++;
+    }
+  }
+  if (total === 0) return 'poor';
+  if (garbled / total > 0.05) return 'poor';
+  if (readable / total < 0.3) return 'poor';
+  return 'good';
 }
 
 function errMsg(err: unknown): string {

@@ -114,7 +114,7 @@ describe('ZoteroFullTextService', () => {
     const svc = new ZoteroFullTextService(makeApi([PDF_ATTACHMENT]));
     const res = await svc.getFullText('ITEM1');
 
-    expect(res).toEqual({ text: 'Cached body.', truncated: false, tier: 'local' });
+    expect(res).toEqual({ text: 'Cached body.', truncated: false, tier: 'local', quality: 'good' });
     expect(mocks.pdfParse).not.toHaveBeenCalled();
   });
 
@@ -189,5 +189,21 @@ describe('ZoteroFullTextService', () => {
     expect(res.text).toBe('# Parsed\n\nStructured body.');
     expect(mocks.pdfParse).not.toHaveBeenCalled();
     expect(mocks.stat).not.toHaveBeenCalled();
+  });
+
+  it('flags quality:poor when extraction is garbled', async () => {
+    mocks.stat.mockResolvedValue({ mtimeMs: 1, size: 9 });
+    mocks.readFile
+      .mockRejectedValueOnce(new Error('no mineru'))
+      .mockRejectedValueOnce(new Error('no meta'))
+      .mockResolvedValueOnce(Buffer.from('%PDF'));
+    // 替换符占多数 = 字体无 ToUnicode 的真乱码。
+    mocks.pdfParse.mockResolvedValue({ text: '����� abc' });
+
+    const svc = new ZoteroFullTextService(makeApi([PDF_ATTACHMENT]));
+    const res = await svc.getFullText('ITEM1');
+
+    expect(res.tier).toBe('local');
+    expect(res.quality).toBe('poor');
   });
 });

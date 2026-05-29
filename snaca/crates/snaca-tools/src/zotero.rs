@@ -236,8 +236,10 @@ impl Tool for ZoteroReadTool {
         "Read the full text of a Zotero item's PDF attachment, by BBT citation \
          key or 8-char itemKey. Returns plain text extracted locally (formulas \
          and tables may be garbled or reordered — don't quote them verbatim). \
-         `tier:\"none\"` means the item has no PDF. Use when metadata isn't \
-         enough and you need the actual paper content."
+         `tier:\"none\"` means the item has no PDF; `quality:\"poor\"` flags a \
+         likely-unreliable extraction (scanned or formula-heavy) — lean on \
+         metadata and suggest structured parsing instead of trusting the text. \
+         Use when metadata isn't enough and you need the actual paper content."
     }
 
     fn input_schema(&self) -> Value {

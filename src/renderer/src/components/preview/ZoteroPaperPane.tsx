@@ -7,7 +7,7 @@
 
 import type React from 'react';
 import { useEffect, useState } from 'react';
-import { FileText, Loader2, Sparkles } from 'lucide-react';
+import { AlertTriangle, FileText, Loader2, Sparkles } from 'lucide-react';
 import { api } from '../../api';
 import { useTranslation } from '../../locales';
 import type { TranslationKey } from '../../locales';
@@ -28,18 +28,25 @@ export const ZoteroPaperPane: React.FC = () => {
   const [hasMd, setHasMd] = useState(false);
   const [status, setStatus] = useState<MinerUParseStatusDTO | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  // 档1 抽取质量:'poor' 时提示用户精解析(数据来自 getFullText,有缓存)。
+  const [quality, setQuality] = useState<'good' | 'poor' | null>(null);
 
   // 探测当前条目是否已有解析产物(决定 MD 切换是否可用),并订阅进度。
   useEffect(() => {
     if (!itemKey) {
       setHasMd(false);
       setStatus(null);
+      setQuality(null);
       setViewMode('pdf');
       return;
     }
     let cancelled = false;
     void api.zotero.getParsedMarkdown(itemKey).then((r) => {
       if (!cancelled) setHasMd(r !== null);
+    });
+    // 探测档1 抽取质量(命中缓存不重跑 pdf-parse),poor 时显提示条。
+    void api.zotero.getFullText(itemKey).then((r) => {
+      if (!cancelled) setQuality(r.quality ?? null);
     });
     const off = api.zotero.onMinerUProgress((s) => {
       if (s.itemKey !== itemKey) return;
@@ -134,6 +141,29 @@ export const ZoteroPaperPane: React.FC = () => {
           <span>{parseLabel()}</span>
         </button>
       </div>
+
+      {/* 档1 质量差提示:仅 PDF 视图、未解析时出现,引导精解析。 */}
+      {quality === 'poor' && viewMode === 'pdf' && !hasMd && (
+        <div
+          className="flex items-center gap-2 border-b px-3 py-2 text-xs"
+          style={{
+            borderBottomColor: 'var(--color-border-subtle)',
+            background: 'var(--color-warning-muted, rgba(234,179,8,0.12))',
+            color: 'var(--color-text-secondary)',
+          }}
+        >
+          <AlertTriangle size={13} className="shrink-0 text-[var(--color-warning,#eab308)]" />
+          <span className="flex-1">{t('zoteroPaper.qualityPoor')}</span>
+          <button
+            type="button"
+            onClick={() => void startParse()}
+            disabled={busy}
+            className="shrink-0 rounded-md px-2 py-1 font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-muted)] disabled:opacity-60"
+          >
+            {t('zoteroPaper.parseButton')}
+          </button>
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-hidden">
         {viewMode === 'md' && hasMd ? (

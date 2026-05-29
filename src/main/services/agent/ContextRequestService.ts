@@ -337,11 +337,13 @@ function shapeZoteroPayload(
       };
     case 'zotero_read': {
       const tier = obj.tier === 'local' || obj.tier === 'mineru' ? obj.tier : 'none';
+      const quality = obj.quality === 'good' || obj.quality === 'poor' ? obj.quality : undefined;
       return {
         kind: 'zotero_read',
         text: typeof obj.text === 'string' ? obj.text : '',
         truncated: Boolean(obj.truncated),
         tier,
+        quality,
       };
     }
   }

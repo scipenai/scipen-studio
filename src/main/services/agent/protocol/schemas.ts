@@ -726,6 +726,7 @@ export const ContextPayloadSchema = z.discriminatedUnion('kind', [
     text: z.string(),
     truncated: z.boolean(),
     tier: z.enum(['local', 'none', 'mineru']),
+    quality: z.enum(['good', 'poor']).optional(),
   }),
 ]);
 export type ContextPayload = z.infer<typeof ContextPayloadSchema>;

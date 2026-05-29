@@ -218,7 +218,12 @@ export class ContextZoteroResponder {
     await agentClient.respondContextZotero({
       requestId: req.requestId,
       ok: true,
-      data: { text: result.text, truncated: result.truncated, tier: result.tier },
+      data: {
+        text: result.text,
+        truncated: result.truncated,
+        tier: result.tier,
+        quality: result.quality,
+      },
     });
   }
 }

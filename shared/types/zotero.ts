@@ -155,6 +155,12 @@ export interface ZoteroFullTextResultDTO {
   /** 超出字节上限被截断(尾部带 `[...truncated]`)。 */
   truncated: boolean;
   tier: 'local' | 'none' | 'mineru';
+  /**
+   * 档1(`local`)抽取的可读性自检结论。`poor` = 大量乱码/空白(扫描版、
+   * 公式密集、字体无 ToUnicode),LLM 应据此判断别逐字引用、建议升档解析;
+   * `good` = 正常正文。`mineru` 恒为 `good`,`none` 不带。
+   */
+  quality?: 'good' | 'poor';
 }
 
 /**
