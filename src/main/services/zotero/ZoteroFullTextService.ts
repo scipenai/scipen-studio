@@ -75,28 +75,7 @@ export class ZoteroFullTextService {
   // ============================================================
 
   private async resolvePdfPath(itemKey: string): Promise<string | null> {
-    let attachments;
-    try {
-      attachments = await this.api.getItemAttachments(itemKey);
-    } catch (err) {
-      logger.warn('getItemAttachments failed', { itemKey, error: errMsg(err) });
-      return null;
-    }
-    const pdf = attachments.find((a) => a.contentType === 'application/pdf');
-    if (!pdf) return null;
-
-    // linked_file:用户自管的绝对路径。
-    if (pdf.linkMode === 'linked_file' && pdf.path) {
-      return pdf.path;
-    }
-    // imported_file / imported_url:存在 {dataDir}/storage/{attachmentKey}/{filename}。
-    if (pdf.filename) {
-      const dataDir = await resolveZoteroDataDir();
-      if (dataDir) {
-        return path.join(dataDir, 'storage', pdf.itemKey, pdf.filename);
-      }
-    }
-    return null;
+    return resolveZoteroPdfPath(itemKey, this.api);
   }
 
   // ============================================================
@@ -160,6 +139,38 @@ export class ZoteroFullTextService {
     }
     return text;
   }
+}
+
+/**
+ * 解析一个 Zotero 条目的 PDF 附件本地路径。全文抽取与 PDF 内嵌渲染共用。
+ *   - linked_file → 用户自管的绝对路径
+ *   - imported_file / imported_url → {dataDir}/storage/{attachmentKey}/{filename}
+ * 无 PDF 附件 / 无法定位 → null。
+ */
+export async function resolveZoteroPdfPath(
+  itemKey: string,
+  api: ZoteroLocalApiClient = getZoteroLocalApiClient()
+): Promise<string | null> {
+  let attachments;
+  try {
+    attachments = await api.getItemAttachments(itemKey);
+  } catch (err) {
+    logger.warn('getItemAttachments failed', { itemKey, error: errMsg(err) });
+    return null;
+  }
+  const pdf = attachments.find((a) => a.contentType === 'application/pdf');
+  if (!pdf) return null;
+
+  if (pdf.linkMode === 'linked_file' && pdf.path) {
+    return pdf.path;
+  }
+  if (pdf.filename) {
+    const dataDir = await resolveZoteroDataDir();
+    if (dataDir) {
+      return path.join(dataDir, 'storage', pdf.itemKey, pdf.filename);
+    }
+  }
+  return null;
 }
 
 function emptyResult(): ZoteroFullTextResultDTO {

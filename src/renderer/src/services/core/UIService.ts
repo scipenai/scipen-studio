@@ -25,13 +25,13 @@ import {
 // SidebarTab changed to string to support dynamically registered view IDs
 // Built-in view IDs: 'im' | 'files' | 'settings'
 export type SidebarTab = string;
-export type RightPanelTab = 'preview';
+export type RightPanelTab = 'preview' | 'paper';
 export type WorkspaceMode = 'chat' | 'chat-editor' | 'chat-editor-preview';
 export type LogsSurface = 'hidden' | 'drawer';
 export type ResearchLayoutFocus = 'balanced' | 'files' | 'chat' | 'preview';
 
-function normalizeRightPanelTab(_tab: string): RightPanelTab {
-  return 'preview';
+function normalizeRightPanelTab(tab: string): RightPanelTab {
+  return tab === 'paper' ? 'paper' : 'preview';
 }
 
 export interface CompilationLog {
@@ -162,6 +162,9 @@ export class UIService implements IDisposable {
   private _remoteBuildId: string | null = null;
   private _pdfHighlight: PdfHighlight | null = null;
 
+  // Zotero 论文 PDF(右栏「论文」tab)—— 与编译产物 _pdfData 独立,互不 clobber。
+  private _zoteroPdf: { itemKey: string; pdfBytes: Uint8Array } | null = null;
+
   // Agent state
   private _agentState: AgentState = {
     isRunning: false,
@@ -225,6 +228,13 @@ export class UIService implements IDisposable {
   }>();
   readonly onDidChangePdf: Event<{ path: string | null; data: ArrayBuffer | null }> =
     this._onDidChangePdf.event;
+
+  private readonly _onDidChangeZoteroPdf = new Emitter<{
+    itemKey: string;
+    pdfBytes: Uint8Array;
+  } | null>();
+  readonly onDidChangeZoteroPdf: Event<{ itemKey: string; pdfBytes: Uint8Array } | null> =
+    this._onDidChangeZoteroPdf.event;
 
   private readonly _onDidChangeFilePdfPreview = new Emitter<{
     filePath: string;
@@ -295,6 +305,7 @@ export class UIService implements IDisposable {
     this._disposables.add(this._onDidChangeCompiling);
     this._disposables.add(this._onDidChangeCompilationResult);
     this._disposables.add(this._onDidChangePdf);
+    this._disposables.add(this._onDidChangeZoteroPdf);
     this._disposables.add(this._onDidChangeFilePdfPreview);
     this._disposables.add(this._onDidAddCompilationLog);
     this._disposables.add(this._onDidChangePdfHighlight);
@@ -451,6 +462,9 @@ export class UIService implements IDisposable {
   get pdfData(): ArrayBuffer | null {
     return this._pdfData;
   }
+  get zoteroPdf(): { itemKey: string; pdfBytes: Uint8Array } | null {
+    return this._zoteroPdf;
+  }
   get compilationLogs(): CompilationLog[] {
     return this._compilationLogs;
   }
@@ -602,6 +616,24 @@ export class UIService implements IDisposable {
   setPdfData(data: ArrayBuffer | null): void {
     this._pdfData = data;
     this._onDidChangePdf.fire({ path: this._pdfPath, data });
+  }
+
+  setZoteroPdf(value: { itemKey: string; pdfBytes: Uint8Array } | null): void {
+    this._zoteroPdf = value;
+    this._onDidChangeZoteroPdf.fire(value);
+  }
+
+  /**
+   * 一步加载 Zotero 论文 PDF 并切到右栏「论文」tab。收口右栏可见性 ——
+   * immersive 布局右栏受 previewVisible 控制,这里一并确保展开。
+   */
+  loadZoteroPaper(itemKey: string, pdfBytes: Uint8Array): void {
+    this.setZoteroPdf({ itemKey, pdfBytes });
+    this.setRightPanelTab('paper');
+    this.setPreviewVisible(true);
+    if (this._isRightPanelCollapsed) {
+      this.setRightPanelCollapsed(false);
+    }
   }
 
   /**
@@ -782,6 +814,7 @@ export class UIService implements IDisposable {
   dispose(): void {
     this._compilationLogs = [];
     this._pdfData = null;
+    this._zoteroPdf = null;
     this._disposables.dispose();
   }
 }

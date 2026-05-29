@@ -102,6 +102,10 @@ export const zoteroApi = {
   getFullText: (itemKey: string): Promise<ZoteroFullTextResultDTO> =>
     ipcRenderer.invoke(IpcChannel.Zotero_GetFullText, itemKey),
 
+  /** Load one item's PDF attachment bytes for in-app rendering. */
+  loadPdf: (itemKey: string): Promise<ArrayBuffer> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_LoadPdf, itemKey),
+
   /**
    * 订阅 Zotero 设置变更事件。
    * @returns 取消订阅函数。

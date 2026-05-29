@@ -22,6 +22,8 @@ import {
 } from '../../../services/LSPService';
 import { createLogger } from '../../../services/LogService';
 import { getSyncTeXService } from '../../../services/SyncTeXService';
+import { _internal as citeInternal } from '../CiteHoverProvider';
+import { getZoteroBibMirror } from '../../../services/zotero/ZoteroBibMirror';
 import {
   getEditorService,
   getSettingsService,
@@ -187,11 +189,41 @@ function performLocalSyncTeX(
 
 export function setupSyncTexClick(editor: Editor): void {
   editor.onMouseDown((e: monaco.editor.IEditorMouseEvent) => {
-    if (e.event.ctrlKey && e.target.position) {
-      const { lineNumber, column } = e.target.position;
-      performSyncTexForward(lineNumber, column);
+    if (!e.event.ctrlKey || !e.target.position) return;
+    const { lineNumber, column } = e.target.position;
+
+    // cite 优先:光标在 \cite{key} / @key 上 → 打开 Zotero PDF;否则 SyncTeX。
+    const model = editor.getModel();
+    if (model) {
+      const key = citeInternal.findCitationKeyAt(model, e.target.position, model.getLanguageId());
+      if (key) {
+        void openZoteroPaper(key);
+        return; // cite 命中,绝不再触发 SyncTeX
+      }
     }
+    performSyncTexForward(lineNumber, column);
   });
+}
+
+/** Ctrl+Click \cite{key} → 解析 itemKey → 拉 PDF → 切右栏「论文」tab。 */
+async function openZoteroPaper(key: string): Promise<void> {
+  const uiService = getUIService();
+  const mirror = getZoteroBibMirror();
+  const item = mirror.getByCitationKey(key) ?? mirror.getByItemKey(key);
+  if (!item) {
+    uiService.addCompilationLog({ type: 'warning', message: t('zoteroPaper.notFound', { key }) });
+    return;
+  }
+  try {
+    const buf = await api.zotero.loadPdf(item.itemKey);
+    uiService.loadZoteroPaper(item.itemKey, new Uint8Array(buf));
+  } catch (err) {
+    const noPdf = String(err instanceof Error ? err.message : err).includes('NO_PDF_ATTACHMENT');
+    uiService.addCompilationLog({
+      type: noPdf ? 'info' : 'error',
+      message: noPdf ? t('zoteroPaper.noPdf', { key }) : t('zoteroPaper.loadFailed', { key }),
+    });
+  }
 }
 
 /**

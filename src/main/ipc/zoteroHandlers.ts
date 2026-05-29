@@ -7,6 +7,7 @@
  */
 
 import { BrowserWindow } from 'electron';
+import { promises as fs } from 'fs';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import type {
   ZoteroAnnotationDTO,
@@ -27,7 +28,10 @@ import {
 } from '../services/SecureStorageService';
 import { getBetterBibTexClient } from '../services/zotero/BetterBibTexClient';
 import { getZoteroDiscoveryService } from '../services/zotero/ZoteroDiscoveryService';
-import { getZoteroFullTextService } from '../services/zotero/ZoteroFullTextService';
+import {
+  getZoteroFullTextService,
+  resolveZoteroPdfPath,
+} from '../services/zotero/ZoteroFullTextService';
 import { getZoteroLocalApiClient } from '../services/zotero/ZoteroLocalApiClient';
 import { getZoteroOrchestrator } from '../services/zotero/ZoteroOrchestrator';
 import { getBibTexSyncService } from '../services/zotero/BibTexSyncService';
@@ -217,6 +221,19 @@ export function registerZoteroHandlers(): void {
       return getZoteroFullTextService().getFullText(rawItemKey);
     }
   );
+
+  // PDF 二进制供 renderer 内嵌渲染。路径来源是受信的 Zotero API + dataDir
+  // (项目目录外),不走 assertPathSecurity。无 PDF / 读失败均抛,renderer
+  // 据错误码区分反馈。
+  registerHandler(IpcChannel.Zotero_LoadPdf, async (rawItemKey): Promise<ArrayBuffer> => {
+    if (typeof rawItemKey !== 'string' || rawItemKey.length === 0) {
+      throw new Error('invalid itemKey');
+    }
+    const pdfPath = await resolveZoteroPdfPath(rawItemKey);
+    if (!pdfPath) throw new Error('NO_PDF_ATTACHMENT');
+    const buf = await fs.readFile(pdfPath);
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+  });
 
   logger.info('[IPC] Zotero handlers registered');
 }

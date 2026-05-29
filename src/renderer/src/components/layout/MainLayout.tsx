@@ -11,7 +11,9 @@ import {
   usePreviewVisible,
   usePreviewMode,
   useResearchLayoutFocus,
+  useRightPanelTab,
 } from '../../services/core/hooks';
+import { getUIService } from '../../services/core/ServiceRegistry';
 import { useTranslation } from '../../locales';
 import { PanelErrorBoundary } from '../ErrorBoundary';
 import { EditorLoadingFallback, PreviewLoadingFallback } from '../LoadingFallback';
@@ -25,6 +27,10 @@ const EditorPane = lazy(() =>
 
 const PreviewController = lazy(() =>
   import('../preview/PreviewController').then((module) => ({ default: module.PreviewController }))
+);
+
+const ZoteroPaperPane = lazy(() =>
+  import('../preview/ZoteroPaperPane').then((module) => ({ default: module.ZoteroPaperPane }))
 );
 
 function usePreviewTitle(): string {
@@ -61,7 +67,27 @@ function RightPanelContent({
   immersive?: boolean;
 }) {
   const { t } = useTranslation();
-  const shouldUseInlinePdfHeader = immersive && previewTitle === t('mainLayout.pdfPreview');
+  const rightPanelTab = useRightPanelTab();
+
+  const setTab = (tab: 'preview' | 'paper') => getUIService().setRightPanelTab(tab);
+  const tabBtn = (tab: 'preview' | 'paper', label: string) => (
+    <button
+      type="button"
+      onClick={() => setTab(tab)}
+      className="rounded-full px-4 py-2 text-sm transition-colors"
+      style={
+        rightPanelTab === tab
+          ? {
+              background: 'var(--color-accent-muted)',
+              color: 'var(--color-accent)',
+              border: '1px solid color-mix(in srgb, var(--color-accent) 18%, transparent)',
+            }
+          : { color: 'var(--color-text-muted)' }
+      }
+    >
+      {label}
+    </button>
+  );
 
   return (
     <div
@@ -70,36 +96,22 @@ function RightPanelContent({
         background: 'var(--color-bg-secondary)',
       }}
     >
-      {!shouldUseInlinePdfHeader && (
-        <div
-          className="flex items-center border-b px-3 py-2.5"
-          style={{
-            borderBottomColor: immersive ? 'var(--color-border-subtle)' : 'var(--color-border)',
-            background: immersive
-              ? 'color-mix(in srgb, var(--color-bg-elevated) 92%, transparent)'
-              : 'var(--color-bg-primary)',
-          }}
-        >
-          <div
-            className="flex items-center gap-2 rounded-full px-4 py-2 text-sm"
-            style={
-              immersive
-                ? {
-                    background: 'var(--color-accent-muted)',
-                    color: 'var(--color-accent)',
-                    border: '1px solid color-mix(in srgb, var(--color-accent) 18%, transparent)',
-                  }
-                : { color: 'var(--color-text-primary)' }
-            }
-          >
-            {previewTitle}
-          </div>
-        </div>
-      )}
+      <div
+        className="flex items-center gap-2 border-b px-3 py-2.5"
+        style={{
+          borderBottomColor: immersive ? 'var(--color-border-subtle)' : 'var(--color-border)',
+          background: immersive
+            ? 'color-mix(in srgb, var(--color-bg-elevated) 92%, transparent)'
+            : 'var(--color-bg-primary)',
+        }}
+      >
+        {tabBtn('preview', previewTitle)}
+        {tabBtn('paper', t('mainLayout.paperTab'))}
+      </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         <PanelErrorBoundary panelName={previewTitle}>
           <Suspense fallback={<PreviewLoadingFallback />}>
-            <PreviewController />
+            {rightPanelTab === 'paper' ? <ZoteroPaperPane /> : <PreviewController />}
           </Suspense>
         </PanelErrorBoundary>
       </div>

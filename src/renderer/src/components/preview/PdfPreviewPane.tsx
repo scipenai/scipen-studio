@@ -43,6 +43,7 @@ import {
   useIsCompiling,
   usePdfData,
   usePdfHighlight,
+  useZoteroPdf,
 } from '../../services/core/hooks';
 import { DOMScheduler, SchedulePriority } from '../../utils/DOMScheduler';
 import { useTranslation } from '../../locales';
@@ -194,10 +195,20 @@ const PDFPage = memo<{
 });
 PDFPage.displayName = 'PDFPage';
 
-export const PdfPreviewPane: React.FC = () => {
-  const pdfData = usePdfData();
-  const isCompiling = useIsCompiling();
-  const compilationResult = useCompilationResult();
+export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
+  source = 'compile',
+}) => {
+  // 两个数据 hook 都无条件调用(hook 规则),按 source 选。zotero 源是 Zotero
+  // 论文 PDF(无 synctex / 无编译态),compile 源是编译产物(默认,行为不变)。
+  const compilePdfData = usePdfData();
+  const zoteroPdfData = useZoteroPdf();
+  const pdfData = source === 'zotero' ? zoteroPdfData : compilePdfData;
+
+  const rawIsCompiling = useIsCompiling();
+  const rawCompilationResult = useCompilationResult();
+  const isCompiling = source === 'zotero' ? false : rawIsCompiling;
+  const compilationResult = source === 'zotero' ? null : rawCompilationResult;
+
   const pdfHighlight = usePdfHighlight();
   const activeTabPath = useActiveTabPath();
   const uiService = getUIService();
@@ -379,6 +390,8 @@ export const PdfPreviewPane: React.FC = () => {
   }, [currentZoomPercent]);
 
   useEffect(() => {
+    // SyncTeX 正向高亮是编译产物专属;zotero 论文 PDF 无 synctex,跳过。
+    if (source === 'zotero') return;
     if (!pdfHighlight || !pdfDoc || !pagesContainerRef.current) return;
 
     const { page } = pdfHighlight;
@@ -409,7 +422,7 @@ export const PdfPreviewPane: React.FC = () => {
     setTimeout(() => {
       uiService.setPdfHighlight(null);
     }, 500);
-  }, [pdfHighlight, pdfDoc, totalPages, uiService]);
+  }, [source, pdfHighlight, pdfDoc, totalPages, uiService]);
 
   // Use IntersectionObserver for virtual scrolling: detect visible pages
   // Use functional state updates to avoid including visiblePages in deps and prevent infinite loops
@@ -647,6 +660,10 @@ export const PdfPreviewPane: React.FC = () => {
       console.error('SyncTeX backward failed:', error);
     }
   }, []);
+
+  // zotero 论文 PDF 无 .synctex → 禁用反向同步点击(传 undefined 即关闭),
+  // 避免 backward 在无 synctexPath 时报错。
+  const pageClickHandler = source === 'zotero' ? undefined : handlePageClick;
 
   const pageNumbers = useMemo(
     () => Array.from({ length: totalPages }, (_, i) => i + 1),
@@ -1145,7 +1162,7 @@ export const PdfPreviewPane: React.FC = () => {
                         pdfDoc={pdfDoc}
                         scale={scale}
                         isVisible={true}
-                        onPageClick={handlePageClick}
+                        onPageClick={pageClickHandler}
                       />
                     ) : (
                       // Placeholder to prevent layout shift

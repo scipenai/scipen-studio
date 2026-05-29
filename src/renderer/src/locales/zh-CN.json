@@ -442,7 +442,14 @@
     "markdownPreview": "Markdown 预览",
     "typstPreview": "Typst 预览",
     "preview": "预览",
+    "paperTab": "论文",
     "logPanel": "日志面板"
+  },
+  "zoteroPaper": {
+    "empty": "Ctrl+点击引用以查看论文 PDF",
+    "notFound": "Zotero 中未找到引用 '{{key}}'",
+    "noPdf": "'{{key}}' 没有 PDF 附件",
+    "loadFailed": "加载 '{{key}}' 的 PDF 失败"
   },
   "compileLog": {
     "log": "日志",

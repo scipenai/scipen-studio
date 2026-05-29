@@ -75,7 +75,9 @@ function buildHoverContents(entry: ZoteroItemDTO): monaco.IMarkdownString[] {
 function findCitationKeyAt(
   model: monaco.editor.ITextModel,
   position: monaco.Position,
-  languageId: (typeof LANGUAGE_IDS)[number]
+  // string(非联合)以接受 model.getLanguageId();内部只对 'typst' 特判,
+  // 其余语言走 LaTeX 路径,放宽不影响行为。
+  languageId: string
 ): string | null {
   const line = model.getLineContent(position.lineNumber);
   const col = position.column - 1;

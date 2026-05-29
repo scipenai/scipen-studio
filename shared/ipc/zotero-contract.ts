@@ -87,4 +87,8 @@ export interface IPCZoteroContract {
     args: [itemKey: string];
     result: ZoteroFullTextResultDTO;
   };
+  [IpcChannel.Zotero_LoadPdf]: {
+    args: [itemKey: string];
+    result: ArrayBuffer;
+  };
 }

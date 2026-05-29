@@ -781,6 +781,7 @@ export const zotero = {
     invoke<ZoteroAnnotationDTO[]>(IpcChannel.Zotero_GetItemAnnotations, itemKey),
   getFullText: (itemKey: string) =>
     invoke<ZoteroFullTextResultDTO>(IpcChannel.Zotero_GetFullText, itemKey),
+  loadPdf: (itemKey: string) => invoke<ArrayBuffer>(IpcChannel.Zotero_LoadPdf, itemKey),
   onSettingsChanged: (callback: (settings: ZoteroSettingsDTO) => void) =>
     on(IpcChannel.Zotero_SettingsChanged, (data) => callback(data as ZoteroSettingsDTO)),
   onEvent: (callback: (event: ZoteroEventDTO) => void) =>

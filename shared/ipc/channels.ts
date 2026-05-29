@@ -214,6 +214,12 @@ export enum IpcChannel {
    * Used by the SNACA `zotero_read` reverse-RPC kind.
    */
   Zotero_GetFullText = 'zotero:get-fulltext',
+  /**
+   * Load one item's PDF attachment as raw bytes for in-app rendering
+   * (Ctrl+Click a \cite → inline PDF panel). Throws NO_PDF_ATTACHMENT
+   * when the item has no PDF.
+   */
+  Zotero_LoadPdf = 'zotero:load-pdf',
   /** Broadcast: any Zotero setting changed; payload is the same shape as GetSettings. */
   Zotero_SettingsChanged = 'zotero:settings-changed',
   /**

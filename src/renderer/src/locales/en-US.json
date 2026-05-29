@@ -442,7 +442,14 @@
     "markdownPreview": "Markdown Preview",
     "typstPreview": "Typst Preview",
     "preview": "Preview",
+    "paperTab": "Paper",
     "logPanel": "Log Panel"
+  },
+  "zoteroPaper": {
+    "empty": "Ctrl+Click a citation to view its PDF",
+    "notFound": "Citation '{{key}}' not found in Zotero",
+    "noPdf": "No PDF attachment for '{{key}}'",
+    "loadFailed": "Failed to load PDF for '{{key}}'"
   },
   "compileLog": {
     "log": "Log",
