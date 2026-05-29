@@ -8,8 +8,8 @@
  * 在 dropdown 里出现两次。markdown / typst 没有等价的 LSP cite 路径
  * (marksman 不做 cite,tinymist 要求显式 import),这里继续补位。
  *
- * 与 `CiteHoverProvider` 共用 mirror 数据源,与 `CitedKeyExtractor` 共用 cite
- * regex 形态。三处保持语义一致:补全 / hover / 引用面板对"什么算 cite"零分歧。
+ * 与 hover 预览共用 mirror 数据源,与 `citationKeyScan` / `CitedKeyExtractor`
+ * 共用 cite regex 形态。三处对"什么算 cite"零分歧:补全 / hover / 引用面板。
  *
  * 候选数据来自 `ZoteroBibMirror.searchByQueryWithScore`(citation-key 前缀 →
  * token → substring fallback 三档评分)。空索引时返回空,不弹 wizard。

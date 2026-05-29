@@ -1,15 +1,14 @@
 /**
- * @file CiteHoverProvider.test.ts
- * @description Pure helper tests for the hover provider's key-detection
- *   logic. Monaco itself is heavy and mocking provideHover end-to-end
- *   buys little; the regex math under `extractKeyAt` is the part that
- *   has gone wrong in past iterations, so cover it directly.
+ * @file citationKeyScan.test.ts
+ * @description Pure helper tests for citation key detection. The regex math
+ *   under `extractKeyAt` is the part that has gone wrong in past iterations,
+ *   so cover it directly (Monaco itself is heavy and buys little to mock).
  */
 
 import { describe, expect, it } from 'vitest';
-import { _internal } from '../../../src/renderer/src/components/editor/CiteHoverProvider';
+import { _internal } from '../../../src/renderer/src/components/editor/citationKeyScan';
 
-describe('CiteHoverProvider._internal.extractKeyAt', () => {
+describe('citationKeyScan.extractKeyAt', () => {
   function runMatch(line: string): RegExpExecArray {
     const re = /\\cite[a-zA-Z]*\*?\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/g;
     const m = re.exec(line);

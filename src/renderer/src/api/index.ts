@@ -746,7 +746,10 @@ import type {
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
 } from '../../../../shared/types/zotero';
-import type { MinerUParseStatusDTO } from '../../../../shared/types/zotero-mineru';
+import type {
+  MinerUContentList,
+  MinerUParseStatusDTO,
+} from '../../../../shared/types/zotero-mineru';
 import type {
   BibTexSyncStatusDTO,
   GetSnapshotRequestDTO,
@@ -792,6 +795,8 @@ export const zotero = {
       IpcChannel.Zotero_GetParsedMarkdown,
       itemKey
     ),
+  getContentList: (itemKey: string) =>
+    invoke<MinerUContentList | null>(IpcChannel.Zotero_GetContentList, itemKey),
   onSettingsChanged: (callback: (settings: ZoteroSettingsDTO) => void) =>
     on(IpcChannel.Zotero_SettingsChanged, (data) => callback(data as ZoteroSettingsDTO)),
   onEvent: (callback: (event: ZoteroEventDTO) => void) =>

@@ -256,5 +256,10 @@ export function registerZoteroHandlers(): void {
     return getZoteroFullTextService().getParsedMarkdown(rawItemKey);
   });
 
+  registerHandler(IpcChannel.Zotero_GetContentList, async (rawItemKey) => {
+    if (typeof rawItemKey !== 'string' || rawItemKey.length === 0) return null;
+    return getZoteroFullTextService().getContentList(rawItemKey);
+  });
+
   logger.info('[IPC] Zotero handlers registered');
 }

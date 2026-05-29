@@ -227,6 +227,9 @@ export enum IpcChannel {
   Zotero_GetMinerUStatus = 'zotero:get-mineru-status',
   /** Read an item's MinerU-parsed markdown + parsed dir (human MD view). */
   Zotero_GetParsedMarkdown = 'zotero:get-parsed-markdown',
+  /** Read an item's MinerU content_list.json (paragraph bbox + page_idx) for
+   * cite-hover screenshot region selection. Returns null when not parsed. */
+  Zotero_GetContentList = 'zotero:get-content-list',
   /** Broadcast: MinerU parse progress (MinerUParseStatusDTO). */
   Zotero_MinerUProgress = 'zotero:mineru-progress',
   /** Broadcast: any Zotero setting changed; payload is the same shape as GetSettings. */

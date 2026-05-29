@@ -22,7 +22,7 @@ import {
 } from '../../../services/LSPService';
 import { createLogger } from '../../../services/LogService';
 import { getSyncTeXService } from '../../../services/SyncTeXService';
-import { _internal as citeInternal } from '../CiteHoverProvider';
+import { findCitationKeyAt } from '../citationKeyScan';
 import { getZoteroBibMirror } from '../../../services/zotero/ZoteroBibMirror';
 import {
   getEditorService,
@@ -195,7 +195,7 @@ export function setupSyncTexClick(editor: Editor): void {
     // cite 优先:光标在 \cite{key} / @key 上 → 打开 Zotero PDF;否则 SyncTeX。
     const model = editor.getModel();
     if (model) {
-      const key = citeInternal.findCitationKeyAt(model, e.target.position, model.getLanguageId());
+      const key = findCitationKeyAt(model, e.target.position, model.getLanguageId());
       if (key) {
         void openZoteroPaper(key);
         return; // cite 命中,绝不再触发 SyncTeX

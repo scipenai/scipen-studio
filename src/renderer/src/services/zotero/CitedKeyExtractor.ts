@@ -3,7 +3,7 @@
  *
  * Used by `ProjectCitedReferencesPanel` (PM-5: "current paper" mini-
  * panel that lists only the references actually cited in this file) and
- * shared with `CiteHoverProvider`'s key-shape regex so the two never
+ * shares the key-shape regex with `citationKeyScan` so the two never
  * disagree about what counts as a citation.
  *
  * Two grammars: LaTeX `\cite{a,b,c}` family and Typst `@key`. We

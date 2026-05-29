@@ -456,6 +456,11 @@
     "mdUnavailable": "Not parsed yet — click \"Precise parse\" first",
     "qualityPoor": "Local extraction looks poor (scanned pages or dense formulas) — AI may misread it"
   },
+  "zoteroCiteHover": {
+    "loadingShot": "Loading preview…",
+    "shotFailed": "Preview unavailable",
+    "noPdf": "No PDF attachment"
+  },
   "zoteroMineru": {
     "dialog": {
       "title": "Configure MinerU Precise Parse",

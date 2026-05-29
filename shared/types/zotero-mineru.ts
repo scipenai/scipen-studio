@@ -32,3 +32,27 @@ export interface MinerUParseStatusDTO {
 
 /** MinerU 模型版本。pipeline 稳定(默认),vlm 质量更高但慢。 */
 export type MinerUModelVersion = 'pipeline' | 'vlm';
+
+/**
+ * MinerU `*_content_list.json` 的单个内容项。扁平结构(v1),字段稳定。
+ * bbox 为 PDF points,原点左上、y 向下;旧版本可能缺 bbox。
+ */
+export interface MinerUContentItem {
+  /** text / image / table / equation 等。 */
+  type: string;
+  text?: string;
+  /** 1=主标题 2=节标题;缺省=正文段。用于定位 Abstract 标题后的正文。 */
+  text_level?: number;
+  bbox?: [number, number, number, number];
+  /** 0-based 页码。 */
+  page_idx: number;
+}
+
+export type MinerUContentList = MinerUContentItem[];
+
+/** cite hover 截图的目标区域。bbox 为 null 时整页渲染。 */
+export interface CiteShotRegion {
+  /** 0-based 页码。 */
+  pageIdx: number;
+  bbox: [number, number, number, number] | null;
+}

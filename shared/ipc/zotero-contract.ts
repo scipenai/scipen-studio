@@ -1,6 +1,6 @@
 /**
  * @file Zotero IPC contract — invoke channel args/results
- * @description 13 个 Zotero 域通道的类型契约(11 个 invoke + 2 个 event)。
+ * @description 14 个 Zotero 域通道的类型契约(12 个 invoke + 2 个 event)。
  *              事件通道(SettingsChanged / Event)在 IPCEventContract 声明;
  *              此处仅声明 invoke。
  */
@@ -14,7 +14,7 @@ import type {
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
 } from '../types/zotero';
-import type { MinerUParseStatusDTO } from '../types/zotero-mineru';
+import type { MinerUContentList, MinerUParseStatusDTO } from '../types/zotero-mineru';
 import type {
   BibTexSyncStatusDTO,
   GetSnapshotRequestDTO,
@@ -103,5 +103,9 @@ export interface IPCZoteroContract {
   [IpcChannel.Zotero_GetParsedMarkdown]: {
     args: [itemKey: string];
     result: { markdown: string; parsedDir: string } | null;
+  };
+  [IpcChannel.Zotero_GetContentList]: {
+    args: [itemKey: string];
+    result: MinerUContentList | null;
   };
 }

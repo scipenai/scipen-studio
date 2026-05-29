@@ -35,7 +35,7 @@ import {
   useWorkspaceMode,
 } from '../../services/core/hooks';
 import { registerLSPProviders } from '../../utils/LSPProviderRegistry';
-import { registerCiteHoverProviders } from './CiteHoverProvider';
+import { citePreviewService } from '../../services/CitePreviewService';
 import { registerCiteCompletionProviders } from './CiteCompletionProvider';
 import { getModelCache } from '../../utils/ModelCache';
 import { EditorToolbar } from './components';
@@ -284,7 +284,7 @@ export const EditorPane: React.FC = React.memo(() => {
       }
 
       registerLSPProviders(monacoInstance);
-      registerCiteHoverProviders(monacoInstance);
+      citePreviewService.initialize(editor, monacoInstance);
       registerCiteCompletionProviders(monacoInstance);
       setupLSPDiagnostics(editor, monacoInstance);
 
@@ -379,6 +379,7 @@ export const EditorPane: React.FC = React.memo(() => {
   useEffect(() => {
     const disposables = disposablesRef.current;
     disposables.add({ dispose: () => mathPreviewService.dispose() });
+    disposables.add({ dispose: () => citePreviewService.dispose() });
 
     return () => {
       disposables.dispose();

@@ -14,6 +14,7 @@ vi.mock('../../../src/main/services/LoggerService', () => ({
 const mocks = vi.hoisted(() => ({
   stat: vi.fn(),
   readFile: vi.fn(),
+  readdir: vi.fn(),
   mkdir: vi.fn(async () => undefined),
   writeFile: vi.fn(async () => undefined),
   pdfParse: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('fs', () => {
   const promises = {
     stat: mocks.stat,
     readFile: mocks.readFile,
+    readdir: mocks.readdir,
     mkdir: mocks.mkdir,
     writeFile: mocks.writeFile,
   };
@@ -61,6 +63,7 @@ describe('ZoteroFullTextService', () => {
     // 默认 reject —— getFullText 开头会先读 parsed/full.md(MinerU 档),
     // 未显式 mock 时视为「无 MinerU 缓存」,落回 local 流程。
     mocks.readFile.mockRejectedValue(new Error('default miss'));
+    mocks.readdir.mockReset();
     mocks.mkdir.mockClear();
     mocks.writeFile.mockClear();
     mocks.pdfParse.mockReset();
@@ -205,5 +208,44 @@ describe('ZoteroFullTextService', () => {
 
     expect(res.tier).toBe('local');
     expect(res.quality).toBe('poor');
+  });
+
+  describe('getContentList', () => {
+    it('reads the UUID-prefixed *_content_list.json', async () => {
+      mocks.readdir.mockResolvedValue(['full.md', 'abc-123_content_list.json', 'images']);
+      const list = [{ type: 'text', text: 'Body', page_idx: 0 }];
+      mocks.readFile.mockReset();
+      mocks.readFile.mockResolvedValueOnce(JSON.stringify(list));
+
+      const svc = new ZoteroFullTextService(makeApi([]));
+      const res = await svc.getContentList('ITEM1');
+
+      expect(res).toEqual(list);
+    });
+
+    it('returns null when no content_list file exists', async () => {
+      mocks.readdir.mockResolvedValue(['full.md', 'images']);
+      const svc = new ZoteroFullTextService(makeApi([]));
+      expect(await svc.getContentList('ITEM1')).toBeNull();
+      expect(mocks.readFile).not.toHaveBeenCalled();
+    });
+
+    it('returns null when the parsed dir is missing (readdir throws)', async () => {
+      mocks.readdir.mockRejectedValue(new Error('ENOENT'));
+      const svc = new ZoteroFullTextService(makeApi([]));
+      expect(await svc.getContentList('ITEM1')).toBeNull();
+    });
+
+    it('returns null on corrupt JSON / non-array payload', async () => {
+      mocks.readdir.mockResolvedValue(['x_content_list.json']);
+      mocks.readFile.mockReset();
+      mocks.readFile.mockResolvedValueOnce('{not json');
+      const svc = new ZoteroFullTextService(makeApi([]));
+      expect(await svc.getContentList('ITEM1')).toBeNull();
+
+      mocks.readFile.mockReset();
+      mocks.readFile.mockResolvedValueOnce('{"foo":1}'); // valid JSON, not array
+      expect(await svc.getContentList('ITEM1')).toBeNull();
+    });
   });
 });

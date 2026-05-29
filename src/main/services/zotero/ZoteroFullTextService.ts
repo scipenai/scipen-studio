@@ -12,6 +12,7 @@ import * as os from 'os';
 import * as path from 'path';
 import pdfParse from 'pdf-parse';
 import type { ZoteroFullTextResultDTO } from '../../../../shared/types/zotero';
+import type { MinerUContentList } from '../../../../shared/types/zotero-mineru';
 import { truncateToBytes } from '../../../../shared/utils';
 import { createLogger } from '../LoggerService';
 import { getZoteroLocalApiClient, ZoteroLocalApiClient } from './ZoteroLocalApiClient';
@@ -144,6 +145,23 @@ export class ZoteroFullTextService {
     const markdown = await this.readMinerUCache(itemKey);
     if (markdown === null) return null;
     return { markdown, parsedDir: zoteroParsedDir(itemKey) };
+  }
+
+  /**
+   * 读 MinerU 的 `*_content_list.json`(段落 bbox + page_idx),供 cite hover 选
+   * 截图区域。文件名是 UUID 前缀(非固定名)→ readdir 匹配后缀。无解析 / 损坏 → null。
+   */
+  async getContentList(itemKey: string): Promise<MinerUContentList | null> {
+    const dir = zoteroParsedDir(itemKey);
+    try {
+      const files = await fs.readdir(dir);
+      const name = files.find((f) => f.endsWith('_content_list.json'));
+      if (!name) return null;
+      const parsed = JSON.parse(await fs.readFile(path.join(dir, name), 'utf-8'));
+      return Array.isArray(parsed) ? (parsed as MinerUContentList) : null;
+    } catch {
+      return null;
+    }
   }
 
   private async extractAndCache(

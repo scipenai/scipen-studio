@@ -16,7 +16,7 @@ import type {
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
 } from '../../../shared/types/zotero';
-import type { MinerUParseStatusDTO } from '../../../shared/types/zotero-mineru';
+import type { MinerUContentList, MinerUParseStatusDTO } from '../../../shared/types/zotero-mineru';
 import type {
   BibTexSyncStatusDTO,
   GetSnapshotRequestDTO,
@@ -120,6 +120,10 @@ export const zoteroApi = {
     itemKey: string
   ): Promise<{ markdown: string; parsedDir: string } | null> =>
     ipcRenderer.invoke(IpcChannel.Zotero_GetParsedMarkdown, itemKey),
+
+  /** Read an item's MinerU content_list.json (paragraph bbox) for cite-hover shots. */
+  getContentList: (itemKey: string): Promise<MinerUContentList | null> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_GetContentList, itemKey),
 
   /** Subscribe to MinerU parse progress broadcasts. */
   onMinerUProgress: createSafeListener<MinerUParseStatusDTO>(IpcChannel.Zotero_MinerUProgress),
