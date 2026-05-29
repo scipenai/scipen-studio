@@ -29,6 +29,7 @@
 
 import type {
   ZoteroAnnotationDTO,
+  ZoteroAttachmentDTO,
   ZoteroGetItemsOptionsDTO,
   ZoteroItemDTO,
   ZoteroPingResultDTO,
@@ -147,6 +148,21 @@ export class ZoteroLocalApiClient {
       .filter(notNull);
   }
 
+  /**
+   * 拉一个父条目下的附件(走 children,itemType=attachment)。用于定位
+   * 论文的 PDF 文件以抽全文。同 annotations,`include=data` 必需。
+   */
+  async getItemAttachments(itemKey: string): Promise<ZoteroAttachmentDTO[]> {
+    if (!itemKey) return [];
+    const url =
+      `${this.baseUrl}/api/users/0/items/${encodeURIComponent(itemKey)}/children` +
+      `?format=json&include=data&itemType=attachment`;
+    const raw = await this.fetchJson<ZoteroRawItem[]>(url);
+    return (Array.isArray(raw) ? raw : [])
+      .map((entry) => toAttachmentDTO(entry))
+      .filter(notNull);
+  }
+
   getBaseUrl(): string {
     return this.baseUrl;
   }
@@ -217,6 +233,11 @@ interface ZoteroRawItem {
     annotationComment?: string;
     annotationColor?: string;
     annotationPageLabel?: string;
+    /** attachment 字段:定位 PDF 文件用。 */
+    contentType?: string;
+    filename?: string;
+    linkMode?: string;
+    path?: string;
   };
   /** Zotero 派生字段:creatorSummary / parsedDate / numChildren。 */
   meta?: {
@@ -275,6 +296,20 @@ function toAnnotationDTO(
     annotationComment: data.annotationComment,
     annotationColor: data.annotationColor,
     annotationPageLabel: data.annotationPageLabel,
+  };
+}
+
+function toAttachmentDTO(raw: ZoteroRawItem): ZoteroAttachmentDTO | null {
+  const data = raw.data;
+  if (!data) return null;
+  const itemKey = data.key ?? raw.key ?? '';
+  if (!itemKey) return null;
+  return {
+    itemKey,
+    contentType: data.contentType,
+    filename: data.filename,
+    linkMode: data.linkMode,
+    path: data.path,
   };
 }
 

@@ -36,6 +36,10 @@ pub enum ContextRequestPayload {
     ZoteroAnnotations {
         params: ZoteroAnnotationsParams,
     },
+    /// Extract a Zotero item's PDF full text (tier-1 local extraction).
+    ZoteroRead {
+        params: ZoteroReadParams,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -68,6 +72,12 @@ pub struct ZoteroLookupParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ZoteroAnnotationsParams {
     pub item_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ZoteroReadParams {
+    /// BBT citation key or 8-char itemKey; renderer resolves both forms.
+    pub key: String,
 }
 
 // --------- host → SNACA: respond ---------
@@ -103,6 +113,12 @@ pub enum ContextPayload {
     },
     ZoteroAnnotations {
         annotations: Vec<ZoteroAnnotation>,
+    },
+    ZoteroRead {
+        text: String,
+        truncated: bool,
+        /// Text source tier: "local" (pdf-parse) | "none" (no PDF).
+        tier: String,
     },
 }
 
@@ -275,6 +291,42 @@ mod tests {
         match payload {
             ContextPayload::ZoteroAnnotations { annotations } => {
                 assert!(annotations.is_empty());
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn zotero_read_request_roundtrips() {
+        let raw = json!({
+            "request_id": "r4",
+            "turn_id": "t1",
+            "kind": "zotero_read",
+            "params": { "key": "vaswani2017attention" }
+        });
+        let p: ContextRequestParams = serde_json::from_value(raw).unwrap();
+        match p.req {
+            ContextRequestPayload::ZoteroRead { params } => {
+                assert_eq!(params.key, "vaswani2017attention");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn zotero_read_payload_roundtrips() {
+        let raw = json!({
+            "kind": "zotero_read",
+            "text": "Abstract...",
+            "truncated": true,
+            "tier": "local"
+        });
+        let payload: ContextPayload = serde_json::from_value(raw).unwrap();
+        match payload {
+            ContextPayload::ZoteroRead { text, truncated, tier } => {
+                assert_eq!(text, "Abstract...");
+                assert!(truncated);
+                assert_eq!(tier, "local");
             }
             _ => panic!("wrong variant"),
         }

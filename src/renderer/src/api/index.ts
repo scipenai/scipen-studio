@@ -741,6 +741,7 @@ export const selection = {
 import type {
   ZoteroAnnotationDTO,
   ZoteroDetectionResultDTO,
+  ZoteroFullTextResultDTO,
   ZoteroPingResultDTO,
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
@@ -778,6 +779,8 @@ export const zotero = {
     invoke<unknown | null>(IpcChannel.Zotero_GetCslByKey, citationKey),
   getItemAnnotations: (itemKey: string) =>
     invoke<ZoteroAnnotationDTO[]>(IpcChannel.Zotero_GetItemAnnotations, itemKey),
+  getFullText: (itemKey: string) =>
+    invoke<ZoteroFullTextResultDTO>(IpcChannel.Zotero_GetFullText, itemKey),
   onSettingsChanged: (callback: (settings: ZoteroSettingsDTO) => void) =>
     on(IpcChannel.Zotero_SettingsChanged, (data) => callback(data as ZoteroSettingsDTO)),
   onEvent: (callback: (event: ZoteroEventDTO) => void) =>

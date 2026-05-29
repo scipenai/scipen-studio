@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   mirrorGetByCkMock: vi.fn(),
   getCslMock: vi.fn(),
   getAnnotationsMock: vi.fn(),
+  getFullTextMock: vi.fn(),
 }));
 
 vi.mock('../../../src/renderer/src/services/agent/AgentClientService', () => ({
@@ -47,6 +48,7 @@ vi.mock('../../../src/renderer/src/api', () => ({
     zotero: {
       getCslByKey: mocks.getCslMock,
       getItemAnnotations: mocks.getAnnotationsMock,
+      getFullText: mocks.getFullTextMock,
     },
   },
 }));
@@ -63,6 +65,7 @@ const {
   mirrorGetByCkMock,
   getCslMock,
   getAnnotationsMock,
+  getFullTextMock,
 } = mocks;
 
 import { getContextZoteroResponder } from '../../../src/renderer/src/services/agent/ContextZoteroResponder';
@@ -75,6 +78,7 @@ describe('ContextZoteroResponder', () => {
     mirrorGetByCkMock.mockReset();
     getCslMock.mockReset();
     getAnnotationsMock.mockReset();
+    getFullTextMock.mockReset();
     onRequestCb.current = null;
     getContextZoteroResponder().start();
   });
@@ -85,7 +89,7 @@ describe('ContextZoteroResponder', () => {
 
   function send(req: {
     requestId: string;
-    kind: 'zotero_search' | 'zotero_lookup' | 'zotero_annotations';
+    kind: 'zotero_search' | 'zotero_lookup' | 'zotero_annotations' | 'zotero_read';
     params: Record<string, unknown>;
   }): void {
     onRequestCb.current?.(req);
@@ -207,6 +211,33 @@ describe('ContextZoteroResponder', () => {
 
     it('rejects missing item_key', async () => {
       send({ requestId: 'r8', kind: 'zotero_annotations', params: {} });
+      const reply = (await waitForRespond()) as { ok: boolean; error?: string };
+      expect(reply.ok).toBe(false);
+      expect(reply.error).toMatch(/missing/i);
+    });
+  });
+
+  describe('zotero_read', () => {
+    it('resolves key via mirror then relays getFullText result', async () => {
+      mirrorGetByCkMock.mockReturnValueOnce({ itemKey: 'K1', citationKey: 'smith2024' });
+      getFullTextMock.mockResolvedValueOnce({ text: 'body', truncated: true, tier: 'local' });
+      send({ requestId: 'r10', kind: 'zotero_read', params: { key: 'smith2024' } });
+      const reply = (await waitForRespond()) as { ok: boolean; data: unknown };
+      expect(getFullTextMock).toHaveBeenCalledWith('K1');
+      expect(reply.data).toEqual({ text: 'body', truncated: true, tier: 'local' });
+    });
+
+    it('returns tier:none when key not in mirror', async () => {
+      mirrorGetByCkMock.mockReturnValueOnce(undefined);
+      mirrorGetByItemKeyMock.mockReturnValueOnce(undefined);
+      send({ requestId: 'r11', kind: 'zotero_read', params: { key: 'nope' } });
+      const reply = (await waitForRespond()) as { data: { tier: string } };
+      expect(reply.data).toEqual({ text: '', truncated: false, tier: 'none' });
+      expect(getFullTextMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects missing key', async () => {
+      send({ requestId: 'r12', kind: 'zotero_read', params: {} });
       const reply = (await waitForRespond()) as { ok: boolean; error?: string };
       expect(reply.ok).toBe(false);
       expect(reply.error).toMatch(/missing/i);

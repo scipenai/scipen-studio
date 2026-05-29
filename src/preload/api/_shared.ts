@@ -202,6 +202,7 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Zotero_GetBibTexSyncStatus,
   IpcChannel.Zotero_GetCslByKey,
   IpcChannel.Zotero_GetItemAnnotations,
+  IpcChannel.Zotero_GetFullText,
 
   // ====== Chat ======
 

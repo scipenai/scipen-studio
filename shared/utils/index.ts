@@ -66,6 +66,10 @@ export {
 
 export { TrigramIndex, extractTrigrams, type TrigramSearchResult } from './trigram';
 
+// ====== Text utilities ======
+
+export { utf8ByteLength, truncateToBytes } from './text';
+
 // ====== Result Type ======
 
 export {

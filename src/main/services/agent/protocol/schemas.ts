@@ -161,6 +161,7 @@ export const ContextRequestKindSchema = z.enum([
   'zotero_search',
   'zotero_lookup',
   'zotero_annotations',
+  'zotero_read',
 ]);
 export type ContextRequestKind = z.infer<typeof ContextRequestKindSchema>;
 
@@ -648,6 +649,10 @@ export const ContextRequestPayloadSchema = z.discriminatedUnion('kind', [
     kind: z.literal('zotero_annotations'),
     params: z.object({ item_key: z.string().min(1) }),
   }),
+  z.object({
+    kind: z.literal('zotero_read'),
+    params: z.object({ key: z.string().min(1) }),
+  }),
 ]);
 export type ContextRequestPayload = z.infer<typeof ContextRequestPayloadSchema>;
 
@@ -715,6 +720,12 @@ export const ContextPayloadSchema = z.discriminatedUnion('kind', [
         page_label: z.string().optional(),
       })
     ),
+  }),
+  z.object({
+    kind: z.literal('zotero_read'),
+    text: z.string(),
+    truncated: z.boolean(),
+    tier: z.enum(['local', 'none', 'mineru']),
   }),
 ]);
 export type ContextPayload = z.infer<typeof ContextPayloadSchema>;

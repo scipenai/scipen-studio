@@ -18,6 +18,7 @@
 
 import { api } from '../api';
 import type { Mention } from '../../../main/services/agent/protocol/schemas';
+import { truncateToBytes, utf8ByteLength } from '../../../../shared/utils';
 
 const MAX_FILES = 20;
 const MAX_FILE_BYTES = 200 * 1024;
@@ -153,21 +154,4 @@ function normalizePathSep(p: string): string {
 
 function isAbsolutePath(p: string): boolean {
   return /^([a-zA-Z]:\/|\/)/.test(p);
-}
-
-function utf8ByteLength(s: string): number {
-  return new TextEncoder().encode(s).length;
-}
-
-function truncateToBytes(s: string, maxBytes: number): string {
-  const reserve = 80;
-  const safeMax = Math.max(0, maxBytes - reserve);
-  let lo = 0;
-  let hi = s.length;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >>> 1;
-    if (utf8ByteLength(s.slice(0, mid)) <= safeMax) lo = mid;
-    else hi = mid - 1;
-  }
-  return `${s.slice(0, lo)}\n\n[...truncated]`;
 }

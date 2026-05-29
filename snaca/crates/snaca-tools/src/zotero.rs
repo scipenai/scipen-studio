@@ -215,6 +215,65 @@ impl Tool for ZoteroAnnotationsTool {
     }
 }
 
+// ============================================================
+// ZoteroRead
+// ============================================================
+
+#[derive(Deserialize)]
+struct ZoteroReadInput {
+    key: String,
+}
+
+pub struct ZoteroReadTool;
+
+#[async_trait]
+impl Tool for ZoteroReadTool {
+    fn name(&self) -> &str {
+        "zotero_read"
+    }
+
+    fn description(&self) -> &str {
+        "Read the full text of a Zotero item's PDF attachment, by BBT citation \
+         key or 8-char itemKey. Returns plain text extracted locally (formulas \
+         and tables may be garbled or reordered — don't quote them verbatim). \
+         `tier:\"none\"` means the item has no PDF. Use when metadata isn't \
+         enough and you need the actual paper content."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "description": "Citation key (smith2024deep) or itemKey (8FXYZ123).",
+                    "minLength": 1
+                }
+            },
+            "required": ["key"]
+        })
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::default()
+    }
+
+    fn approval_requirement(&self) -> ApprovalRequirement {
+        ApprovalRequirement::Never
+    }
+
+    async fn execute(&self, input: Value, ctx: &ToolContext) -> ToolResult {
+        let input: ZoteroReadInput = serde_json::from_value(input)
+            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let requester = require_requester(ctx)?;
+        let payload = requester
+            .request_zotero_read(&input.key)
+            .await
+            .map_err(|e| ToolError::Execution(e.to_string()))?;
+        json_output(payload)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,6 +288,7 @@ mod tests {
         last_limit: tokio::sync::Mutex<Option<u32>>,
         last_key: tokio::sync::Mutex<Option<String>>,
         last_item_key: tokio::sync::Mutex<Option<String>>,
+        last_read_key: tokio::sync::Mutex<Option<String>>,
     }
 
     #[async_trait::async_trait]
@@ -255,6 +315,13 @@ mod tests {
         ) -> Result<Value, snaca_tools_api::ContextRequestError> {
             *self.last_item_key.lock().await = Some(item_key.into());
             Ok(json!({ "annotations": [] }))
+        }
+        async fn request_zotero_read(
+            &self,
+            key: &str,
+        ) -> Result<Value, snaca_tools_api::ContextRequestError> {
+            *self.last_read_key.lock().await = Some(key.into());
+            Ok(json!({ "text": "body", "truncated": false, "tier": "local" }))
         }
     }
 
@@ -308,6 +375,22 @@ mod tests {
             fake.last_item_key.lock().await.as_deref(),
             Some("PARENT")
         );
+    }
+
+    #[tokio::test]
+    async fn read_forwards_key() {
+        let fake = Arc::new(FakeRequester::default());
+        let ctx = ctx_with(fake.clone());
+        let out = ZoteroReadTool
+            .execute(json!({ "key": "smith2024" }), &ctx)
+            .await
+            .unwrap();
+        assert_eq!(fake.last_read_key.lock().await.as_deref(), Some("smith2024"));
+        let text = match out {
+            ToolOutput::Text(t) => t,
+            other => panic!("expected text output, got {other:?}"),
+        };
+        assert!(text.contains("\"tier\":\"local\""));
     }
 
     #[tokio::test]

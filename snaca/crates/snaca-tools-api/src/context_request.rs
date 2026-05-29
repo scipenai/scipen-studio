@@ -47,4 +47,8 @@ pub trait ContextRequester: Send + Sync + std::fmt::Debug {
         &self,
         item_key: &str,
     ) -> Result<Value, ContextRequestError>;
+
+    /// Full text of an item's PDF. `{ text, truncated, tier }`; `tier:"none"`
+    /// when the item has no PDF attachment.
+    async fn request_zotero_read(&self, key: &str) -> Result<Value, ContextRequestError>;
 }

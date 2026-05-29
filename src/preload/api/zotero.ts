@@ -11,6 +11,7 @@ import { IpcChannel } from '../../../shared/ipc/channels';
 import type {
   ZoteroAnnotationDTO,
   ZoteroDetectionResultDTO,
+  ZoteroFullTextResultDTO,
   ZoteroPingResultDTO,
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
@@ -96,6 +97,10 @@ export const zoteroApi = {
   /** Fetch annotations attached to one Zotero item (PDF attachment). */
   getItemAnnotations: (itemKey: string): Promise<ZoteroAnnotationDTO[]> =>
     ipcRenderer.invoke(IpcChannel.Zotero_GetItemAnnotations, itemKey),
+
+  /** Extract + cache one item's PDF full text (tier-1 local). */
+  getFullText: (itemKey: string): Promise<ZoteroFullTextResultDTO> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_GetFullText, itemKey),
 
   /**
    * 订阅 Zotero 设置变更事件。

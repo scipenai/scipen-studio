@@ -1,0 +1,171 @@
+/**
+ * @file ZoteroFullTextService.test.ts
+ * @description Unit tests for tier-1 PDF full-text extraction + global cache.
+ *   Mocks fs (stat/readFile/mkdir/writeFile), pdf-parse, and the Zotero
+ *   data-dir resolver; injects a fake LocalApiClient for attachment lookup.
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../../src/main/services/LoggerService', () => ({
+  createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+}));
+
+const mocks = vi.hoisted(() => ({
+  stat: vi.fn(),
+  readFile: vi.fn(),
+  mkdir: vi.fn(async () => undefined),
+  writeFile: vi.fn(async () => undefined),
+  pdfParse: vi.fn(),
+  resolveDataDir: vi.fn(async () => '/zotero-data'),
+}));
+
+vi.mock('fs', () => {
+  const promises = {
+    stat: mocks.stat,
+    readFile: mocks.readFile,
+    mkdir: mocks.mkdir,
+    writeFile: mocks.writeFile,
+  };
+  return { promises, default: { promises } };
+});
+
+vi.mock('pdf-parse', () => ({ default: mocks.pdfParse }));
+
+vi.mock('../../../src/main/services/zotero/ZoteroDiscoveryService', () => ({
+  resolveZoteroDataDir: mocks.resolveDataDir,
+}));
+
+import * as path from 'path';
+import type { ZoteroAttachmentDTO } from '../../../shared/types/zotero';
+import { ZoteroFullTextService } from '../../../src/main/services/zotero/ZoteroFullTextService';
+import type { ZoteroLocalApiClient } from '../../../src/main/services/zotero/ZoteroLocalApiClient';
+
+function makeApi(attachments: ZoteroAttachmentDTO[]): ZoteroLocalApiClient {
+  return {
+    getItemAttachments: vi.fn(async () => attachments),
+  } as unknown as ZoteroLocalApiClient;
+}
+
+const PDF_ATTACHMENT: ZoteroAttachmentDTO = {
+  itemKey: 'ATTACH01',
+  contentType: 'application/pdf',
+  filename: 'paper.pdf',
+  linkMode: 'imported_file',
+};
+
+describe('ZoteroFullTextService', () => {
+  beforeEach(() => {
+    mocks.stat.mockReset();
+    mocks.readFile.mockReset();
+    mocks.mkdir.mockClear();
+    mocks.writeFile.mockClear();
+    mocks.pdfParse.mockReset();
+    mocks.resolveDataDir.mockReset();
+    mocks.resolveDataDir.mockResolvedValue('/zotero-data');
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns tier:none when item has no PDF attachment', async () => {
+    const svc = new ZoteroFullTextService(makeApi([]));
+    const res = await svc.getFullText('ITEM1');
+    expect(res).toEqual({ text: '', truncated: false, tier: 'none' });
+    expect(mocks.pdfParse).not.toHaveBeenCalled();
+  });
+
+  it('extracts + caches on miss (tier:local)', async () => {
+    mocks.stat.mockResolvedValue({ mtimeMs: 1000, size: 500 }); // pdf stat
+    mocks.readFile
+      .mockRejectedValueOnce(new Error('no meta')) // meta.json read → cache miss
+      .mockResolvedValueOnce(Buffer.from('%PDF-fake')); // pdf bytes
+    mocks.pdfParse.mockResolvedValue({ text: 'Full paper body.' });
+
+    const svc = new ZoteroFullTextService(makeApi([PDF_ATTACHMENT]));
+    const res = await svc.getFullText('ITEM1');
+
+    expect(res.tier).toBe('local');
+    expect(res.text).toBe('Full paper body.');
+    expect(res.truncated).toBe(false);
+    // cache written
+    expect(mocks.writeFile).toHaveBeenCalledTimes(2); // content.txt + meta.json
+  });
+
+  it('serves from cache when PDF unchanged (skips pdf-parse)', async () => {
+    mocks.stat.mockResolvedValue({ mtimeMs: 1000, size: 500 });
+    const meta = JSON.stringify({
+      // path.join 跨平台:Windows 下是反斜杠,必须用 join 而非硬编码正斜杠。
+      pdfPath: path.join('/zotero-data', 'storage', 'ATTACH01', 'paper.pdf'),
+      pdfMtimeMs: 1000,
+      pdfSize: 500,
+      extractedAt: '2026-01-01T00:00:00.000Z',
+    });
+    mocks.readFile
+      .mockResolvedValueOnce(meta) // meta.json
+      .mockResolvedValueOnce('Cached body.'); // content.txt
+
+    const svc = new ZoteroFullTextService(makeApi([PDF_ATTACHMENT]));
+    const res = await svc.getFullText('ITEM1');
+
+    expect(res).toEqual({ text: 'Cached body.', truncated: false, tier: 'local' });
+    expect(mocks.pdfParse).not.toHaveBeenCalled();
+  });
+
+  it('re-extracts when PDF mtime changed (cache stale)', async () => {
+    mocks.stat.mockResolvedValue({ mtimeMs: 2000, size: 500 }); // newer mtime
+    const staleMeta = JSON.stringify({
+      pdfPath: '/zotero-data/storage/ATTACH01/paper.pdf',
+      pdfMtimeMs: 1000, // old
+      pdfSize: 500,
+      extractedAt: '2026-01-01T00:00:00.000Z',
+    });
+    mocks.readFile
+      .mockResolvedValueOnce(staleMeta) // meta.json → stale
+      .mockResolvedValueOnce(Buffer.from('%PDF-new')); // pdf bytes
+    mocks.pdfParse.mockResolvedValue({ text: 'New body.' });
+
+    const svc = new ZoteroFullTextService(makeApi([PDF_ATTACHMENT]));
+    const res = await svc.getFullText('ITEM1');
+
+    expect(res.text).toBe('New body.');
+    expect(mocks.pdfParse).toHaveBeenCalledOnce();
+  });
+
+  it('truncates oversized text + flags truncated', async () => {
+    mocks.stat.mockResolvedValue({ mtimeMs: 1, size: 9 });
+    mocks.readFile
+      .mockRejectedValueOnce(new Error('no meta'))
+      .mockResolvedValueOnce(Buffer.from('%PDF'));
+    // 300KB text > 200KB cap
+    mocks.pdfParse.mockResolvedValue({ text: 'x'.repeat(300 * 1024) });
+
+    const svc = new ZoteroFullTextService(makeApi([PDF_ATTACHMENT]));
+    const res = await svc.getFullText('ITEM1');
+
+    expect(res.truncated).toBe(true);
+    expect(res.text.endsWith('[...truncated]')).toBe(true);
+  });
+
+  it('resolves linked_file path directly (no storage dir)', async () => {
+    const linked: ZoteroAttachmentDTO = {
+      itemKey: 'ATTACH02',
+      contentType: 'application/pdf',
+      linkMode: 'linked_file',
+      path: '/abs/linked/paper.pdf',
+    };
+    mocks.stat.mockResolvedValue({ mtimeMs: 1, size: 9 });
+    mocks.readFile
+      .mockRejectedValueOnce(new Error('no meta'))
+      .mockResolvedValueOnce(Buffer.from('%PDF'));
+    mocks.pdfParse.mockResolvedValue({ text: 'Linked body.' });
+
+    const svc = new ZoteroFullTextService(makeApi([linked]));
+    const res = await svc.getFullText('ITEM1');
+
+    expect(res.text).toBe('Linked body.');
+    expect(mocks.stat).toHaveBeenCalledWith('/abs/linked/paper.pdf');
+    expect(mocks.resolveDataDir).not.toHaveBeenCalled();
+  });
+});

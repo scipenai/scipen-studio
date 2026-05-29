@@ -31,7 +31,7 @@ const MAX_SEARCH_LIMIT = 50;
 
 interface InboundRequest {
   requestId: string;
-  kind: 'zotero_search' | 'zotero_lookup' | 'zotero_annotations';
+  kind: 'zotero_search' | 'zotero_lookup' | 'zotero_annotations' | 'zotero_read';
   params: Record<string, unknown>;
 }
 
@@ -79,6 +79,9 @@ export class ContextZoteroResponder {
         return;
       case 'zotero_annotations':
         await this.handleAnnotations(req);
+        return;
+      case 'zotero_read':
+        await this.handleRead(req);
         return;
     }
   }
@@ -185,6 +188,37 @@ export class ContextZoteroResponder {
           page_label: a.annotationPageLabel,
         })),
       },
+    });
+  }
+
+  private async handleRead(req: InboundRequest): Promise<void> {
+    const key = typeof req.params.key === 'string' ? req.params.key : '';
+    if (!key) {
+      await agentClient.respondContextZotero({
+        requestId: req.requestId,
+        ok: false,
+        error: 'missing `key` param',
+      });
+      return;
+    }
+
+    // key 可能是 citationKey 或 itemKey;全文抽取按 itemKey 走,先经 mirror 归一。
+    const mirror = getZoteroBibMirror();
+    const entry = mirror.getByCitationKey(key) ?? mirror.getByItemKey(key);
+    if (!entry) {
+      await agentClient.respondContextZotero({
+        requestId: req.requestId,
+        ok: true,
+        data: { text: '', truncated: false, tier: 'none' },
+      });
+      return;
+    }
+
+    const result = await api.zotero.getFullText(entry.itemKey);
+    await agentClient.respondContextZotero({
+      requestId: req.requestId,
+      ok: true,
+      data: { text: result.text, truncated: result.truncated, tier: result.tier },
     });
   }
 }

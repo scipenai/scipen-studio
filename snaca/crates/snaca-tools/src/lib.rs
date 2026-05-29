@@ -40,7 +40,7 @@ pub use task_registry::{TaskId, TaskRegistry, TaskSnapshot, TaskStatus};
 pub use task_stop::TaskStopTool;
 pub use todo_write::{TodoItem, TodoStatus, TodoWriteTool};
 pub use write::WriteTool;
-pub use zotero::{ZoteroAnnotationsTool, ZoteroLookupTool, ZoteroSearchTool};
+pub use zotero::{ZoteroAnnotationsTool, ZoteroLookupTool, ZoteroReadTool, ZoteroSearchTool};
 
 use snaca_skills::SkillRegistry;
 use snaca_tools_api::{ToolRegistry, ToolRegistryBuilder};
@@ -102,4 +102,5 @@ fn base_tool_registry_builder() -> ToolRegistryBuilder {
         .add(ZoteroSearchTool)
         .add(ZoteroLookupTool)
         .add(ZoteroAnnotationsTool)
+        .add(ZoteroReadTool)
 }

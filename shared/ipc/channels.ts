@@ -209,6 +209,11 @@ export enum IpcChannel {
    * Used by the SNACA `zotero_annotations` reverse-RPC kind.
    */
   Zotero_GetItemAnnotations = 'zotero:get-item-annotations',
+  /**
+   * Extract + cache one item's PDF full text (tier-1 local extraction).
+   * Used by the SNACA `zotero_read` reverse-RPC kind.
+   */
+  Zotero_GetFullText = 'zotero:get-fulltext',
   /** Broadcast: any Zotero setting changed; payload is the same shape as GetSettings. */
   Zotero_SettingsChanged = 'zotero:settings-changed',
   /**

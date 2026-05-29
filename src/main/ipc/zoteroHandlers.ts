@@ -10,6 +10,7 @@ import { BrowserWindow } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import type {
   ZoteroAnnotationDTO,
+  ZoteroFullTextResultDTO,
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
 } from '../../../shared/types/zotero';
@@ -26,6 +27,7 @@ import {
 } from '../services/SecureStorageService';
 import { getBetterBibTexClient } from '../services/zotero/BetterBibTexClient';
 import { getZoteroDiscoveryService } from '../services/zotero/ZoteroDiscoveryService';
+import { getZoteroFullTextService } from '../services/zotero/ZoteroFullTextService';
 import { getZoteroLocalApiClient } from '../services/zotero/ZoteroLocalApiClient';
 import { getZoteroOrchestrator } from '../services/zotero/ZoteroOrchestrator';
 import { getBibTexSyncService } from '../services/zotero/BibTexSyncService';
@@ -203,6 +205,16 @@ export function registerZoteroHandlers(): void {
         });
         return [];
       }
+    }
+  );
+
+  registerHandler(
+    IpcChannel.Zotero_GetFullText,
+    async (rawItemKey): Promise<ZoteroFullTextResultDTO> => {
+      if (typeof rawItemKey !== 'string' || rawItemKey.length === 0) {
+        return { text: '', truncated: false, tier: 'none' };
+      }
+      return getZoteroFullTextService().getFullText(rawItemKey);
     }
   );
 

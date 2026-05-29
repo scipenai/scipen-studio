@@ -51,32 +51,39 @@ export class ZoteroDiscoveryService {
   }
 
   private async findDataDir(): Promise<string | null> {
-    const candidates = this.candidatePaths();
-    for (const dir of candidates) {
-      if (await fileExists(path.join(dir, ZOTERO_SQLITE))) {
-        logger.debug('Found Zotero data dir', { dir });
-        return dir;
-      }
-    }
-    return null;
+    return resolveZoteroDataDir();
   }
+}
 
-  private candidatePaths(): string[] {
-    const home = app.getPath('home');
-    switch (process.platform) {
-      case 'win32': {
-        const appData = process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming');
-        return [path.join(appData, 'Zotero', 'Zotero'), path.join(home, 'Zotero')];
-      }
-      case 'darwin':
-        return [
-          path.join(home, 'Zotero'),
-          path.join(home, 'Library', 'Application Support', 'Zotero'),
-        ];
-      default:
-        return [path.join(home, 'Zotero'), path.join(home, '.zotero', 'zotero')];
+function zoteroCandidatePaths(): string[] {
+  const home = app.getPath('home');
+  switch (process.platform) {
+    case 'win32': {
+      const appData = process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming');
+      return [path.join(appData, 'Zotero', 'Zotero'), path.join(home, 'Zotero')];
+    }
+    case 'darwin':
+      return [
+        path.join(home, 'Zotero'),
+        path.join(home, 'Library', 'Application Support', 'Zotero'),
+      ];
+    default:
+      return [path.join(home, 'Zotero'), path.join(home, '.zotero', 'zotero')];
+  }
+}
+
+/**
+ * 找 Zotero 数据目录(含 `zotero.sqlite` 的那个)。附件存储在
+ * `{dataDir}/storage/{attachmentKey}/`。Discovery 探测与全文抽取共用。
+ */
+export async function resolveZoteroDataDir(): Promise<string | null> {
+  for (const dir of zoteroCandidatePaths()) {
+    if (await fileExists(path.join(dir, ZOTERO_SQLITE))) {
+      logger.debug('Found Zotero data dir', { dir });
+      return dir;
     }
   }
+  return null;
 }
 
 async function fileExists(filePath: string): Promise<boolean> {

@@ -86,6 +86,7 @@ export class ContextRequestService implements IContextRequestService {
       case 'zotero_search':
       case 'zotero_lookup':
       case 'zotero_annotations':
+      case 'zotero_read':
         return this.handleZotero(req);
     }
   }
@@ -203,7 +204,7 @@ export class ContextRequestService implements IContextRequestService {
   private async handleZotero(
     req: Extract<
       ContextRequestParams,
-      { kind: 'zotero_search' | 'zotero_lookup' | 'zotero_annotations' }
+      { kind: 'zotero_search' | 'zotero_lookup' | 'zotero_annotations' | 'zotero_read' }
     >
   ): Promise<ContextRespondParams> {
     const targets = this.deps.getRendererWebContents();
@@ -307,7 +308,7 @@ export class ContextRequestService implements IContextRequestService {
  * where it expects an array.
  */
 function shapeZoteroPayload(
-  kind: 'zotero_search' | 'zotero_lookup' | 'zotero_annotations',
+  kind: 'zotero_search' | 'zotero_lookup' | 'zotero_annotations' | 'zotero_read',
   data: unknown
 ): ContextPayload {
   const obj = (data ?? {}) as Record<string, unknown>;
@@ -334,6 +335,15 @@ function shapeZoteroPayload(
           { kind: 'zotero_annotations' }
         >['annotations'],
       };
+    case 'zotero_read': {
+      const tier = obj.tier === 'local' || obj.tier === 'mineru' ? obj.tier : 'none';
+      return {
+        kind: 'zotero_read',
+        text: typeof obj.text === 'string' ? obj.text : '',
+        truncated: Boolean(obj.truncated),
+        tier,
+      };
+    }
   }
 }
 

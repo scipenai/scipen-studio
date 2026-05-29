@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use snaca_editor_protocol::messages::context_req::{
     ContextPayload, ContextRequestPayload, ZoteroAnnotationsParams, ZoteroLookupParams,
-    ZoteroSearchParams,
+    ZoteroReadParams, ZoteroSearchParams,
 };
 use snaca_tools_api::{ContextRequestError, ContextRequester};
 use std::sync::Arc;
@@ -101,6 +101,21 @@ impl ContextRequester for EditorContextRequester {
             other => Err(wrong_kind("zotero_annotations", &other)),
         }
     }
+
+    async fn request_zotero_read(&self, key: &str) -> Result<Value, ContextRequestError> {
+        let payload = ContextRequestPayload::ZoteroRead {
+            params: ZoteroReadParams {
+                key: key.to_string(),
+            },
+        };
+        match self.call(payload).await? {
+            ContextPayload::ZoteroRead { text, truncated, tier } => {
+                serde_json::to_value(json!({ "text": text, "truncated": truncated, "tier": tier }))
+                    .map_err(invalid_payload)
+            }
+            other => Err(wrong_kind("zotero_read", &other)),
+        }
+    }
 }
 
 fn map_error(err: ContextCallError) -> ContextRequestError {
@@ -125,6 +140,7 @@ fn wrong_kind(expected: &str, got: &ContextPayload) -> ContextRequestError {
         ContextPayload::ZoteroSearch { .. } => "zotero_search",
         ContextPayload::ZoteroLookup { .. } => "zotero_lookup",
         ContextPayload::ZoteroAnnotations { .. } => "zotero_annotations",
+        ContextPayload::ZoteroRead { .. } => "zotero_read",
     };
     ContextRequestError::InvalidPayload(format!("expected {expected}, host sent {got_kind}"))
 }

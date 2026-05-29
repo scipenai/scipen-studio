@@ -9,6 +9,7 @@ import { IpcChannel } from './channels';
 import type {
   ZoteroAnnotationDTO,
   ZoteroDetectionResultDTO,
+  ZoteroFullTextResultDTO,
   ZoteroPingResultDTO,
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
@@ -81,5 +82,9 @@ export interface IPCZoteroContract {
   [IpcChannel.Zotero_GetItemAnnotations]: {
     args: [itemKey: string];
     result: ZoteroAnnotationDTO[];
+  };
+  [IpcChannel.Zotero_GetFullText]: {
+    args: [itemKey: string];
+    result: ZoteroFullTextResultDTO;
   };
 }

@@ -143,3 +143,31 @@ export interface ZoteroGetItemsOptionsDTO {
   /** 分页偏移,与 limit 配对。 */
   start?: number;
 }
+
+/**
+ * 论文正文抽取结果(文本来源档位)。
+ *   - `local` = pdf-parse 原始抽取(公式/表格可能乱序,LLM 应知保真度有限)
+ *   - `none`  = 该条目无 PDF 附件 / 不可读
+ *   - `mineru`(预留)= M2-b 的结构化 MD
+ */
+export interface ZoteroFullTextResultDTO {
+  text: string;
+  /** 超出字节上限被截断(尾部带 `[...truncated]`)。 */
+  truncated: boolean;
+  tier: 'local' | 'none' | 'mineru';
+}
+
+/**
+ * Zotero 附件条目投影。用于解析一个父条目下的 PDF 附件 → 本地文件路径
+ * (全文抽取的前提)。`linkMode` 决定文件定位方式:
+ *   - `imported_file` / `imported_url` → 文件在 `{dataDir}/storage/{key}/{filename}`
+ *   - `linked_file` → 文件在 `path`(绝对路径,用户自管)
+ */
+export interface ZoteroAttachmentDTO {
+  itemKey: string;
+  contentType?: string;
+  filename?: string;
+  linkMode?: string;
+  /** linked_file 模式下的绝对路径;其余模式为 undefined。 */
+  path?: string;
+}
