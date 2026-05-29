@@ -116,6 +116,7 @@ async fn each_tool_executes_exactly_once_when_streamed() {
             thread_id: thread,
             user_text: "go".into(),
             message_id: None,
+            ephemeral_system: None,
         })
         .await
         .unwrap();
@@ -171,6 +172,7 @@ async fn knob_disabled_falls_back_to_post_stream_path() {
             thread_id: thread,
             user_text: "go".into(),
             message_id: None,
+            ephemeral_system: None,
         })
         .await
         .unwrap();
@@ -282,6 +284,7 @@ async fn write_barrier_keeps_post_write_reads_sequential() {
             thread_id: thread,
             user_text: "go".into(),
             message_id: None,
+            ephemeral_system: None,
         })
         .await
         .unwrap();

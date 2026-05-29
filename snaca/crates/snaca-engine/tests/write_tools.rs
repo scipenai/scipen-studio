@@ -46,15 +46,16 @@ async fn write_tool_creates_new_file_in_workspace() {
             project_id: project.clone(),
             thread_id: ThreadId::new("chat_w"),
             user_text: "create src/lib.rs".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
     assert_eq!(outcome.iterations, 2);
 
-    let on_disk = std::fs::read_to_string(
-        layout.workspace_dir(&tenant, &project).join("src/lib.rs"),
-    )
-    .unwrap();
+    let on_disk =
+        std::fs::read_to_string(layout.workspace_dir(&tenant, &project).join("src/lib.rs"))
+            .unwrap();
     assert_eq!(on_disk, "pub fn answer() -> u32 { 42 }\n");
 }
 
@@ -100,7 +101,9 @@ async fn edit_tool_updates_existing_file() {
             project_id: project,
             thread_id: ThreadId::new("chat_e"),
             user_text: "rename main".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
     assert_eq!(outcome.iterations, 3);
@@ -170,7 +173,9 @@ async fn multi_edit_chain_is_atomic_via_engine() {
             project_id: project,
             thread_id: ThreadId::new("chat_me"),
             user_text: "multi-edit".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
     assert_eq!(outcome.iterations, 4);

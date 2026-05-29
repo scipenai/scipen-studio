@@ -28,25 +28,25 @@ use crate::listener::{NoopListener, TurnEventListener};
 use crate::loop_guard::{LoopGuard, LoopGuardConfig};
 use crate::tools_factory::RuntimeToolFactory;
 use chrono::Utc;
+use futures::StreamExt;
 use serde_json::{json, Value};
 use snaca_core::{
     ContentBlock, Message, MessageId, ProjectId, Role, SessionId, TenantId, ThreadId, ToolUseId,
     Usage,
 };
-use futures::StreamExt;
 use snaca_llm::{
     ContentBlockStart, ContentDelta, LlmClient, LlmError, MessageRequest, MessageResponse,
     StopReason, StreamAccumulator, StreamEvent, ToolSchema,
 };
 use snaca_state::{Database, NewMessage, NewThread, PersistedDecision};
 use snaca_tools_api::{
-    ApprovalRequirement, ContextRequester, OutboundFile, Tool, ToolContext, ToolError,
-    ToolOutput, ToolRegistry, ToolResult,
+    ApprovalRequirement, ContextRequester, OutboundFile, Tool, ToolContext, ToolError, ToolOutput,
+    ToolRegistry, ToolResult,
 };
 use snaca_workspace::WorkspaceLayout;
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -63,6 +63,14 @@ pub struct TurnRequest {
     /// generate a UUID — external recall can't reach UUID-keyed
     /// turns, only admin's thread-level abort.
     pub message_id: Option<String>,
+    /// Per-turn ephemeral system context, appended to the freshly
+    /// composed `system_prompt` for this turn only. Never persisted to
+    /// thread history and never surfaced in the user-visible message
+    /// log — it is recomputed and discarded every turn. Front-ends use
+    /// it to inject volatile ambient state (the editor's active file /
+    /// selection, an IM channel's current roster, …); `None` keeps the
+    /// turn identical to having no extra context.
+    pub ephemeral_system: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -161,8 +169,7 @@ pub struct Engine {
 /// has tools attached; the returned requester is dropped when the turn
 /// ends. Stored as `Arc<dyn Fn>` so the engine can clone the factory
 /// across spawned tasks without `H: Clone`.
-pub type ContextRequesterFactory =
-    Arc<dyn Fn(String) -> Arc<dyn ContextRequester> + Send + Sync>;
+pub type ContextRequesterFactory = Arc<dyn Fn(String) -> Arc<dyn ContextRequester> + Send + Sync>;
 
 /// One entry on the surfaced-memories dedup ring — the `(scope, name)`
 /// pair that uniquely identifies a memory file in a project.
@@ -262,10 +269,7 @@ impl Engine {
     /// error message. The engine doesn't depend on the concrete type
     /// — pass `Arc<snaca_tools::TaskRegistry>` cast to `Arc<dyn Any +
     /// Send + Sync>` from the wiring layer.
-    pub fn with_task_registry(
-        mut self,
-        registry: Arc<dyn std::any::Any + Send + Sync>,
-    ) -> Self {
+    pub fn with_task_registry(mut self, registry: Arc<dyn std::any::Any + Send + Sync>) -> Self {
         self.task_registry = Some(registry);
         self
     }
@@ -274,10 +278,7 @@ impl Engine {
     /// layer supplies a closure that takes the current `turn_id` and
     /// returns an `Arc<dyn ContextRequester>`. Engine calls it once at
     /// turn entry and drops the result when the turn ends.
-    pub fn with_context_requester_factory(
-        mut self,
-        factory: ContextRequesterFactory,
-    ) -> Self {
+    pub fn with_context_requester_factory(mut self, factory: ContextRequesterFactory) -> Self {
         self.context_requester_factory = Some(factory);
         self
     }
@@ -332,11 +333,13 @@ impl Engine {
         // Workspace dir must exist before the memory tree under it.
         // `WorkspaceError` doesn't auto-convert into `MemoryError`;
         // map to its IO arm with the path/reason flattened in.
-        self.workspace.ensure_project(tenant, project).map_err(|e| {
-            snaca_memory::MemoryError::Io(std::io::Error::other(format!(
-                "ensure_project failed: {e}"
-            )))
-        })?;
+        self.workspace
+            .ensure_project(tenant, project)
+            .map_err(|e| {
+                snaca_memory::MemoryError::Io(std::io::Error::other(format!(
+                    "ensure_project failed: {e}"
+                )))
+            })?;
 
         // Side effect 1: workspace drop. Strip any path components
         // from the filename — only the basename lands in the
@@ -365,10 +368,7 @@ impl Engine {
 
         let memory_dir = self.workspace.memory_dir(tenant, project);
         let store = snaca_memory::MemoryStore::new(memory_dir);
-        let embedder: std::sync::Arc<dyn snaca_memory::Embedder> = match self
-            .embedder
-            .clone()
-        {
+        let embedder: std::sync::Arc<dyn snaca_memory::Embedder> = match self.embedder.clone() {
             Some(e) => e,
             None => std::sync::Arc::new(snaca_memory::HashEmbedder::default()),
         };
@@ -450,7 +450,8 @@ impl Engine {
         req: TurnRequest,
         gate: Arc<dyn ApprovalGate>,
     ) -> EngineResult<TurnOutcome> {
-        self.handle_turn_full(req, gate, Arc::new(NoopListener)).await
+        self.handle_turn_full(req, gate, Arc::new(NoopListener))
+            .await
     }
 
     /// Run a single turn with both an approval gate and a per-event
@@ -470,6 +471,7 @@ impl Engine {
             thread_id,
             user_text,
             message_id,
+            ephemeral_system,
         } = req;
 
         // IM message id is the inner inflight key — recall path looks
@@ -506,7 +508,8 @@ impl Engine {
         };
 
         // 1. ensure thread row.
-        self.ensure_thread(&thread_id, &tenant_id, &project_id).await?;
+        self.ensure_thread(&thread_id, &tenant_id, &project_id)
+            .await?;
 
         // 2. ensure workspace dir + tool context.
         self.workspace.ensure_project(&tenant_id, &project_id)?;
@@ -590,144 +593,154 @@ impl Engine {
             // schema cache between rounds.
             let runtime_tools = self.runtime_tools(&tenant_id, &project_id).await;
             let tool_schemas = registry_schemas(&runtime_tools);
-        // Build the per-turn system prompt by splicing in MEMORY.md if
-        // any project memory has been recorded, plus optional vector
-        // recall against the user's text. Reading once per turn is
-        // fine — memory rarely changes mid-turn, and a stale read in the
-        // middle of an iteration would only mean the model misses an
-        // entry that was added a couple of seconds ago.
-        let system_prompt = self
-            .system_prompt_for(&tenant_id, &project_id, &thread_id, &turn_query)
-            .await;
-        let mut iterations = 0usize;
-        let mut total_usage = Usage::default();
-        let mut loop_guard = self
-            .config
-            .loop_guard_max_repeats
-            .map(|limit| LoopGuard::new(LoopGuardConfig { limit }));
-
-        // Per-turn output-cap escalation state. When the model returns
-        // `stop_reason == MaxTokens` with no tool_use, the same turn
-        // may retry up to `max_output_token_escalation_attempts` times
-        // with a doubled cap. Tracked outside the loop so escalations
-        // don't reset on tool-use iterations.
-        let mut max_tokens_override: Option<u32> = None;
-        let mut escalation_attempts: u32 = 0;
-        // Bounded shrink-retry for provider `prompt_too_long` /
-        // `ContextOverflow` errors. Each attempt halves the effective
-        // tail length (`compact_keep_recent → /2 → /2 → …`, floored at
-        // 2) so progressively more history gets folded into the
-        // summary. Capped by `compact_max_retries`; if even the
-        // tightest tail can't fit the model's window, surfacing the
-        // error is the right move (something else is wrong).
-        let mut prompt_too_long_attempts: u8 = 0;
-        let max_compact_retries = self.config.compact_max_retries;
-
-        loop {
-            if iterations >= self.config.max_iterations {
-                return Err(EngineError::MaxIterationsExceeded(self.config.max_iterations));
-            }
-            iterations += 1;
-
-            let history = self.load_history(&thread_id).await?;
-            debug!(
-                iteration = iterations,
-                history_len = history.len(),
-                "calling LLM"
-            );
-
-            let request_max_tokens = max_tokens_override.or(self.config.max_tokens);
-            let llm_outcome = self
-                .call_llm_and_prerun(
-                    &system_prompt,
-                    history,
-                    tool_schemas.clone(),
-                    &runtime_tools,
-                    &tool_ctx,
-                    listener.as_ref(),
-                    request_max_tokens,
-                )
+            // Build the per-turn system prompt by splicing in MEMORY.md if
+            // any project memory has been recorded, plus optional vector
+            // recall against the user's text. Reading once per turn is
+            // fine — memory rarely changes mid-turn, and a stale read in the
+            // middle of an iteration would only mean the model misses an
+            // entry that was added a couple of seconds ago.
+            let base_system_prompt = self
+                .system_prompt_for(&tenant_id, &project_id, &thread_id, &turn_query)
                 .await;
-            let (resp, prerun_cache) = match llm_outcome {
-                Ok(v) => v,
-                Err(EngineError::Llm(e))
-                    if prompt_too_long_attempts < max_compact_retries
-                        && is_context_length_error(&e) =>
-                {
-                    // Withheld-error pattern from the reference: don't
-                    // propagate to the IM channel on prompt-too-long
-                    // until shrink-retry is exhausted. Each attempt
-                    // halves the effective tail so the LLM call lands
-                    // on a progressively shorter prompt.
-                    //
-                    // `last_input_tokens` is diagnostic-only; pass 0 —
-                    // we don't have the count from a failed request,
-                    // and inferring it from history bytes would only
-                    // bias one telemetry field.
-                    prompt_too_long_attempts += 1;
-                    // 6 → 3 → 2 → 2 …  (floor at 2; below that the
-                    // model loses the user message it's answering).
-                    let shrunk = (self.config.compact_keep_recent
-                        >> prompt_too_long_attempts.min(6))
-                        .max(2);
-                    warn!(
-                        thread_id = thread_id.as_str(),
-                        attempt = prompt_too_long_attempts,
-                        max = max_compact_retries,
-                        shrunk_keep_recent = shrunk,
-                        error = %e,
-                        "provider rejected prompt as too long; running synchronous \
-                         compaction with tighter tail and retrying turn"
-                    );
-                    self.maybe_compact_thread(&thread_id, 0, Some(shrunk))
-                        .await?;
-                    continue;
-                }
-                Err(e) => return Err(e),
+            // Splice the front-end's per-turn ephemeral context onto the
+            // tail of the composed system prompt. Lives only for this turn:
+            // it rides `system_prompt` (recomputed every turn) rather than
+            // thread history, so stale snapshots never accumulate.
+            let system_prompt = match ephemeral_system {
+                Some(extra) if !extra.is_empty() => format!("{base_system_prompt}\n\n{extra}"),
+                _ => base_system_prompt,
             };
-            total_usage.add(&resp.usage);
+            let mut iterations = 0usize;
+            let mut total_usage = Usage::default();
+            let mut loop_guard = self
+                .config
+                .loop_guard_max_repeats
+                .map(|limit| LoopGuard::new(LoopGuardConfig { limit }));
 
-            // Persist assistant message.
-            let assistant_msg = self
-                .state
-                .append_message(&NewMessage {
-                    thread_id: thread_id.clone(),
-                    session_id,
-                    role: Role::Assistant,
-                    content: resp.message.content.clone(),
-                    turn_id: None,
-                })
-                .await?;
+            // Per-turn output-cap escalation state. When the model returns
+            // `stop_reason == MaxTokens` with no tool_use, the same turn
+            // may retry up to `max_output_token_escalation_attempts` times
+            // with a doubled cap. Tracked outside the loop so escalations
+            // don't reset on tool-use iterations.
+            let mut max_tokens_override: Option<u32> = None;
+            let mut escalation_attempts: u32 = 0;
+            // Bounded shrink-retry for provider `prompt_too_long` /
+            // `ContextOverflow` errors. Each attempt halves the effective
+            // tail length (`compact_keep_recent → /2 → /2 → …`, floored at
+            // 2) so progressively more history gets folded into the
+            // summary. Capped by `compact_max_retries`; if even the
+            // tightest tail can't fit the model's window, surfacing the
+            // error is the right move (something else is wrong).
+            let mut prompt_too_long_attempts: u8 = 0;
+            let max_compact_retries = self.config.compact_max_retries;
 
-            // Max-output-tokens escalation. Anthropic / DeepSeek / OpenAI
-            // all treat `MaxTokens` as terminal; without this branch a
-            // long-reasoning turn would surface to the user mid-sentence.
-            // We only escalate when the truncated response carried no
-            // tool_use blocks — re-issuing a turn whose tool_use already
-            // landed in history would double-execute side effects. The
-            // truncated assistant message stays in history so the next
-            // call continues from where the model left off (Anthropic /
-            // DeepSeek both accept a trailing assistant message and
-            // resume generation).
-            let escalation_limit = self.config.max_output_token_escalation_attempts;
-            let has_tool_use = resp
-                .message
-                .content
-                .iter()
-                .any(|b| matches!(b, ContentBlock::ToolUse { .. }));
-            if matches!(resp.stop_reason, StopReason::MaxTokens)
-                && !has_tool_use
-                && escalation_attempts < escalation_limit
-            {
-                let prev_cap = request_max_tokens
-                    .unwrap_or(self.config.max_tokens.unwrap_or(4096));
-                let bumped = prev_cap
-                    .saturating_mul(2)
-                    .min(self.config.max_output_token_ceiling);
-                if bumped > prev_cap {
-                    escalation_attempts += 1;
-                    max_tokens_override = Some(bumped);
-                    warn!(
+            loop {
+                if iterations >= self.config.max_iterations {
+                    return Err(EngineError::MaxIterationsExceeded(
+                        self.config.max_iterations,
+                    ));
+                }
+                iterations += 1;
+
+                let history = self.load_history(&thread_id).await?;
+                debug!(
+                    iteration = iterations,
+                    history_len = history.len(),
+                    "calling LLM"
+                );
+
+                let request_max_tokens = max_tokens_override.or(self.config.max_tokens);
+                let llm_outcome = self
+                    .call_llm_and_prerun(
+                        &system_prompt,
+                        history,
+                        tool_schemas.clone(),
+                        &runtime_tools,
+                        &tool_ctx,
+                        listener.as_ref(),
+                        request_max_tokens,
+                    )
+                    .await;
+                let (resp, prerun_cache) = match llm_outcome {
+                    Ok(v) => v,
+                    Err(EngineError::Llm(e))
+                        if prompt_too_long_attempts < max_compact_retries
+                            && is_context_length_error(&e) =>
+                    {
+                        // Withheld-error pattern from the reference: don't
+                        // propagate to the IM channel on prompt-too-long
+                        // until shrink-retry is exhausted. Each attempt
+                        // halves the effective tail so the LLM call lands
+                        // on a progressively shorter prompt.
+                        //
+                        // `last_input_tokens` is diagnostic-only; pass 0 —
+                        // we don't have the count from a failed request,
+                        // and inferring it from history bytes would only
+                        // bias one telemetry field.
+                        prompt_too_long_attempts += 1;
+                        // 6 → 3 → 2 → 2 …  (floor at 2; below that the
+                        // model loses the user message it's answering).
+                        let shrunk = (self.config.compact_keep_recent
+                            >> prompt_too_long_attempts.min(6))
+                        .max(2);
+                        warn!(
+                            thread_id = thread_id.as_str(),
+                            attempt = prompt_too_long_attempts,
+                            max = max_compact_retries,
+                            shrunk_keep_recent = shrunk,
+                            error = %e,
+                            "provider rejected prompt as too long; running synchronous \
+                             compaction with tighter tail and retrying turn"
+                        );
+                        self.maybe_compact_thread(&thread_id, 0, Some(shrunk))
+                            .await?;
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                };
+                total_usage.add(&resp.usage);
+
+                // Persist assistant message.
+                let assistant_msg = self
+                    .state
+                    .append_message(&NewMessage {
+                        thread_id: thread_id.clone(),
+                        session_id,
+                        role: Role::Assistant,
+                        content: resp.message.content.clone(),
+                        turn_id: None,
+                    })
+                    .await?;
+
+                // Max-output-tokens escalation. Anthropic / DeepSeek / OpenAI
+                // all treat `MaxTokens` as terminal; without this branch a
+                // long-reasoning turn would surface to the user mid-sentence.
+                // We only escalate when the truncated response carried no
+                // tool_use blocks — re-issuing a turn whose tool_use already
+                // landed in history would double-execute side effects. The
+                // truncated assistant message stays in history so the next
+                // call continues from where the model left off (Anthropic /
+                // DeepSeek both accept a trailing assistant message and
+                // resume generation).
+                let escalation_limit = self.config.max_output_token_escalation_attempts;
+                let has_tool_use = resp
+                    .message
+                    .content
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::ToolUse { .. }));
+                if matches!(resp.stop_reason, StopReason::MaxTokens)
+                    && !has_tool_use
+                    && escalation_attempts < escalation_limit
+                {
+                    let prev_cap =
+                        request_max_tokens.unwrap_or(self.config.max_tokens.unwrap_or(4096));
+                    let bumped = prev_cap
+                        .saturating_mul(2)
+                        .min(self.config.max_output_token_ceiling);
+                    if bumped > prev_cap {
+                        escalation_attempts += 1;
+                        max_tokens_override = Some(bumped);
+                        warn!(
                         attempt = escalation_attempts,
                         limit = escalation_limit,
                         prev_max = prev_cap,
@@ -735,122 +748,122 @@ impl Engine {
                         thread_id = thread_id.as_str(),
                         "max_tokens hit with no tool_use; escalating output cap and continuing turn"
                     );
-                    continue;
+                        continue;
+                    }
                 }
-            }
 
-            if resp.stop_reason.is_terminal() {
-                let text = ContentBlock::collect_text(&resp.message.content);
-                info!(
-                    iterations,
-                    input_tokens = total_usage.input_tokens,
-                    output_tokens = total_usage.output_tokens,
-                    stop_reason = ?resp.stop_reason,
-                    "turn complete"
-                );
-                // Best-effort compaction trigger. We use the *terminal* round's
-                // input tokens (most recent prompt size) rather than the
-                // accumulated `total_usage.input_tokens`, since cumulative
-                // counts grow with iteration count even on a short thread.
-                // Failures are logged and swallowed so a bad summarization
-                // call never breaks the user-facing turn.
-                //
-                // Default path: fire-and-forget on a background task — the
-                // same pattern memory extraction uses (see
-                // `spawn_memory_extraction` below). The user-visible turn
-                // returns immediately; the summary lands a couple of
-                // seconds later and applies to the *next* turn. Setting
-                // `compact_blocking = true` reverts to the original
-                // in-line await for tests that need to assert on the
-                // post-compaction state synchronously.
-                if let Some(threshold) = self.config.compact_after_input_tokens {
-                    if resp.usage.input_tokens >= threshold as u64 {
-                        let last_tokens = resp.usage.input_tokens as u32;
-                        if self.config.compact_blocking {
-                            if let Err(e) = self
-                                .maybe_compact_thread(&thread_id, last_tokens, None)
-                                .await
-                            {
-                                warn!(
-                                    thread_id = thread_id.as_str(),
-                                    error = %e,
-                                    "auto-compaction failed; thread will retry on next turn"
-                                );
-                            }
-                        } else {
-                            let engine = self.clone();
-                            let thread = thread_id.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = engine
-                                    .maybe_compact_thread(&thread, last_tokens, None)
+                if resp.stop_reason.is_terminal() {
+                    let text = ContentBlock::collect_text(&resp.message.content);
+                    info!(
+                        iterations,
+                        input_tokens = total_usage.input_tokens,
+                        output_tokens = total_usage.output_tokens,
+                        stop_reason = ?resp.stop_reason,
+                        "turn complete"
+                    );
+                    // Best-effort compaction trigger. We use the *terminal* round's
+                    // input tokens (most recent prompt size) rather than the
+                    // accumulated `total_usage.input_tokens`, since cumulative
+                    // counts grow with iteration count even on a short thread.
+                    // Failures are logged and swallowed so a bad summarization
+                    // call never breaks the user-facing turn.
+                    //
+                    // Default path: fire-and-forget on a background task — the
+                    // same pattern memory extraction uses (see
+                    // `spawn_memory_extraction` below). The user-visible turn
+                    // returns immediately; the summary lands a couple of
+                    // seconds later and applies to the *next* turn. Setting
+                    // `compact_blocking = true` reverts to the original
+                    // in-line await for tests that need to assert on the
+                    // post-compaction state synchronously.
+                    if let Some(threshold) = self.config.compact_after_input_tokens {
+                        if resp.usage.input_tokens >= threshold as u64 {
+                            let last_tokens = resp.usage.input_tokens as u32;
+                            if self.config.compact_blocking {
+                                if let Err(e) = self
+                                    .maybe_compact_thread(&thread_id, last_tokens, None)
                                     .await
                                 {
                                     warn!(
-                                        thread_id = thread.as_str(),
+                                        thread_id = thread_id.as_str(),
                                         error = %e,
                                         "auto-compaction failed; thread will retry on next turn"
                                     );
                                 }
-                            });
+                            } else {
+                                let engine = self.clone();
+                                let thread = thread_id.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = engine
+                                        .maybe_compact_thread(&thread, last_tokens, None)
+                                        .await
+                                    {
+                                        warn!(
+                                            thread_id = thread.as_str(),
+                                            error = %e,
+                                            "auto-compaction failed; thread will retry on next turn"
+                                        );
+                                    }
+                                });
+                            }
                         }
                     }
+                    // Memory extraction — best-effort, fire-and-forget on a
+                    // background task so a slow extractor doesn't add
+                    // latency to the user-visible turn. Skipped when no
+                    // extractor is configured (the default).
+                    self.spawn_memory_extraction(
+                        tenant_id.clone(),
+                        project_id.clone(),
+                        thread_id.clone(),
+                    );
+                    let outbound_files = drain_outbound(&outbound_slot);
+                    return Ok(TurnOutcome {
+                        session_id,
+                        assistant_text: text,
+                        iterations,
+                        usage: total_usage,
+                        outbound_files,
+                    });
                 }
-                // Memory extraction — best-effort, fire-and-forget on a
-                // background task so a slow extractor doesn't add
-                // latency to the user-visible turn. Skipped when no
-                // extractor is configured (the default).
-                self.spawn_memory_extraction(
-                    tenant_id.clone(),
-                    project_id.clone(),
-                    thread_id.clone(),
-                );
-                let outbound_files = drain_outbound(&outbound_slot);
-                return Ok(TurnOutcome {
-                    session_id,
-                    assistant_text: text,
-                    iterations,
-                    usage: total_usage,
-                    outbound_files,
-                });
-            }
 
-            // Tool calls — execute each, then append a tool message with the results.
-            let tool_results = self
-                .run_tool_calls(
-                    &resp.message.content,
-                    &assistant_msg.id,
-                    &tool_ctx,
-                    gate.as_ref(),
-                    &runtime_tools,
-                    loop_guard.as_mut(),
-                    prerun_cache,
-                )
-                .await?;
+                // Tool calls — execute each, then append a tool message with the results.
+                let tool_results = self
+                    .run_tool_calls(
+                        &resp.message.content,
+                        &assistant_msg.id,
+                        &tool_ctx,
+                        gate.as_ref(),
+                        &runtime_tools,
+                        loop_guard.as_mut(),
+                        prerun_cache,
+                    )
+                    .await?;
 
-            if tool_results.is_empty() {
-                // Model said "tool_use" but emitted no tool blocks — defensive
-                // exit; treat as terminal so we don't loop forever.
-                warn!("stop_reason=ToolUse but no ToolUse blocks; treating as terminal");
-                let text = ContentBlock::collect_text(&resp.message.content);
-                let outbound_files = drain_outbound(&outbound_slot);
-                return Ok(TurnOutcome {
-                    session_id,
-                    assistant_text: text,
-                    iterations,
-                    usage: total_usage,
-                    outbound_files,
-                });
-            }
+                if tool_results.is_empty() {
+                    // Model said "tool_use" but emitted no tool blocks — defensive
+                    // exit; treat as terminal so we don't loop forever.
+                    warn!("stop_reason=ToolUse but no ToolUse blocks; treating as terminal");
+                    let text = ContentBlock::collect_text(&resp.message.content);
+                    let outbound_files = drain_outbound(&outbound_slot);
+                    return Ok(TurnOutcome {
+                        session_id,
+                        assistant_text: text,
+                        iterations,
+                        usage: total_usage,
+                        outbound_files,
+                    });
+                }
 
-            self.state
-                .append_message(&NewMessage {
-                    thread_id: thread_id.clone(),
-                    session_id,
-                    role: Role::Tool,
-                    content: tool_results,
-                    turn_id: None,
-                })
-                .await?;
+                self.state
+                    .append_message(&NewMessage {
+                        thread_id: thread_id.clone(),
+                        session_id,
+                        role: Role::Tool,
+                        content: tool_results,
+                        turn_id: None,
+                    })
+                    .await?;
             }
         };
 
@@ -920,7 +933,6 @@ impl Engine {
             }
         }
     }
-
 
     async fn load_history(&self, thread_id: &ThreadId) -> EngineResult<Vec<Message>> {
         // If a compaction is on file, splice the summary in as a synthetic
@@ -1036,12 +1048,7 @@ impl Engine {
     /// passes them to the extractor, and persists each proposal
     /// through the project's `MemoryStore`. No-op when no extractor is
     /// attached. Errors are logged, never propagated.
-    fn spawn_memory_extraction(
-        &self,
-        tenant: TenantId,
-        project: ProjectId,
-        thread: ThreadId,
-    ) {
+    fn spawn_memory_extraction(&self, tenant: TenantId, project: ProjectId, thread: ThreadId) {
         let Some(extractor) = self.extractor.clone() else {
             return;
         };
@@ -1073,15 +1080,13 @@ impl Engine {
             if proposals.is_empty() {
                 return;
             }
-            let store =
-                snaca_memory::MemoryStore::new(workspace.memory_dir(&tenant, &project));
+            let store = snaca_memory::MemoryStore::new(workspace.memory_dir(&tenant, &project));
             for proposal in proposals {
                 // Reject scopes outside the auto-extracted set.
                 // Project / Reference are operator-curated only.
                 if !matches!(
                     proposal.scope,
-                    snaca_memory::MemoryScope::User
-                        | snaca_memory::MemoryScope::Feedback
+                    snaca_memory::MemoryScope::User | snaca_memory::MemoryScope::Feedback
                 ) {
                     warn!(
                         scope = %proposal.scope,
@@ -1318,10 +1323,7 @@ impl Engine {
     /// this thread. Returned as `HashSet` so callers can check
     /// membership in `O(1)` while filtering. Empty when the thread has
     /// no prior recall (the common case for new conversations).
-    fn surfaced_snapshot(
-        &self,
-        thread: &ThreadId,
-    ) -> std::collections::HashSet<SurfacedKey> {
+    fn surfaced_snapshot(&self, thread: &ThreadId) -> std::collections::HashSet<SurfacedKey> {
         let Ok(guard) = self.surfaced_memories.lock() else {
             return Default::default();
         };
@@ -1439,11 +1441,8 @@ impl Engine {
                 created_at: r.created_at,
             })
             .collect();
-        let body_collapsed = collapse_old_tool_results(
-            body_msgs,
-            0,
-            self.config.collapse_tool_results_threshold,
-        );
+        let body_collapsed =
+            collapse_old_tool_results(body_msgs, 0, self.config.collapse_tool_results_threshold);
         let body_text = render_for_summary(&body_collapsed);
         let body_count = body_rows.len();
 
@@ -1610,9 +1609,7 @@ impl Engine {
                                     "tool not eligible for prerun; setting write barrier for the rest of this turn"
                                 );
                                 barrier_hit = true;
-                            } else if let Some(h) =
-                                self.maybe_spawn_prerun(p, tools, tool_ctx)
-                            {
+                            } else if let Some(h) = self.maybe_spawn_prerun(p, tools, tool_ctx) {
                                 handles.push(h);
                             }
                         }
@@ -1729,10 +1726,7 @@ impl Engine {
         let mut pending: Vec<Pending> = Vec::new();
         for block in assistant_content.iter() {
             if let ContentBlock::ToolUse { id, name, input } = block {
-                let is_read_only = tools
-                    .get(name)
-                    .map(|t| t.is_read_only())
-                    .unwrap_or(false);
+                let is_read_only = tools.get(name).map(|t| t.is_read_only()).unwrap_or(false);
                 let prebuilt = prerun_cache.remove(id);
                 pending.push(Pending {
                     position: pending.len(),
@@ -1878,7 +1872,14 @@ impl Engine {
         // synthesise a tool_error block instead of bubbling out.
         let outcome = self
             .execute_one(
-                id, name, input, assistant_msg_id, tool_ctx, gate, tools, prebuilt,
+                id,
+                name,
+                input,
+                assistant_msg_id,
+                tool_ctx,
+                gate,
+                tools,
+                prebuilt,
             )
             .await;
         match outcome {
@@ -1903,10 +1904,7 @@ impl Engine {
                     error = %engine_err,
                     "engine-level error during tool dispatch; surfacing as tool_error"
                 );
-                ContentBlock::tool_error(
-                    id.clone(),
-                    format!("tool dispatch failed: {engine_err}"),
-                )
+                ContentBlock::tool_error(id.clone(), format!("tool dispatch failed: {engine_err}"))
             }
         }
     }
@@ -2299,14 +2297,8 @@ fn write_canonical(v: &Value, buf: &mut String) {
 /// the set is small and stable. MCP and skill tools deliberately
 /// stay verbatim — without per-tool metadata we can't tell side
 /// effects from pure reads, and false positives lose audit trail.
-pub const COLLAPSIBLE_TOOL_NAMES: &[&str] = &[
-    "Read",
-    "Grep",
-    "Glob",
-    "LS",
-    "MemoryRead",
-    "TaskOutput",
-];
+pub const COLLAPSIBLE_TOOL_NAMES: &[&str] =
+    &["Read", "Grep", "Glob", "LS", "MemoryRead", "TaskOutput"];
 
 fn is_collapsible_tool(name: &str) -> bool {
     COLLAPSIBLE_TOOL_NAMES.contains(&name)
@@ -2555,10 +2547,7 @@ fn repair_orphan_tool_uses(messages: Vec<Message>) -> Vec<Message> {
         // becomes a synthetic tool_error block we splice in. If the
         // next message *isn't* a Tool message, every tool_use is
         // orphaned.
-        let answered: HashSet<String> = if matches!(
-            iter.peek().map(|m| m.role),
-            Some(Role::Tool)
-        ) {
+        let answered: HashSet<String> = if matches!(iter.peek().map(|m| m.role), Some(Role::Tool)) {
             iter.peek()
                 .map(|m| {
                     m.content
@@ -2651,8 +2640,14 @@ fn render_for_summary(rows: &[Message]) -> String {
                         serde_json::to_string(input).unwrap_or_default()
                     ));
                 }
-                ContentBlock::ToolResult { content, is_error, .. } => {
-                    let prefix = if *is_error { "[tool error]" } else { "[tool result]" };
+                ContentBlock::ToolResult {
+                    content, is_error, ..
+                } => {
+                    let prefix = if *is_error {
+                        "[tool error]"
+                    } else {
+                        "[tool result]"
+                    };
                     out.push_str(prefix);
                     out.push(' ');
                     for inner in content {
@@ -2743,8 +2738,7 @@ mod context_length_tests {
     fn matches_openai_phrasing() {
         let e = LlmError::HttpStatus {
             status: 400,
-            body: "This model's maximum context length is 128000 tokens. However, ..."
-                .to_string(),
+            body: "This model's maximum context length is 128000 tokens. However, ...".to_string(),
         };
         assert!(is_context_length_error(&e));
     }

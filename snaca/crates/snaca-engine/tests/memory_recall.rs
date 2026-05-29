@@ -53,7 +53,9 @@ fn turn_request(text: &str) -> TurnRequest {
         project_id: ProjectId::from_raw("proj_recall"),
         thread_id: ThreadId::new("thr-recall"),
         user_text: text.into(),
-        message_id: None,    }
+        message_id: None,
+        ephemeral_system: None,
+    }
 }
 
 fn observed(llm: &MockLlmClient) -> Vec<MessageRequest> {
@@ -86,7 +88,9 @@ async fn relevant_memory_excerpt_appears_in_next_turn_system_prompt() {
     // The recall block should surface the rust-style entry.
     fix.llm.enqueue(assistant_text("ack"));
     fix.engine
-        .handle_turn(turn_request("what's our convention for kebab-case file names"))
+        .handle_turn(turn_request(
+            "what's our convention for kebab-case file names",
+        ))
         .await
         .unwrap();
 

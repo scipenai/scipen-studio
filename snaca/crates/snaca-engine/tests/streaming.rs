@@ -47,8 +47,7 @@ impl StreamingMockLlm {
     }
 
     fn stream_call_count(&self) -> usize {
-        self.stream_calls
-            .load(std::sync::atomic::Ordering::Relaxed)
+        self.stream_calls.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -97,9 +96,7 @@ fn registry_with_echo() -> ToolRegistry {
     ToolRegistryBuilder::default().add(EchoTool).build()
 }
 
-async fn fixture(
-    llm: Arc<dyn LlmClient>,
-) -> (Engine, Database, tempfile::TempDir) {
+async fn fixture(llm: Arc<dyn LlmClient>) -> (Engine, Database, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
     let layout = WorkspaceLayout::new(tmp.path()).unwrap();
     let db = Database::open_in_memory().await.unwrap();
@@ -119,7 +116,9 @@ fn turn_request(thread_id: &str) -> TurnRequest {
         project_id: ProjectId::from_raw("p"),
         thread_id: ThreadId::new(thread_id),
         user_text: "stream please".into(),
-        message_id: None,    }
+        message_id: None,
+        ephemeral_system: None,
+    }
 }
 
 /// Fluent helper — build the canonical event sequence the SSE parsers
@@ -189,10 +188,7 @@ async fn streaming_text_only_produces_same_outcome_as_non_stream() {
     // create_message_stream really was called — not the non-streaming fallback.
     assert_eq!(llm.stream_call_count(), 1);
 
-    let msgs = db
-        .recent_messages(&ThreadId::new("c1"), 10)
-        .await
-        .unwrap();
+    let msgs = db.recent_messages(&ThreadId::new("c1"), 10).await.unwrap();
     let assistant = msgs
         .iter()
         .rev()
@@ -223,10 +219,7 @@ async fn streaming_tool_call_round_trips_through_engine() {
     assert_eq!(llm.stream_call_count(), 2);
 
     // The Tool message persisted should carry Echo's "echo: stream-call" output.
-    let msgs = db
-        .recent_messages(&ThreadId::new("c2"), 10)
-        .await
-        .unwrap();
+    let msgs = db.recent_messages(&ThreadId::new("c2"), 10).await.unwrap();
     let tool_msg = msgs
         .iter()
         .find(|m| matches!(m.role, Role::Tool))

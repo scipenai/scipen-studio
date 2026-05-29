@@ -59,7 +59,9 @@ async fn engine_runs_real_read_tool_against_workspace() {
             project_id: project.clone(),
             thread_id: ThreadId::new("chat_real"),
             user_text: "summarise README".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
     assert_eq!(outcome.iterations, 2);
@@ -86,7 +88,10 @@ async fn engine_runs_real_read_tool_against_workspace() {
         .expect("tool result text");
     // Read renders `cat -n` style output.
     assert!(tool_text.contains("# SNACA"), "got: {tool_text}");
-    assert!(tool_text.contains("Is Not A Coding Agent"), "got: {tool_text}");
+    assert!(
+        tool_text.contains("Is Not A Coding Agent"),
+        "got: {tool_text}"
+    );
 }
 
 #[tokio::test]
@@ -119,7 +124,9 @@ async fn engine_surfaces_path_traversal_as_tool_error() {
             project_id: ProjectId::from_raw("p"),
             thread_id: ThreadId::new("chat_safety"),
             user_text: "show me passwd".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
     assert_eq!(outcome.iterations, 2);

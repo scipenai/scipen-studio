@@ -74,9 +74,7 @@ fn registry_with(tool: MarkerTool) -> ToolRegistry {
     ToolRegistryBuilder::default().add(tool).build()
 }
 
-async fn fixture(
-    tool: MarkerTool,
-) -> (Engine, Database, Arc<MockLlmClient>, tempfile::TempDir) {
+async fn fixture(tool: MarkerTool) -> (Engine, Database, Arc<MockLlmClient>, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
     let layout = WorkspaceLayout::new(tmp.path()).unwrap();
     let db = Database::open_in_memory().await.unwrap();
@@ -97,7 +95,9 @@ fn turn_request() -> TurnRequest {
         project_id: ProjectId::from_raw("p"),
         thread_id: ThreadId::new("chat_appr"),
         user_text: "do it".into(),
-        message_id: None,    }
+        message_id: None,
+        ephemeral_system: None,
+    }
 }
 
 #[tokio::test]
@@ -180,7 +180,12 @@ async fn allow_always_persists_decision_and_skips_gate_next_time() {
     // so the lookup hits exactly.
     let sig = snaca_engine::engine::input_signature(&json!({}));
     let stored = db
-        .find_decision(&TenantId::new("t"), &ProjectId::from_raw("p"), "Marker", &sig)
+        .find_decision(
+            &TenantId::new("t"),
+            &ProjectId::from_raw("p"),
+            "Marker",
+            &sig,
+        )
         .await
         .unwrap()
         .expect("decision persisted");
@@ -216,7 +221,12 @@ async fn allow_once_does_not_persist() {
     );
     let sig = snaca_engine::engine::input_signature(&json!({}));
     assert!(db
-        .find_decision(&TenantId::new("t"), &ProjectId::from_raw("p"), "Marker", &sig)
+        .find_decision(
+            &TenantId::new("t"),
+            &ProjectId::from_raw("p"),
+            "Marker",
+            &sig
+        )
         .await
         .unwrap()
         .is_none());

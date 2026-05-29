@@ -9,14 +9,14 @@
 //! - `inline_edit.start` / `composer.start` / `edit.confirm` / `tool.confirm`
 //!   still return `method_not_found` (next phases).
 
+use crate::approval_gate::{decision_from_edit, decision_from_wire};
 use crate::composer::{run_composer_plan_first, ComposerPlanArgs, PendingPlans};
 use crate::context_inject;
-use crate::approval_gate::{decision_from_edit, decision_from_wire};
 use crate::llm::{build_llm_client, run_chat_turn};
-use crate::turn_engine::{gate_for_mode, run_engine_turn};
 use crate::outbound::OutboundWriter;
 use crate::session::TurnKind;
 use crate::session_manager::SessionManager;
+use crate::turn_engine::{gate_for_mode, run_engine_turn};
 use async_trait::async_trait;
 use snaca_core::Message;
 use snaca_editor_protocol::error::ProtocolError;
@@ -26,16 +26,13 @@ use snaca_editor_protocol::messages::composer::{
 use snaca_editor_protocol::messages::edit::{EditConfirmParams, EditConfirmResult};
 use snaca_editor_protocol::messages::memory::{
     MemoryDeleteParams, MemoryDeleteResult, MemoryGetParams, MemoryGetResult, MemoryListParams,
-    MemoryListResult, MemoryRevealParams, MemoryRevealResult, MemoryWriteParams,
-    MemoryWriteResult,
+    MemoryListResult, MemoryRevealParams, MemoryRevealResult, MemoryWriteParams, MemoryWriteResult,
 };
 use snaca_editor_protocol::messages::skills::{
     SkillsGetParams, SkillsGetResult, SkillsListParams, SkillsListResult, SkillsReloadParams,
     SkillsReloadResult,
 };
-use snaca_editor_protocol::messages::tool::{
-    ToolConfirmParams, ToolConfirmResult,
-};
+use snaca_editor_protocol::messages::tool::{ToolConfirmParams, ToolConfirmResult};
 use snaca_editor_protocol::messages::{chat::*, init::*, session::*, turn::*};
 use snaca_editor_protocol::routing::MessageHandler;
 use snaca_editor_protocol::types::context::ChatContext;
@@ -67,19 +64,29 @@ pub struct EditorHandler {
     inner: tokio::sync::RwLock<InnerState>,
     /// `tool_call_id → sender` parked by `EditorApprovalGate`; resolved
     /// by `handle_tool_confirm`.
-    pending_approvals: Arc<std::sync::Mutex<
-        std::collections::HashMap<String, tokio::sync::oneshot::Sender<snaca_engine::ApprovalDecision>>,
-    >>,
+    pending_approvals: Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<
+                String,
+                tokio::sync::oneshot::Sender<snaca_engine::ApprovalDecision>,
+            >,
+        >,
+    >,
     /// `proposal_id → sender` for Edit/Write routed through Diff Review.
-    pending_edit_approvals: Arc<std::sync::Mutex<
-        std::collections::HashMap<String, tokio::sync::oneshot::Sender<snaca_engine::ApprovalDecision>>,
-    >>,
+    pending_edit_approvals: Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<
+                String,
+                tokio::sync::oneshot::Sender<snaca_engine::ApprovalDecision>,
+            >,
+        >,
+    >,
     /// `turn_id → token`. Fired by `turn.cancel`; all cancellable awaits
     /// in the turn select on it so the task unwinds through the normal
     /// Done(Cancelled) path.
-    pending_turns: Arc<std::sync::Mutex<
-        std::collections::HashMap<String, tokio_util::sync::CancellationToken>,
-    >>,
+    pending_turns: Arc<
+        std::sync::Mutex<std::collections::HashMap<String, tokio_util::sync::CancellationToken>>,
+    >,
     /// Composer plan-phase parking: turn_id → decision sender. Resolved by
     /// `handle_plan_confirm`.
     pending_plans: PendingPlans,
@@ -101,7 +108,9 @@ impl EditorHandler {
             started_at: Instant::now(),
             inner: tokio::sync::RwLock::new(InnerState::default()),
             pending_approvals: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-            pending_edit_approvals: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            pending_edit_approvals: Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
             pending_turns: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             pending_plans: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
@@ -117,9 +126,10 @@ impl EditorHandler {
 
     async fn get_llm(&self) -> Result<Arc<dyn LlmClient>, ProtocolError> {
         let guard = self.inner.read().await;
-        guard.llm_client.clone().ok_or_else(|| {
-            ProtocolError::not_initialized()
-        })
+        guard
+            .llm_client
+            .clone()
+            .ok_or_else(|| ProtocolError::not_initialized())
     }
 
     fn engine_uptime_secs(&self) -> u64 {
@@ -390,6 +400,9 @@ impl MessageHandler for EditorHandler {
                 let thread_id = params.thread_id.clone();
                 let turn_id_clone = turn_id.clone();
                 let user_text = params.content.clone();
+                // Render the editor's volatile context into a per-turn
+                // system-prompt suffix. None when nothing is in focus.
+                let editor_context = crate::context_inject::render_xml_opt(&params.context);
                 let approval_mode = self
                     .inner
                     .read()
@@ -424,11 +437,15 @@ impl MessageHandler for EditorHandler {
                         thread_id,
                         turn_id_clone.clone(),
                         user_text,
+                        editor_context,
                         gate,
                         cancel_token,
                     )
                     .await;
-                    pending_turns_for_task.lock().unwrap().remove(&turn_id_clone);
+                    pending_turns_for_task
+                        .lock()
+                        .unwrap()
+                        .remove(&turn_id_clone);
                 });
                 let _ = self
                     .sessions
@@ -549,6 +566,7 @@ impl MessageHandler for EditorHandler {
                         thread_id,
                         turn_id_clone.clone(),
                         user_text,
+                        None,
                         gate,
                         cancel,
                     )
@@ -762,26 +780,48 @@ fn build_system_prompt(context: &ChatContext) -> String {
 /// (the engine then keeps `EngineConfig::default_for(model)`).
 fn format_engine_overrides(ec: &snaca_editor_protocol::types::config::EngineConfig) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if let Some(v) = ec.max_iterations { parts.push(format!("max_iterations={v}")); }
-    if let Some(v) = ec.loop_guard_max_repeats { parts.push(format!("loop_guard={v}")); }
-    if let Some(v) = ec.concurrent_tool_limit { parts.push(format!("concurrent={v}")); }
-    if let Some(v) = ec.max_tokens { parts.push(format!("max_tokens={v}")); }
-    if let Some(v) = ec.history_limit { parts.push(format!("history_limit={v}")); }
+    if let Some(v) = ec.max_iterations {
+        parts.push(format!("max_iterations={v}"));
+    }
+    if let Some(v) = ec.loop_guard_max_repeats {
+        parts.push(format!("loop_guard={v}"));
+    }
+    if let Some(v) = ec.concurrent_tool_limit {
+        parts.push(format!("concurrent={v}"));
+    }
+    if let Some(v) = ec.max_tokens {
+        parts.push(format!("max_tokens={v}"));
+    }
+    if let Some(v) = ec.history_limit {
+        parts.push(format!("history_limit={v}"));
+    }
     if let Some(v) = ec.compact_after_input_tokens {
         parts.push(format!("compact_after={v}"));
     }
-    if let Some(v) = ec.compact_keep_recent { parts.push(format!("compact_keep={v}")); }
-    if let Some(v) = ec.protect_first_n { parts.push(format!("protect_first={v}")); }
-    if let Some(v) = ec.compact_max_retries { parts.push(format!("compact_retries={v}")); }
+    if let Some(v) = ec.compact_keep_recent {
+        parts.push(format!("compact_keep={v}"));
+    }
+    if let Some(v) = ec.protect_first_n {
+        parts.push(format!("protect_first={v}"));
+    }
+    if let Some(v) = ec.compact_max_retries {
+        parts.push(format!("compact_retries={v}"));
+    }
     if ec.system_prompt.as_ref().is_some_and(|s| !s.is_empty()) {
         parts.push("system_prompt=set".into());
     }
-    if let Some(b) = ec.memory_extractor { parts.push(format!("memory_extractor={b}")); }
+    if let Some(b) = ec.memory_extractor {
+        parts.push(format!("memory_extractor={b}"));
+    }
     if let Some(v) = ec.compact_summary_max_tokens {
         parts.push(format!("compact_summary_max_tokens={v}"));
     }
-    if let Some(v) = ec.history_max_bytes { parts.push(format!("history_max_bytes={v}")); }
-    if let Some(v) = ec.turn_timeout_secs { parts.push(format!("turn_timeout_secs={v}")); }
+    if let Some(v) = ec.history_max_bytes {
+        parts.push(format!("history_max_bytes={v}"));
+    }
+    if let Some(v) = ec.turn_timeout_secs {
+        parts.push(format!("turn_timeout_secs={v}"));
+    }
     if let Some(v) = ec.collapse_tool_results_threshold {
         parts.push(format!("collapse_tool_results_threshold={v}"));
     }
@@ -806,4 +846,3 @@ fn format_engine_overrides(ec: &snaca_editor_protocol::types::config::EngineConf
         parts.join(", ")
     }
 }
-

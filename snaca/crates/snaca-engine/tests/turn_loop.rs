@@ -9,7 +9,7 @@ use serde_json::json;
 use snaca_core::{ContentBlock, ProjectId, Role, TenantId, ThreadId};
 use snaca_engine::{Engine, EngineConfig, EngineError, TurnRequest};
 use snaca_state::Database;
-use snaca_tools_api::{ToolRegistryBuilder};
+use snaca_tools_api::ToolRegistryBuilder;
 use snaca_workspace::WorkspaceLayout;
 use std::sync::Arc;
 
@@ -50,7 +50,9 @@ fn turn_request() -> TurnRequest {
         project_id: ProjectId::from_raw("proj_x"),
         thread_id: ThreadId::new("chat_1"),
         user_text: "hello".into(),
-        message_id: None,    }
+        message_id: None,
+        ephemeral_system: None,
+    }
 }
 
 #[tokio::test]
@@ -157,9 +159,11 @@ async fn unknown_tool_call_yields_tool_error_block() {
         .recent_messages(&ThreadId::new("chat_1"), 10)
         .await
         .unwrap();
-    let (_, _, is_error) =
-        common::first_tool_result(&msgs[2].content).expect("tool result block");
-    assert!(is_error, "unknown tool call must produce is_error=true block");
+    let (_, _, is_error) = common::first_tool_result(&msgs[2].content).expect("tool result block");
+    assert!(
+        is_error,
+        "unknown tool call must produce is_error=true block"
+    );
 }
 
 #[tokio::test]
@@ -216,7 +220,9 @@ async fn second_turn_reuses_thread() {
             project_id: ProjectId::from_raw("proj_x"),
             thread_id: ThreadId::new("chat_1"),
             user_text: "again".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
 

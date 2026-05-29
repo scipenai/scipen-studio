@@ -7,9 +7,7 @@ use async_trait::async_trait;
 use futures::stream;
 use serde_json::json;
 use snaca_core::{ProjectId, TenantId, ThreadId};
-use snaca_engine::{
-    Engine, EngineConfig, NoopApprovalGate, RecordingListener, TurnRequest,
-};
+use snaca_engine::{Engine, EngineConfig, NoopApprovalGate, RecordingListener, TurnRequest};
 use snaca_llm::{
     ContentBlockStart, ContentDelta, LlmClient, LlmError, LlmResult, MessageRequest,
     MessageResponse, ProviderCaps, StopReason, StreamEvent,
@@ -32,7 +30,9 @@ fn turn_request(thread_id: &str) -> TurnRequest {
         project_id: ProjectId::from_raw("p"),
         thread_id: ThreadId::new(thread_id),
         user_text: "stream please".into(),
-        message_id: None,    }
+        message_id: None,
+        ephemeral_system: None,
+    }
 }
 
 #[tokio::test]
@@ -121,7 +121,9 @@ impl LlmClient for ScriptedStreamLlm {
             }
             q.remove(0)
         };
-        Ok(Box::pin(stream::iter(evs.into_iter().map(Ok::<_, LlmError>))))
+        Ok(Box::pin(stream::iter(
+            evs.into_iter().map(Ok::<_, LlmError>),
+        )))
     }
 }
 

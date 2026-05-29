@@ -10,8 +10,8 @@ use snaca_core::{ProjectId, TenantId, ThreadId};
 use snaca_engine::{Engine, EngineConfig, EngineError, TurnRequest};
 use snaca_state::Database;
 use snaca_tools_api::{
-    ApprovalRequirement, Tool, ToolCapabilities, ToolContext, ToolOutput, ToolResult,
-    ToolRegistryBuilder,
+    ApprovalRequirement, Tool, ToolCapabilities, ToolContext, ToolOutput, ToolRegistryBuilder,
+    ToolResult,
 };
 use snaca_workspace::WorkspaceLayout;
 use std::sync::Arc;
@@ -57,11 +57,7 @@ fn engine_with_sleepy(timeout: Option<u64>) -> Arc<Engine> {
     let tools = ToolRegistryBuilder::default().add(SleepyTool).build();
 
     let llm = Arc::new(MockLlmClient::new());
-    llm.enqueue(assistant_tool_call(vec![(
-        "call_1",
-        "Sleepy",
-        json!({}),
-    )]));
+    llm.enqueue(assistant_tool_call(vec![("call_1", "Sleepy", json!({}))]));
     llm.enqueue(assistant_text("done"));
 
     let mut cfg = EngineConfig::default_for("mock-model");
@@ -87,7 +83,9 @@ async fn external_abort_short_circuits_turn() {
                 project_id: p,
                 thread_id: th,
                 user_text: "go".into(),
-                message_id: None,            })
+                message_id: None,
+                ephemeral_system: None,
+            })
             .await
     });
 
@@ -126,7 +124,9 @@ async fn wall_clock_timeout_surfaces_turn_timeout() {
             project_id: project,
             thread_id: thread,
             user_text: "go".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await;
     let elapsed = started.elapsed();
 
@@ -165,7 +165,9 @@ async fn double_abort_is_idempotent() {
                 project_id: p,
                 thread_id: th,
                 user_text: "go".into(),
-                message_id: None,            })
+                message_id: None,
+                ephemeral_system: None,
+            })
             .await
     });
 
@@ -221,11 +223,7 @@ impl snaca_llm::LlmClient for AlwaysSleepyLlm {
             message: Message {
                 id: MessageId::new(),
                 role: Role::Assistant,
-                content: vec![ContentBlock::tool_use(
-                    "c-sleepy",
-                    "Sleepy",
-                    json!({}),
-                )],
+                content: vec![ContentBlock::tool_use("c-sleepy", "Sleepy", json!({}))],
                 created_at: chrono::Utc::now(),
             },
             usage: Usage {
@@ -273,6 +271,7 @@ async fn abort_turn_targets_specific_message_id_in_group_chat() {
                 thread_id: th_a,
                 user_text: "A's message".into(),
                 message_id: Some("msg-A".into()),
+                ephemeral_system: None,
             })
             .await
     });
@@ -286,6 +285,7 @@ async fn abort_turn_targets_specific_message_id_in_group_chat() {
                 thread_id: th_b,
                 user_text: "B's message".into(),
                 message_id: Some("msg-B".into()),
+                ephemeral_system: None,
             })
             .await
     });
@@ -302,7 +302,10 @@ async fn abort_turn_targets_specific_message_id_in_group_chat() {
         .await
         .expect("turn A returns")
         .expect("turn A join");
-    assert!(matches!(a_result, Err(EngineError::Aborted)), "got A: {a_result:?}");
+    assert!(
+        matches!(a_result, Err(EngineError::Aborted)),
+        "got A: {a_result:?}"
+    );
     assert!(!turn_b.is_finished(), "turn B should still be running");
 
     // Cleanup: abort B explicitly so the test exits promptly.
@@ -333,6 +336,7 @@ async fn abort_thread_sweeps_every_inflight_turn() {
                     thread_id: th,
                     user_text: format!("msg {i}"),
                     message_id: Some(msg_id),
+                    ephemeral_system: None,
                 })
                 .await
         }));

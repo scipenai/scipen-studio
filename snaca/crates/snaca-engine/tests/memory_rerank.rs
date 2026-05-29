@@ -56,7 +56,9 @@ fn turn_request(text: &str) -> TurnRequest {
         project_id: ProjectId::from_raw("proj_rerank"),
         thread_id: ThreadId::new("thr-rerank-1"),
         user_text: text.into(),
-        message_id: None,    }
+        message_id: None,
+        ephemeral_system: None,
+    }
 }
 
 fn observed(llm: &MockLlmClient) -> Vec<MessageRequest> {
@@ -144,10 +146,7 @@ async fn rerank_output_drives_recall_order() {
         .expect("expected a recall block");
 
     // Extract entry names in the order they appear in the recall block.
-    let recall_section = with_recall
-        .split("## Relevant Memories")
-        .nth(1)
-        .unwrap();
+    let recall_section = with_recall.split("## Relevant Memories").nth(1).unwrap();
     let names_in_block: Vec<String> = recall_section
         .lines()
         .filter_map(|l| {
@@ -228,8 +227,7 @@ async fn rerank_falls_back_to_cosine_on_garbage_output() {
 
     // Reranker returns garbage; engine should still surface a recall
     // section using the cosine top-k.
-    fix.llm
-        .enqueue(assistant_text("I cannot help with that."));
+    fix.llm.enqueue(assistant_text("I cannot help with that."));
     fix.llm.enqueue(assistant_text("ack"));
 
     fix.engine

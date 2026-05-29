@@ -122,16 +122,28 @@ pub async fn run_composer_plan_first(args: ComposerPlanArgs) {
         plan_seq.clone(),
     ));
 
-    let plan_engine =
-        match build_plan_engine(llm.clone(), &snaca_config, &metadata_root, &workspace_root, db) {
-            Some(e) => e,
-            None => {
-                emit_done(&outbound, &plan_turn_id, &plan_seq, DoneReason::Error, false).await;
-                sessions.end_turn(&session_id, &plan_turn_id).await;
-                pending_turns.lock().unwrap().remove(&plan_turn_id);
-                return;
-            }
-        };
+    let plan_engine = match build_plan_engine(
+        llm.clone(),
+        &snaca_config,
+        &metadata_root,
+        &workspace_root,
+        db,
+    ) {
+        Some(e) => e,
+        None => {
+            emit_done(
+                &outbound,
+                &plan_turn_id,
+                &plan_seq,
+                DoneReason::Error,
+                false,
+            )
+            .await;
+            sessions.end_turn(&session_id, &plan_turn_id).await;
+            pending_turns.lock().unwrap().remove(&plan_turn_id);
+            return;
+        }
+    };
 
     let req = TurnRequest {
         tenant_id: TenantId::new(STUDIO_TENANT_ID),
@@ -139,6 +151,9 @@ pub async fn run_composer_plan_first(args: ComposerPlanArgs) {
         thread_id: ThreadId::new(&thread_id),
         user_text: user_text.clone(),
         message_id: Some(plan_turn_id.clone()),
+        // Inline-edit composer carries its instructions in user_text;
+        // no ambient editor context is injected here.
+        ephemeral_system: None,
     };
 
     let outcome = tokio::select! {
@@ -153,7 +168,14 @@ pub async fn run_composer_plan_first(args: ComposerPlanArgs) {
     let assistant_text = match outcome {
         Ok(o) => o.assistant_text,
         Err(snaca_engine::EngineError::Aborted) => {
-            emit_done(&outbound, &plan_turn_id, &plan_seq, DoneReason::Cancelled, true).await;
+            emit_done(
+                &outbound,
+                &plan_turn_id,
+                &plan_seq,
+                DoneReason::Cancelled,
+                true,
+            )
+            .await;
             sessions.end_turn(&session_id, &plan_turn_id).await;
             pending_turns.lock().unwrap().remove(&plan_turn_id);
             return;
@@ -209,7 +231,14 @@ pub async fn run_composer_plan_first(args: ComposerPlanArgs) {
         d = plan_rx => d.unwrap_or(PlanDecision::Reject),
     };
 
-    emit_done(&outbound, &plan_turn_id, &plan_seq, DoneReason::Completed, false).await;
+    emit_done(
+        &outbound,
+        &plan_turn_id,
+        &plan_seq,
+        DoneReason::Completed,
+        false,
+    )
+    .await;
     sessions.end_turn(&session_id, &plan_turn_id).await;
     pending_turns.lock().unwrap().remove(&plan_turn_id);
 
@@ -264,6 +293,7 @@ pub async fn run_composer_plan_first(args: ComposerPlanArgs) {
         thread_id,
         action_turn_id,
         action_text,
+        None,
         gate,
         action_cancel,
     )
@@ -282,7 +312,9 @@ fn build_plan_engine(
     db: Database,
 ) -> Option<Arc<Engine>> {
     let layout = WorkspaceLayout::new(metadata_root.to_path_buf()).ok()?;
-    let layout = layout.with_explicit_workspace(workspace_root.to_path_buf()).ok()?;
+    let layout = layout
+        .with_explicit_workspace(workspace_root.to_path_buf())
+        .ok()?;
     let mut cfg = EngineConfig::default_for(snaca_config.llm.model.clone());
     cfg.system_prompt = PLAN_SYSTEM_PROMPT.to_string();
     cfg.max_iterations = 1;

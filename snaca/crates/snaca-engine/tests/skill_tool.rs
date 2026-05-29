@@ -57,7 +57,9 @@ async fn skill_tool_returns_body_through_engine() {
             project_id: ProjectId::from_raw("p"),
             thread_id: ThreadId::new("chat_skill"),
             user_text: "use the reviewer skill".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
     assert_eq!(outcome.iterations, 2);
@@ -119,7 +121,9 @@ async fn unknown_skill_yields_tool_error_block() {
             project_id: ProjectId::from_raw("p"),
             thread_id: ThreadId::new("chat_x"),
             user_text: "use missing".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
     assert_eq!(outcome.iterations, 2);
@@ -132,7 +136,6 @@ async fn unknown_skill_yields_tool_error_block() {
         .iter()
         .find(|m| matches!(m.role, Role::Tool))
         .expect("tool message");
-    let (_, _, is_error) =
-        common::first_tool_result(&tool_msg.content).expect("tool result block");
+    let (_, _, is_error) = common::first_tool_result(&tool_msg.content).expect("tool result block");
     assert!(is_error, "missing skill must produce is_error=true block");
 }

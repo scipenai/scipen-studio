@@ -17,6 +17,7 @@
  * Not yet populated (later phases): mentions, active_file.visible_range.
  */
 
+import { truncateToBytes } from '../../../../../shared/utils/text';
 import { getEditorService, getProjectService, getSettingsService, getUIService } from '../core';
 import { recentEditsTracker } from './RecentEditsTracker';
 import { buildProjectIntel } from './ChatContextIntelBuilder';
@@ -31,6 +32,8 @@ import type {
 
 const DIAGNOSTICS_CAP = 50;
 const RECENT_EDITS_CAP = 20;
+// 选区文本进入每轮 system_prompt,大段选区不设限会逐轮翻倍撑爆上下文。
+const SELECTION_TEXT_MAX_BYTES = 4096;
 
 /**
  * Build a `ChatContext` from the current editor + UI state. Called at send
@@ -66,7 +69,7 @@ export function buildChatContext(): ChatContext {
       };
       ctx.active_file.selection = {
         range,
-        text: extractSelectionText(activeTab.content, sel),
+        text: truncateToBytes(extractSelectionText(activeTab.content, sel), SELECTION_TEXT_MAX_BYTES),
       };
     }
   }

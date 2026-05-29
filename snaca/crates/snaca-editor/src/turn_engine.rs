@@ -23,8 +23,7 @@ use tracing::{info, warn};
 
 /// `tool_call_id` (or `proposal_id`) → decision channel. Shared between
 /// the gate and the editor-protocol confirm handler.
-pub type PendingApprovals =
-    Arc<Mutex<HashMap<String, oneshot::Sender<ApprovalDecision>>>>;
+pub type PendingApprovals = Arc<Mutex<HashMap<String, oneshot::Sender<ApprovalDecision>>>>;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn run_engine_turn(
@@ -36,6 +35,7 @@ pub async fn run_engine_turn(
     thread_id: String,
     turn_id: String,
     user_text: String,
+    editor_context: Option<String>,
     gate: Arc<dyn ApprovalGate>,
     cancel: CancellationToken,
 ) {
@@ -59,6 +59,7 @@ pub async fn run_engine_turn(
         thread_id: ThreadId::new(&thread_id),
         user_text,
         message_id: Some(turn_id.clone()),
+        ephemeral_system: editor_context,
     };
 
     // Engine owns its own inflight tokens via abort_turn. Race its

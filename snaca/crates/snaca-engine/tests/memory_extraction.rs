@@ -8,9 +8,7 @@
 //! without blocking the user-visible turn.
 
 use snaca_core::{ProjectId, TenantId, ThreadId};
-use snaca_engine::{
-    ConstantExtractor, Engine, EngineConfig, MemoryProposal, TurnRequest,
-};
+use snaca_engine::{ConstantExtractor, Engine, EngineConfig, MemoryProposal, TurnRequest};
 use snaca_memory::{MemoryScope, MemoryStore};
 use snaca_state::Database;
 use snaca_tools_api::ToolRegistryBuilder;
@@ -51,7 +49,9 @@ fn turn_request(text: &str) -> TurnRequest {
         project_id: ProjectId::from_raw("proj_extract"),
         thread_id: ThreadId::new("thr-extract-1"),
         user_text: text.into(),
-        message_id: None,    }
+        message_id: None,
+        ephemeral_system: None,
+    }
 }
 
 /// The extraction task is `tokio::spawn`'d, so we need to wait briefly
@@ -94,10 +94,10 @@ async fn extractor_writes_proposals_after_terminal_turn() {
         .await
         .unwrap();
 
-    let store = MemoryStore::new(
-        fix.layout
-            .memory_dir(&TenantId::new("tenant_a"), &ProjectId::from_raw("proj_extract")),
-    );
+    let store = MemoryStore::new(fix.layout.memory_dir(
+        &TenantId::new("tenant_a"),
+        &ProjectId::from_raw("proj_extract"),
+    ));
 
     let landed = wait_until(Duration::from_secs(2), || {
         // Both proposals must land.
@@ -109,14 +109,16 @@ async fn extractor_writes_proposals_after_terminal_turn() {
             Ok(n) => n,
             Err(_) => return false,
         };
-        names_feedback.iter().any(|n| n == "no-emojis")
-            && names_user.iter().any(|n| n == "tone")
+        names_feedback.iter().any(|n| n == "no-emojis") && names_user.iter().any(|n| n == "tone")
     })
     .await;
 
     assert!(landed, "extractor proposals should be persisted within 2s");
 
-    let body = store.read(MemoryScope::Feedback, "no-emojis").await.unwrap();
+    let body = store
+        .read(MemoryScope::Feedback, "no-emojis")
+        .await
+        .unwrap();
     assert_eq!(body.content, "user said: stop using emojis");
 }
 
@@ -130,12 +132,15 @@ async fn empty_extractor_writes_nothing() {
     // Give the (empty) background task time to settle.
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let store = MemoryStore::new(
-        fix.layout
-            .memory_dir(&TenantId::new("tenant_a"), &ProjectId::from_raw("proj_extract")),
-    );
+    let store = MemoryStore::new(fix.layout.memory_dir(
+        &TenantId::new("tenant_a"),
+        &ProjectId::from_raw("proj_extract"),
+    ));
     let all = store.list_all().await.unwrap();
-    assert!(all.is_empty(), "no proposals should mean no entries: {all:?}");
+    assert!(
+        all.is_empty(),
+        "no proposals should mean no entries: {all:?}"
+    );
 }
 
 #[tokio::test]
@@ -167,21 +172,28 @@ async fn proposals_in_disallowed_scopes_are_rejected() {
         .await
         .unwrap();
 
-    let store = MemoryStore::new(
-        fix.layout
-            .memory_dir(&TenantId::new("tenant_a"), &ProjectId::from_raw("proj_extract")),
-    );
-    let landed = wait_until(Duration::from_secs(2), || {
-        match futures::executor::block_on(store.list(MemoryScope::User)) {
+    let store = MemoryStore::new(fix.layout.memory_dir(
+        &TenantId::new("tenant_a"),
+        &ProjectId::from_raw("proj_extract"),
+    ));
+    let landed = wait_until(
+        Duration::from_secs(2),
+        || match futures::executor::block_on(store.list(MemoryScope::User)) {
             Ok(n) => n.iter().any(|x| x == "allowed"),
             Err(_) => false,
-        }
-    })
+        },
+    )
     .await;
     assert!(landed, "the User-scope proposal must land");
 
     let proj = store.list(MemoryScope::Project).await.unwrap();
     let refs = store.list(MemoryScope::Reference).await.unwrap();
-    assert!(proj.is_empty(), "Project scope must reject extractor writes: {proj:?}");
-    assert!(refs.is_empty(), "Reference scope must reject extractor writes: {refs:?}");
+    assert!(
+        proj.is_empty(),
+        "Project scope must reject extractor writes: {proj:?}"
+    );
+    assert!(
+        refs.is_empty(),
+        "Reference scope must reject extractor writes: {refs:?}"
+    );
 }

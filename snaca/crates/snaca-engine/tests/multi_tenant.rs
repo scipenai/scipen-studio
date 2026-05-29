@@ -9,9 +9,7 @@
 use async_trait::async_trait;
 use serde_json::json;
 use snaca_core::{ContentBlock, ProjectId, Role, TenantId, ThreadId};
-use snaca_engine::{
-    Engine, EngineConfig, RuntimeToolFactory, TurnRequest,
-};
+use snaca_engine::{Engine, EngineConfig, RuntimeToolFactory, TurnRequest};
 use snaca_skills::{LayoutSkillProvider, SkillProvider};
 use snaca_state::Database;
 use snaca_tools::{base_tool_registry, SkillTool};
@@ -115,7 +113,9 @@ async fn skill_tool_invocation_returns_tenant_specific_body() {
             project_id: project.clone(),
             thread_id: ThreadId::new("chat_alpha"),
             user_text: "use runbook".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
     engine
@@ -124,7 +124,9 @@ async fn skill_tool_invocation_returns_tenant_specific_body() {
             project_id: project.clone(),
             thread_id: ThreadId::new("chat_beta"),
             user_text: "use runbook".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
 
@@ -211,7 +213,9 @@ async fn engine_without_factory_uses_static_tools() {
             project_id: ProjectId::from_raw("p"),
             thread_id: ThreadId::new("chat_x"),
             user_text: "no skill".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
     assert_eq!(outcome.iterations, 2);

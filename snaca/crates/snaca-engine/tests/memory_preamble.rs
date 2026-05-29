@@ -50,7 +50,9 @@ fn turn_request(text: &str) -> TurnRequest {
         project_id: ProjectId::from_raw("proj_x"),
         thread_id: ThreadId::new("thr-mem-1"),
         user_text: text.into(),
-        message_id: None,    }
+        message_id: None,
+        ephemeral_system: None,
+    }
 }
 
 /// Pull every observed `MessageRequest` off the mock. Provided as a
@@ -64,10 +66,7 @@ async fn fresh_project_has_no_memory_preamble_in_system_prompt() {
     let fix = fixture().await;
     fix.llm.enqueue(assistant_text("hi"));
 
-    fix.engine
-        .handle_turn(turn_request("hello"))
-        .await
-        .unwrap();
+    fix.engine.handle_turn(turn_request("hello")).await.unwrap();
 
     let req = &observed(fix.llm.as_ref())[0];
     let sys = req.system.as_deref().unwrap_or("");
@@ -122,5 +121,51 @@ async fn written_memory_appears_in_next_turn_system_prompt() {
     assert!(
         sys.contains("SNACA"),
         "base system prompt should still be present; got: {sys}"
+    );
+}
+
+#[tokio::test]
+async fn ephemeral_system_is_appended_to_system_prompt() {
+    let fix = fixture().await;
+    fix.llm.enqueue(assistant_text("ok"));
+
+    let req = TurnRequest {
+        tenant_id: TenantId::new("tenant_a"),
+        project_id: ProjectId::from_raw("proj_x"),
+        thread_id: ThreadId::new("thr-eph-1"),
+        user_text: "what file am I in?".into(),
+        message_id: None,
+        ephemeral_system: Some("<context>\n  <active_file path=\"intro.tex\"/>\n</context>".into()),
+    };
+    fix.engine.handle_turn(req).await.unwrap();
+
+    let sys = observed(fix.llm.as_ref())[0]
+        .system
+        .as_deref()
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        sys.contains("intro.tex"),
+        "ephemeral context should ride the system prompt; got: {sys}"
+    );
+    // Spliced onto the base, not replacing it.
+    assert!(sys.contains("SNACA"), "base prompt must remain; got: {sys}");
+}
+
+#[tokio::test]
+async fn empty_ephemeral_system_leaves_prompt_unchanged() {
+    let fix = fixture().await;
+    fix.llm.enqueue(assistant_text("ok"));
+    // None ephemeral → system prompt is exactly the composed base.
+    fix.engine.handle_turn(turn_request("hi")).await.unwrap();
+
+    let sys = observed(fix.llm.as_ref())[0]
+        .system
+        .as_deref()
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        !sys.contains("<context>"),
+        "no context block expected; got: {sys}"
     );
 }

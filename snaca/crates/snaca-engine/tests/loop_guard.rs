@@ -62,7 +62,9 @@ fn turn_request() -> TurnRequest {
         project_id: ProjectId::from_raw("proj_x"),
         thread_id: ThreadId::new("thr-loop-1"),
         user_text: "go".into(),
-        message_id: None,    }
+        message_id: None,
+        ephemeral_system: None,
+    }
 }
 
 #[tokio::test]
@@ -71,12 +73,11 @@ async fn identical_tool_calls_trip_loop_guard_at_threshold() {
     // Queue four identical Echo calls. The guard should trip on the
     // third (limit=3); the fourth never fires.
     for _ in 0..4 {
-        fix.llm
-            .enqueue(assistant_tool_call_with_input(
-                "tu1",
-                "Echo",
-                json!({"text": "stuck"}),
-            ));
+        fix.llm.enqueue(assistant_tool_call_with_input(
+            "tu1",
+            "Echo",
+            json!({"text": "stuck"}),
+        ));
     }
 
     let err = fix
@@ -99,12 +100,11 @@ async fn varying_inputs_do_not_trip_loop_guard() {
     // Three Echo calls with *different* arguments — no trip — followed
     // by a terminal text response.
     for i in 0..3 {
-        fix.llm
-            .enqueue(assistant_tool_call_with_input(
-                &format!("tu_{i}"),
-                "Echo",
-                json!({"text": format!("value-{i}")}),
-            ));
+        fix.llm.enqueue(assistant_tool_call_with_input(
+            &format!("tu_{i}"),
+            "Echo",
+            json!({"text": format!("value-{i}")}),
+        ));
     }
     fix.llm.enqueue(common::assistant_text("done"));
 
@@ -118,12 +118,11 @@ async fn loop_guard_disabled_via_none_config() {
     let fix = fixture(None).await;
     // 5 identical calls, then a terminal — no guard, completes normally.
     for _ in 0..5 {
-        fix.llm
-            .enqueue(assistant_tool_call_with_input(
-                "tu1",
-                "Echo",
-                json!({"text": "same"}),
-            ));
+        fix.llm.enqueue(assistant_tool_call_with_input(
+            "tu1",
+            "Echo",
+            json!({"text": "same"}),
+        ));
     }
     fix.llm.enqueue(common::assistant_text("done"));
 

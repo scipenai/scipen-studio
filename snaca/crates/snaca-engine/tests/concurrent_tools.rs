@@ -13,8 +13,8 @@ use snaca_core::{ProjectId, TenantId, ThreadId};
 use snaca_engine::{Engine, EngineConfig, TurnRequest};
 use snaca_state::Database;
 use snaca_tools_api::{
-    ApprovalRequirement, Tool, ToolCapabilities, ToolContext, ToolOutput, ToolResult,
-    ToolRegistryBuilder,
+    ApprovalRequirement, Tool, ToolCapabilities, ToolContext, ToolOutput, ToolRegistryBuilder,
+    ToolResult,
 };
 use snaca_workspace::WorkspaceLayout;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -162,7 +162,9 @@ async fn read_only_tools_run_in_parallel() {
             project_id: project,
             thread_id: thread,
             user_text: "go".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
     let elapsed = started.elapsed();
@@ -240,7 +242,9 @@ async fn write_tool_serialises_neighbouring_reads() {
             project_id: project,
             thread_id: thread,
             user_text: "go".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
     let elapsed = started.elapsed();
@@ -313,7 +317,9 @@ async fn tool_result_order_matches_tool_use_order() {
             project_id: project,
             thread_id: thread,
             user_text: "go".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
 

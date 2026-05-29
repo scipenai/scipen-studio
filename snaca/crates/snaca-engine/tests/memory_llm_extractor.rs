@@ -13,10 +13,8 @@
 //! actually fires.
 
 use snaca_core::{ProjectId, TenantId, ThreadId};
-use snaca_engine::{
-    FilteredMemoryExtractor, LlmMemoryExtractor, SensitiveFilter,
-};
 use snaca_engine::{Engine, EngineConfig, TurnRequest};
+use snaca_engine::{FilteredMemoryExtractor, LlmMemoryExtractor, SensitiveFilter};
 use snaca_memory::{MemoryScope, MemoryStore};
 use snaca_state::Database;
 use snaca_tools_api::ToolRegistryBuilder;
@@ -76,17 +74,20 @@ async fn llm_extractor_writes_proposed_memory_to_store() {
             project_id: project.clone(),
             thread_id: ThreadId::new("thr-llm-extract"),
             user_text: "stop using emojis please".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
 
     let store = MemoryStore::new(layout.memory_dir(&tenant, &project));
-    let landed = wait_for(Duration::from_secs(2), || {
-        match futures::executor::block_on(store.list(MemoryScope::Feedback)) {
+    let landed = wait_for(
+        Duration::from_secs(2),
+        || match futures::executor::block_on(store.list(MemoryScope::Feedback)) {
             Ok(n) => n.iter().any(|x| x == "no-emojis"),
             Err(_) => false,
-        }
-    })
+        },
+    )
     .await;
     assert!(landed, "extractor should have written feedback/no-emojis");
 
@@ -116,12 +117,14 @@ async fn pii_filter_blocks_extractor_proposals() {
         ]"#,
     ));
 
-    let raw_extractor: Arc<dyn snaca_engine::MemoryExtractor> = Arc::new(
-        LlmMemoryExtractor::new(llm.clone(), "mock-model".to_string()),
-    );
-    let extractor: Arc<dyn snaca_engine::MemoryExtractor> = Arc::new(
-        FilteredMemoryExtractor::new(raw_extractor, SensitiveFilter::default_set()),
-    );
+    let raw_extractor: Arc<dyn snaca_engine::MemoryExtractor> = Arc::new(LlmMemoryExtractor::new(
+        llm.clone(),
+        "mock-model".to_string(),
+    ));
+    let extractor: Arc<dyn snaca_engine::MemoryExtractor> = Arc::new(FilteredMemoryExtractor::new(
+        raw_extractor,
+        SensitiveFilter::default_set(),
+    ));
 
     let engine = Engine::new(
         llm.clone(),
@@ -140,17 +143,20 @@ async fn pii_filter_blocks_extractor_proposals() {
             project_id: project.clone(),
             thread_id: ThreadId::new("thr-llm-extract-pii"),
             user_text: "anything".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
 
     let store = MemoryStore::new(layout.memory_dir(&tenant, &project));
-    let landed = wait_for(Duration::from_secs(2), || {
-        match futures::executor::block_on(store.list(MemoryScope::User)) {
+    let landed = wait_for(
+        Duration::from_secs(2),
+        || match futures::executor::block_on(store.list(MemoryScope::User)) {
             Ok(n) => n.iter().any(|x| x == "tone"),
             Err(_) => false,
-        }
-    })
+        },
+    )
     .await;
     assert!(landed, "the clean proposal must land");
 
@@ -193,7 +199,9 @@ async fn extractor_with_garbage_llm_output_is_a_noop() {
             project_id: project.clone(),
             thread_id: ThreadId::new("thr-llm-garbage"),
             user_text: "test".into(),
-            message_id: None,        })
+            message_id: None,
+            ephemeral_system: None,
+        })
         .await
         .unwrap();
 

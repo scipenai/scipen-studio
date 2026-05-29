@@ -87,7 +87,9 @@ fn turn_request(thread: &str, user_text: &str) -> TurnRequest {
         project_id: ProjectId::from_raw("proj_x"),
         thread_id: ThreadId::new(thread),
         user_text: user_text.into(),
-        message_id: None,    }
+        message_id: None,
+        ephemeral_system: None,
+    }
 }
 
 #[tokio::test]
@@ -119,12 +121,14 @@ async fn turn_above_threshold_triggers_compaction_and_persists_summary() {
     // Drive 3 user turns. Only the third returns input_tokens >=100, so
     // only the third turn fires compaction. The first two keep things
     // conservative so we have a stable history before the trigger fires.
-    fix.llm.enqueue(assistant_text_with_input_tokens("first", 10));
+    fix.llm
+        .enqueue(assistant_text_with_input_tokens("first", 10));
     fix.engine
         .handle_turn(turn_request("t1", "hello"))
         .await
         .unwrap();
-    fix.llm.enqueue(assistant_text_with_input_tokens("second", 20));
+    fix.llm
+        .enqueue(assistant_text_with_input_tokens("second", 20));
     fix.engine
         .handle_turn(turn_request("t1", "another"))
         .await
@@ -134,7 +138,8 @@ async fn turn_above_threshold_triggers_compaction_and_persists_summary() {
     // pre-queued in that order.
     fix.llm
         .enqueue(assistant_text_with_input_tokens("third", 250));
-    fix.llm.enqueue(assistant_text("SUMMARY: user said hi twice"));
+    fix.llm
+        .enqueue(assistant_text("SUMMARY: user said hi twice"));
 
     fix.engine
         .handle_turn(turn_request("t1", "trigger"))
@@ -147,7 +152,11 @@ async fn turn_above_threshold_triggers_compaction_and_persists_summary() {
         .await
         .unwrap()
         .expect("compaction should have produced a summary");
-    assert!(summary.summary.contains("SUMMARY"), "got: {}", summary.summary);
+    assert!(
+        summary.summary.contains("SUMMARY"),
+        "got: {}",
+        summary.summary
+    );
     assert!(
         summary.msg_count_before >= 2,
         "summary should fold at least 2 messages, got {}",
@@ -191,7 +200,10 @@ async fn load_history_splices_summary_in_place_of_compacted_messages() {
     // Inspect what the mock saw on its last call. The mock records full
     // requests; pull the tail, which corresponds to the "after" turn.
     let observed = fix.llm.observed_request_count();
-    assert!(observed >= 4, "expected at least 4 LLM calls, got {observed}");
+    assert!(
+        observed >= 4,
+        "expected at least 4 LLM calls, got {observed}"
+    );
 
     // Verify history seen by the LLM in the LAST request includes the
     // summary preamble. The mock retains all requests in `requests`
@@ -211,11 +223,7 @@ async fn load_history_splices_summary_in_place_of_compacted_messages() {
     // turn 3 = user "third" + assistant "c") + the new "after" pair.
     let live = fix
         .db
-        .messages_after(
-            &ThreadId::new("t2"),
-            &summary.summary_until_message_id,
-            100,
-        )
+        .messages_after(&ThreadId::new("t2"), &summary.summary_until_message_id, 100)
         .await
         .unwrap();
     let texts: Vec<_> = live
@@ -276,11 +284,7 @@ async fn compaction_runs_in_background_by_default() {
     // Background task should land within a generous wait window.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
-        if let Some(s) = db
-            .get_thread_summary(&ThreadId::new("t-bg"))
-            .await
-            .unwrap()
-        {
+        if let Some(s) = db.get_thread_summary(&ThreadId::new("t-bg")).await.unwrap() {
             assert!(s.summary.contains("ASYNC SUMMARY"), "got: {}", s.summary);
             return;
         }
@@ -409,10 +413,7 @@ async fn context_overflow_retry_shrinks_keep_recent() {
 
     // Build a long enough thread so compaction has material to fold.
     for i in 0..12 {
-        llm.enqueue(assistant_text_with_input_tokens(
-            &format!("reply {i}"),
-            10,
-        ));
+        llm.enqueue(assistant_text_with_input_tokens(&format!("reply {i}"), 10));
         engine
             .handle_turn(turn_request("t-shrink", &format!("user {i}")))
             .await
@@ -438,7 +439,10 @@ async fn context_overflow_retry_shrinks_keep_recent() {
     let res = engine
         .handle_turn(turn_request("t-shrink", "trigger overflow"))
         .await;
-    assert!(res.is_ok(), "engine should recover after 2 shrink-retries: {res:?}");
+    assert!(
+        res.is_ok(),
+        "engine should recover after 2 shrink-retries: {res:?}"
+    );
 
     // Final persisted summary reflects the *last* compaction call (the
     // tighter tail of 2 messages folded a longer middle).
@@ -469,10 +473,7 @@ async fn context_overflow_retry_gives_up_after_max() {
     let engine = Engine::new(llm.clone(), tools, db.clone(), workspace, cfg);
 
     for i in 0..10 {
-        llm.enqueue(assistant_text_with_input_tokens(
-            &format!("r{i}"),
-            10,
-        ));
+        llm.enqueue(assistant_text_with_input_tokens(&format!("r{i}"), 10));
         engine
             .handle_turn(turn_request("t-give-up", &format!("u{i}")))
             .await
@@ -487,10 +488,11 @@ async fn context_overflow_retry_gives_up_after_max() {
     llm.enqueue(assistant_text("s2"));
     llm.enqueue_err(snaca_llm::LlmError::ContextOverflow);
 
-    let res = engine
-        .handle_turn(turn_request("t-give-up", "boom"))
-        .await;
-    assert!(res.is_err(), "engine should give up after compact_max_retries");
+    let res = engine.handle_turn(turn_request("t-give-up", "boom")).await;
+    assert!(
+        res.is_err(),
+        "engine should give up after compact_max_retries"
+    );
 }
 
 #[tokio::test]

@@ -1,14 +1,26 @@
 //! `ChatContext` → XML-ish system-prompt prefix.
 //!
-//! P0 placeholder: returns a structured stringification of the host-supplied
-//! [`ChatContext`]. Real prompt assembly (with shared/project memory,
-//! skills, recall pool) lives in `snaca-engine`'s editor runtime and is
-//! wired in a later phase. Functions are kept unused for now;
-//! `handle_chat_send` will call into `render_xml` once the engine arrives.
-
-#![allow(dead_code)]
+//! Renders the host-supplied [`ChatContext`] into a compact XML block that
+//! `handle_chat_send` appends to the per-turn system prompt (via
+//! `TurnRequest::ephemeral_system`). It rides the system prompt, not thread
+//! history, so volatile editor state never persists across turns.
 
 use snaca_editor_protocol::types::context::{ChatContext, Mention, ProjectType};
+
+/// Render the context, returning `None` when there is nothing to inject
+/// (an empty `ChatContext` produces only the `<context></context>`
+/// wrapper). Callers pass the `Some` value straight into
+/// `TurnRequest::ephemeral_system`.
+pub fn render_xml_opt(ctx: &ChatContext) -> Option<String> {
+    let xml = render_xml(ctx);
+    // Empty context = wrapper only (two lines). Anything richer carries
+    // at least one child element line.
+    if xml.lines().count() <= 2 {
+        None
+    } else {
+        Some(xml)
+    }
+}
 
 pub fn render_xml(ctx: &ChatContext) -> String {
     let mut out = String::with_capacity(256);
@@ -134,7 +146,10 @@ mod tests {
             active_file: Some(ActiveFileContext {
                 path: "/p/a.tex".into(),
                 language: "latex".into(),
-                cursor: Some(CursorPosition { line: 5, column: 10 }),
+                cursor: Some(CursorPosition {
+                    line: 5,
+                    column: 10,
+                }),
                 visible_range: None,
                 selection: None,
                 dirty: None,
