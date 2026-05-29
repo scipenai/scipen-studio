@@ -220,6 +220,15 @@ export enum IpcChannel {
    * when the item has no PDF.
    */
   Zotero_LoadPdf = 'zotero:load-pdf',
+  /** Start a MinerU precise-parse for one item (fire-and-forget; progress
+   * streams via Zotero_MinerUProgress event). */
+  Zotero_ParseWithMinerU = 'zotero:parse-with-mineru',
+  /** Read the current MinerU parse status for one item. */
+  Zotero_GetMinerUStatus = 'zotero:get-mineru-status',
+  /** Read an item's MinerU-parsed markdown + parsed dir (human MD view). */
+  Zotero_GetParsedMarkdown = 'zotero:get-parsed-markdown',
+  /** Broadcast: MinerU parse progress (MinerUParseStatusDTO). */
+  Zotero_MinerUProgress = 'zotero:mineru-progress',
   /** Broadcast: any Zotero setting changed; payload is the same shape as GetSettings. */
   Zotero_SettingsChanged = 'zotero:settings-changed',
   /**

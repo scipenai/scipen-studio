@@ -37,10 +37,12 @@ import type { IOverleafFileSystemService } from './services/interfaces';
 
 import { initAllowedDirs, setupCSP } from './security';
 import {
+  addPermanentAllowedDirectory,
   clearAllowedDirectories,
   registerLocalFileProtocol,
   registerProtocolSchemes,
 } from './services/LocalFileProtocol';
+import { ZOTERO_CACHE_ROOT } from './services/zotero/ZoteroFullTextService';
 
 // ====== Registry Initialization (Lazy-Load) ======
 import { initializeCompilerRegistry } from './services/compiler/setup';
@@ -842,6 +844,8 @@ function registerIpcHandlers() {
   registerDialogHandlers();
   registerSettingsHandlers();
   registerZoteroHandlers();
+  // Zotero 缓存根(MinerU 解析图片等)常驻可读 —— 跨项目共享,不随项目切换清空。
+  addPermanentAllowedDirectory(ZOTERO_CACHE_ROOT);
   registerCollaborationOwnerHandlers();
   registerOverleafHandlers({
     getProjectMetaService,

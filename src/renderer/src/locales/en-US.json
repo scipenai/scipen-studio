@@ -449,7 +449,42 @@
     "empty": "Ctrl+Click a citation to view its PDF",
     "notFound": "Citation '{{key}}' not found in Zotero",
     "noPdf": "No PDF attachment for '{{key}}'",
-    "loadFailed": "Failed to load PDF for '{{key}}'"
+    "loadFailed": "Failed to load PDF for '{{key}}'",
+    "parseButton": "Precise parse",
+    "viewPdf": "Raw PDF",
+    "viewMarkdown": "Parsed MD",
+    "mdUnavailable": "Not parsed yet — click \"Precise parse\" first"
+  },
+  "zoteroMineru": {
+    "dialog": {
+      "title": "Configure MinerU Precise Parse",
+      "tokenLabel": "MinerU API Token",
+      "tokenPlaceholder": "Paste the token from mineru.net",
+      "privacyTitle": "Privacy notice",
+      "privacyBody": "Precise parse uploads this PDF to the MinerU third-party cloud service for parsing. Please confirm you accept this.",
+      "consent": "I understand and agree to upload the PDF to MinerU cloud parsing",
+      "save": "Save & parse",
+      "cancel": "Cancel"
+    },
+    "state": {
+      "uploading": "Uploading…",
+      "pending": "Queued…",
+      "running": "Parsing {{extracted}}/{{total}} pages",
+      "converting": "Converting…",
+      "downloading": "Downloading…",
+      "extracting": "Extracting…",
+      "done": "Parsed",
+      "failed": "Parse failed"
+    },
+    "error": {
+      "noToken": "MinerU token required",
+      "tokenInvalid": "Token invalid or expired",
+      "fileTooLarge": "File exceeds 200MB",
+      "tooManyPages": "Exceeds 200 pages",
+      "quotaExhausted": "Daily parse quota exhausted",
+      "timeout": "Parse timed out",
+      "generic": "Parse failed"
+    }
   },
   "compileLog": {
     "log": "Log",

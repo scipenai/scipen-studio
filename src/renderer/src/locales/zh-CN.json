@@ -449,7 +449,42 @@
     "empty": "Ctrl+点击引用以查看论文 PDF",
     "notFound": "Zotero 中未找到引用 '{{key}}'",
     "noPdf": "'{{key}}' 没有 PDF 附件",
-    "loadFailed": "加载 '{{key}}' 的 PDF 失败"
+    "loadFailed": "加载 '{{key}}' 的 PDF 失败",
+    "parseButton": "精解析",
+    "viewPdf": "原始 PDF",
+    "viewMarkdown": "解析 MD",
+    "mdUnavailable": "尚未精解析,请先点「精解析」"
+  },
+  "zoteroMineru": {
+    "dialog": {
+      "title": "配置 MinerU 精解析",
+      "tokenLabel": "MinerU API Token",
+      "tokenPlaceholder": "粘贴官网申请的 token",
+      "privacyTitle": "隐私提示",
+      "privacyBody": "精解析会把该 PDF 上传到 MinerU 第三方云服务进行解析。请确认你接受。",
+      "consent": "我已了解并同意将 PDF 上传到 MinerU 云解析",
+      "save": "保存并解析",
+      "cancel": "取消"
+    },
+    "state": {
+      "uploading": "上传中…",
+      "pending": "排队中…",
+      "running": "解析中 {{extracted}}/{{total}} 页",
+      "converting": "转换中…",
+      "downloading": "下载中…",
+      "extracting": "解压中…",
+      "done": "已精解析",
+      "failed": "解析失败"
+    },
+    "error": {
+      "noToken": "需要配置 MinerU Token",
+      "tokenInvalid": "Token 无效或过期",
+      "fileTooLarge": "文件超过 200MB",
+      "tooManyPages": "页数超过 200 页",
+      "quotaExhausted": "今日解析额度已用尽",
+      "timeout": "解析超时",
+      "generic": "解析失败"
+    }
   },
   "compileLog": {
     "log": "日志",

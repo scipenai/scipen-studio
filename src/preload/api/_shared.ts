@@ -204,6 +204,9 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Zotero_GetItemAnnotations,
   IpcChannel.Zotero_GetFullText,
   IpcChannel.Zotero_LoadPdf,
+  IpcChannel.Zotero_ParseWithMinerU,
+  IpcChannel.Zotero_GetMinerUStatus,
+  IpcChannel.Zotero_GetParsedMarkdown,
 
   // ====== Chat ======
 
@@ -266,6 +269,7 @@ export const ALLOWED_EVENT_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Agent_ContextZoteroRequest,
   IpcChannel.Zotero_SettingsChanged,
   IpcChannel.Zotero_Event,
+  IpcChannel.Zotero_MinerUProgress,
 
   IpcChannel.App_UpdateStatus,
   IpcChannel.AI_StreamChunk,

@@ -256,6 +256,12 @@ export function useZoteroPdf(): Uint8Array | null {
   return useServiceEvent(service.onDidChangeZoteroPdf, () => service.zoteroPdf?.pdfBytes ?? null);
 }
 
+/** Returns the current Zotero paper itemKey (right-panel "paper" tab), or null. */
+export function useZoteroPaperItemKey(): string | null {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangeZoteroPdf, () => service.zoteroPdf?.itemKey ?? null);
+}
+
 /** Returns file-scoped PDF preview state. */
 export function useFilePdfPreview(filePath: string | null) {
   const service = getUIService();

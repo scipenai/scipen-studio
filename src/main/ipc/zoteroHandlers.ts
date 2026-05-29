@@ -28,6 +28,7 @@ import {
 } from '../services/SecureStorageService';
 import { getBetterBibTexClient } from '../services/zotero/BetterBibTexClient';
 import { getZoteroDiscoveryService } from '../services/zotero/ZoteroDiscoveryService';
+import { getMinerUParseService } from '../services/zotero/MinerUParseService';
 import {
   getZoteroFullTextService,
   resolveZoteroPdfPath,
@@ -233,6 +234,26 @@ export function registerZoteroHandlers(): void {
     if (!pdfPath) throw new Error('NO_PDF_ATTACHMENT');
     const buf = await fs.readFile(pdfPath);
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+  });
+
+  // MinerU 精解析:fire-and-forget 启动,进度走 Zotero_MinerUProgress 事件;
+  // 内部已 try/catch + broadcast failed,这里只回执"已启动"。
+  registerHandler(IpcChannel.Zotero_ParseWithMinerU, async (rawItemKey) => {
+    if (typeof rawItemKey !== 'string' || rawItemKey.length === 0) {
+      throw new Error('invalid itemKey');
+    }
+    void getMinerUParseService().parse(rawItemKey);
+    return { started: true };
+  });
+
+  registerHandler(IpcChannel.Zotero_GetMinerUStatus, async (rawItemKey) => {
+    const key = typeof rawItemKey === 'string' ? rawItemKey : '';
+    return getMinerUParseService().getStatus(key);
+  });
+
+  registerHandler(IpcChannel.Zotero_GetParsedMarkdown, async (rawItemKey) => {
+    if (typeof rawItemKey !== 'string' || rawItemKey.length === 0) return null;
+    return getZoteroFullTextService().getParsedMarkdown(rawItemKey);
   });
 
   logger.info('[IPC] Zotero handlers registered');

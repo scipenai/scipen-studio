@@ -73,6 +73,7 @@
     "electron-log": "^5.4.3",
     "electron-store": "^11.0.2",
     "electron-updater": "^6.8.3",
+    "extract-zip": "~2.0.1",
     "framer-motion": "^12.23.24",
     "fs-extra": "^11.3.3",
     "github-slugger": "^2.0.0",

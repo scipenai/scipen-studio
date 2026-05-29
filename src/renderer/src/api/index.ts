@@ -746,6 +746,7 @@ import type {
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
 } from '../../../../shared/types/zotero';
+import type { MinerUParseStatusDTO } from '../../../../shared/types/zotero-mineru';
 import type {
   BibTexSyncStatusDTO,
   GetSnapshotRequestDTO,
@@ -782,10 +783,21 @@ export const zotero = {
   getFullText: (itemKey: string) =>
     invoke<ZoteroFullTextResultDTO>(IpcChannel.Zotero_GetFullText, itemKey),
   loadPdf: (itemKey: string) => invoke<ArrayBuffer>(IpcChannel.Zotero_LoadPdf, itemKey),
+  parseWithMinerU: (itemKey: string) =>
+    invoke<{ started: boolean }>(IpcChannel.Zotero_ParseWithMinerU, itemKey),
+  getMinerUStatus: (itemKey: string) =>
+    invoke<MinerUParseStatusDTO>(IpcChannel.Zotero_GetMinerUStatus, itemKey),
+  getParsedMarkdown: (itemKey: string) =>
+    invoke<{ markdown: string; parsedDir: string } | null>(
+      IpcChannel.Zotero_GetParsedMarkdown,
+      itemKey
+    ),
   onSettingsChanged: (callback: (settings: ZoteroSettingsDTO) => void) =>
     on(IpcChannel.Zotero_SettingsChanged, (data) => callback(data as ZoteroSettingsDTO)),
   onEvent: (callback: (event: ZoteroEventDTO) => void) =>
     on(IpcChannel.Zotero_Event, (data) => callback(data as ZoteroEventDTO)),
+  onMinerUProgress: (callback: (status: MinerUParseStatusDTO) => void) =>
+    on(IpcChannel.Zotero_MinerUProgress, (data) => callback(data as MinerUParseStatusDTO)),
 };
 
 // ==================== Unified exports ====================

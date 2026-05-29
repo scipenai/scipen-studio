@@ -119,6 +119,7 @@ export interface IPCEventContract {
   [IpcChannel.App_UpdateStatus]: import('./ipc/app-contract').UpdateStatus;
   [IpcChannel.Zotero_SettingsChanged]: ZoteroSettingsDTO;
   [IpcChannel.Zotero_Event]: ZoteroEventDTO;
+  [IpcChannel.Zotero_MinerUProgress]: import('./types/zotero-mineru').MinerUParseStatusDTO;
 }
 
 // ====== Type Utilities ======

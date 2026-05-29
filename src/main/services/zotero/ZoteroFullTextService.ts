@@ -22,7 +22,18 @@ const logger = createLogger('ZoteroFullTextService');
 /** 单篇返回上限,与 AtMentionResolver 的 @file 上限对齐(超出截断 + 标记)。 */
 const MAX_TEXT_BYTES = 200 * 1024;
 
-const CACHE_ROOT = path.join(os.homedir(), '.scipen-studio', 'zotero-cache');
+/** 全局论文缓存根(跨项目按 itemKey 去重)。MinerU 解析产物 / 全文抽取共用。 */
+export const ZOTERO_CACHE_ROOT = path.join(os.homedir(), '.scipen-studio', 'zotero-cache');
+
+/** 某条目的缓存目录 `<root>/<itemKey>/`。itemKey 是 8 位 [A-Z0-9],作目录名安全。 */
+export function zoteroItemCacheDir(itemKey: string): string {
+  return path.join(ZOTERO_CACHE_ROOT, itemKey);
+}
+
+/** MinerU 解析产物目录 `<itemKey>/parsed/`(full.md + content_list.json + images)。 */
+export function zoteroParsedDir(itemKey: string): string {
+  return path.join(zoteroItemCacheDir(itemKey), 'parsed');
+}
 
 interface CacheMeta {
   /** 源 PDF 绝对路径。 */
@@ -42,6 +53,14 @@ export class ZoteroFullTextService {
    */
   async getFullText(itemKey: string): Promise<ZoteroFullTextResultDTO> {
     if (!itemKey) return emptyResult();
+
+    // 档2 优先:MinerU 精解析产物(结构化 markdown,公式/表格保真)。无 mtime
+    // 失效 —— 解析烧配额,仅用户显式重解析时覆盖。
+    const mineru = await this.readMinerUCache(itemKey);
+    if (mineru !== null) {
+      const truncated = truncateToBytes(mineru, MAX_TEXT_BYTES);
+      return { text: truncated, truncated: truncated !== mineru, tier: 'mineru' };
+    }
 
     const pdfPath = await this.resolvePdfPath(itemKey);
     if (!pdfPath) {
@@ -83,8 +102,7 @@ export class ZoteroFullTextService {
   // ============================================================
 
   private cacheDir(itemKey: string): string {
-    // itemKey 是 8 位 [A-Z0-9],无路径分隔符;直接作目录名安全。
-    return path.join(CACHE_ROOT, itemKey);
+    return zoteroItemCacheDir(itemKey);
   }
 
   private async readCache(
@@ -104,6 +122,25 @@ export class ZoteroFullTextService {
     } catch {
       return null; // 无缓存 / 损坏 → 视为 miss。
     }
+  }
+
+  /** 读 MinerU 档(`parsed/full.md`)。存在即返回,无 mtime 校验。 */
+  private async readMinerUCache(itemKey: string): Promise<string | null> {
+    try {
+      return await fs.readFile(path.join(zoteroParsedDir(itemKey), 'full.md'), 'utf-8');
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 给「论文」面板的「解析 MD」视图用:返回完整 markdown(不截断)+ parsed 目录
+   * 绝对路径(renderer 据此把相对图片引用重写成 scipen-file:// URL)。无解析 → null。
+   */
+  async getParsedMarkdown(itemKey: string): Promise<{ markdown: string; parsedDir: string } | null> {
+    const markdown = await this.readMinerUCache(itemKey);
+    if (markdown === null) return null;
+    return { markdown, parsedDir: zoteroParsedDir(itemKey) };
   }
 
   private async extractAndCache(

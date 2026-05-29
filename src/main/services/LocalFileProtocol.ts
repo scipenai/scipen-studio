@@ -36,8 +36,13 @@ export const LOCAL_FILE_PROTOCOL = 'scipen-file';
 // Registration guard to avoid double registration.
 let isRegistered = false;
 
-// Allowlist of directories (default deny).
+// Allowlist of directories (default deny). Project-scoped — cleared on
+// project switch.
 const allowedDirectories: Set<string> = new Set();
+
+// Permanent allowlist — survives project switches (e.g. the global Zotero
+// cache root, which is independent of any project).
+const permanentAllowedDirectories: Set<string> = new Set();
 
 // ====== Public API ======
 
@@ -52,7 +57,17 @@ export function addAllowedDirectory(dirPath: string): void {
 }
 
 /**
- * Clears all allowlisted directories.
+ * Adds a directory to the permanent allowlist (survives clearAllowedDirectories).
+ * Use for app-global, project-independent dirs like the Zotero cache root.
+ */
+export function addPermanentAllowedDirectory(dirPath: string): void {
+  const normalized = path.normalize(dirPath).toLowerCase();
+  permanentAllowedDirectories.add(normalized);
+  logger.info(`[LocalFileProtocol] Permanent allowed directory added: ${normalized}`);
+}
+
+/**
+ * Clears project-scoped allowlisted directories. Permanent entries are kept.
  * @sideeffect Removes allowlist and logs access policy change
  */
 export function clearAllowedDirectories(): void {
@@ -68,7 +83,7 @@ export function clearAllowedDirectories(): void {
  */
 function isPathAllowed(filePath: string): boolean {
   // Default deny until at least one allowlist entry is configured.
-  if (allowedDirectories.size === 0) {
+  if (allowedDirectories.size === 0 && permanentAllowedDirectories.size === 0) {
     logger.warn('[LocalFileProtocol] Access denied: allowlist is empty');
     return false;
   }
@@ -76,6 +91,11 @@ function isPathAllowed(filePath: string): boolean {
   const normalized = path.normalize(filePath).toLowerCase();
 
   for (const allowedDir of allowedDirectories) {
+    if (normalized === allowedDir || normalized.startsWith(allowedDir + path.sep)) {
+      return true;
+    }
+  }
+  for (const allowedDir of permanentAllowedDirectories) {
     if (normalized === allowedDir || normalized.startsWith(allowedDir + path.sep)) {
       return true;
     }

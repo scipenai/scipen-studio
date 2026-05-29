@@ -16,6 +16,7 @@ import type {
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
 } from '../../../shared/types/zotero';
+import type { MinerUParseStatusDTO } from '../../../shared/types/zotero-mineru';
 import type {
   BibTexSyncStatusDTO,
   GetSnapshotRequestDTO,
@@ -105,6 +106,23 @@ export const zoteroApi = {
   /** Load one item's PDF attachment bytes for in-app rendering. */
   loadPdf: (itemKey: string): Promise<ArrayBuffer> =>
     ipcRenderer.invoke(IpcChannel.Zotero_LoadPdf, itemKey),
+
+  /** Start MinerU precise-parse (fire-and-forget; progress via onMinerUProgress). */
+  parseWithMinerU: (itemKey: string): Promise<{ started: boolean }> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_ParseWithMinerU, itemKey),
+
+  /** Query current MinerU parse status for one item. */
+  getMinerUStatus: (itemKey: string): Promise<MinerUParseStatusDTO> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_GetMinerUStatus, itemKey),
+
+  /** Read an item's MinerU-parsed markdown + parsed dir (human MD view). */
+  getParsedMarkdown: (
+    itemKey: string
+  ): Promise<{ markdown: string; parsedDir: string } | null> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_GetParsedMarkdown, itemKey),
+
+  /** Subscribe to MinerU parse progress broadcasts. */
+  onMinerUProgress: createSafeListener<MinerUParseStatusDTO>(IpcChannel.Zotero_MinerUProgress),
 
   /**
    * 订阅 Zotero 设置变更事件。

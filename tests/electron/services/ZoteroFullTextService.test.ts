@@ -58,6 +58,9 @@ describe('ZoteroFullTextService', () => {
   beforeEach(() => {
     mocks.stat.mockReset();
     mocks.readFile.mockReset();
+    // 默认 reject —— getFullText 开头会先读 parsed/full.md(MinerU 档),
+    // 未显式 mock 时视为「无 MinerU 缓存」,落回 local 流程。
+    mocks.readFile.mockRejectedValue(new Error('default miss'));
     mocks.mkdir.mockClear();
     mocks.writeFile.mockClear();
     mocks.pdfParse.mockReset();
@@ -79,6 +82,7 @@ describe('ZoteroFullTextService', () => {
   it('extracts + caches on miss (tier:local)', async () => {
     mocks.stat.mockResolvedValue({ mtimeMs: 1000, size: 500 }); // pdf stat
     mocks.readFile
+      .mockRejectedValueOnce(new Error('no mineru')) // parsed/full.md → 无 mineru 档
       .mockRejectedValueOnce(new Error('no meta')) // meta.json read → cache miss
       .mockResolvedValueOnce(Buffer.from('%PDF-fake')); // pdf bytes
     mocks.pdfParse.mockResolvedValue({ text: 'Full paper body.' });
@@ -103,6 +107,7 @@ describe('ZoteroFullTextService', () => {
       extractedAt: '2026-01-01T00:00:00.000Z',
     });
     mocks.readFile
+      .mockRejectedValueOnce(new Error('no mineru')) // parsed/full.md → 无 mineru 档
       .mockResolvedValueOnce(meta) // meta.json
       .mockResolvedValueOnce('Cached body.'); // content.txt
 
@@ -122,6 +127,7 @@ describe('ZoteroFullTextService', () => {
       extractedAt: '2026-01-01T00:00:00.000Z',
     });
     mocks.readFile
+      .mockRejectedValueOnce(new Error('no mineru')) // parsed/full.md → 无 mineru 档
       .mockResolvedValueOnce(staleMeta) // meta.json → stale
       .mockResolvedValueOnce(Buffer.from('%PDF-new')); // pdf bytes
     mocks.pdfParse.mockResolvedValue({ text: 'New body.' });
@@ -136,6 +142,7 @@ describe('ZoteroFullTextService', () => {
   it('truncates oversized text + flags truncated', async () => {
     mocks.stat.mockResolvedValue({ mtimeMs: 1, size: 9 });
     mocks.readFile
+      .mockRejectedValueOnce(new Error('no mineru'))
       .mockRejectedValueOnce(new Error('no meta'))
       .mockResolvedValueOnce(Buffer.from('%PDF'));
     // 300KB text > 200KB cap
@@ -157,6 +164,7 @@ describe('ZoteroFullTextService', () => {
     };
     mocks.stat.mockResolvedValue({ mtimeMs: 1, size: 9 });
     mocks.readFile
+      .mockRejectedValueOnce(new Error('no mineru'))
       .mockRejectedValueOnce(new Error('no meta'))
       .mockResolvedValueOnce(Buffer.from('%PDF'));
     mocks.pdfParse.mockResolvedValue({ text: 'Linked body.' });
@@ -167,5 +175,19 @@ describe('ZoteroFullTextService', () => {
     expect(res.text).toBe('Linked body.');
     expect(mocks.stat).toHaveBeenCalledWith('/abs/linked/paper.pdf');
     expect(mocks.resolveDataDir).not.toHaveBeenCalled();
+  });
+
+  it('serves tier:mineru when parsed/full.md exists (skips pdf-parse + attachments)', async () => {
+    // 第一次 readFile(parsed/full.md)成功 → 直接走 mineru 档,不碰 PDF。
+    mocks.readFile.mockReset();
+    mocks.readFile.mockResolvedValueOnce('# Parsed\n\nStructured body.');
+
+    const svc = new ZoteroFullTextService(makeApi([PDF_ATTACHMENT]));
+    const res = await svc.getFullText('ITEM1');
+
+    expect(res.tier).toBe('mineru');
+    expect(res.text).toBe('# Parsed\n\nStructured body.');
+    expect(mocks.pdfParse).not.toHaveBeenCalled();
+    expect(mocks.stat).not.toHaveBeenCalled();
   });
 });

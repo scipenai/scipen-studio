@@ -913,6 +913,9 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.Zotero_GetItemAnnotations, z.tuple([z.string().min(1)])],
   [IpcChannel.Zotero_GetFullText, z.tuple([z.string().min(1)])],
   [IpcChannel.Zotero_LoadPdf, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_ParseWithMinerU, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_GetMinerUStatus, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_GetParsedMarkdown, z.tuple([z.string().min(1)])],
   // 部分更新 settings:strict 模式只接受白名单字段,未知字段被 IPC 边界拒绝
   // 而非静默持久化。integrationEnabled 是 D 方案主开关,必须在白名单内。
   [

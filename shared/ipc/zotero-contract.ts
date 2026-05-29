@@ -14,6 +14,7 @@ import type {
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
 } from '../types/zotero';
+import type { MinerUParseStatusDTO } from '../types/zotero-mineru';
 import type {
   BibTexSyncStatusDTO,
   GetSnapshotRequestDTO,
@@ -90,5 +91,17 @@ export interface IPCZoteroContract {
   [IpcChannel.Zotero_LoadPdf]: {
     args: [itemKey: string];
     result: ArrayBuffer;
+  };
+  [IpcChannel.Zotero_ParseWithMinerU]: {
+    args: [itemKey: string];
+    result: { started: boolean };
+  };
+  [IpcChannel.Zotero_GetMinerUStatus]: {
+    args: [itemKey: string];
+    result: MinerUParseStatusDTO;
+  };
+  [IpcChannel.Zotero_GetParsedMarkdown]: {
+    args: [itemKey: string];
+    result: { markdown: string; parsedDir: string } | null;
   };
 }
