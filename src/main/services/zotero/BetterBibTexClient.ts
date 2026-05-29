@@ -61,13 +61,6 @@ export interface BBTPingResult {
   error?: string;
 }
 
-/** Minimal BBT citation entry shape used by the wizard / index. */
-export interface BBTCitationEntry {
-  citationKey: string;
-  itemKey: string;
-  libraryID: number;
-}
-
 export class BetterBibTexClient {
   private readonly endpoint: string;
   private requestId = 0;
@@ -99,31 +92,6 @@ export class BetterBibTexClient {
       logger.warn('[BBT] ping failed', { error: reason });
       return { ok: false, error: reason };
     }
-  }
-
-  /**
-   * Free-text search across the BBT-indexed library. Returns entries that
-   * carry their human-readable citation key, ready to feed into the @cite
-   * dropdown.
-   */
-  async searchItems(query: string): Promise<BBTCitationEntry[]> {
-    if (query.trim().length === 0) {
-      return [];
-    }
-    // BBT's `item.search` returns a tuple-style array per the docs.
-    const raw = await this.call<unknown[]>('item.search', [query]);
-    return normalizeEntries(raw);
-  }
-
-  /**
-   * Pull every citation key in the library. Intended for the M1 cold-boot
-   * index build in `ZoteroBibIndex` (the Web Worker batch).
-   */
-  async getAllCitations(): Promise<BBTCitationEntry[]> {
-    // BBT exposes `item.citationkey` for bulk citation key dumps. Passing
-    // an empty selector returns the entire library.
-    const raw = await this.call<unknown[]>('item.citationkey', [[]]);
-    return normalizeEntries(raw);
   }
 
   /**
@@ -197,40 +165,6 @@ export class BetterBibTexClient {
     }
     return json.result;
   }
-}
-
-/**
- * BBT returns heterogeneous shapes — sometimes objects, sometimes tuples
- * `[citationKey, itemKey, libraryID]`. We normalize to a single record
- * type so callers don't have to branch.
- */
-function normalizeEntries(raw: unknown[]): BBTCitationEntry[] {
-  const out: BBTCitationEntry[] = [];
-  if (!Array.isArray(raw)) return out;
-
-  for (const entry of raw) {
-    if (Array.isArray(entry) && entry.length >= 2) {
-      out.push({
-        citationKey: String(entry[0] ?? ''),
-        itemKey: String(entry[1] ?? ''),
-        libraryID: typeof entry[2] === 'number' ? entry[2] : 0,
-      });
-      continue;
-    }
-    if (entry && typeof entry === 'object') {
-      const rec = entry as Record<string, unknown>;
-      const ck = rec.citationKey ?? rec.citekey ?? rec.key;
-      const ik = rec.itemKey ?? rec.zoteroKey ?? rec.id;
-      if (ck && ik) {
-        out.push({
-          citationKey: String(ck),
-          itemKey: String(ik),
-          libraryID: typeof rec.libraryID === 'number' ? rec.libraryID : 0,
-        });
-      }
-    }
-  }
-  return out;
 }
 
 let singleton: BetterBibTexClient | null = null;

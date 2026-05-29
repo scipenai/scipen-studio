@@ -37,7 +37,6 @@ interface FakeLocalApi {
 interface FakeBbt {
   /** 主路径仅用 ping —— citationKey 由 LocalApi 从 data.citationKey 直接拿。 */
   ping: () => Promise<{ ok: boolean; version?: string; error?: string }>;
-  getAllCitations: () => Promise<Array<{ citationKey: string; itemKey: string; libraryID: number }>>;
 }
 
 function makeOrchestrator(
@@ -57,7 +56,6 @@ function makeOrchestrator(
     } as never,
     bbt: {
       ping: bbt.ping ?? (async () => ({ ok: true, version: '7.0' })),
-      getAllCitations: bbt.getAllCitations ?? (async () => []),
     } as never,
     bus,
     index,
@@ -166,7 +164,7 @@ describe('ZoteroOrchestrator / refresh + cooldown', () => {
           return [item('AAA')];
         },
       } as never,
-      bbt: { getAllCitations: async () => [] } as never,
+      bbt: { ping: async () => ({ ok: true, version: '7.0' }) } as never,
       bus,
       index: new ZoteroIndex(),
       now: () => now,
@@ -200,7 +198,7 @@ describe('ZoteroOrchestrator / refresh + cooldown', () => {
           return nth === 1 ? [item('AAA')] : [item('AAA'), item('BBB')];
         },
       } as never,
-      bbt: { getAllCitations: async () => [] } as never,
+      bbt: { ping: async () => ({ ok: true, version: '7.0' }) } as never,
       bus,
       index: new ZoteroIndex(),
       now: () => now,

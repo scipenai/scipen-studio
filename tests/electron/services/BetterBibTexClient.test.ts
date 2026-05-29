@@ -1,8 +1,8 @@
 /**
  * @file BetterBibTexClient.test.ts
  * @description Unit tests for the Better BibTeX JSON-RPC client. Covers
- *   ping success/failure, search/getAllCitations normalization across
- *   the two shapes BBT emits (tuples vs objects), and timeout handling.
+ *   ping success/failure, getCslByKey, the shared call() envelope/id
+ *   plumbing, and timeout handling.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -108,55 +108,6 @@ describe('BetterBibTexClient', () => {
     });
   });
 
-  describe('searchItems', () => {
-    it('returns [] for empty query without making an RPC call', async () => {
-      const { fetchSpy } = installFetchMock(() => jsonResponse({}));
-      const client = new BetterBibTexClient();
-      const result = await client.searchItems('   ');
-      expect(result).toEqual([]);
-      expect(fetchSpy).not.toHaveBeenCalled();
-    });
-
-    it('normalizes tuple-style BBT results', async () => {
-      installFetchMock(() =>
-        jsonResponse({
-          jsonrpc: '2.0',
-          id: 1,
-          result: [
-            ['smith2024deep', '8FXYZ123', 1],
-            ['jones2023nlp', 'A2BC4567', 1],
-          ],
-        })
-      );
-      const client = new BetterBibTexClient();
-      const result = await client.searchItems('learning');
-      expect(result).toEqual([
-        { citationKey: 'smith2024deep', itemKey: '8FXYZ123', libraryID: 1 },
-        { citationKey: 'jones2023nlp', itemKey: 'A2BC4567', libraryID: 1 },
-      ]);
-    });
-
-    it('normalizes object-style BBT results', async () => {
-      installFetchMock(() =>
-        jsonResponse({
-          jsonrpc: '2.0',
-          id: 1,
-          result: [{ citationKey: 'doe2025', itemKey: 'ZZ999', libraryID: 2 }],
-        })
-      );
-      const client = new BetterBibTexClient();
-      const result = await client.searchItems('doe');
-      expect(result).toEqual([{ citationKey: 'doe2025', itemKey: 'ZZ999', libraryID: 2 }]);
-    });
-
-    it('returns [] when the result is not an array', async () => {
-      installFetchMock(() => jsonResponse({ jsonrpc: '2.0', id: 1, result: null }));
-      const client = new BetterBibTexClient();
-      const result = await client.searchItems('whatever');
-      expect(result).toEqual([]);
-    });
-  });
-
   describe('getCslByKey', () => {
     it('returns parsed CSL when BBT replies', async () => {
       const csl = { id: 'smith2024deep', type: 'article-journal', title: 'Deep Learning' };
@@ -187,25 +138,26 @@ describe('BetterBibTexClient', () => {
   });
 
   describe('request shape', () => {
+    // 通过 live 方法 exportBibTex 验证共用的 call() 管线(envelope 格式 + id 自增)。
     it('sends a proper JSON-RPC 2.0 envelope', async () => {
       const { captured } = installFetchMock(() =>
-        jsonResponse({ jsonrpc: '2.0', id: 1, result: [] })
+        jsonResponse({ jsonrpc: '2.0', id: 1, result: '' })
       );
       const client = new BetterBibTexClient();
-      await client.searchItems('attention');
+      await client.exportBibTex(['smith2024deep'], 'BetterBibLaTeX');
       expect(captured).toHaveLength(1);
       expect(captured[0]?.body.jsonrpc).toBe('2.0');
-      expect(captured[0]?.body.method).toBe('item.search');
-      expect(captured[0]?.body.params).toEqual(['attention']);
+      expect(captured[0]?.body.method).toBe('item.export');
+      expect(captured[0]?.body.params).toEqual([['smith2024deep'], 'BetterBibLaTeX']);
     });
 
     it('increments the request id across calls', async () => {
       const { captured } = installFetchMock(() =>
-        jsonResponse({ jsonrpc: '2.0', id: 1, result: [] })
+        jsonResponse({ jsonrpc: '2.0', id: 1, result: '' })
       );
       const client = new BetterBibTexClient();
-      await client.searchItems('a');
-      await client.searchItems('b');
+      await client.exportBibTex(['a']);
+      await client.exportBibTex(['b']);
       expect(captured[0]?.body.id).toBe(1);
       expect(captured[1]?.body.id).toBe(2);
     });

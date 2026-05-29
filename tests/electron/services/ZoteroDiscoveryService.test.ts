@@ -50,8 +50,6 @@ function makeApi(pingResult: { ok: boolean; version?: number; error?: string }):
 function makeBBT(pingResult: { ok: boolean; version?: string; error?: string }): BetterBibTexClient {
   return {
     ping: vi.fn(async () => pingResult),
-    searchItems: vi.fn(),
-    getAllCitations: vi.fn(),
     getCslByKey: vi.fn(),
     getEndpoint: () => 'http://127.0.0.1:23119/better-bibtex/json-rpc',
   } as unknown as BetterBibTexClient;
