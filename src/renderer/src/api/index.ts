@@ -758,6 +758,11 @@ import type {
   ZoteroDiagnosticsDTO,
   ZoteroEventDTO,
 } from '../../../../shared/types/zotero-events';
+import type {
+  EmbeddingIndexStatusDTO,
+  RecommendRequestDTO,
+  ZoteroEmbeddingResultDTO,
+} from '../../../../shared/types/zotero-embedding';
 
 export const zotero = {
   getSettings: () => invoke<ZoteroSettingsDTO>(IpcChannel.Zotero_GetSettings),
@@ -803,6 +808,14 @@ export const zotero = {
     on(IpcChannel.Zotero_Event, (data) => callback(data as ZoteroEventDTO)),
   onMinerUProgress: (callback: (status: MinerUParseStatusDTO) => void) =>
     on(IpcChannel.Zotero_MinerUProgress, (data) => callback(data as MinerUParseStatusDTO)),
+  getEmbeddingStatus: () =>
+    invoke<EmbeddingIndexStatusDTO>(IpcChannel.Zotero_GetEmbeddingStatus),
+  rebuildEmbeddingIndex: () =>
+    invoke<{ started: boolean }>(IpcChannel.Zotero_RebuildEmbeddingIndex),
+  queryRecommendation: (req: RecommendRequestDTO) =>
+    invoke<ZoteroEmbeddingResultDTO>(IpcChannel.Zotero_QueryRecommendation, req),
+  onEmbeddingProgress: (callback: (status: EmbeddingIndexStatusDTO) => void) =>
+    on(IpcChannel.Zotero_EmbeddingProgress, (data) => callback(data as EmbeddingIndexStatusDTO)),
 };
 
 // ==================== Unified exports ====================

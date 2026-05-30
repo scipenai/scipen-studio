@@ -36,6 +36,7 @@ import {
 import { getZoteroLocalApiClient } from '../services/zotero/ZoteroLocalApiClient';
 import { getZoteroOrchestrator } from '../services/zotero/ZoteroOrchestrator';
 import { getBibTexSyncService } from '../services/zotero/BibTexSyncService';
+import { getEmbeddingIndexService } from '../services/zotero/EmbeddingIndexService';
 import { registerHandler } from './typedIpc';
 
 const logger = createLogger('ZoteroHandlers');
@@ -120,9 +121,13 @@ function applySettingsPatch(patch: ZoteroSettingsPatchDTO): { success: boolean }
   }
   if (isValidEmbeddingProvider(patch.embeddingProvider)) {
     configManager.set(ConfigKeys.ZoteroEmbeddingProvider, patch.embeddingProvider);
+    // provider 变 → modelId 变 → 旧向量整体失效,清空重建。
+    getEmbeddingIndexService().invalidate('provider-change');
   }
   if (typeof patch.activeRecommendation === 'boolean') {
     configManager.set(ConfigKeys.ZoteroActiveRecommendation, patch.activeRecommendation);
+    // 翻 true → lazy 建库;翻 false → ensureBuilt 内部转 disabled。
+    void getEmbeddingIndexService().ensureBuilt();
   }
   if (patch.bibTexSync) {
     configManager.set(ConfigKeys.ZoteroBibTexSyncEnabled, patch.bibTexSync.enabled);
@@ -155,12 +160,16 @@ export function registerZoteroHandlers(): void {
   });
   registerHandler(IpcChannel.Zotero_SetEmbeddingApiKey, (token) => {
     const ok = setZoteroEmbeddingApiKey(token);
-    if (ok) broadcastSettingsChanged(readSettings());
+    if (ok) {
+      broadcastSettingsChanged(readSettings());
+      getEmbeddingIndexService().invalidate('key-change'); // 新 key → 重建
+    }
     return { success: ok };
   });
   registerHandler(IpcChannel.Zotero_ClearEmbeddingApiKey, () => {
     deleteZoteroEmbeddingApiKey();
     broadcastSettingsChanged(readSettings());
+    getEmbeddingIndexService().invalidate('key-change');
     return { success: true };
   });
 
@@ -260,6 +269,24 @@ export function registerZoteroHandlers(): void {
     if (typeof rawItemKey !== 'string' || rawItemKey.length === 0) return null;
     return getZoteroFullTextService().getContentList(rawItemKey);
   });
+
+  // ---- Embedding 主动推荐(M3 标尺5)----
+  // 索引状态变化广播到所有窗口(建库进度 / no-key / error),renderer 据此更新 UI。
+  getEmbeddingIndexService().setStatusListener((status) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send(IpcChannel.Zotero_EmbeddingProgress, status);
+    }
+  });
+  registerHandler(IpcChannel.Zotero_GetEmbeddingStatus, () =>
+    getEmbeddingIndexService().getStatus()
+  );
+  registerHandler(IpcChannel.Zotero_RebuildEmbeddingIndex, () => {
+    getEmbeddingIndexService().invalidate('manual');
+    return { started: true };
+  });
+  registerHandler(IpcChannel.Zotero_QueryRecommendation, (req) =>
+    getEmbeddingIndexService().recommend(req)
+  );
 
   logger.info('[IPC] Zotero handlers registered');
 }

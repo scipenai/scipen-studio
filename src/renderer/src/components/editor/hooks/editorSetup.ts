@@ -24,6 +24,7 @@ import { createLogger } from '../../../services/LogService';
 import { getSyncTeXService } from '../../../services/SyncTeXService';
 import { findCitationKeyAt } from '../citationKeyScan';
 import { getZoteroBibMirror } from '../../../services/zotero/ZoteroBibMirror';
+import { getActiveRecommendationService } from '../../../services/zotero/ActiveRecommendationService';
 import {
   getEditorService,
   getSettingsService,
@@ -127,6 +128,18 @@ export function setupContentChangeTracking(
 
     resetPartialAccept();
   });
+}
+
+/**
+ * 挂接 M3 主动文献推荐(标尺5)。**独立于 setupContentChangeTracking** —— 该函数
+ * 是每 keystroke 的高频热路径,推荐触发绝不能塞进去。这里把 editor 交给
+ * ActiveRecommendationService,由它做 1.5s debounce + 段落 hash 守卫后才查询。
+ * @returns Disposable,编辑器销毁时解绑监听。
+ */
+export function setupActiveRecommendation(editor: Editor): { dispose: () => void } {
+  const svc = getActiveRecommendationService();
+  svc.attachEditor(editor);
+  return { dispose: () => svc.dispose() };
 }
 
 let syncTexDebounceTimer: ReturnType<typeof setTimeout> | null = null;

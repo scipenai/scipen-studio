@@ -232,6 +232,14 @@ export enum IpcChannel {
   Zotero_GetContentList = 'zotero:get-content-list',
   /** Broadcast: MinerU parse progress (MinerUParseStatusDTO). */
   Zotero_MinerUProgress = 'zotero:mineru-progress',
+  /** Read embedding index status (M3 active recommendation; state/progress/modelId). */
+  Zotero_GetEmbeddingStatus = 'zotero:get-embedding-status',
+  /** Force a full embedding index rebuild (fire-and-forget; progress via event). */
+  Zotero_RebuildEmbeddingIndex = 'zotero:rebuild-embedding-index',
+  /** Query active citation recommendations for the current paragraph (embed+cosine+rerank). */
+  Zotero_QueryRecommendation = 'zotero:query-recommendation',
+  /** Broadcast: embedding index status changed (EmbeddingIndexStatusDTO). */
+  Zotero_EmbeddingProgress = 'zotero:embedding-progress',
   /** Broadcast: any Zotero setting changed; payload is the same shape as GetSettings. */
   Zotero_SettingsChanged = 'zotero:settings-changed',
   /**

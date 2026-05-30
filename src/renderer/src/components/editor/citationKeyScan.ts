@@ -71,5 +71,16 @@ export function extractKeyAt(match: RegExpExecArray, col: number): string | null
   return null;
 }
 
+/**
+ * 反向:给定 citation key + 语言,返回应插入编辑器的引用文本。与上面的扫描
+ * regex 同源(「什么算 cite」零漂移):latex `\cite{}` / typst `@key` /
+ * markdown pandoc `[@key]`。未知语言退化为 latex `\cite{}`(最通用)。
+ */
+export function formatCitationInsert(citationKey: string, languageId: string): string {
+  if (languageId === 'typst') return `@${citationKey}`;
+  if (languageId === 'markdown') return `[@${citationKey}]`;
+  return `\\cite{${citationKey}}`;
+}
+
 /** 测试用导出。 */
-export const _internal = { findCitationKeyAt, extractKeyAt };
+export const _internal = { findCitationKeyAt, extractKeyAt, formatCitationInsert };

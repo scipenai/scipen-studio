@@ -22,6 +22,11 @@ import type {
   RefreshResultDTO,
   ZoteroDiagnosticsDTO,
 } from '../types/zotero-events';
+import type {
+  EmbeddingIndexStatusDTO,
+  RecommendRequestDTO,
+  ZoteroEmbeddingResultDTO,
+} from '../types/zotero-embedding';
 
 export interface IPCZoteroContract {
   [IpcChannel.Zotero_GetSettings]: {
@@ -107,5 +112,17 @@ export interface IPCZoteroContract {
   [IpcChannel.Zotero_GetContentList]: {
     args: [itemKey: string];
     result: MinerUContentList | null;
+  };
+  [IpcChannel.Zotero_GetEmbeddingStatus]: {
+    args: [];
+    result: EmbeddingIndexStatusDTO;
+  };
+  [IpcChannel.Zotero_RebuildEmbeddingIndex]: {
+    args: [];
+    result: { started: boolean };
+  };
+  [IpcChannel.Zotero_QueryRecommendation]: {
+    args: [req: RecommendRequestDTO];
+    result: ZoteroEmbeddingResultDTO;
   };
 }

@@ -18,6 +18,11 @@ import type {
 } from '../../../shared/types/zotero';
 import type { MinerUContentList, MinerUParseStatusDTO } from '../../../shared/types/zotero-mineru';
 import type {
+  EmbeddingIndexStatusDTO,
+  RecommendRequestDTO,
+  ZoteroEmbeddingResultDTO,
+} from '../../../shared/types/zotero-embedding';
+import type {
   BibTexSyncStatusDTO,
   GetSnapshotRequestDTO,
   GetSnapshotResultDTO,
@@ -127,6 +132,23 @@ export const zoteroApi = {
 
   /** Subscribe to MinerU parse progress broadcasts. */
   onMinerUProgress: createSafeListener<MinerUParseStatusDTO>(IpcChannel.Zotero_MinerUProgress),
+
+  /** Read embedding index status (M3 active recommendation). */
+  getEmbeddingStatus: (): Promise<EmbeddingIndexStatusDTO> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_GetEmbeddingStatus),
+
+  /** Force a full embedding index rebuild (fire-and-forget; progress via event). */
+  rebuildEmbeddingIndex: (): Promise<{ started: boolean }> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_RebuildEmbeddingIndex),
+
+  /** Query active citation recommendations for the current paragraph. */
+  queryRecommendation: (req: RecommendRequestDTO): Promise<ZoteroEmbeddingResultDTO> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_QueryRecommendation, req),
+
+  /** Subscribe to embedding index status broadcasts. */
+  onEmbeddingProgress: createSafeListener<EmbeddingIndexStatusDTO>(
+    IpcChannel.Zotero_EmbeddingProgress
+  ),
 
   /**
    * 订阅 Zotero 设置变更事件。

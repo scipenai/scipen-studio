@@ -120,6 +120,7 @@ export interface IPCEventContract {
   [IpcChannel.Zotero_SettingsChanged]: ZoteroSettingsDTO;
   [IpcChannel.Zotero_Event]: ZoteroEventDTO;
   [IpcChannel.Zotero_MinerUProgress]: import('./types/zotero-mineru').MinerUParseStatusDTO;
+  [IpcChannel.Zotero_EmbeddingProgress]: import('./types/zotero-embedding').EmbeddingIndexStatusDTO;
 }
 
 // ====== Type Utilities ======

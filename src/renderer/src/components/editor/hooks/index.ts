@@ -17,5 +17,6 @@ export {
   setupContentChangeTracking,
   setupSyncTexClick,
   setupShortcuts,
+  setupActiveRecommendation,
   initializeLSPDocument,
 } from './editorSetup';

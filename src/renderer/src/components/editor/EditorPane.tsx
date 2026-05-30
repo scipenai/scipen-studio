@@ -46,6 +46,7 @@ import {
   setupScrollTracking,
   setupShortcuts,
   setupSyncTexClick,
+  setupActiveRecommendation,
   useEditorEvents,
   useDiffReview,
   useCompilation,
@@ -270,6 +271,7 @@ export const EditorPane: React.FC = React.memo(() => {
       setupSyncTexClick(editor);
       setupShortcuts(editor, monacoInstance);
       setupContentChangeTracking(editor, isProgrammaticUpdateRef);
+      disposablesRef.current.add(setupActiveRecommendation(editor));
 
       if (editorSettings.autoCompletion) {
         try {
