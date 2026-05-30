@@ -46,6 +46,8 @@ export class ActiveRecommendationService {
   private indexState: EmbeddingIndexState = 'disabled';
   private items: ZoteroEmbeddingResultItemDTO[] = [];
   private loading = false;
+  /** 当前段落对全库可引用文献的相关度分(citationKey → score),供 @cite 下拉语义重排。 */
+  private citationScores: Map<string, number> | null = null;
 
   private listeners = new Set<Listener>();
   private stateSnapshot: RecommendationState = { indexState: 'disabled', items: [], loading: false };
@@ -121,6 +123,10 @@ export class ActiveRecommendationService {
       });
       // 过期响应(用户已移到新段落)丢弃。
       if (turn !== this.turnId || res.paragraphHash !== this.lastHash) return;
+      // 仅在本次带回 scores 时更新缓存,查询失败/无 scores 保留上次,@cite 下拉不瞬间失序。
+      if (res.scores) {
+        this.citationScores = new Map(res.scores.map((s) => [s.citationKey, s.score]));
+      }
       this.items = res.items;
       this.loading = false;
       this.bump();
@@ -170,6 +176,15 @@ export class ActiveRecommendationService {
 
   getState(): RecommendationState {
     return this.stateSnapshot;
+  }
+
+  /**
+   * @cite 补全下拉的语义重排数据:当前段落对全库可引用文献的相关度分
+   * (citationKey → score)。复用 标尺5 最近一次段落嵌入,键入热路径纯内存
+   * 同步读、零 IPC。null(未开 / 未 ready / 尚未嵌段)→ 下拉回落现状排序。
+   */
+  getCitationRanking(): Map<string, number> | null {
+    return this.citationScores;
   }
 
   private bump(): void {

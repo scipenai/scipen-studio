@@ -122,4 +122,55 @@ describe('ActiveRecommendationService', () => {
     expect(h.edits).toHaveLength(1);
     expect(h.edits[0].text).toBe('@smith2024');
   });
+
+  it('caches citation ranking from scores for @cite reorder', async () => {
+    const h = makeEditor([PARAGRAPH]);
+    queryMock.mockImplementationOnce(async (req: { paragraph: string }) => ({
+      items: [{ itemKey: 'AAAA1111', title: 'A', score: 0.9, reranked: false }],
+      paragraphHash: hashParagraph(req.paragraph),
+      scores: [
+        { citationKey: 'attn2017', score: 0.91 },
+        { citationKey: 'gnn2018', score: 0.42 },
+      ],
+    }));
+    const svc = new ActiveRecommendationService();
+    svc.attachEditor(h.editor as never);
+    setReady();
+
+    expect(svc.getCitationRanking()).toBeNull(); // 查询前无缓存
+    h.fireContent();
+    await vi.advanceTimersByTimeAsync(1500);
+
+    const ranking = svc.getCitationRanking();
+    expect(ranking?.get('attn2017')).toBe(0.91);
+    expect(ranking?.get('gnn2018')).toBe(0.42);
+  });
+
+  it('retains previous ranking when a later query omits scores', async () => {
+    const h = makeEditor([PARAGRAPH]);
+    queryMock.mockImplementationOnce(async (req: { paragraph: string }) => ({
+      items: [],
+      paragraphHash: hashParagraph(req.paragraph),
+      scores: [{ citationKey: 'attn2017', score: 0.91 }],
+    }));
+    const svc = new ActiveRecommendationService();
+    svc.attachEditor(h.editor as never);
+    setReady();
+
+    h.fireContent();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(svc.getCitationRanking()?.get('attn2017')).toBe(0.91);
+
+    // 第二段(不同文本绕过 hash 守卫)→ 查询失败,无 scores → 应保留上次缓存。
+    const h2 = makeEditor(['A completely different paragraph about graph theory and topology.']);
+    svc.attachEditor(h2.editor as never);
+    setReady();
+    queryMock.mockImplementationOnce(async () => {
+      throw new Error('network down');
+    });
+    h2.fireContent();
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(svc.getCitationRanking()?.get('attn2017')).toBe(0.91); // 未被清空
+  });
 });

@@ -495,7 +495,7 @@
   "zoteroEmbedding": {
     "sectionTitle": "主动文献推荐",
     "toggleLabel": "写作时智能推荐文献",
-    "toggleDesc": "停顿时根据当前段落语义,在左栏浮现可能引用的文献(默认关)",
+    "toggleDesc": "停顿时根据当前段落语义,在左栏浮现可能引用的文献,并同时优化 @cite 补全排序(默认关)",
     "statusLabel": "索引状态",
     "buildProgress": "建库中 {{embedded}}/{{total}}",
     "configureKey": "配置 Embedding Key",

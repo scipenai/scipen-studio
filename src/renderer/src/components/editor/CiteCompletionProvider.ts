@@ -18,9 +18,18 @@
 import type { Monaco } from '@monaco-editor/react';
 import type * as monaco from 'monaco-editor';
 import { getZoteroBibMirror } from '../../services/zotero/ZoteroBibMirror';
+import type { BibSearchHit } from '../../services/zotero/bibSearchScoring';
+import { getActiveRecommendationService } from '../../services/zotero/ActiveRecommendationService';
 
 const LANGUAGE_IDS = ['typst', 'markdown'] as const;
 const MAX_SUGGESTIONS = 20;
+
+/**
+ * citation-key 命中档阈值(对齐 bibSearchScoring 的 PREFIX=1000 / EXACT=2000)。
+ * ≥ 此值 = 用户在敲 key,保持键入序、语义分不参与;< 此值 = 题名/作者词模糊找,
+ * 才按段落语义分重排。token(≤15)/ substring 档均落在阈值下。
+ */
+const CK_PREFIX_TIER = 1000;
 
 /**
  * 光标前匹配触发位置:
@@ -117,6 +126,8 @@ function buildSuggestions(
   const hits = mirror.searchByQueryWithScore(ctx.prefix, MAX_SUGGESTIONS);
   if (hits.length === 0) return { suggestions: [] };
 
+  const ordered = reorderBySemantic(hits);
+
   const range = new monacoInstance.Range(
     position.lineNumber,
     ctx.rangeStart,
@@ -124,7 +135,7 @@ function buildSuggestions(
     position.column
   );
 
-  const suggestions: monaco.languages.CompletionItem[] = hits.map((hit, idx) => {
+  const suggestions: monaco.languages.CompletionItem[] = ordered.map((hit, idx) => {
     const item = hit.item;
     const key = item.citationKey ?? item.itemKey;
     const detail = [item.creatorsLabel, item.year ? String(item.year) : '']
@@ -156,7 +167,43 @@ function escapeMarkdown(s: string): string {
   return s.replace(/([\\`*_{}[\]()#+\-.!|])/g, '\\$1');
 }
 
+/**
+ * 按当前段落语义分对候选确定性分层重排(键入热路径,纯同步,零 IPC)。
+ * 无缓存分(未开主动推荐 / 未 ready / 尚未嵌段)→ 原样返回,完全等同改动前。
+ *
+ * 分层(档间永不交叉):
+ *  - Tier 0:citation-key 命中(score ≥ CK_PREFIX_TIER)—— 用户在敲 key,
+ *    保持 mirror 原序,语义分不参与。
+ *  - Tier 1:题名/作者词模糊命中 —— 同档内按段落语义分降序,无分项垫底,
+ *    同分回落 mirror 原序。
+ */
+function reorderBySemantic(hits: BibSearchHit[]): BibSearchHit[] {
+  const ranking = getActiveRecommendationService().getCitationRanking();
+  if (!ranking) return hits;
+
+  const sem = (h: BibSearchHit): number | undefined => {
+    const ck = h.item.citationKey;
+    return ck ? ranking.get(ck) : undefined;
+  };
+  return hits
+    .map((h, i) => ({ h, i }))
+    .sort((a, b) => {
+      const ta = a.h.score >= CK_PREFIX_TIER ? 0 : 1;
+      const tb = b.h.score >= CK_PREFIX_TIER ? 0 : 1;
+      if (ta !== tb) return ta - tb; // Tier0 恒先于 Tier1
+      if (ta === 0) return a.i - b.i; // Tier0 内:保持 mirror 原序
+      const sa = sem(a.h);
+      const sb = sem(b.h);
+      if (sa !== undefined && sb !== undefined && sa !== sb) return sb - sa; // 语义降序
+      if (sa !== undefined && sb === undefined) return -1; // 有分先于无分
+      if (sa === undefined && sb !== undefined) return 1;
+      return a.i - b.i; // 都无分 / 同分:原序
+    })
+    .map((x) => x.h);
+}
+
 export const _internal = {
   detectContext,
   forCommaSeparated,
+  reorderBySemantic,
 };
