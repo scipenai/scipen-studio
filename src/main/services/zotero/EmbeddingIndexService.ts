@@ -194,7 +194,15 @@ export class EmbeddingIndexService {
    */
   async recommend(req: RecommendRequestDTO): Promise<ZoteroEmbeddingResultDTO> {
     const paragraphHash = hashParagraph(req.paragraph);
+    logger.info('recommend enter', {
+      state: this.state,
+      storeSize: this.store.size(),
+      total: this.total,
+      paragraphChars: req.paragraph.length,
+      lang: req.lang,
+    });
     if (this.state !== 'ready' || !this.client) {
+      logger.info('recommend skip: not ready', { state: this.state, hasClient: !!this.client });
       return { items: [], paragraphHash, scores: [] };
     }
     try {
@@ -204,6 +212,12 @@ export class EmbeddingIndexService {
       const scores = this.toCitationScores(allScored);
       const hits = allScored.slice(0, RECALL_POOL_SIZE);
       const candidates = hits.map((h) => this.toCandidate(h));
+      logger.info('recommend scored', {
+        scoredAll: allScored.length,
+        withCitationKey: scores.length,
+        pool: hits.length,
+        topScore: allScored[0]?.score ?? null,
+      });
 
       const reranked = await rerankCandidates(this.ai, req.paragraph, candidates, req.lang);
       if (reranked) {
@@ -211,12 +225,14 @@ export class EmbeddingIndexService {
         const items = reranked
           .slice(0, RECOMMEND_TOP_K)
           .map((r) => this.toResultItem({ itemKey: r.itemKey, score: byKey.get(r.itemKey) ?? 0 }, r.reason));
+        logger.info('recommend result', { items: items.length, path: 'reranked' });
         return { items, paragraphHash, scores };
       }
 
       // 降级:区分「未配置」(cosine-only)与「配置了但忙/失败」(no-rerank)。
       const degraded = this.ai.isConfigured() ? 'no-rerank' : 'cosine-only';
       const items = hits.slice(0, RECOMMEND_TOP_K).map((h) => this.toResultItem(h));
+      logger.info('recommend result', { items: items.length, path: degraded });
       return { items, paragraphHash, degraded, scores };
     } catch (err) {
       logger.warn('recommend failed', { error: String(err) });

@@ -105,7 +105,10 @@ export class ActiveRecommendationService {
 
   private scheduleQuery(): void {
     // 索引未就绪时连 debounce 都不挂,彻底零开销。
-    if (this.indexState !== 'ready') return;
+    if (this.indexState !== 'ready') {
+      logger.info('scheduleQuery skip: index not ready', { indexState: this.indexState });
+      return;
+    }
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
@@ -119,13 +122,25 @@ export class ActiveRecommendationService {
     if (!editor || !model) return;
 
     const extracted = extractFromEditor(model, editor.getPosition()?.lineNumber ?? 1);
-    if (!extracted) return; // 段落太短 → 不查
-    if (extracted.hash === this.lastHash) return; // 段落没变 → 零 IPC
+    if (!extracted) {
+      // 诊断:段落抽取返回 null(trim 后 <30 字符)→ 不查。脱敏:只打行数/光标行。
+      logger.info('runQuery skip: paragraph too short', {
+        lang: model.getLanguageId(),
+        lineCount: model.getLineCount(),
+        cursorLine: editor.getPosition()?.lineNumber ?? -1,
+      });
+      return;
+    }
+    if (extracted.hash === this.lastHash) {
+      logger.info('runQuery skip: unchanged (hash guard)', { hash: extracted.hash });
+      return;
+    }
 
     this.lastHash = extracted.hash;
     const turn = ++this.turnId;
     this.loading = true;
     this.bump();
+    logger.info('runQuery send', { hash: extracted.hash, textChars: extracted.text.length });
 
     try {
       const res = await api.zotero.queryRecommendation({
@@ -134,7 +149,18 @@ export class ActiveRecommendationService {
         filePath: model.uri.path,
       });
       // 过期响应(用户已移到新段落)丢弃。
-      if (turn !== this.turnId || res.paragraphHash !== this.lastHash) return;
+      if (turn !== this.turnId || res.paragraphHash !== this.lastHash) {
+        logger.info('runQuery drop stale', {
+          staleTurn: turn !== this.turnId,
+          staleHash: res.paragraphHash !== this.lastHash,
+        });
+        return;
+      }
+      logger.info('runQuery result', {
+        items: res.items.length,
+        scores: res.scores?.length ?? 0,
+        degraded: res.degraded ?? 'none',
+      });
       // 仅在本次带回 scores 时更新缓存,查询失败/无 scores 保留上次,@cite 下拉不瞬间失序。
       if (res.scores) {
         this.citationScores = new Map(res.scores.map((s) => [s.citationKey, s.score]));
