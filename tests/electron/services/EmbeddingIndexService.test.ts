@@ -271,4 +271,20 @@ describe('EmbeddingIndexService invalidate', () => {
     await new Promise((r) => setTimeout(r, 5));
     expect(h.svc.getStatus().state).toBe('ready');
   });
+
+  it('manual rebuild refills the store (regression: must not stay empty)', async () => {
+    // 回归:invalidate 先 store.clear() 再 ensureBuilt。若 ensureBuilt 的
+    // 「ready 且 modelId 未变 → 早退」守卫未失效,build() 会被跳过,库永久停 0。
+    const h = makeHarness();
+    h.index.set(makeItem('AAAA1111', 'A', 'abstract one'));
+    h.index.set(makeItem('BBBB2222', 'B', 'abstract two'));
+    await h.svc.ensureBuilt();
+    expect(h.store.size()).toBe(2); // 重建前满
+
+    h.svc.invalidate('manual'); // 同 modelId 重建——bug 触发条件
+    await new Promise((r) => setTimeout(r, 5));
+
+    expect(h.svc.getStatus().state).toBe('ready');
+    expect(h.store.size()).toBe(2); // ← bug 修复前这里是 0(库被清空后没重建)
+  });
 });

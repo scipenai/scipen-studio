@@ -179,12 +179,16 @@ export class EmbeddingIndexService {
     return this.buildInFlight;
   }
 
-  /** provider / key 变更:丢弃旧 client + 索引,重建。 */
+  /** provider / key 变更 / 手动重建:丢弃旧 client + 索引,强制重建。 */
   invalidate(reason: 'provider-change' | 'key-change' | 'manual'): void {
     logger.info('invalidate', { reason });
     this.client = null;
     this.store.clear();
     this.embedded = 0;
+    // 关键:清空后必须让 ensureBuilt 的「ready 且 modelId 未变 → 早退」守卫失效,
+    // 否则 store 已空但守卫仍认为 ready,build() 被跳过 → 库永久停在 0 篇。
+    // 转 building 表达「正在重建」,且让 renderer 收到 building→ready 翻转。
+    this.setState('building');
     void this.ensureBuilt();
   }
 
