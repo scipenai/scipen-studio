@@ -20,6 +20,12 @@ import type * as monaco from 'monaco-editor';
 import { getZoteroBibMirror } from '../../services/zotero/ZoteroBibMirror';
 import type { BibSearchHit } from '../../services/zotero/bibSearchScoring';
 import { getActiveRecommendationService } from '../../services/zotero/ActiveRecommendationService';
+import { createLogger } from '../../services/LogService';
+
+// 临时诊断日志(用于定位 typst .typ 打 @s 不弹文献的问题)。修完后整体移除,
+// 风格对齐 d607e45 主动推荐链路日志:info 级走 batch flush 到 main.log,
+// 关键决策点都打一条;脱敏只打长度 / 数量 / 状态,不打段落原文。
+const diag = createLogger('CiteCompletion');
 
 const LANGUAGE_IDS = ['typst', 'markdown'] as const;
 const MAX_SUGGESTIONS = 20;
@@ -52,8 +58,12 @@ interface CompletionContext {
 let registered = false;
 
 export function registerCiteCompletionProviders(monacoInstance: Monaco): void {
-  if (registered) return;
+  if (registered) {
+    diag.info('register: skipped (already registered)');
+    return;
+  }
   registered = true;
+  diag.info('register: ok', { languages: [...LANGUAGE_IDS] });
 
   for (const languageId of LANGUAGE_IDS) {
     monacoInstance.languages.registerCompletionItemProvider(languageId, {
@@ -62,8 +72,33 @@ export function registerCiteCompletionProviders(monacoInstance: Monaco): void {
         model: monaco.editor.ITextModel,
         position: monaco.Position
       ) => {
+        const modelLang = model.getLanguageId();
         const ctx = detectContext(model, position, languageId);
-        if (!ctx) return { suggestions: [] };
+        if (!ctx) {
+          // 没命中任意 trigger —— 大概率是 typst 打了裸 @(TYPST_TRIGGER 要求 ≥1 字母)
+          // 或当前 model 语言不是注册的语言(modelLang 与 languageId 不一致时只会从
+          // languageId 这边触发,modelLang 是 plaintext 则 provider 根本不会被调到)
+          const linePrefix = model.getValueInRange({
+            startLineNumber: position.lineNumber,
+            startColumn: Math.max(1, position.column - 16),
+            endLineNumber: position.lineNumber,
+            endColumn: position.column,
+          });
+          diag.info('provide: no trigger', {
+            languageId,
+            modelLang,
+            line: position.lineNumber,
+            col: position.column,
+            tail: linePrefix,
+          });
+          return { suggestions: [] };
+        }
+        diag.info('provide: trigger matched', {
+          languageId,
+          modelLang,
+          prefixLen: ctx.prefix.length,
+          prefix: ctx.prefix,
+        });
         return buildSuggestions(monacoInstance, position, ctx);
       },
     });
@@ -124,12 +159,22 @@ function buildSuggestions(
   ctx: CompletionContext
 ): monaco.languages.CompletionList {
   const mirror = getZoteroBibMirror();
+  const libSize = mirror.getAllItems().length;
   // 空 prefix(用户刚敲 @ / [@,还没输字符)→ searchByQueryWithScore 对空查询返回空,
   // 但此刻正该列出全部文献。fallback 到全量(score 0 → 全落 Tier1,由段落语义重排上浮)。
   const hits: BibSearchHit[] =
     ctx.prefix.length === 0
       ? mirror.getAllItems().slice(0, MAX_SUGGESTIONS).map((item) => ({ item, score: 0 }))
       : mirror.searchByQueryWithScore(ctx.prefix, MAX_SUGGESTIONS);
+  diag.info('build: hits', {
+    libSize,
+    prefixLen: ctx.prefix.length,
+    hits: hits.length,
+    top3: hits.slice(0, 3).map((h) => ({
+      k: h.item.citationKey ?? h.item.itemKey,
+      s: h.score,
+    })),
+  });
   if (hits.length === 0) return { suggestions: [] };
 
   const ordered = reorderBySemantic(hits);
