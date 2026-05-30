@@ -72,6 +72,7 @@ import { ConfigKeys } from '../../shared/types/config-keys';
 import { configManager } from './services/ConfigManager';
 import { getZoteroOrchestrator } from './services/zotero/ZoteroOrchestrator';
 import { getBibTexSyncService } from './services/zotero/BibTexSyncService';
+import { getEmbeddingIndexService } from './services/zotero/EmbeddingIndexService';
 
 const Dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -593,6 +594,12 @@ app.whenReady().then(async () => {
   };
   getBibTexSyncService().setConfig(bibTexSyncConfig);
   getBibTexSyncService().start();
+
+  // 启动 embedding 索引服务(M3 主动推荐)。无条件 start() 订阅 bib 增量;
+  // ensureBuilt() 内部自 gate(未开启 → disabled,无 key → no-key),仅在
+  // activeRecommendation=true 且 keychain 有 key 时才真正建库。全异步不阻塞。
+  getEmbeddingIndexService().start();
+  void getEmbeddingIndexService().ensureBuilt();
 
   // Handle file association on Windows startup
   if (process.platform === 'win32') {
