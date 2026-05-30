@@ -23,6 +23,7 @@ import { BIB_STATUS_COLOR } from '../../services/zotero/statusColor';
 import type { ZoteroDiagnosticsDTO } from '../../../../../shared/types/zotero-events';
 import { ZoteroSetupWizard } from '../onboarding/ZoteroSetupWizard';
 import { BibTexSyncSection } from './BibTexSyncSection';
+import { EmbeddingRecommendationSection } from './EmbeddingRecommendationSection';
 import { SectionTitle, SettingCard, Toggle } from './SettingsUI';
 
 const logger = createLogger('ZoteroTab');
@@ -306,6 +307,8 @@ const EnabledPanel: React.FC<EnabledPanelProps> = ({
       </SettingCard>
 
       <BibTexSyncSection />
+
+      <EmbeddingRecommendationSection />
     </>
   );
 };

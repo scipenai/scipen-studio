@@ -13,6 +13,7 @@ import { useClickOutside, useEvent } from '../../hooks';
 import { getLanguageForFile } from '../../utils';
 import { AgentStatusSegment } from './AgentStatusSegment';
 import { ZoteroStatusBadge } from './ZoteroStatusBadge';
+import { ActiveRecommendationSegment } from './ActiveRecommendationSegment';
 import { getEditorService, getSettingsService } from '../../services/core/ServiceRegistry';
 import {
   useActiveTabPath,
@@ -407,6 +408,9 @@ export const StatusBar: React.FC = () => {
 
         {/* Zotero canonical bib index status badge */}
         <ZoteroStatusBadge />
+
+        {/* M3 标尺5:主动文献推荐微章(✨ N + 点击弹 top3) */}
+        <ActiveRecommendationSegment />
 
         {/* SciPen Studio Brand */}
         <div

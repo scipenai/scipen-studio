@@ -492,6 +492,38 @@
       "generic": "解析失败"
     }
   },
+  "zoteroEmbedding": {
+    "sectionTitle": "主动文献推荐",
+    "toggleLabel": "写作时智能推荐文献",
+    "toggleDesc": "停顿时根据当前段落语义,在左栏浮现可能引用的文献(默认关)",
+    "statusLabel": "索引状态",
+    "buildProgress": "建库中 {{embedded}}/{{total}}",
+    "configureKey": "配置 Embedding Key",
+    "rebuild": "重建索引",
+    "state": {
+      "disabled": "未启用",
+      "no-key": "待配置 Key",
+      "building": "建库中",
+      "ready": "就绪",
+      "error": "出错"
+    },
+    "provider": {
+      "zhipu": "智谱 GLM",
+      "aliyun": "阿里百炼",
+      "openai": "OpenAI"
+    },
+    "dialog": {
+      "title": "配置 Embedding 智能推荐",
+      "privacyTitle": "隐私提示",
+      "privacyBody": "推荐时会把你正在编辑的段落文本发送到所选 embedding 服务商进行向量化。请确认你接受。",
+      "providerLabel": "Embedding 服务商",
+      "keyLabel": "API Key",
+      "keyPlaceholder": "粘贴所选服务商的 API Key",
+      "consent": "我已了解并同意将段落文本发送到所选 embedding 服务商",
+      "save": "保存并启用",
+      "cancel": "取消"
+    }
+  },
   "compileLog": {
     "log": "日志",
     "all": "全部",
@@ -679,6 +711,15 @@
     "emptyNoCites": "本文档暂未引用任何文献",
     "emptyNoIndex": "文献库未就绪,请先在设置中连接 Zotero",
     "firstOf": "共 {{n}} 处引用,跳到第一处"
+  },
+  "zoteroRecommend": {
+    "title": "可能引用",
+    "noKey": "在设置中配置 embedding 以启用智能推荐",
+    "building": "正在建立文献向量索引…",
+    "error": "推荐索引出错,请到设置重建",
+    "loading": "正在分析当前段落…",
+    "empty": "继续写作,相关文献会自动浮现",
+    "insertHint": "点击在光标处插入引用"
   },
   "agentStatus": {
     "idle": "Agent 空闲",

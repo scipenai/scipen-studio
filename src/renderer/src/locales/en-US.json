@@ -492,6 +492,38 @@
       "generic": "Parse failed"
     }
   },
+  "zoteroEmbedding": {
+    "sectionTitle": "Active citation recommendations",
+    "toggleLabel": "Suggest references while writing",
+    "toggleDesc": "On a pause, surface papers you might cite based on the current paragraph (off by default)",
+    "statusLabel": "Index status",
+    "buildProgress": "Building {{embedded}}/{{total}}",
+    "configureKey": "Configure Embedding Key",
+    "rebuild": "Rebuild index",
+    "state": {
+      "disabled": "Disabled",
+      "no-key": "Key needed",
+      "building": "Building",
+      "ready": "Ready",
+      "error": "Error"
+    },
+    "provider": {
+      "zhipu": "Zhipu GLM",
+      "aliyun": "Aliyun DashScope",
+      "openai": "OpenAI"
+    },
+    "dialog": {
+      "title": "Set up embedding recommendations",
+      "privacyTitle": "Privacy notice",
+      "privacyBody": "Recommendations send the paragraph you are editing to the chosen embedding provider for vectorization. Please confirm you accept this.",
+      "providerLabel": "Embedding provider",
+      "keyLabel": "API Key",
+      "keyPlaceholder": "Paste the API key for the chosen provider",
+      "consent": "I understand and agree to send paragraph text to the chosen embedding provider",
+      "save": "Save & enable",
+      "cancel": "Cancel"
+    }
+  },
   "compileLog": {
     "log": "Log",
     "all": "All",
@@ -679,6 +711,15 @@
     "emptyNoCites": "No citations in this document yet",
     "emptyNoIndex": "Reference library not ready — connect Zotero in Settings",
     "firstOf": "Cited {{n}} times — jump to first occurrence"
+  },
+  "zoteroRecommend": {
+    "title": "Might cite",
+    "noKey": "Configure embedding in Settings to enable suggestions",
+    "building": "Building the reference vector index…",
+    "error": "Recommendation index error — rebuild in Settings",
+    "loading": "Analyzing the current paragraph…",
+    "empty": "Keep writing — related papers will surface here",
+    "insertHint": "Click to insert citation at the cursor"
   },
   "agentStatus": {
     "idle": "Agent idle",
