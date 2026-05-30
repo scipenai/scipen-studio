@@ -145,3 +145,32 @@ describe('searchBibCorpus — substring fallback', () => {
     expect(searchBibCorpus(c, 'abb', 10).length).toBeGreaterThan(0);
   });
 });
+
+describe('searchBibCorpus — RecallMode contract', () => {
+  it('prefix-only 模式架构上禁止 substring 兜底', () => {
+    const c = corpus(item({ itemKey: 'A', title: 'aabb' }));
+    // 'abb' 不是 token 'aabb' 前缀,长度 3 越过 MIN_SUBSTRING 门槛:
+    //   full       → 走 substring,命中
+    //   prefix-only → 档 3 在召回端被切除,无论 query 长度都返空
+    expect(searchBibCorpus(c, 'abb', 10, 'full').length).toBeGreaterThan(0);
+    expect(searchBibCorpus(c, 'abb', 10, 'prefix-only')).toEqual([]);
+  });
+
+  it('prefix-only 保留档 1 ck-prefix + 档 2 token-prefix 命中', () => {
+    const c = corpus(
+      item({ itemKey: 'A', citationKey: 'smith2024', title: 'X' }),
+      item({ itemKey: 'B', title: 'Deep learning survey', year: 2024 })
+    );
+    // 档 1:ck 'smith2024' 以 'smith' 开头
+    expect(searchBibCorpus(c, 'smith', 10, 'prefix-only').map((h) => h.item.itemKey)).toEqual([
+      'A',
+    ]);
+    // 档 2:token 'deep' 是 title 'Deep learning' 拆出的 token,query 'deep' 是其前缀
+    expect(searchBibCorpus(c, 'deep', 10, 'prefix-only').map((h) => h.item.itemKey)).toEqual(['B']);
+  });
+
+  it('未传 mode 默认 full —— 向后兼容', () => {
+    const c = corpus(item({ itemKey: 'A', title: 'aabb' }));
+    expect(searchBibCorpus(c, 'abb', 10)).toEqual(searchBibCorpus(c, 'abb', 10, 'full'));
+  });
+});

@@ -160,12 +160,13 @@ function buildSuggestions(
 ): monaco.languages.CompletionList {
   const mirror = getZoteroBibMirror();
   const libSize = mirror.getAllItems().length;
-  // 空 prefix(用户刚敲 @ / [@,还没输字符)→ searchByQueryWithScore 对空查询返回空,
-  // 但此刻正该列出全部文献。fallback 到全量(score 0 → 全落 Tier1,由段落语义重排上浮)。
+  // 键入热路径声明 'prefix-only' 意图(档 1 ck-prefix + 档 2 token-prefix)。
+  // substring 兜底由 RecallMode 在召回端切除 —— 架构上不可能召回半库噪声。
+  // 空 prefix 时 searchByQueryWithScore 对空查询返空,fallback 列全部文献。
   const hits: BibSearchHit[] =
     ctx.prefix.length === 0
       ? mirror.getAllItems().slice(0, MAX_SUGGESTIONS).map((item) => ({ item, score: 0 }))
-      : mirror.searchByQueryWithScore(ctx.prefix, MAX_SUGGESTIONS);
+      : mirror.searchByQueryWithScore(ctx.prefix, MAX_SUGGESTIONS, 'prefix-only');
   diag.info('build: hits', {
     libSize,
     prefixLen: ctx.prefix.length,

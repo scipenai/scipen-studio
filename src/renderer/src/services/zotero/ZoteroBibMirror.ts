@@ -34,6 +34,7 @@ import {
   searchBibCorpus,
   tokenize,
   type BibSearchHit,
+  type RecallMode,
 } from './bibSearchScoring';
 
 const logger = createLogger('ZoteroBibMirror');
@@ -161,8 +162,13 @@ export class ZoteroBibMirror {
   /**
    * 返回 cite 候选并附评分(供 dropdown / completion provider 排序展示)。
    * 评分语义见 `bibSearchScoring.ts`(citation-key 前缀 → token 交集 → substring)。
+   * `mode` 见 RecallMode:键入补全传 'prefix-only',搜索框 / LLM 工具用默认 'full'。
    */
-  searchByQueryWithScore(query: string, limit = 20): BibSearchHit[] {
+  searchByQueryWithScore(
+    query: string,
+    limit = 20,
+    mode: RecallMode = 'full'
+  ): BibSearchHit[] {
     return searchBibCorpus(
       {
         items: this.items,
@@ -171,7 +177,8 @@ export class ZoteroBibMirror {
         haystacks: this.haystacks,
       },
       query,
-      limit
+      limit,
+      mode
     );
   }
 

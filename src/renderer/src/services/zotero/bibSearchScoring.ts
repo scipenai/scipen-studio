@@ -25,6 +25,20 @@ export interface BibSearchHit {
   score: number;
 }
 
+/**
+ * 召回意图契约。键入热路径(@cite 补全)与模糊搜索框(chat @ 下拉 / Agent
+ * zotero_search 工具)对召回粒度的需求不同;若都走同一接口拿三档混合结果,
+ * 调用方只能在 UI 层靠 sortText / filter 间接抑制噪声 —— 这是把召回精度
+ * 责任推给 UI。本类型把意图上升为接口契约,scoring 函数按声明分发。
+ *
+ *  - `'prefix-only'`:档 1(ck 前缀)+ 档 2(token 前缀)。键入热路径专用:
+ *    每敲一字触发,语义就是前缀精准匹配;substring 兜底在这里是噪声而非
+ *    兜底(单字符召回半库,把 LSP 真候选淹没)。
+ *  - `'full'`(默认):三档全开,含 substring 兜底。搜索框 / LLM 工具:
+ *    用户主动调用,prefix 不命中时降级到 substring 是预期。
+ */
+export type RecallMode = 'prefix-only' | 'full';
+
 /** 倒排索引和 haystack 由调用方维护,本模块不负责构建。 */
 export interface BibSearchCorpus {
   items: ReadonlyMap<string, ZoteroItemDTO>;
@@ -73,7 +87,8 @@ export function buildHaystack(item: ZoteroItemDTO): string {
 export function searchBibCorpus(
   corpus: BibSearchCorpus,
   query: string,
-  limit: number
+  limit: number,
+  mode: RecallMode = 'full'
 ): BibSearchHit[] {
   const q = query.trim().toLowerCase();
   if (q.length === 0 || limit <= 0) return [];
@@ -104,8 +119,10 @@ export function searchBibCorpus(
     }
   }
 
-  // ----- 3. substring fallback(前两档全空时)-----
-  if (ckPrefixHits.length === 0 && tokenScores.size === 0) {
+  // ----- 3. substring fallback —— 仅 'full' 模式启用 -----
+  // prefix-only 模式架构上禁止走 substring:键入热路径里 substring 召回是噪声
+  // 而非兜底(打 `@f` 不该弹一堆 title 含 f 的论文,把 tinymist 的 LSP label 挤掉)。
+  if (mode === 'full' && ckPrefixHits.length === 0 && tokenScores.size === 0) {
     if (q.length < MIN_SUBSTRING_QUERY_LEN) return [];
     const out: BibSearchHit[] = [];
     for (const [itemKey, haystack] of corpus.haystacks) {
