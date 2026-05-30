@@ -38,6 +38,16 @@ export interface BibSearchCorpus {
 
 const MIN_TOKEN_LEN = 2;
 
+/**
+ * substring fallback 的最小 query 长度门槛。query 太短(1–2 字符)进 substring
+ * 召回精度归零 —— 单字符必然在 haystack 半数 entry 里出现,在 @cite 补全里
+ * 会召回与 prefix 无关的论文,淹没 LSP 真候选(打 `@f` 误召回所有 title 含 f
+ * 的论文,把 tinymist 的 `<fig-*>` label 挤掉)。与 MIN_TOKEN_LEN=2 对位的设计:
+ * token 档已守住 query 拆 token 的最小长度;substring 档比 token 更松散,
+ * 门槛设在 3 才能撑住"3 字符以下让 LSP 优先,3+ 才真启动模糊搜索"的语义。
+ */
+const MIN_SUBSTRING_QUERY_LEN = 3;
+
 /** 拆 token:小写 + 非字母数字切分 + 长度门槛。 */
 export function tokenize(s: string): string[] {
   const tokens: string[] = [];
@@ -96,6 +106,7 @@ export function searchBibCorpus(
 
   // ----- 3. substring fallback(前两档全空时)-----
   if (ckPrefixHits.length === 0 && tokenScores.size === 0) {
+    if (q.length < MIN_SUBSTRING_QUERY_LEN) return [];
     const out: BibSearchHit[] = [];
     for (const [itemKey, haystack] of corpus.haystacks) {
       if (!haystack.includes(q)) continue;

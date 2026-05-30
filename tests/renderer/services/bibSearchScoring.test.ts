@@ -132,4 +132,16 @@ describe('searchBibCorpus — substring fallback', () => {
     );
     expect(searchBibCorpus(c, 'foo', 2)).toHaveLength(2);
   });
+
+  it('rejects short queries via substring fallback', () => {
+    // 锁定 MIN_SUBSTRING_QUERY_LEN=3 门槛:单/双字符 query 即使能 substring 命中也返空,
+    // 避免 @cite 补全里召回与 prefix 几乎无关的论文(打 `@f` 不应弹一堆 title 含 f 的论文)。
+    const c = corpus(item({ itemKey: 'A', title: 'aabb' }));
+    // 'b' 不是 ck 前缀、不是 token 'aabb' 前缀,但 haystack 'aabb' 含 'b':
+    // 旧实现走 substring 召回,新实现因长度 <3 直接返空。
+    expect(searchBibCorpus(c, 'b', 10)).toEqual([]);
+    expect(searchBibCorpus(c, 'bb', 10)).toEqual([]);
+    // 3 字符 'abb' 越过门槛:不是 token 'aabb' 前缀 → 走 substring 命中 ✓
+    expect(searchBibCorpus(c, 'abb', 10).length).toBeGreaterThan(0);
+  });
 });
