@@ -41,6 +41,19 @@
     /* ===== SciPen Design Tokens（统一语义层）===== */
     --scipen-font-sans: 'Inter', 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei UI', system-ui, -apple-system, sans-serif;
     --scipen-font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+
+    /* Motion tokens — Doherty 阈值 + 心流原则
+       fast:   hover / 微交互
+       base:   panel 切换 / modal
+       slow:   大壳过渡 / 路由切换
+       pulse:  AI 流式 / 呼吸感(更长周期=更平静,降焦虑)
+       ease:   iOS 标准曲线,流畅且不弹 */
+    --motion-fast: 160ms;
+    --motion-base: 200ms;
+    --motion-slow: 320ms;
+    --motion-pulse: 2.4s;
+    --motion-ease: cubic-bezier(0.32, 0.72, 0, 1);
+
     --scipen-bg-canvas: #0f131a;
     --scipen-surface: #161b24;
     --scipen-surface-strong: #1d2430;
@@ -62,10 +75,8 @@
     --scipen-info: #8fa2d9;
     --scipen-info-soft: rgba(143, 162, 217, 0.16);
     --scipen-radius-xs: 4px;
-    --scipen-radius-sm: 8px;
     --scipen-radius-md: 14px;
     --scipen-radius-lg: 22px;
-    --scipen-radius-xl: 28px;
     --scipen-radius-full: 999px;
     --scipen-shadow-xs: 0 2px 6px rgba(0, 0, 0, 0.22);
     --scipen-shadow-sm: 0 10px 24px rgba(0, 0, 0, 0.28);
@@ -73,34 +84,42 @@
     --scipen-shadow-lg: 0 34px 70px rgba(0, 0, 0, 0.42);
     --scipen-shadow-glow: 0 0 24px rgba(105, 167, 199, 0.12);
 
-    /* ===== Shadcn/UI Style Variables (Dark Mode Default) ===== */
+    /* ===== Shadcn/UI Style Variables (Dark Mode Default) =====
+       HSL 值与上方 --scipen-* palette 在角色维度精确对齐:
+       - background ↔ --scipen-bg-canvas (#0f131a)
+       - card / popover ↔ --scipen-surface (#161b24)
+       - secondary / muted / accent ↔ --scipen-surface-strong (#1d2430)
+       - primary / ring ↔ --scipen-accent (#69a7c7)
+       - muted-foreground ↔ --scipen-text-muted (#8d98ad)
+       - destructive ↔ --scipen-danger (#d88484)
+       注:Shadcn "accent" 在语义上是次级背景,非品牌强调色 */
     --background: 222 24% 8%;
     --foreground: 214 31% 95%;
 
-    --card: 220 22% 12%;
+    --card: 218 24% 11%;
     --card-foreground: 214 31% 95%;
 
-    --popover: 220 22% 13%;
+    --popover: 218 24% 11%;
     --popover-foreground: 214 31% 95%;
 
-    --primary: 199 45% 60%;
+    --primary: 200 41% 60%;
     --primary-foreground: 222 24% 8%;
 
-    --secondary: 220 18% 18%;
+    --secondary: 218 25% 15%;
     --secondary-foreground: 214 31% 95%;
 
-    --muted: 220 18% 18%;
-    --muted-foreground: 220 18% 68%;
+    --muted: 218 25% 15%;
+    --muted-foreground: 220 16% 62%;
 
-    --accent: 220 18% 18%;
+    --accent: 218 25% 15%;
     --accent-foreground: 214 31% 95%;
 
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 50% 68%;
     --destructive-foreground: 0 0% 98%;
 
     --border: 220 18% 22%;
     --input: 220 18% 22%;
-    --ring: 199 45% 60%;
+    --ring: 200 41% 60%;
 
     --radius: 0.5rem;
 
@@ -240,10 +259,8 @@
     --scipen-info: #728dc7;
     --scipen-info-soft: rgba(114, 141, 199, 0.14);
     --scipen-radius-xs: 4px;
-    --scipen-radius-sm: 8px;
     --scipen-radius-md: 14px;
     --scipen-radius-lg: 22px;
-    --scipen-radius-xl: 28px;
     --scipen-radius-full: 999px;
     --scipen-shadow-xs: 0 2px 8px rgba(56, 47, 36, 0.05);
     --scipen-shadow-sm: 0 12px 28px rgba(56, 47, 36, 0.08);
@@ -251,33 +268,33 @@
     --scipen-shadow-lg: 0 32px 72px rgba(56, 47, 36, 0.16);
     --scipen-shadow-glow: 0 0 24px rgba(63, 137, 168, 0.08);
 
-    --background: 40 34% 94%;
-    --foreground: 30 14% 14%;
+    --background: 36 32% 92%;
+    --foreground: 34 14% 12%;
 
-    --card: 42 35% 97%;
-    --card-foreground: 30 14% 14%;
+    --card: 38 50% 96%;
+    --card-foreground: 34 14% 12%;
 
-    --popover: 42 35% 97%;
-    --popover-foreground: 30 14% 14%;
+    --popover: 38 50% 96%;
+    --popover-foreground: 34 14% 12%;
 
-    --primary: 199 45% 45%;
-    --primary-foreground: 40 34% 94%;
+    --primary: 197 45% 45%;
+    --primary-foreground: 36 32% 92%;
 
-    --secondary: 40 20% 91%;
-    --secondary-foreground: 30 14% 18%;
+    --secondary: 40 28% 89%;
+    --secondary-foreground: 34 14% 12%;
 
-    --muted: 40 20% 91%;
-    --muted-foreground: 30 10% 44%;
+    --muted: 40 28% 89%;
+    --muted-foreground: 33 9% 49%;
 
-    --accent: 40 20% 91%;
-    --accent-foreground: 30 14% 18%;
+    --accent: 40 28% 89%;
+    --accent-foreground: 34 14% 12%;
 
-    --destructive: 0 72% 51%;
+    --destructive: 0 47% 61%;
     --destructive-foreground: 45 30% 96%;
 
-    --border: 35 18% 84%;
-    --input: 35 18% 84%;
-    --ring: 199 45% 45%;
+    --border: 38 18% 85%;
+    --input: 38 18% 85%;
+    --ring: 197 45% 45%;
 
     /* Legacy Variables (Light Mode - Research Desk) */
     --color-bg-void: var(--scipen-bg-canvas);
