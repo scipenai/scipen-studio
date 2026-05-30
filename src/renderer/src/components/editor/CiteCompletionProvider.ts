@@ -25,11 +25,12 @@ const LANGUAGE_IDS = ['typst', 'markdown'] as const;
 const MAX_SUGGESTIONS = 20;
 
 /**
- * citation-key 命中档阈值(对齐 bibSearchScoring 的 PREFIX=1000 / EXACT=2000)。
- * ≥ 此值 = 用户在敲 key,保持键入序、语义分不参与;< 此值 = 题名/作者词模糊找,
- * 才按段落语义分重排。token(≤15)/ substring 档均落在阈值下。
+ * citation-key 命中档与模糊档的分界阈值。bibSearchScoring 给 citation-key 命中的
+ * 分是 `1000 + (精确?100:0) - keyLen`(精确≈1090、前缀≈990,均远高于此阈值);
+ * token / substring 模糊档分 ≤ ~15。取 500 居中分界:≥500 = 用户在敲 key,
+ * 保持键入序、语义分不参与(含前缀匹配);< 500 = 模糊找,才按段落语义分重排。
  */
-const CK_PREFIX_TIER = 1000;
+const CK_PREFIX_TIER = 500;
 
 /**
  * 光标前匹配触发位置:

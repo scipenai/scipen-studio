@@ -495,7 +495,7 @@
   "zoteroEmbedding": {
     "sectionTitle": "Active citation recommendations",
     "toggleLabel": "Suggest references while writing",
-    "toggleDesc": "On a pause, surface papers you might cite based on the current paragraph, and also improve @cite completion ordering (off by default)",
+    "toggleDesc": "On a pause, surface papers you might cite in the status bar based on the current paragraph, and also improve @cite completion ordering (off by default)",
     "statusLabel": "Index status",
     "buildProgress": "Building {{embedded}}/{{total}}",
     "configureKey": "Configure Embedding Key",

@@ -156,6 +156,18 @@ describe('reorderBySemantic', () => {
     expect(keys(_internal.reorderBySemantic(hits))).toEqual(['keyhit', 'fuzzy']);
   });
 
+  it('treats citation-key PREFIX match (~990) as Tier0, not Tier1 (regression: 阈值)', () => {
+    // bibSearchScoring 前缀匹配分 = 1000 - keyLen ≈ 990(<1000 但 ≥500)。
+    // 阈值若仍是 1000,前缀匹配会误落 Tier1 被语义重排;阈值 500 修正后应进 Tier0。
+    rankingRef.current = new Map([
+      ['smith2024', 0.0], // 用户敲的前缀命中,语义分最低
+      ['fuzzy', 0.99], // 模糊命中,语义最高
+    ]);
+    const hits = [hit('fuzzy', 12), hit('smith2024', 990)]; // 990 = 前缀档
+    // smith2024 是 Tier0,必须在前,不被语义更高的 fuzzy 挤下。
+    expect(keys(_internal.reorderBySemantic(hits))).toEqual(['smith2024', 'fuzzy']);
+  });
+
   it('sinks unscored (无摘要未嵌入) Tier1 items below scored ones', () => {
     rankingRef.current = new Map([['scored', 0.5]]);
     const hits = [hit('unscored', 5), hit('scored', 4)]; // unscored 无段落分
