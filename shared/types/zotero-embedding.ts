@@ -76,6 +76,12 @@ export interface ZoteroEmbeddingResultDTO {
   /** 回声请求段落的 hash;renderer 据此丢弃过期(段落已变)的响应。 */
   paragraphHash: string;
   degraded?: 'cosine-only' | 'no-rerank';
+  /**
+   * 全库 cosine 分(降序,仅含有 citationKey 的可引用条目),供 @cite 补全语义
+   * 重排复用本次已发生的段落嵌入——键入路径据此重排,无新增云调用 / IPC。
+   * 缺省 = 本次未携带(如查询失败),renderer 保留上次缓存,下拉不瞬间失序。
+   */
+  scores?: Array<{ citationKey: string; score: number }>;
 }
 
 /** 重新导出,便于消费方一处引入。 */

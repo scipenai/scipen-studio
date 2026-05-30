@@ -97,14 +97,20 @@ export class EmbeddingStore {
     this.dim = 0;
   }
 
-  /** cosine 暴力 top-k(query 须已归一化),降序。 */
-  searchTopK(query: Float32Array, k: number): Array<{ itemKey: string; score: number }> {
+  /** cosine 暴力打分全库(query 须已归一化),降序,不截断。top3 推荐取前缀,
+   *  @cite 补全语义重排消费完整序——同一次嵌入两处复用,避免二次全库扫描。 */
+  scoreAll(query: Float32Array): Array<{ itemKey: string; score: number }> {
     const hits: Array<{ itemKey: string; score: number }> = [];
     for (const e of this.entries.values()) {
       hits.push({ itemKey: e.itemKey, score: cosineNormalized(query, e.vector) });
     }
     hits.sort((a, b) => b.score - a.score);
-    return hits.slice(0, k);
+    return hits;
+  }
+
+  /** cosine 暴力 top-k(query 须已归一化),降序。 */
+  searchTopK(query: Float32Array, k: number): Array<{ itemKey: string; score: number }> {
+    return this.scoreAll(query).slice(0, k);
   }
 
   private fileFor(modelId: string): string {

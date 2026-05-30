@@ -195,11 +195,14 @@ export class EmbeddingIndexService {
   async recommend(req: RecommendRequestDTO): Promise<ZoteroEmbeddingResultDTO> {
     const paragraphHash = hashParagraph(req.paragraph);
     if (this.state !== 'ready' || !this.client) {
-      return { items: [], paragraphHash };
+      return { items: [], paragraphHash, scores: [] };
     }
     try {
       const { vector } = await this.client.embedOne(req.paragraph);
-      const hits = this.store.searchTopK(l2normalize(vector), RECALL_POOL_SIZE);
+      // 一次全库打分:top3 取前缀,@cite 重排消费完整序——避免二次扫描。
+      const allScored = this.store.scoreAll(l2normalize(vector));
+      const scores = this.toCitationScores(allScored);
+      const hits = allScored.slice(0, RECALL_POOL_SIZE);
       const candidates = hits.map((h) => this.toCandidate(h));
 
       const reranked = await rerankCandidates(this.ai, req.paragraph, candidates, req.lang);
@@ -208,16 +211,17 @@ export class EmbeddingIndexService {
         const items = reranked
           .slice(0, RECOMMEND_TOP_K)
           .map((r) => this.toResultItem({ itemKey: r.itemKey, score: byKey.get(r.itemKey) ?? 0 }, r.reason));
-        return { items, paragraphHash };
+        return { items, paragraphHash, scores };
       }
 
       // 降级:区分「未配置」(cosine-only)与「配置了但忙/失败」(no-rerank)。
       const degraded = this.ai.isConfigured() ? 'no-rerank' : 'cosine-only';
       const items = hits.slice(0, RECOMMEND_TOP_K).map((h) => this.toResultItem(h));
-      return { items, paragraphHash, degraded };
+      return { items, paragraphHash, degraded, scores };
     } catch (err) {
       logger.warn('recommend failed', { error: String(err) });
       if (err instanceof EmbeddingAuthError) this.setState('error', 'API key 无效');
+      // 失败不带 scores → renderer 保留上次缓存,@cite 下拉不瞬间失序。
       return { items: [], paragraphHash };
     }
   }
@@ -320,6 +324,19 @@ export class EmbeddingIndexService {
       abstract: item?.abstractNote,
       cosineScore: hit.score,
     };
+  }
+
+  /** 全库分映射到 citationKey 空间(过滤无 BBT key 的不可引用条目),供 @cite 重排。
+   *  入参已降序,过滤保序。 */
+  private toCitationScores(
+    scored: Array<{ itemKey: string; score: number }>
+  ): Array<{ citationKey: string; score: number }> {
+    const out: Array<{ citationKey: string; score: number }> = [];
+    for (const s of scored) {
+      const ck = this.index.getByItemKey(s.itemKey)?.citationKey;
+      if (ck) out.push({ citationKey: ck, score: s.score });
+    }
+    return out;
   }
 
   // ============================================================

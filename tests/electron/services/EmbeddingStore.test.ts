@@ -83,6 +83,22 @@ describe('EmbeddingStore in-memory ops', () => {
     expect(s.size()).toBe(2);
     expect(s.has('AAAA1111', 'hash0001')).toBe(false);
   });
+
+  it('scoreAll returns every record descending; searchTopK is its prefix', () => {
+    const s = new EmbeddingStore();
+    s.setModelId('zhipu:embedding-3');
+    s.upsert('AAAA1111', 'h1', l2normalize([1, 0, 0]));
+    s.upsert('BBBB2222', 'h2', l2normalize([0, 1, 0])); // 正交 → 最低
+    s.upsert('CCCC3333', 'h3', l2normalize([0.9, 0.1, 0])); // 居中
+
+    const all = s.scoreAll(l2normalize([1, 0, 0]));
+    expect(all.map((h) => h.itemKey)).toEqual(['AAAA1111', 'CCCC3333', 'BBBB2222']);
+    expect(all[0].score).toBeGreaterThan(all[1].score);
+    expect(all[1].score).toBeGreaterThan(all[2].score);
+
+    // searchTopK 必须是 scoreAll 的前缀(同序)。
+    expect(s.searchTopK(l2normalize([1, 0, 0]), 2)).toEqual(all.slice(0, 2));
+  });
 });
 
 describe('EmbeddingStore disk round-trip', () => {

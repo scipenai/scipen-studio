@@ -22,8 +22,13 @@ import { ZoteroEventBus } from '../../../src/main/services/zotero/ZoteroEventBus
 
 // ---- 测试替身 ----------------------------------------------------------
 
-function makeItem(itemKey: string, title: string, abstractNote?: string): ZoteroItemDTO {
-  return { itemKey, itemType: 'journalArticle', title, abstractNote };
+function makeItem(
+  itemKey: string,
+  title: string,
+  abstractNote?: string,
+  citationKey?: string
+): ZoteroItemDTO {
+  return { itemKey, itemType: 'journalArticle', title, abstractNote, citationKey };
 }
 
 /** 极简 index 替身:只实现 EmbeddingIndexService 用到的 values()/getByItemKey()。 */
@@ -180,6 +185,33 @@ describe('EmbeddingIndexService build', () => {
     await svc.ensureBuilt();
     const res = await svc.recommend({ paragraph: 'x', lang: 'latex', filePath: 'x.tex' });
     expect(res.items).toEqual([]);
+  });
+
+  it('recommend carries full-library scores mapped to citationKey', async () => {
+    const h = makeHarness();
+    // 两条有 citationKey、一条无(无 BBT key → 不进 scores)。
+    h.index.set(makeItem('AAAA1111', 'Attention', 'attention mechanism transformer', 'attn2017'));
+    h.index.set(makeItem('BBBB2222', 'Graphs', 'graph neural network message passing', 'gnn2018'));
+    h.index.set(makeItem('CCCC3333', 'NoKey', 'some abstract without a citation key'));
+    await h.svc.ensureBuilt();
+
+    const res = await h.svc.recommend({ paragraph: 'attention', lang: 'latex', filePath: 'x.tex' });
+    expect(res.scores).toBeDefined();
+    // 无 citationKey 的 CCCC3333 被过滤 → 仅 2 条。
+    expect(res.scores?.map((s) => s.citationKey).sort()).toEqual(['attn2017', 'gnn2018']);
+    // 降序。
+    const vals = res.scores?.map((s) => s.score) ?? [];
+    expect(vals[0]).toBeGreaterThanOrEqual(vals[1]);
+  });
+
+  it('recommend omits scores on failure (renderer keeps last cache)', async () => {
+    const h = makeHarness();
+    h.index.set(makeItem('AAAA1111', 'A', 'an abstract', 'a2020'));
+    await h.svc.ensureBuilt();
+    vi.spyOn(h.client, 'embedOne').mockRejectedValueOnce(new Error('network down'));
+    const res = await h.svc.recommend({ paragraph: 'x', lang: 'latex', filePath: 'x.tex' });
+    expect(res.items).toEqual([]);
+    expect(res.scores).toBeUndefined();
   });
 });
 
