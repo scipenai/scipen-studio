@@ -61,6 +61,12 @@ function setReady() {
   onEmbeddingProgressCb.current?.({ state: 'ready' });
 }
 
+/** 模拟「重建索引」:已 ready → building → 再 ready(翻转)。 */
+function rebuild() {
+  onEmbeddingProgressCb.current?.({ state: 'building' });
+  onEmbeddingProgressCb.current?.({ state: 'ready' });
+}
+
 describe('ActiveRecommendationService', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -111,6 +117,24 @@ describe('ActiveRecommendationService', () => {
     h.fireContent();
     await vi.advanceTimersByTimeAsync(1500);
     expect(queryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-queries the same paragraph after the index is rebuilt', async () => {
+    // 回归:重建索引后,即便光标停在同一段(hash 不变),也必须重查——否则
+    // lastHash 去重守卫会让 runQuery 永久早退,推荐再不刷新(用户实测 bug)。
+    const h = makeEditor([PARAGRAPH]);
+    const svc = new ActiveRecommendationService();
+    svc.attachEditor(h.editor as never);
+    setReady();
+
+    h.fireContent();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(queryMock).toHaveBeenCalledTimes(1);
+
+    // 重建索引(building → ready 翻转),段落原地不动。
+    rebuild();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(queryMock).toHaveBeenCalledTimes(2); // 同段落仍重查
   });
 
   it('insertCitation emits language-correct cite text via executeEdits', () => {

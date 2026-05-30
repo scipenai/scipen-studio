@@ -67,14 +67,26 @@ export class ActiveRecommendationService {
 
     if (!this.unsubProgress) {
       this.unsubProgress = api.zotero.onEmbeddingProgress((status) => {
-        this.indexState = status.state;
-        this.bump();
+        this.onIndexState(status.state);
       });
-      void api.zotero.getEmbeddingStatus().then((s) => {
-        this.indexState = s.state;
-        this.bump();
-      });
+      void api.zotero.getEmbeddingStatus().then((s) => this.onIndexState(s.state));
     }
+  }
+
+  /**
+   * 索引状态变化的统一入口。**翻转到 ready** 意味着索引内容刚重建/更新(手动
+   * 重建 / provider / key 变更都经此),renderer 缓存的「上次查过的段落 hash」
+   * 与「全库相关度分」已失效——必须清 lastHash 放行去重守卫,并主动补一次查询,
+   * 否则光标停在同段不动时 runQuery 会因 hash 未变永久早退,推荐再不刷新。
+   */
+  private onIndexState(state: EmbeddingIndexState): void {
+    const becameReady = state === 'ready' && this.indexState !== 'ready';
+    this.indexState = state;
+    if (becameReady) {
+      this.lastHash = ''; // 失效去重守卫:同段落也要按新索引重查
+      this.scheduleQuery();
+    }
+    this.bump();
   }
 
   dispose(): void {
