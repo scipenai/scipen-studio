@@ -153,6 +153,11 @@ export class ZoteroBibMirror {
     return this.items.get(itemKey);
   }
 
+  /** 全部条目(空查询补全 fallback 用:敲 @ 还没输字符时列出全部文献)。 */
+  getAllItems(): ZoteroItemDTO[] {
+    return Array.from(this.items.values());
+  }
+
   /**
    * 返回 cite 候选并附评分(供 dropdown / completion provider 排序展示)。
    * 评分语义见 `bibSearchScoring.ts`(citation-key 前缀 → token 交集 → substring)。

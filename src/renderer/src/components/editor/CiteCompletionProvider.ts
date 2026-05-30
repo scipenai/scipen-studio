@@ -126,7 +126,7 @@ function buildSuggestions(
   const mirror = getZoteroBibMirror();
   // 空 prefix(用户刚敲 @ / [@,还没输字符)→ searchByQueryWithScore 对空查询返回空,
   // 但此刻正该列出全部文献。fallback 到全量(score 0 → 全落 Tier1,由段落语义重排上浮)。
-  const hits =
+  const hits: BibSearchHit[] =
     ctx.prefix.length === 0
       ? mirror.getAllItems().slice(0, MAX_SUGGESTIONS).map((item) => ({ item, score: 0 }))
       : mirror.searchByQueryWithScore(ctx.prefix, MAX_SUGGESTIONS);
