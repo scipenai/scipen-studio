@@ -669,6 +669,7 @@ body {
   color: var(--markdown-preview-body);
   font-size: 0.98rem;
   line-height: 1.9;
+  letter-spacing: 0.01em;
   text-wrap: pretty;
 }
 
@@ -814,7 +815,7 @@ body {
   font-size: 1.45rem;
   line-height: 1.28;
   letter-spacing: -0.03em;
-  margin-top: 2rem;
+  margin-top: 1.4rem;
   margin-bottom: 0.9rem;
 }
 
@@ -989,7 +990,7 @@ body {
   background: transparent !important;
   color: #e2e8f0 !important;
   font-size: 0.84rem;
-  line-height: 1.65;
+  line-height: 1.7;
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
 }
 .markdown-code-block__code {
