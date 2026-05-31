@@ -50,18 +50,18 @@ export const UpdateTab: React.FC = () => {
   return (
     <>
       <SectionTitle>{t('update.currentVersion')}</SectionTitle>
-      <div className="px-4 py-3 mb-4 rounded-lg bg-zinc-800/50 text-sm">
-        <span className="text-zinc-400">v</span>
-        <span className="text-zinc-200 font-mono">{status.currentVersion || '...'}</span>
+      <div className="px-4 py-3 mb-4 rounded-lg bg-[var(--color-bg-secondary)] text-sm">
+        <span className="text-[var(--color-text-muted)]">v</span>
+        <span className="text-[var(--color-text-primary)] font-mono">{status.currentVersion || '...'}</span>
       </div>
 
       {/* Status display area */}
-      <div className="px-4 py-3 mb-4 rounded-lg bg-zinc-800/50">
+      <div className="px-4 py-3 mb-4 rounded-lg bg-[var(--color-bg-secondary)]">
         {state === 'idle' && (
           <button
             type="button"
             onClick={handleCheck}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 text-sm rounded bg-[var(--color-accent)] hover:opacity-90 text-white transition-colors"
           >
             <RefreshCw size={14} />
             {t('update.checkUpdate')}
@@ -69,7 +69,7 @@ export const UpdateTab: React.FC = () => {
         )}
 
         {state === 'checking' && (
-          <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
             <Loader2 size={14} className="animate-spin" />
             {t('update.checking')}
           </div>
@@ -77,14 +77,14 @@ export const UpdateTab: React.FC = () => {
 
         {state === 'not-available' && (
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-green-400">
+            <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
               <CheckCircle size={14} />
               {t('update.notAvailable')}
             </div>
             <button
               type="button"
               onClick={handleCheck}
-              className="flex items-center gap-1 px-2 py-1 text-xs rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
+              className="flex items-center gap-1 px-2 py-1 text-xs rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
             >
               <RefreshCw size={12} />
               {t('update.retryCheck')}
@@ -94,13 +94,13 @@ export const UpdateTab: React.FC = () => {
 
         {state === 'available' && info && (
           <div className="space-y-3">
-            <div className="text-sm text-yellow-400">
+            <div className="text-sm text-[var(--color-warning)]">
               {t('update.available', { version: info.version })}
             </div>
             <button
               type="button"
               onClick={handleDownload}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 text-sm rounded bg-[var(--color-accent)] hover:opacity-90 text-white transition-colors"
             >
               <Download size={14} />
               {t('update.download')}
@@ -110,12 +110,12 @@ export const UpdateTab: React.FC = () => {
 
         {state === 'downloading' && progress && (
           <div className="space-y-2">
-            <div className="text-sm text-zinc-300">
+            <div className="text-sm text-[var(--color-text-secondary)]">
               {t('update.downloading', { percent: Math.round(progress.percent) })}
             </div>
-            <div className="w-full h-2 rounded-full bg-zinc-700 overflow-hidden">
+            <div className="w-full h-2 rounded-full bg-[var(--color-bg-hover)] overflow-hidden">
               <div
-                className="h-full rounded-full bg-blue-500 transition-all duration-300"
+                className="h-full rounded-full bg-[var(--color-accent)] transition-all duration-300"
                 style={{ width: `${Math.min(progress.percent, 100)}%` }}
               />
             </div>
@@ -124,14 +124,14 @@ export const UpdateTab: React.FC = () => {
 
         {state === 'downloaded' && (
           <div className="space-y-3">
-            <div className="flex items-center gap-2 text-sm text-green-400">
+            <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
               <CheckCircle size={14} />
               {t('update.downloaded')}
             </div>
             <button
               type="button"
               onClick={handleInstall}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm rounded bg-green-600 hover:bg-green-700 text-white transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 text-sm rounded bg-[var(--color-success)] hover:opacity-90 text-white transition-colors"
             >
               <RotateCcw size={14} />
               {t('update.installAndRestart')}
@@ -141,14 +141,14 @@ export const UpdateTab: React.FC = () => {
 
         {state === 'error' && (
           <div className="space-y-3">
-            <div className="flex items-center gap-2 text-sm text-red-400">
+            <div className="flex items-center gap-2 text-sm text-[var(--color-error)]">
               <AlertCircle size={14} />
               {t('update.error', { error: error || '' })}
             </div>
             <button
               type="button"
               onClick={handleCheck}
-              className="flex items-center gap-1 px-2 py-1 text-xs rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
+              className="flex items-center gap-1 px-2 py-1 text-xs rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
             >
               <RefreshCw size={12} />
               {t('update.retryCheck')}
@@ -161,7 +161,7 @@ export const UpdateTab: React.FC = () => {
       {info?.releaseNotes && (state === 'available' || state === 'downloaded') && (
         <>
           <SectionTitle>{t('update.releaseNotes')}</SectionTitle>
-          <div className="px-4 py-3 rounded-lg bg-zinc-800/50 text-sm text-zinc-300 whitespace-pre-wrap max-h-48 overflow-y-auto">
+          <div className="px-4 py-3 rounded-lg bg-[var(--color-bg-secondary)] text-sm text-[var(--color-text-secondary)] whitespace-pre-wrap max-h-48 overflow-y-auto">
             {info.releaseNotes}
           </div>
         </>
