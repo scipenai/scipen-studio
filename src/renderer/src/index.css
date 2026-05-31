@@ -84,6 +84,12 @@
     --scipen-shadow-lg: 0 34px 70px rgba(0, 0, 0, 0.42);
     --scipen-shadow-glow: 0 0 24px rgba(105, 167, 199, 0.12);
 
+    /* ===== 集成品牌色(跨主题恒定,不随 .light-theme 变化)=====
+       供 Overleaf 等第三方集成 UI 使用,与 SciPen 品牌色 --scipen-accent 区隔 */
+    --color-overleaf-primary: #305f8a;
+    --color-overleaf-muted: rgba(64, 114, 162, 0.08);
+    --color-overleaf-gradient: linear-gradient(135deg, #4072a2 0%, #305f8a 100%);
+
     /* ===== Shadcn/UI Style Variables (Dark Mode Default) =====
        HSL 值与上方 --scipen-* palette 在角色维度精确对齐:
        - background ↔ --scipen-bg-canvas (#0f131a)
@@ -267,6 +273,11 @@
     --scipen-shadow-md: 0 24px 54px rgba(56, 47, 36, 0.12);
     --scipen-shadow-lg: 0 32px 72px rgba(56, 47, 36, 0.16);
     --scipen-shadow-glow: 0 0 24px rgba(63, 137, 168, 0.08);
+
+    /* 集成品牌色 — light theme 与 :root 同色(Overleaf 品牌跨主题一致) */
+    --color-overleaf-primary: #305f8a;
+    --color-overleaf-muted: rgba(64, 114, 162, 0.08);
+    --color-overleaf-gradient: linear-gradient(135deg, #4072a2 0%, #305f8a 100%);
 
     --background: 36 32% 92%;
     --foreground: 34 14% 12%;

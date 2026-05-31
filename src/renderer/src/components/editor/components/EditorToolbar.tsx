@@ -66,7 +66,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         <div className="min-w-0 flex items-center gap-2.5">
           <div
             className="flex h-9 w-9 items-center justify-center rounded-2xl"
-            style={{ background: 'rgba(15,157,223,0.08)', color: 'var(--color-accent)' }}
+            style={{ background: 'var(--color-accent-muted)', color: 'var(--color-accent)' }}
           >
             {activeTab.name.endsWith('.typ') ? 'T' : activeTab.name.endsWith('.tex') ? 'L' : 'F'}
           </div>
@@ -186,16 +186,16 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
               )}
               style={{
                 background: isCompiling
-                  ? 'rgba(239, 68, 68, 0.12)'
+                  ? 'color-mix(in srgb, var(--color-error) 12%, transparent)'
                   : isCompileDisabled
                     ? 'color-mix(in srgb, var(--color-bg-primary) 82%, transparent)'
-                    : 'rgba(15,157,223,0.1)',
+                    : 'color-mix(in srgb, var(--color-accent) 10%, transparent)',
                 color: isCompiling
-                  ? '#ef4444'
+                  ? 'var(--color-error)'
                   : isCompileDisabled
                     ? 'var(--color-text-disabled)'
                     : 'var(--color-accent)',
-                border: `1px solid ${isCompiling ? 'rgba(239, 68, 68, 0.18)' : 'rgba(15,157,223,0.14)'}`,
+                border: `1px solid ${isCompiling ? 'color-mix(in srgb, var(--color-error) 18%, transparent)' : 'color-mix(in srgb, var(--color-accent) 14%, transparent)'}`,
               }}
               title={isCompiling ? t('editorToolbar.stopCompile') : t('editorToolbar.compile')}
             >
@@ -255,7 +255,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
               {reviewFileIds?.has(tab._id || normalizeReviewPath(tab.path)) && (
                 <div
                   className="w-2 h-2 rounded-full"
-                  style={{ background: 'var(--color-warning, #f59e0b)' }}
+                  style={{ background: 'var(--color-warning)' }}
                   title={t('diffReview.pendingReview')}
                 />
               )}
@@ -381,31 +381,31 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           )}
           style={{
             background: isCompiling
-              ? 'rgba(239, 68, 68, 0.15)'
+              ? 'color-mix(in srgb, var(--color-error) 15%, transparent)'
               : isCompileDisabled
                 ? 'var(--color-bg-tertiary)'
                 : 'var(--color-accent-muted)',
             color: isCompiling
-              ? '#ef4444'
+              ? 'var(--color-error)'
               : isCompileDisabled
                 ? 'var(--color-text-disabled)'
                 : 'var(--color-accent)',
             border: `1px solid ${
-              isCompiling ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 211, 238, 0.2)'
+              isCompiling ? 'color-mix(in srgb, var(--color-error) 30%, transparent)' : 'color-mix(in srgb, var(--color-accent) 20%, transparent)'
             }`,
           }}
           onMouseEnter={(e) => {
             if (!isCompiling && !isCompileDisabled) {
-              e.currentTarget.style.background = 'rgba(34, 211, 238, 0.25)';
-              e.currentTarget.style.boxShadow = '0 0 15px rgba(34, 211, 238, 0.2)';
+              e.currentTarget.style.background = 'color-mix(in srgb, var(--color-accent) 25%, transparent)';
+              e.currentTarget.style.boxShadow = '0 0 15px color-mix(in srgb, var(--color-accent) 20%, transparent)';
             } else if (isCompiling) {
-              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)';
-              e.currentTarget.style.boxShadow = '0 0 15px rgba(239, 68, 68, 0.2)';
+              e.currentTarget.style.background = 'color-mix(in srgb, var(--color-error) 25%, transparent)';
+              e.currentTarget.style.boxShadow = '0 0 15px color-mix(in srgb, var(--color-error) 20%, transparent)';
             }
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = isCompiling
-              ? 'rgba(239, 68, 68, 0.15)'
+              ? 'color-mix(in srgb, var(--color-error) 15%, transparent)'
               : 'var(--color-accent-muted)';
             e.currentTarget.style.boxShadow = 'none';
           }}
