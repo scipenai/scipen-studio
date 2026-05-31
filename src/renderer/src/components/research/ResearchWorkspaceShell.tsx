@@ -1,4 +1,3 @@
-import { AnimatePresence, motion } from 'framer-motion';
 import { FolderKanban, MessageSquareText, PanelLeftOpen, PanelRightOpen } from 'lucide-react';
 import { Suspense, lazy, useEffect, useMemo, useRef } from 'react';
 import type React from 'react';
@@ -16,6 +15,12 @@ import { t } from '../../locales';
 import { MainLayout } from '../layout/MainLayout';
 import { ChatSidebar } from '../chat';
 import { IconButton } from '../ui';
+import {
+  WorkspaceDrawer,
+  WorkspaceHeader,
+  WorkspaceShell,
+  WorkspaceToolbar,
+} from '../layout/workspace';
 import { getChatPanelDefaultSize, WorkspaceResizeHandle } from './researchWorkspaceHelpers';
 import { useResearchWorkspaceActions } from './useResearchWorkspaceActions';
 
@@ -83,167 +88,118 @@ export const ResearchWorkspaceShell: React.FC = () => {
   }, [uiService]);
 
   return (
-    <div className="h-full overflow-hidden p-2" style={{ background: 'var(--color-bg-void)' }}>
-      <div
-        className="flex h-full flex-col overflow-hidden rounded-[20px] border shadow-[var(--shadow-lg)]"
-        style={{
-          borderColor: 'var(--color-border-subtle)',
-          background: 'color-mix(in srgb, var(--color-bg-primary) 94%, transparent)',
+    <WorkspaceShell
+      header={
+        <WorkspaceHeader
+          title={headerTitle}
+          toolbar={
+            <WorkspaceToolbar>
+              <IconButton
+                size="md"
+                variant="ghost"
+                active={showFilesDrawer}
+                tooltip={
+                  showFilesDrawer ? t('research.collapseFileDrawer') : t('research.openFileDrawer')
+                }
+                onClick={() => {
+                  uiService.setSidebarTab(showFilesDrawer ? 'im' : 'files');
+                }}
+              >
+                <FolderKanban size={16} />
+              </IconButton>
+              <IconButton
+                size="md"
+                variant="ghost"
+                active={workspaceMode === 'chat'}
+                tooltip={t('research.chatMainView')}
+                onClick={() => {
+                  uiService.setWorkspaceMode('chat');
+                  uiService.setRightPanelCollapsed(true);
+                  uiService.setPreviewVisible(false);
+                }}
+              >
+                <MessageSquareText size={16} />
+              </IconButton>
+              <IconButton
+                size="md"
+                variant="ghost"
+                active={workspaceMode === 'chat-editor'}
+                tooltip={t('research.chatAndEdit')}
+                onClick={() => {
+                  void actions.toggleEditorLayout();
+                }}
+              >
+                <PanelLeftOpen size={16} />
+              </IconButton>
+              <IconButton
+                size="md"
+                variant="ghost"
+                active={workspaceMode === 'chat-editor-preview' && isPreviewVisible}
+                tooltip={t('research.chatEditPreview')}
+                onClick={() => {
+                  void actions.togglePreviewLayout();
+                }}
+              >
+                <PanelRightOpen size={16} />
+              </IconButton>
+            </WorkspaceToolbar>
+          }
+        />
+      }
+    >
+      <WorkspaceDrawer
+        open={showFilesDrawer}
+        onClose={() => {
+          uiService.setSidebarTab('im');
         }}
+        closeAriaLabel={t('research.closeFileDrawer')}
       >
-        <div
-          className="flex items-center justify-between border-b px-6 py-4"
-          style={{
-            borderBottomColor: 'var(--color-border-subtle)',
-            background: 'color-mix(in srgb, var(--color-bg-elevated) 88%, transparent)',
-          }}
+        <Suspense
+          fallback={
+            <div className="flex h-full items-center justify-center text-sm text-[var(--color-text-muted)]">
+              {t('research.loadingFiles')}
+            </div>
+          }
         >
-          <div className="min-w-0">
-            <h2 className="truncate text-[17px] font-medium tracking-[-0.03em] text-[var(--color-text-primary)]">
-              {headerTitle}
-            </h2>
+          <div className="flex h-full flex-col">
+            <div className="flex-1 overflow-y-auto">
+              <FileExplorer />
+            </div>
+            <ProjectCitedReferencesPanel />
           </div>
+        </Suspense>
+      </WorkspaceDrawer>
 
-          <div
-            className="flex items-center gap-2 rounded-full border px-2 py-1 shadow-[var(--shadow-sm)]"
-            style={{
-              borderColor: 'var(--color-border-subtle)',
-              background: 'color-mix(in srgb, var(--color-bg-elevated) 92%, transparent)',
-            }}
-          >
-            <IconButton
-              size="md"
-              variant="ghost"
-              active={showFilesDrawer}
-              tooltip={
-                showFilesDrawer ? t('research.collapseFileDrawer') : t('research.openFileDrawer')
-              }
-              onClick={() => {
-                uiService.setSidebarTab(showFilesDrawer ? 'im' : 'files');
-              }}
-            >
-              <FolderKanban size={16} />
-            </IconButton>
-            <IconButton
-              size="md"
-              variant="ghost"
-              active={workspaceMode === 'chat'}
-              tooltip={t('research.chatMainView')}
-              onClick={() => {
-                uiService.setWorkspaceMode('chat');
-                uiService.setRightPanelCollapsed(true);
-                uiService.setPreviewVisible(false);
-              }}
-            >
-              <MessageSquareText size={16} />
-            </IconButton>
-            <IconButton
-              size="md"
-              variant="ghost"
-              active={workspaceMode === 'chat-editor'}
-              tooltip={t('research.chatAndEdit')}
-              onClick={() => {
-                void actions.toggleEditorLayout();
-              }}
-            >
-              <PanelLeftOpen size={16} />
-            </IconButton>
-            <IconButton
-              size="md"
-              variant="ghost"
-              active={workspaceMode === 'chat-editor-preview' && isPreviewVisible}
-              tooltip={t('research.chatEditPreview')}
-              onClick={() => {
-                void actions.togglePreviewLayout();
-              }}
-            >
-              <PanelRightOpen size={16} />
-            </IconButton>
-          </div>
-        </div>
+      <PanelGroup
+        direction="horizontal"
+        autoSaveId="research-workspace-layout-v4"
+        className="h-full"
+      >
+        <Panel
+          id="research-chat"
+          order={1}
+          defaultSize={chatDefaultSize}
+          minSize={22}
+          className="min-h-0 min-w-0"
+        >
+          <ChatSidebar workspaceRoot={projectPath} displayName={projectName ?? undefined} />
+        </Panel>
 
-        <div className="relative flex-1 min-h-0 overflow-hidden">
-          <AnimatePresence>
-            {showFilesDrawer && (
-              <>
-                <motion.button
-                  type="button"
-                  aria-label={t('research.closeFileDrawer')}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.16 }}
-                  className="absolute inset-0 z-10 backdrop-blur-[1px]"
-                  style={{
-                    background: 'color-mix(in srgb, var(--color-backdrop) 24%, transparent)',
-                  }}
-                  onClick={() => {
-                    uiService.setSidebarTab('im');
-                  }}
-                />
-                <motion.div
-                  initial={{ x: -24, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: -24, opacity: 0 }}
-                  transition={{ duration: 0.18 }}
-                  className="absolute inset-y-0 left-0 z-20 w-[320px] overflow-hidden rounded-r-[24px] border-r shadow-[var(--shadow-lg)]"
-                  style={{
-                    borderRightColor: 'var(--color-border)',
-                    background: 'color-mix(in srgb, var(--color-bg-elevated) 96%, transparent)',
-                  }}
-                >
-                  <Suspense
-                    fallback={
-                      <div className="flex h-full items-center justify-center text-sm text-[var(--color-text-muted)]">
-                        {t('research.loadingFiles')}
-                      </div>
-                    }
-                  >
-                    <div className="flex h-full flex-col">
-                      <div className="flex-1 overflow-y-auto">
-                        <FileExplorer />
-                      </div>
-                      <ProjectCitedReferencesPanel />
-                    </div>
-                  </Suspense>
-                </motion.div>
-              </>
-            )}
-          </AnimatePresence>
-
-          <PanelGroup
-            direction="horizontal"
-            autoSaveId="research-workspace-layout-v4"
-            className="h-full"
-          >
+        {showEditorPane && (
+          <>
+            <WorkspaceResizeHandle />
             <Panel
-              id="research-chat"
-              order={1}
-              defaultSize={chatDefaultSize}
-              minSize={22}
-              className="min-h-0 min-w-0"
+              id="research-editor"
+              order={2}
+              defaultSize={editorDefaultSize}
+              minSize={30}
+              className="min-w-0 overflow-hidden bg-[var(--color-bg-primary)]"
             >
-              <ChatSidebar workspaceRoot={projectPath} displayName={projectName ?? undefined} />
+              <MainLayout immersive />
             </Panel>
-
-            {showEditorPane && (
-              <>
-                <WorkspaceResizeHandle />
-                <Panel
-                  id="research-editor"
-                  order={2}
-                  defaultSize={editorDefaultSize}
-                  minSize={30}
-                  className="min-w-0 overflow-hidden"
-                  style={{ background: 'var(--color-bg-primary)' }}
-                >
-                  <MainLayout immersive />
-                </Panel>
-              </>
-            )}
-          </PanelGroup>
-        </div>
-      </div>
-    </div>
+          </>
+        )}
+      </PanelGroup>
+    </WorkspaceShell>
   );
 };
