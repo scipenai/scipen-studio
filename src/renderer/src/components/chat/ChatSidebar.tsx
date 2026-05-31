@@ -84,12 +84,29 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
     [threads, activeThreadId]
   );
 
-  // Auto-scroll to bottom on new message / delta.
+  // Stick-to-bottom: follow new content only while the view is pinned near the
+  // bottom; once the user scrolls up to read, stop yanking them back down.
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
+  const stick = useRef(true);
+  const onScroll = useCallback(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length, currentTurn?.text.length, currentTurn?.thinkingText.length, activeThreadId]);
+    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }, []);
+  useEffect(() => {
+    if (!stick.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    // rAF so layout has settled before we pin to the bottom (avoids fighting
+    // the browser's scroll anchoring mid-stream).
+    const id = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [messages.length, currentTurn?.text.length, currentTurn?.thinkingText.length]);
+  // Switching threads always jumps to the latest.
+  useEffect(() => {
+    stick.current = true;
+  }, [activeThreadId]);
 
   // Start the project session once the workspaceRoot is known.
   useEffect(() => {
@@ -326,7 +343,7 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3">
+      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-3 py-3">
         {messages.length === 0 && !currentTurn ? (
           <EmptyState />
         ) : (

@@ -168,11 +168,18 @@ function Timeline({
         }
         if (ev.kind === 'text') {
           if (suppressText) return null;
+          const streaming = isLast && pending;
           return (
             <div key={`tx-${i}`} className="text-[13px] leading-[1.6]">
-              <MarkdownContent content={ev.text} />
-              {isLast && pending && (
-                <span className="ml-0.5 inline-block h-3 w-px animate-pulse bg-[var(--color-accent)] align-middle" />
+              {streaming ? (
+                // 流式期间渲纯文本,避免每个 token 重解析整段 markdown 引发重排抖动;
+                // turn 完成后一次性切到 markdown 渲染(对齐 Reasonix Message 模式)。
+                <div className="whitespace-pre-wrap break-words">
+                  {ev.text}
+                  <span className="streaming-cursor" />
+                </div>
+              ) : (
+                <MarkdownContent content={ev.text} />
               )}
             </div>
           );
