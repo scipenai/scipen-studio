@@ -8,6 +8,7 @@ export { Input, Textarea, type InputProps, type TextareaProps } from './Input';
 export { Select, type SelectProps, type SelectOption } from './Select';
 export { Toggle, Checkbox, type ToggleProps, type CheckboxProps } from './Toggle';
 export { IconButton, type IconButtonProps } from './IconButton';
+export { CopyButton, type CopyButtonProps } from './CopyButton';
 
 export {
   Card,

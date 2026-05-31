@@ -380,7 +380,9 @@
     "planAccept": "Accept plan",
     "planReject": "Reject",
     "composerTaskMode": "Task mode",
-    "composerChatMode": "Switch to chat"
+    "composerChatMode": "Switch to chat",
+    "copyMessage": "Copy",
+    "copied": "Copied"
   },
   "fileConflict": {
     "fileDeleted": "File has been deleted",

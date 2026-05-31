@@ -27,6 +27,7 @@ import { openFileInEditor } from '../../services/core/FileOpenService';
 import { getUIService } from '../../services/core/ServiceRegistry';
 import { MarkdownContent } from './MarkdownContent';
 import { ThinkingRenderer } from './ThinkingRenderer';
+import { CopyButton } from '../ui';
 
 type T = (key: TranslationKey, params?: Record<string, string | number>) => string;
 
@@ -116,7 +117,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
     completedTurn?.events?.some((e) => e.kind === 'text') ?? false;
   const renderLegacyTail = !suppressText && !hasTextEvent && message.text.length > 0;
   return (
-    <div className="mb-4">
+    <div className="group mb-4">
       <RoleBadge role="assistant" />
       {completedTurn && (
         <Timeline
@@ -133,6 +134,11 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
       {renderLegacyTail && (
         <div className="text-[13px] leading-[1.6]">
           <MarkdownContent content={message.text} />
+        </div>
+      )}
+      {message.text && (
+        <div className="mt-1 flex justify-start opacity-0 transition-opacity group-hover:opacity-100">
+          <CopyButton text={message.text} />
         </div>
       )}
       {completedTurn?.usage && <UsageLine turn={completedTurn} />}
