@@ -46,7 +46,8 @@ const EXTRACT_DEBOUNCE_MS = 250;
 export const ProjectCitedReferencesPanel: React.FC = () => {
   const { t } = useTranslation();
   const activeTab = useActiveTab();
-  const [collapsed, setCollapsed] = useState(false);
+  // 默认折叠:抽屉打开时不抢占视觉,用户点击标题才展开本文引用列表
+  const [collapsed, setCollapsed] = useState(true);
   const [content, setContent] = useState<string>('');
   const [bibState, setBibState] = useState<ZoteroBibMirrorState>(() =>
     getZoteroBibMirror().getState()

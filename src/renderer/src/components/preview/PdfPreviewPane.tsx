@@ -597,6 +597,13 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     });
   }, [pdfDoc]);
 
+  // 每次新 PDF 文档加载后(切文件 / 切源 / 重编译都会产生新的 pdfDoc 实例),
+  // 默认按容器宽度自适应,而不是固定 120% —— 复用 fitToWidth,容器此时已挂载。
+  useEffect(() => {
+    if (!pdfDoc || totalPages === 0) return;
+    fitToWidth();
+  }, [pdfDoc, totalPages, fitToWidth]);
+
   const handleZoomInputCommit = useCallback(() => {
     const parsed = Number.parseInt(zoomInput, 10);
     if (Number.isNaN(parsed)) {
