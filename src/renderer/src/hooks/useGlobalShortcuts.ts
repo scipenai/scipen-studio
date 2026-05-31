@@ -162,8 +162,7 @@ export function useGlobalShortcuts() {
 
     if (!monacoFocused && matchesShortcut(e, shortcuts.togglePreview)) {
       e.preventDefault();
-      const currentCollapsed = getUIService().isRightPanelCollapsed;
-      uiService.setRightPanelCollapsed(!currentCollapsed);
+      uiService.setPreviewVisible(!getUIService().isPreviewVisible);
       return;
     }
 

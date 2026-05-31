@@ -285,8 +285,7 @@ export function setupShortcuts(editor: Editor, monacoInstance: Monaco): void {
   });
 
   shortcutService.registerHandler('togglePreview', () => {
-    const currentCollapsed = uiService.isRightPanelCollapsed;
-    uiService.setRightPanelCollapsed(!currentCollapsed);
+    uiService.setPreviewVisible(!uiService.isPreviewVisible);
   });
 
   shortcutService.registerHandler('newWindow', () => {

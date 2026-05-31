@@ -681,9 +681,9 @@
     "collapseFileDrawer": "收起文件抽屉",
     "openFileDrawer": "打开文件抽屉",
     "closeFileDrawer": "关闭文件抽屉",
-    "chatMainView": "聊天主界面",
-    "chatAndEdit": "聊天 + 编辑",
-    "chatEditPreview": "聊天 + 编辑 + 预览",
+    "panelChat": "聊天面板",
+    "panelEditor": "编辑面板",
+    "panelPreview": "预览面板",
     "loadingFiles": "正在加载文件..."
   },
   "markdownContent": {

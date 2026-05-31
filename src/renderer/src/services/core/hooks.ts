@@ -217,13 +217,22 @@ export function useRightPanelTab() {
   return useServiceEvent(service.onDidChangeRightPanelTab, () => service.rightPanelTab);
 }
 
-/** Returns right panel collapsed state. */
-export function useIsRightPanelCollapsed() {
+/** Returns chat panel visibility (主页面三独立面板之一). */
+export function useChatVisible() {
   const service = getUIService();
-  return useServiceEvent(
-    service.onDidChangeRightPanelCollapsed,
-    () => service.isRightPanelCollapsed
-  );
+  return useServiceEvent(service.onDidChangeChatVisible, () => service.chatVisible);
+}
+
+/** Returns editor panel visibility (主页面三独立面板之一). */
+export function useEditorVisible() {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangeEditorVisible, () => service.editorVisible);
+}
+
+/** Returns the currently focused panel — drives the active-task edge highlight. */
+export function useActivePanel() {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangeActivePanel, () => service.activePanel);
 }
 
 /** Returns command palette open state. */
@@ -292,12 +301,6 @@ export function useAgentState() {
 export function usePreviewMode() {
   const service = getUIService();
   return useServiceEvent(service.onDidChangePreviewMode, () => service.previewMode);
-}
-
-/** Returns current research workspace mode. */
-export function useWorkspaceMode() {
-  const service = getUIService();
-  return useServiceEvent(service.onDidChangeWorkspaceMode, () => service.workspaceMode);
 }
 
 /** Returns current research layout focus. */

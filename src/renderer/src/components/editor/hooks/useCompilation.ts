@@ -48,9 +48,8 @@ export function useCompilation({
   const handleCompileResult = useCallback(
     async (result: CompileResult, uiService: ReturnType<typeof getUIService>, filePath: string) => {
       if (result.success) {
-        uiService.setWorkspaceMode('chat-editor-preview');
+        uiService.setEditorVisible(true);
         uiService.setRightPanelTab('preview');
-        uiService.setRightPanelCollapsed(false);
         uiService.setPreviewVisible(true);
 
         if (result.pdfPath) {
@@ -187,9 +186,8 @@ export function useCompilation({
 
     uiService.setCompiling(true);
     // Open the preview pane immediately rather than waiting for the compile to finish
-    uiService.setWorkspaceMode('chat-editor-preview');
+    uiService.setEditorVisible(true);
     uiService.setRightPanelTab('preview');
-    uiService.setRightPanelCollapsed(false);
     uiService.setPreviewVisible(true);
 
     try {

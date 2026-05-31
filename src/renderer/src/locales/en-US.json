@@ -681,9 +681,9 @@
     "collapseFileDrawer": "Collapse file drawer",
     "openFileDrawer": "Open file drawer",
     "closeFileDrawer": "Close file drawer",
-    "chatMainView": "Chat view",
-    "chatAndEdit": "Chat + Edit",
-    "chatEditPreview": "Chat + Edit + Preview",
+    "panelChat": "Chat panel",
+    "panelEditor": "Editor panel",
+    "panelPreview": "Preview panel",
     "loadingFiles": "Loading files..."
   },
   "markdownContent": {

@@ -1,23 +1,20 @@
 /**
  * @file researchWorkspaceHelpers.tsx
- * @description Layout helpers used by ResearchWorkspaceShell. The error-
- *   injection prompt builders that fed the legacy builtin chat input went
- *   away with the builtin chat path; SNACA's ChatSidebar listens to the same
- *   UIService events directly and seeds its own input.
+ * @description ResearchWorkspaceShell 的布局小件。主页面拍平为单层三面板
+ *   (chat / editor / preview)后,这里只保留浅色分隔的 resize handle 与默认尺寸常量;
+ *   旧的按 workspaceMode 推导宽度的逻辑随线性 mode 机一并移除。
  */
 
 import { PanelResizeHandle } from 'react-resizable-panels';
 
-export function getChatPanelDefaultSize(
-  workspaceMode: 'chat' | 'chat-editor' | 'chat-editor-preview'
-): number {
-  if (workspaceMode === 'chat-editor-preview') return 24;
-  if (workspaceMode === 'chat-editor') return 28;
-  return 100;
-}
+/** 三面板默认占比(autoSaveId 持久化后以存储为准)。 */
+export const PANEL_DEFAULT_SIZE = {
+  chat: 30,
+  editor: 44,
+  preview: 26,
+} as const;
 
-// ─── Small components ──────────────────────────────
-
+/** 浅色分隔条:静默 1px border-subtle 细线,hover 才显 accent。 */
 export const WorkspaceResizeHandle = () => (
   <PanelResizeHandle className="group relative w-2 bg-transparent transition-colors">
     <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--color-border-subtle)] transition-colors group-hover:bg-[var(--color-accent)]" />

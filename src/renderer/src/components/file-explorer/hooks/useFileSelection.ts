@@ -36,7 +36,7 @@ export function useFileSelection({ projectPath, setSelectedNode }: UseFileSelect
         if (existingTab) {
           editorService.setActiveTab(normalizedPath);
           uiService.setResearchLayoutFocus('balanced');
-          uiService.setWorkspaceMode('chat-editor');
+          uiService.setEditorVisible(true);
           return;
         }
 
@@ -95,7 +95,7 @@ export function useFileSelection({ projectPath, setSelectedNode }: UseFileSelect
           });
 
           uiService.setResearchLayoutFocus('balanced');
-          uiService.setWorkspaceMode('chat-editor');
+          uiService.setEditorVisible(true);
         } catch (error) {
           console.error('[FileExplorer] Failed to read file:', error);
           uiService.addCompilationLog({

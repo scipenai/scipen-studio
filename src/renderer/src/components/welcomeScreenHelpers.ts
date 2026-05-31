@@ -36,9 +36,10 @@ export function resetWorkspaceToChat(): void {
   const uiService = getUIService();
   uiService.setSidebarTab('im');
   uiService.setResearchLayoutFocus('chat');
-  uiService.setWorkspaceMode('chat');
-  uiService.setRightPanelCollapsed(true);
+  uiService.setChatVisible(true);
+  uiService.setEditorVisible(false);
   uiService.setPreviewVisible(false);
+  uiService.setActivePanel('chat');
   uiService.setActiveArtifactPath(null);
   uiService.setActiveArtifactId(null);
 }
