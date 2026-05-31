@@ -17,6 +17,9 @@ export interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonEl
   size?: 'sm' | 'md' | 'lg';
   /** Active state */
   active?: boolean;
+  /** Active 视觉强度:'accent'(默认,品牌色高亮)或 'subtle'(仅 bg-hover + 主文本,
+   *  用于「高亮收敛」场景,如主页面三面板 toggle —— 避免多个同时点亮造成 accent 泛滥)。 */
+  activeTone?: 'accent' | 'subtle';
   /** Loading state */
   loading?: boolean;
   /** Tooltip text */
@@ -33,6 +36,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       variant = 'default',
       size = 'md',
       active,
+      activeTone = 'accent',
       loading,
       disabled,
       children,
@@ -115,7 +119,11 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
           'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2',
           'disabled:pointer-events-none disabled:opacity-50',
           shapeStyles,
-          active ? activeStyles[variant] : variantStyles[variant],
+          active
+            ? activeTone === 'subtle'
+              ? 'text-[var(--color-text-primary)] bg-[var(--color-bg-hover)]'
+              : activeStyles[variant]
+            : variantStyles[variant],
           loading && 'cursor-wait',
           className
         )}

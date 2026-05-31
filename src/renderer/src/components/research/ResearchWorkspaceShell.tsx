@@ -172,6 +172,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
                 size="sm"
                 variant="ghost"
                 active={chatVisible}
+                activeTone="subtle"
                 tooltip={t('research.panelChat')}
                 onClick={() => uiService.setChatVisible(!chatVisible)}
               >
@@ -181,6 +182,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
                 size="sm"
                 variant="ghost"
                 active={editorVisible}
+                activeTone="subtle"
                 tooltip={t('research.panelEditor')}
                 onClick={() => void toggleEditor()}
               >
@@ -190,6 +192,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
                 size="sm"
                 variant="ghost"
                 active={previewVisible}
+                activeTone="subtle"
                 tooltip={t('research.panelPreview')}
                 onClick={() => uiService.setPreviewVisible(!previewVisible)}
               >

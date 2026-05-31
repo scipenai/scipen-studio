@@ -13,7 +13,7 @@ export const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = ({ children }) 
   return (
     <div
       className={
-        'flex items-center gap-2 rounded-full border px-2 py-1 shadow-[var(--shadow-sm)] ' +
+        'flex items-center gap-1 rounded-full border px-1.5 py-0.5 ' +
         'border-[var(--color-border-subtle)] ' +
         'bg-[color-mix(in_srgb,var(--color-bg-elevated)_92%,transparent)]'
       }

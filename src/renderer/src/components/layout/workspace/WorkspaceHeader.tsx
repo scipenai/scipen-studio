@@ -15,13 +15,13 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({ title, toolbar
   return (
     <div
       className={
-        'flex items-center justify-between border-b px-6 py-4 ' +
+        'flex items-center justify-between border-b px-4 py-2.5 ' +
         'border-b-[var(--color-border-subtle)] ' +
         'bg-[color-mix(in_srgb,var(--color-bg-elevated)_88%,transparent)]'
       }
     >
       <div className="min-w-0">
-        <h2 className="truncate text-[17px] font-medium tracking-[-0.03em] text-[var(--color-text-primary)]">
+        <h2 className="truncate text-[15px] font-medium tracking-[-0.02em] text-[var(--color-text-primary)]">
           {title}
         </h2>
       </div>
