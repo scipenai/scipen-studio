@@ -60,7 +60,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
     const showPlanComposing =
       suppressText && turn.pending && !turn.plan;
     return (
-      <div className="mb-3 rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] p-2.5">
+      <div className="mb-4">
         <RoleBadge role="assistant" pending />
         <Timeline
           events={turn.events}
@@ -93,7 +93,13 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
 
   if (message.role === 'user') {
     return (
-      <div className="mb-3 rounded-lg border border-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_8%,transparent)] p-2.5">
+      <div
+        className="mb-3 rounded-xl border p-2.5"
+        style={{
+          background: 'var(--research-chat-user-bg)',
+          borderColor: 'var(--research-chat-user-border)',
+        }}
+      >
         <RoleBadge role="user" />
         <div className="whitespace-pre-wrap break-words text-[13px] leading-[1.6]">
           {message.text}
@@ -110,7 +116,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
     completedTurn?.events?.some((e) => e.kind === 'text') ?? false;
   const renderLegacyTail = !suppressText && !hasTextEvent && message.text.length > 0;
   return (
-    <div className="mb-3 rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] p-2.5">
+    <div className="mb-4">
       <RoleBadge role="assistant" />
       {completedTurn && (
         <Timeline

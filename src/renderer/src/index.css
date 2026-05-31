@@ -1746,7 +1746,8 @@ input, textarea, [contenteditable], .monaco-editor * {
   height: 1em;
   background: var(--color-accent);
   margin-left: 2px;
-  animation: blink-cursor 0.8s step-end infinite;
+  /* 渐隐脉动而非硬闪(step-end)—— 降低打字机焦虑感 */
+  animation: blink-cursor 1.4s ease-in-out infinite;
   vertical-align: text-bottom;
 }
 

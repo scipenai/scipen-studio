@@ -21,7 +21,7 @@ export function ThinkingRenderer({ text, streaming }: ThinkingRendererProps): Re
 
   return (
     <div
-      className="mb-2 rounded-md border border-[var(--color-border-subtle)] bg-[color-mix(in_srgb,var(--color-bg-elevated)_70%,transparent)] text-[12px]"
+      className="mb-2 rounded-md border border-[var(--color-border-subtle)] bg-[color-mix(in_srgb,var(--color-bg-elevated)_60%,transparent)] text-[12px]"
     >
       <button
         type="button"
