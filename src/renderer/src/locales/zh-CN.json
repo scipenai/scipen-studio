@@ -391,7 +391,14 @@
     "tryExamples": "试试这些",
     "examplePrompt1": "梳理这篇文档的结构和逻辑",
     "examplePrompt2": "检查语法、用词与表达",
-    "examplePrompt3": "这一节的论证有哪些薄弱点?"
+    "examplePrompt3": "这一节的论证有哪些薄弱点?",
+    "statusComposingPlan": "正在生成计划…",
+    "statusWaiting": "等待回复…",
+    "roleUser": "你",
+    "roleAssistant": "助手",
+    "usageInOut": "输入 {{in}} · 输出 {{out}}",
+    "usageCached": " · 缓存 {{cached}}",
+    "inputAriaLabel": "聊天输入框"
   },
   "fileConflict": {
     "fileDeleted": "文件已被删除",

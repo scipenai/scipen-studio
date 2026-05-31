@@ -312,12 +312,14 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
         <div className="flex min-w-0 items-center gap-2">
           <button
             type="button"
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+            className="rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:opacity-40"
+            aria-label={t('thread.historyTitle')}
+            aria-expanded={drawerOpen}
             title={t('thread.historyTitle')}
             onClick={() => setDrawerOpen((v) => !v)}
             disabled={startup.kind !== 'ready'}
           >
-            <History size={14} />
+            <History size={14} aria-hidden="true" />
           </button>
           <span className="truncate text-[12px] font-medium text-[var(--color-text-primary)]" title={threadTitle}>
             {threadTitle}
@@ -326,19 +328,20 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-40"
+            className="rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:opacity-40"
+            aria-label={t('thread.newThread')}
             title={t('thread.newThread')}
             onClick={handleCreateThread}
             disabled={startup.kind !== 'ready' || busy}
           >
-            <Plus size={14} />
+            <Plus size={14} aria-hidden="true" />
           </button>
           <StartupBadge state={startup} />
         </div>
       </header>
 
       {threadError && (
-        <div className="border-b border-[var(--color-border)] bg-red-500/10 px-3 py-1.5 text-[11px] text-red-400">
+        <div role="alert" className="border-b border-[var(--color-border)] bg-[var(--color-error-muted)] px-3 py-1.5 text-[11px] text-[var(--color-error)]">
           {threadError}
         </div>
       )}
@@ -413,15 +416,15 @@ function StartupBadge({ state }: { state: StartupState }): React.ReactElement {
       );
     case 'ready':
       return (
-        <span className="flex items-center gap-1.5 text-[10px] text-emerald-400">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+        <span className="flex items-center gap-1.5 text-[10px] text-[var(--color-success)]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)]" />
           已连接
         </span>
       );
     case 'error':
       return (
-        <span className="flex items-center gap-1.5 text-[10px] text-red-400" title={state.message}>
-          <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+        <span className="flex items-center gap-1.5 text-[10px] text-[var(--color-error)]" title={state.message}>
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-error)]" />
           错误
         </span>
       );

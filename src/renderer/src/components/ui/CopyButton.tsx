@@ -45,8 +45,8 @@ export const CopyButton: React.FC<CopyButtonProps> = ({ text, className, label }
         className
       )}
     >
-      {copied ? <Check size={12} /> : <Copy size={12} />}
-      <span>{copied ? t('chat.copied') : (label ?? t('chat.copyMessage'))}</span>
+      {copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
+      <span aria-live="polite">{copied ? t('chat.copied') : (label ?? t('chat.copyMessage'))}</span>
     </button>
   );
 };

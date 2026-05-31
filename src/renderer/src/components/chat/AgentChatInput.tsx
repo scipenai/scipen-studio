@@ -16,6 +16,7 @@
  * Each piece is independent; this component only wires data flow.
  */
 
+import { Wrench } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMentionTrigger } from '../../hooks/useMentionTrigger';
 import { useZoteroWizardController } from '../../hooks/useZoteroWizard';
@@ -58,7 +59,7 @@ interface AgentChatInputProps {
   seedValue?: string;
   seedKey?: number;
   /**
-   * When provided, renders a 🛠 toggle chip that arms the next submit as
+   * When provided, renders a wrench-icon toggle chip that arms the next submit as
    * a composer (plan-first) turn. Omit to hide the chip entirely.
    */
   composer?: ComposerChipConfig;
@@ -303,13 +304,14 @@ export function AgentChatInput({
             disabled={disabled || busy}
             title={armed ? composer.armedTooltip : composer.idleTooltip}
             aria-pressed={armed}
-            className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               armed
                 ? 'bg-[var(--color-accent)] text-white'
                 : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
             }`}
           >
-            🛠 {composer.label}
+            <Wrench size={11} aria-hidden="true" />
+            {composer.label}
           </button>
         </div>
       )}
@@ -340,6 +342,7 @@ export function AgentChatInput({
           onChange={handleChange}
           onKeyUp={syncCaret}
           onClick={syncCaret}
+          aria-label={t('chat.inputAriaLabel')}
           placeholder={placeholder ?? (disabled ? '初始化中…' : '问点什么 (Enter 发送, Shift+Enter 换行, @ 引用文件)')}
           disabled={disabled}
           rows={1}

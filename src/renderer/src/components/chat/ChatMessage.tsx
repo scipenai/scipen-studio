@@ -8,7 +8,7 @@
  * the same context the user saw mid-generation.
  */
 
-import { ChevronRight, CornerDownLeft, FileCog, FilePlus, FileX, FilePen } from 'lucide-react';
+import { ChevronRight, CornerDownLeft, FileCog, FilePlus, FileX, FilePen, Loader2 } from 'lucide-react';
 import { useCallback, useState, type ReactElement } from 'react';
 import { agentClient } from '../../services/agent/AgentClientService';
 import {
@@ -54,6 +54,7 @@ function shouldSuppressPlanText(turn: ChatTurn | undefined): boolean {
 }
 
 export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps): ReactElement {
+  const { t } = useTranslation();
   if (turn) {
     const suppressText = shouldSuppressPlanText(turn);
     const showWaiting =
@@ -75,13 +76,13 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
         {showPlanComposing && (
           <div className="flex items-center gap-1.5 text-[12px] text-[var(--color-text-muted)]">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-accent)]" />
-            正在生成计划…
+            {t('chat.statusComposingPlan')}
           </div>
         )}
         {showWaiting && (
           <div className="flex items-center gap-1.5 text-[12px] text-[var(--color-text-muted)]">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-accent)]" />
-            等待回复…
+            {t('chat.statusWaiting')}
           </div>
         )}
         {turn.error && <ErrorBlock error={turn.error} />}
@@ -137,7 +138,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
         </div>
       )}
       {message.text && (
-        <div className="mt-1 flex justify-start opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="mt-1 flex justify-start opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           <CopyButton text={message.text} />
         </div>
       )}
@@ -205,9 +206,10 @@ function RoleBadge({
   role: 'user' | 'assistant';
   pending?: boolean;
 }): ReactElement {
+  const { t } = useTranslation();
   return (
     <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">
-      <span>{role === 'user' ? 'You' : 'Assistant'}</span>
+      <span>{role === 'user' ? t('chat.roleUser') : t('chat.roleAssistant')}</span>
       {pending && <span className="h-1 w-1 animate-pulse rounded-full bg-[var(--color-accent)]" />}
     </div>
   );
@@ -221,6 +223,7 @@ function ToolCallCard({ call }: { call: ChatTurn['toolCalls'][number] }): ReactE
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         className="flex w-full items-center gap-2 px-2 py-1 text-left"
       >
         <ChevronRight
@@ -280,9 +283,9 @@ function statusColor(status: 'pending' | 'progress' | 'success' | 'error'): stri
     case 'progress':
       return 'text-[var(--color-accent)]';
     case 'success':
-      return 'text-emerald-400';
+      return 'text-[var(--color-success)]';
     case 'error':
-      return 'text-red-400';
+      return 'text-[var(--color-error)]';
   }
 }
 
@@ -357,14 +360,14 @@ function ErrorBlock({
   }, []);
 
   return (
-    <div className="mt-2 rounded border border-red-400/40 bg-red-400/10 p-2 text-[11px] text-red-300">
+    <div className="mt-2 rounded border border-[color-mix(in_srgb,var(--color-error)_40%,transparent)] bg-[var(--color-error-muted)] p-2 text-[11px] text-[var(--color-error)]">
       <div className="font-medium">{friendly.title}</div>
-      <div className="mt-1 text-red-300/70 break-all">{friendly.detail}</div>
+      <div className="mt-1 break-all opacity-80">{friendly.detail}</div>
       {friendly.action === 'open_settings' && (
         <button
           type="button"
           onClick={onOpenSettings}
-          className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded border border-red-400/40 hover:bg-red-400/20 text-red-200"
+          className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded border border-[color-mix(in_srgb,var(--color-error)_40%,transparent)] hover:bg-[var(--color-error-muted)] text-[var(--color-error)]"
         >
           {t('chatError.openSettings')}
         </button>
@@ -374,11 +377,13 @@ function ErrorBlock({
 }
 
 function UsageLine({ turn }: { turn: ChatTurn }): ReactElement {
+  const { t } = useTranslation();
+  const u = turn.usage;
   return (
     <div className="mt-2 border-t border-[var(--color-border-subtle)] pt-1.5 text-[10px] text-[var(--color-text-muted)]">
-      tokens in {turn.usage?.inputTokens ?? 0} · out {turn.usage?.outputTokens ?? 0}
-      {turn.usage?.cachedInputTokens ? ` · cached ${turn.usage.cachedInputTokens}` : ''}
-      {turn.usage?.costUsd != null ? ` · $${turn.usage.costUsd.toFixed(4)}` : ''}
+      {t('chat.usageInOut', { in: u?.inputTokens ?? 0, out: u?.outputTokens ?? 0 })}
+      {u?.cachedInputTokens ? t('chat.usageCached', { cached: u.cachedInputTokens }) : ''}
+      {u?.costUsd != null ? ` · $${u.costUsd.toFixed(4)}` : ''}
     </div>
   );
 }
@@ -408,25 +413,26 @@ function prettyJson(value: unknown): string {
 function PlanCard({ plan, turnId }: { plan: ChatPlan; turnId: string }): ReactElement {
   const { t } = useTranslation();
   const [open, setOpen] = useState(plan.awaiting);
-  const [submitting, setSubmitting] = useState(false);
+  const [pending, setPending] = useState<null | 'accept' | 'reject'>(null);
   const decide = useCallback(
     async (decision: 'accept' | 'reject') => {
-      if (submitting) return;
-      setSubmitting(true);
+      if (pending) return;
+      setPending(decision);
       chatStreamStore.markPlanResolved(turnId);
       try {
         await agentClient.confirmPlan(turnId, decision);
       } finally {
-        setSubmitting(false);
+        setPending(null);
       }
     },
-    [submitting, turnId]
+    [pending, turnId]
   );
   return (
     <div className="mb-2 rounded-md border border-[color-mix(in_srgb,var(--color-accent)_30%,var(--color-border-subtle))] bg-[color-mix(in_srgb,var(--color-accent)_5%,transparent)] text-[12px]">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
       >
         <ChevronRight
@@ -458,18 +464,20 @@ function PlanCard({ plan, turnId }: { plan: ChatPlan; turnId: string }): ReactEl
             <div className="flex gap-2 pt-1">
               <button
                 type="button"
-                disabled={submitting}
+                disabled={pending !== null}
                 onClick={() => decide('accept')}
-                className="rounded px-2.5 py-1 text-[11px] font-medium text-white bg-[var(--color-accent)] hover:opacity-90 disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded px-2.5 py-1 text-[11px] font-medium text-white bg-[var(--color-accent)] hover:opacity-90 disabled:opacity-50"
               >
+                {pending === 'accept' && <Loader2 size={11} className="animate-spin" />}
                 {t('chat.planAccept')}
               </button>
               <button
                 type="button"
-                disabled={submitting}
+                disabled={pending !== null}
                 onClick={() => decide('reject')}
-                className="rounded border border-[var(--color-border-subtle)] px-2.5 py-1 text-[11px] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded border border-[var(--color-border-subtle)] px-2.5 py-1 text-[11px] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-50"
               >
+                {pending === 'reject' && <Loader2 size={11} className="animate-spin" />}
                 {t('chat.planReject')}
               </button>
             </div>
@@ -528,11 +536,11 @@ function planActionIcon(action: ChatPlanFile['action']): typeof FileCog {
 function planActionColor(action: ChatPlanFile['action']): string {
   switch (action) {
     case 'create':
-      return 'text-emerald-400';
+      return 'text-[var(--color-success)]';
     case 'delete':
-      return 'text-red-400';
+      return 'text-[var(--color-error)]';
     case 'rename':
-      return 'text-amber-300';
+      return 'text-[var(--color-warning)]';
     case 'modify':
     default:
       return 'text-[var(--color-accent)]';
@@ -542,12 +550,12 @@ function planActionColor(action: ChatPlanFile['action']): string {
 function planStatusColor(status: ChatPlanFile['status']): string {
   switch (status) {
     case 'done':
-      return 'text-emerald-400';
+      return 'text-[var(--color-success)]';
     case 'in_progress':
       return 'text-[var(--color-accent)]';
     case 'failed':
     case 'rejected':
-      return 'text-red-400';
+      return 'text-[var(--color-error)]';
     case 'pending':
     default:
       return 'text-[var(--color-text-muted)]';
@@ -623,7 +631,7 @@ function ProposalRow({ proposal }: { proposal: ChatProposalRecord }): ReactEleme
 function proposalStatusColor(status: ChatProposalRecord['status']): string {
   switch (status) {
     case 'accepted':
-      return 'text-emerald-400';
+      return 'text-[var(--color-success)]';
     case 'rejected':
       return 'text-[var(--color-text-muted)]';
     case 'pending':
@@ -734,9 +742,9 @@ function ApprovalCard({ approval }: { approval: ChatApprovalRequest }): ReactEle
 function riskBorder(risk: 'low' | 'medium' | 'high'): string {
   switch (risk) {
     case 'high':
-      return 'border-red-400/50';
+      return 'border-[color-mix(in_srgb,var(--color-error)_50%,transparent)]';
     case 'medium':
-      return 'border-amber-300/50';
+      return 'border-[color-mix(in_srgb,var(--color-warning)_50%,transparent)]';
     case 'low':
     default:
       return 'border-[var(--color-border-subtle)]';
@@ -746,9 +754,9 @@ function riskBorder(risk: 'low' | 'medium' | 'high'): string {
 function riskText(risk: 'low' | 'medium' | 'high'): string {
   switch (risk) {
     case 'high':
-      return 'text-red-400';
+      return 'text-[var(--color-error)]';
     case 'medium':
-      return 'text-amber-300';
+      return 'text-[var(--color-warning)]';
     case 'low':
     default:
       return 'text-[var(--color-text-muted)]';

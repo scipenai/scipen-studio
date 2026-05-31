@@ -391,7 +391,14 @@
     "tryExamples": "Try these",
     "examplePrompt1": "Outline this document's structure and logic",
     "examplePrompt2": "Check grammar, word choice and phrasing",
-    "examplePrompt3": "What are the weak points in this section's argument?"
+    "examplePrompt3": "What are the weak points in this section's argument?",
+    "statusComposingPlan": "Composing plan…",
+    "statusWaiting": "Waiting for reply…",
+    "roleUser": "You",
+    "roleAssistant": "Assistant",
+    "usageInOut": "tokens in {{in}} · out {{out}}",
+    "usageCached": " · cached {{cached}}",
+    "inputAriaLabel": "Chat message input"
   },
   "fileConflict": {
     "fileDeleted": "File has been deleted",
