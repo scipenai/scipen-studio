@@ -32,7 +32,6 @@ import {
   usePdfData,
   useProjectRuntime,
   useSettings,
-  useWorkspaceMode,
 } from '../../services/core/hooks';
 import { registerLSPProviders } from '../../utils/LSPProviderRegistry';
 import { citePreviewService } from '../../services/CitePreviewService';
@@ -82,7 +81,6 @@ export const EditorPane: React.FC = React.memo(() => {
   const isCompiling = useIsCompiling();
   const pdfData = usePdfData();
   const settings = useSettings();
-  const workspaceMode = useWorkspaceMode();
 
   const editorSettings = settings.editor;
   const uiTheme = settings.ui.theme;
@@ -450,7 +448,6 @@ export const EditorPane: React.FC = React.memo(() => {
         activeTabPath={activeTabPath}
         isCompiling={isCompiling}
         hasPdf={!!pdfData}
-        documentMode={workspaceMode !== 'chat'}
         onTabClick={(path) => getEditorService().setActiveTab(path)}
         onTabClose={handleCloseTab}
         onSyncTexJump={handleSyncTexJump}
