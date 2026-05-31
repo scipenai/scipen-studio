@@ -765,7 +765,7 @@ body {
 }
 
 .markdown-content [data-line] {
-  transition: background-color 0.15s ease;
+  transition: background-color var(--motion-fast) ease;
 }
 
 .markdown-content [data-line]:hover {
@@ -943,7 +943,7 @@ body {
   font-size: 0.72rem;
   font-weight: 600;
   color: #cbd5e1;
-  transition: all 0.16s ease;
+  transition: all var(--motion-fast) ease;
 }
 
 .markdown-code-block__copy:hover {
@@ -1408,7 +1408,7 @@ body {
 /* ===== Resize Handles ===== */
 .resize-handle {
   background: transparent;
-  transition: background-color 0.15s;
+  transition: background-color var(--motion-fast);
 }
 
 .resize-handle:hover {
@@ -1425,7 +1425,7 @@ body {
   to { opacity: 1; }
 }
 .animate-fade-in {
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn var(--motion-base) ease-out;
 }
 
 @keyframes slideUp {
@@ -1433,7 +1433,7 @@ body {
   to { transform: translateY(0); opacity: 1; }
 }
 .animate-slide-up {
-  animation: slideUp 0.3s ease-out;
+  animation: slideUp var(--motion-base) ease-out;
 }
 
 @keyframes slideDown {
@@ -1441,7 +1441,7 @@ body {
   to { transform: translateY(0); opacity: 1; }
 }
 .animate-slide-down {
-  animation: slideDown 0.3s ease-out;
+  animation: slideDown var(--motion-base) ease-out;
 }
 
 @keyframes shimmer {
@@ -1464,7 +1464,7 @@ body {
   50% { box-shadow: 0 0 40px var(--welcome-glow-primary); }
 }
 .animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
+  animation: pulse-glow var(--motion-pulse) ease-in-out infinite;
 }
 
 /* ===== Welcome Screen Title Gradient ===== */
@@ -1562,12 +1562,12 @@ input, textarea, [contenteditable], .monaco-editor * {
 /* 尚未被 sweep 扫过的 decoration：低透明度 */
 .diff-review-sweep-pending {
   opacity: 0.25;
-  transition: opacity 0.2s ease-out;
+  transition: opacity var(--motion-base) ease-out;
 }
 
 /* 被扫过后恢复正常——仅在 sweep 场景（带 .diff-review-sweep-revealed 标记）触发渐变动画 */
 .diff-review-added.diff-review-sweep-revealed {
-  animation: diff-review-reveal 0.3s ease-out;
+  animation: diff-review-reveal var(--motion-base) ease-out;
 }
 
 @keyframes diff-review-reveal {
@@ -1617,7 +1617,7 @@ input, textarea, [contenteditable], .monaco-editor * {
   pointer-events: auto;
   z-index: 22;
   opacity: 0.94;
-  transition: opacity 0.15s, transform 0.15s ease;
+  transition: opacity var(--motion-fast), transform var(--motion-fast) ease;
 }
 .diff-review-hunk-inline:hover {
   opacity: 1;
@@ -1634,7 +1634,7 @@ input, textarea, [contenteditable], .monaco-editor * {
   background: rgba(255, 255, 255, 0.72);
   cursor: pointer;
   padding: 0 6px;
-  transition: background 0.12s ease;
+  transition: background var(--motion-fast) ease;
 }
 .diff-review-hunk-inline__preview:hover {
   background: rgba(255, 255, 255, 0.94);
@@ -1654,7 +1654,7 @@ input, textarea, [contenteditable], .monaco-editor * {
   border: none;
   border-radius: 999px;
   cursor: pointer;
-  transition: background 0.12s;
+  transition: background var(--motion-fast);
   padding: 0;
 }
 .diff-review-hunk-inline__btn--accept {
@@ -1751,7 +1751,7 @@ input, textarea, [contenteditable], .monaco-editor * {
 }
 
 .chat-input-pulse {
-  animation: chat-input-context-pulse 1.6s ease-out;
+  animation: chat-input-context-pulse var(--motion-pulse) ease-out;
 }
 
 @keyframes chat-input-context-pulse {
