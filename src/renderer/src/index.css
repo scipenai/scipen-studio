@@ -129,54 +129,57 @@
 
     --radius: 0.5rem;
 
-    /* ===== Legacy CSS Variables (Backward Compatibility) ===== */
-    /* 背景层次 - 从深到浅 (Zinc 系) */
-    --color-bg-void: var(--scipen-bg-canvas);        /* zinc-950 - 最深背景 */
-    --color-bg-primary: var(--scipen-surface);       /* zinc-900 - 主背景 */
-    --color-bg-secondary: var(--scipen-surface-strong);   /* zinc-800 - 次级背景 */
-    --color-bg-tertiary: var(--scipen-surface-muted);    /* zinc-700 - 三级背景 */
-    --color-bg-elevated: var(--scipen-surface-strong);    /* zinc-800 - 浮层 */
-    --color-bg-hover: var(--scipen-surface-muted);       /* zinc-700 - 悬停态 */
+    /* ===== Legacy CSS Variables (--color-*) ===== */
+    /* 业务消费的事实 API(1117 处 var(--color-*) 在 75 个文件中),经 alias
+       指向 --scipen-* palette。不可随意删除/改名,改值会广泛影响 UI */
 
-    /* 边框系统 (中性灰) */
-    --color-border-subtle: var(--scipen-border-soft);  /* zinc-400/8 */
-    --color-border: var(--scipen-border);         /* zinc-400/12 */
-    --color-border-strong: rgba(161, 161, 170, 0.2);   /* zinc-400/20 */
+    /* 背景层次 */
+    --color-bg-void: var(--scipen-bg-canvas);
+    --color-bg-primary: var(--scipen-surface);
+    --color-bg-secondary: var(--scipen-surface-strong);
+    --color-bg-tertiary: var(--scipen-surface-muted);
+    --color-bg-elevated: var(--scipen-surface-strong);
+    --color-bg-hover: var(--scipen-surface-muted);
 
-    /* 文字层次 */
-    --color-text-primary: var(--scipen-text-primary);   /* zinc-50 */
-    --color-text-secondary: var(--scipen-text-secondary); /* zinc-400 */
-    --color-text-muted: var(--scipen-text-muted);     /* zinc-500 */
-    --color-text-disabled: #52525b;  /* zinc-600 */
+    /* 边框 */
+    --color-border-subtle: var(--scipen-border-soft);
+    --color-border: var(--scipen-border);
+    --color-border-strong: rgba(161, 161, 170, 0.2);
 
-    /* 强调色 (Teal - 更柔和的青色) */
-    --color-accent: var(--scipen-accent);         /* teal-500 */
-    --color-accent-dim: var(--scipen-accent-strong);     /* teal-600 */
-    --color-accent-bright: #2dd4bf;  /* teal-400 */
+    /* 文字 */
+    --color-text-primary: var(--scipen-text-primary);
+    --color-text-secondary: var(--scipen-text-secondary);
+    --color-text-muted: var(--scipen-text-muted);
+    --color-text-disabled: #52525b;
+
+    /* 强调色 */
+    --color-accent: var(--scipen-accent);
+    --color-accent-dim: var(--scipen-accent-strong);
+    --color-accent-bright: var(--scipen-accent);
     --color-accent-muted: var(--scipen-accent-soft);
 
     /* 语义色 */
-    --color-success: var(--scipen-success);        /* emerald-500 */
+    --color-success: var(--scipen-success);
     --color-success-muted: var(--scipen-success-soft);
-    --color-warning: var(--scipen-warning);        /* amber-500 */
+    --color-warning: var(--scipen-warning);
     --color-warning-muted: var(--scipen-warning-soft);
-    --color-error: var(--scipen-danger);          /* rose-500 */
+    --color-error: var(--scipen-danger);
     --color-error-muted: var(--scipen-danger-soft);
-    --color-info: var(--scipen-info);           /* violet-500 */
+    --color-info: var(--scipen-info);
     --color-info-muted: var(--scipen-info-soft);
 
-    /* 渐变系统 (更柔和) */
+    /* 渐变 */
     --gradient-accent: linear-gradient(135deg, #69a7c7 0%, #90a2d9 100%);
     --gradient-warm: linear-gradient(135deg, #d1a168 0%, #d88484 100%);
     --gradient-cool: linear-gradient(135deg, #69a7c7 0%, #90a2d9 100%);
 
-    /* 阴影系统 (降低强度) */
+    /* 阴影 */
     --shadow-sm: var(--scipen-shadow-xs);
     --shadow-md: var(--scipen-shadow-sm);
     --shadow-lg: var(--scipen-shadow-md);
     --shadow-glow: var(--scipen-shadow-glow);
 
-    /* 遮罩层 */
+    /* 遮罩 */
     --color-backdrop: rgba(10, 13, 19, 0.82);
 
     /* Welcome Screen 专用变量 - 深色模式 */
@@ -326,7 +329,7 @@
 
     --color-accent: var(--scipen-accent);
     --color-accent-dim: var(--scipen-accent-strong);
-    --color-accent-bright: #38bdf8;
+    --color-accent-bright: var(--scipen-accent);
     --color-accent-muted: var(--scipen-accent-soft);
 
     --color-success: var(--scipen-success);

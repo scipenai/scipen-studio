@@ -1,7 +1,7 @@
 /**
  * @file Renderer Services - Core renderer process services
  * @description Central export hub for renderer service singletons and helpers.
- * @depends FileCache, CommandService, KeybindingService, ThemeService
+ * @depends FileCache, CommandService, KeybindingService
  */
 
 export {
@@ -29,12 +29,3 @@ export {
   useContextKey,
   type Keybinding,
 } from './KeybindingService';
-
-export {
-  ThemeService,
-  ThemeServiceImpl,
-  BuiltinThemes,
-  type ThemeMode,
-  type ThemeColors,
-  type ThemeDefinition,
-} from './ThemeService';
