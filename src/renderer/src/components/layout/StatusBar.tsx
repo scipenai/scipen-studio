@@ -170,7 +170,7 @@ export const StatusBar: React.FC = () => {
           style={{ borderRight: '1px solid var(--color-border-subtle)' }}
         >
           <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)]" />
-          <HardDrive className="w-3.5 h-3.5 text-[var(--color-accent)] flex-shrink-0" />
+          <HardDrive size={13} className="text-[var(--color-accent)] flex-shrink-0" />
           <span className="text-[var(--color-accent)] hidden sm:inline font-medium">
             {t('statusBar.local')}
           </span>
@@ -210,7 +210,7 @@ export const StatusBar: React.FC = () => {
               color: 'var(--color-success)',
             }}
           >
-            <Save size={12} />
+            <Save size={13} />
             <span className="hidden sm:inline">{t('statusBar.saved')}</span>
           </div>
         )}
@@ -228,7 +228,7 @@ export const StatusBar: React.FC = () => {
               color: compilationResult.success ? 'var(--color-success)' : 'var(--color-error)',
             }}
           >
-            {compilationResult.success ? <Check size={12} /> : <AlertTriangle size={12} />}
+            {compilationResult.success ? <Check size={13} /> : <AlertTriangle size={13} />}
             <span className="hidden sm:inline">
               {compilationResult.success
                 ? t('statusBar.compileSuccess')
@@ -252,7 +252,7 @@ export const StatusBar: React.FC = () => {
             onClick={() => setIsEngineDropdownOpen(!isEngineDropdownOpen)}
             className="flex items-center gap-1.5 px-3 h-full transition-all cursor-pointer"
             style={{
-              color: isTypstFile ? '#a855f7' : 'var(--color-warning)',
+              color: isTypstFile ? 'var(--color-info)' : 'var(--color-warning)',
               background: isEngineDropdownOpen ? 'var(--color-bg-hover)' : 'transparent',
             }}
             title={t('statusBar.selectCompileEngine')}
@@ -290,7 +290,7 @@ export const StatusBar: React.FC = () => {
 
               {isTypstFile ? (
                 <>
-                  <div className="px-3 py-1 text-xs text-purple-400 border-b border-editor-border">
+                  <div className="px-3 py-1 text-xs text-[var(--color-info)] border-b border-editor-border">
                     {t('statusBar.typstCompiler')}
                   </div>
                   {[
