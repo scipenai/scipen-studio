@@ -382,7 +382,16 @@
     "composerTaskMode": "Task mode",
     "composerChatMode": "Switch to chat",
     "copyMessage": "Copy",
-    "copied": "Copied"
+    "copied": "Copied",
+    "welcomeTitle": "Ask AI anything about this document",
+    "welcomeSubtitle": "Thinking-model reasoning streams live",
+    "hintFiles": "reference files / citations",
+    "hintSend": "send",
+    "hintNewline": "newline",
+    "tryExamples": "Try these",
+    "examplePrompt1": "Outline this document's structure and logic",
+    "examplePrompt2": "Check grammar, word choice and phrasing",
+    "examplePrompt3": "What are the weak points in this section's argument?"
   },
   "fileConflict": {
     "fileDeleted": "File has been deleted",

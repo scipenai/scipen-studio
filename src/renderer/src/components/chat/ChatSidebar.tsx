@@ -345,7 +345,14 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
 
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-3 py-3">
         {messages.length === 0 && !currentTurn ? (
-          <EmptyState />
+          <EmptyState
+            onPickExample={(text) => {
+              // 直填输入框原文(可改后再发),不走 requestChatWithText —— 那条会把
+              // 文本包成 `> 引用块`,不适合示例 prompt。
+              setSeedValue(text);
+              setSeedKey((k) => k + 1);
+            }}
+          />
         ) : (
           <>
             {messages.map((m, idx) => (
@@ -421,12 +428,57 @@ function StartupBadge({ state }: { state: StartupState }): React.ReactElement {
   }
 }
 
-function EmptyState(): React.ReactElement {
+function EmptyState({
+  onPickExample,
+}: {
+  onPickExample: (text: string) => void;
+}): React.ReactElement {
+  const { t } = useTranslation();
+  const examples = [
+    t('chat.examplePrompt1'),
+    t('chat.examplePrompt2'),
+    t('chat.examplePrompt3'),
+  ];
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-[12px] text-[var(--color-text-muted)]">
-      <div className="text-[24px]">✦</div>
-      <div>问 AI 任何关于这份文档的问题</div>
-      <div className="text-[10px]">支持思考模型（thinking）流式显示</div>
+    <div className="flex h-full flex-col items-center justify-center gap-4 px-4 text-center">
+      <div className="flex flex-col items-center gap-2 text-[var(--color-text-muted)]">
+        <div className="text-[24px]">✦</div>
+        <div className="text-[13px] text-[var(--color-text-secondary)]">
+          {t('chat.welcomeTitle')}
+        </div>
+        <div className="text-[11px]">{t('chat.welcomeSubtitle')}</div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-[10px] text-[var(--color-text-muted)]">
+        <span className="inline-flex items-center gap-1">
+          <kbd className="rounded bg-[var(--color-bg-hover)] px-1.5 py-0.5 font-mono">@</kbd>
+          {t('chat.hintFiles')}
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <kbd className="rounded bg-[var(--color-bg-hover)] px-1.5 py-0.5 font-mono">⏎</kbd>
+          {t('chat.hintSend')}
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <kbd className="rounded bg-[var(--color-bg-hover)] px-1.5 py-0.5 font-mono">⇧⏎</kbd>
+          {t('chat.hintNewline')}
+        </span>
+      </div>
+
+      <div className="flex w-full max-w-[280px] flex-col gap-1.5">
+        <div className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">
+          {t('chat.tryExamples')}
+        </div>
+        {examples.map((ex) => (
+          <button
+            key={ex}
+            type="button"
+            onClick={() => onPickExample(ex)}
+            className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)] px-3 py-2 text-left text-[12px] text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+          >
+            {ex}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

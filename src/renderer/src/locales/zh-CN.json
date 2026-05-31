@@ -382,7 +382,16 @@
     "composerTaskMode": "任务模式",
     "composerChatMode": "切换到聊天",
     "copyMessage": "复制",
-    "copied": "已复制"
+    "copied": "已复制",
+    "welcomeTitle": "问 AI 任何关于这份文档的问题",
+    "welcomeSubtitle": "支持思考模型(thinking)流式显示",
+    "hintFiles": "引用文件 / 文献",
+    "hintSend": "发送",
+    "hintNewline": "换行",
+    "tryExamples": "试试这些",
+    "examplePrompt1": "梳理这篇文档的结构和逻辑",
+    "examplePrompt2": "检查语法、用词与表达",
+    "examplePrompt3": "这一节的论证有哪些薄弱点?"
   },
   "fileConflict": {
     "fileDeleted": "文件已被删除",
