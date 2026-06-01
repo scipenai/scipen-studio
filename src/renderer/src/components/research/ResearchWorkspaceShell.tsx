@@ -1,7 +1,7 @@
 import { FolderKanban, MessageSquareText, PanelLeft, PanelRight } from 'lucide-react';
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo } from 'react';
 import type React from 'react';
-import { Panel, PanelGroup, type ImperativePanelHandle } from 'react-resizable-panels';
+import { Panel, PanelGroup } from 'react-resizable-panels';
 import { api } from '../../api';
 import {
   getUIService,
@@ -43,19 +43,8 @@ const ProjectCitedReferencesPanel = lazy(() =>
   }))
 );
 
-/**
- * 把布尔可见性同步到 collapsible Panel 的命令式句柄。面板始终挂载(避免
- * EditorPane/ChatSidebar 反复挂载触发 OT 重连、startProject 重跑),仅靠
- * collapse()/expand() 收放。setter 判等 + 此处错位才动作,共同防环。
- */
-function useSyncPanel(ref: React.RefObject<ImperativePanelHandle | null>, visible: boolean): void {
-  useEffect(() => {
-    const handle = ref.current;
-    if (!handle) return;
-    if (visible && handle.isCollapsed()) handle.expand();
-    else if (!visible && handle.isExpanded()) handle.collapse();
-  }, [ref, visible]);
-}
+/** 面板在 PanelGroup 中的固定顺序(react-resizable-panels 靠 order 跨增删保持次序)。 */
+const PANEL_ORDER: Record<PanelId, number> = { chat: 1, editor: 2, preview: 3 };
 
 export const ResearchWorkspaceShell: React.FC = () => {
   const uiService = useMemo(() => getUIService(), []);
@@ -70,45 +59,15 @@ export const ResearchWorkspaceShell: React.FC = () => {
 
   const showFilesDrawer = sidebarTab === 'files';
 
-  const chatRef = useRef<ImperativePanelHandle | null>(null);
-  const editorRef = useRef<ImperativePanelHandle | null>(null);
-  const previewRef = useRef<ImperativePanelHandle | null>(null);
-
-  useSyncPanel(chatRef, chatVisible);
-  useSyncPanel(editorRef, editorVisible);
-  useSyncPanel(previewRef, previewVisible);
-
-  // 持久化布尔是可见性的唯一真相源。首帧内忽略 Panel 的 onCollapse/onExpand
-  // 回写 —— 否则 autoSaveId 恢复的折叠态会在挂载瞬间覆盖布尔。首帧后再允许
-  // 用户拖拽折叠回写。
-  const writebackReadyRef = useRef(false);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => {
-      writebackReadyRef.current = true;
-    });
-    return () => cancelAnimationFrame(id);
-  }, []);
-  const onPanelVisibility = useCallback(
-    (panel: PanelId, visible: boolean) => {
-      if (!writebackReadyRef.current) return;
-      if (panel === 'chat') uiService.setChatVisible(visible);
-      else if (panel === 'editor') uiService.setEditorVisible(visible);
-      else uiService.setPreviewVisible(visible);
-    },
-    [uiService]
-  );
-
   const projectName = useMemo(() => {
     if (!projectPath) return null;
     return projectPath.replace(/\\/g, '/').split('/').pop() || null;
   }, [projectPath]);
   const headerTitle = projectName ?? 'SciPenClaw';
 
-  // 进入工作台:聊天为主、编辑/预览待用户唤出。仅首挂一次。
-  const hasInitializedLayoutRef = useRef(false);
+  // 进入工作台:默认聚焦 IM 侧栏(关掉文件抽屉)。shell 仅挂载一次,
+  // setSidebarTab 幂等,无需额外一次性守卫。
   useEffect(() => {
-    if (hasInitializedLayoutRef.current) return;
-    hasInitializedLayoutRef.current = true;
     uiService.setSidebarTab('im');
   }, [uiService]);
 
@@ -149,6 +108,45 @@ export const ResearchWorkspaceShell: React.FC = () => {
   });
   const edgeStyle = (panel: PanelId): React.CSSProperties =>
     activePanel === panel ? { boxShadow: 'inset 2px 0 0 var(--color-accent-dim)' } : {};
+
+  // 唯一真相源:布尔 → 可见面板列表。布局完全由此声明式推导,
+  // 只挂可见面板 + 可见面板之间的分隔条 —— 无 ref / 无命令式折叠 / 无回写竞态。
+  const visiblePanels = (
+    [chatVisible && 'chat', editorVisible && 'editor', previewVisible && 'preview'] as const
+  ).filter((p): p is PanelId => Boolean(p));
+
+  const renderPanelBody = (panel: PanelId): React.ReactNode => {
+    switch (panel) {
+      case 'chat':
+        return <ChatSidebar workspaceRoot={projectPath} displayName={projectName ?? undefined} />;
+      case 'editor':
+        return (
+          <PanelErrorBoundary panelName={t('mainLayout.editor')}>
+            <Suspense fallback={<EditorLoadingFallback />}>
+              <EditorPane />
+            </Suspense>
+          </PanelErrorBoundary>
+        );
+      case 'preview':
+        return <PreviewPanel previewTitle={previewTitle} />;
+    }
+  };
+
+  // 各面板的 Panel 级属性(背景/边框/尺寸约束)。
+  const panelProps: Record<PanelId, { minSize: number; maxSize?: number; style?: React.CSSProperties; className: string }> = {
+    chat: { minSize: 20, className: 'min-h-0 min-w-0' },
+    editor: {
+      minSize: 28,
+      className: 'min-w-0 overflow-hidden',
+      style: { background: 'var(--color-bg-primary)' },
+    },
+    preview: {
+      minSize: 22,
+      maxSize: 60,
+      className: 'min-w-0 overflow-hidden border-l',
+      style: { borderLeftColor: 'var(--color-border-subtle)', background: 'var(--color-bg-secondary)' },
+    },
+  };
 
   return (
     <WorkspaceShell
@@ -224,71 +222,31 @@ export const ResearchWorkspaceShell: React.FC = () => {
         </Suspense>
       </WorkspaceDrawer>
 
-      <PanelGroup direction="horizontal" autoSaveId="research-workspace-v5" className="h-full">
-        <Panel
-          id="research-chat"
-          order={1}
-          ref={chatRef}
-          collapsible
-          collapsedSize={0}
-          defaultSize={PANEL_DEFAULT_SIZE.chat}
-          minSize={20}
-          className="min-h-0 min-w-0"
-          onCollapse={() => onPanelVisibility('chat', false)}
-          onExpand={() => onPanelVisibility('chat', true)}
-        >
-          <div className="h-full" style={edgeStyle('chat')} {...focusProps('chat')}>
-            <ChatSidebar workspaceRoot={projectPath} displayName={projectName ?? undefined} />
-          </div>
-        </Panel>
-
-        <WorkspaceResizeHandle active={chatVisible && editorVisible} />
-
-        <Panel
-          id="research-editor"
-          order={2}
-          ref={editorRef}
-          collapsible
-          collapsedSize={0}
-          defaultSize={PANEL_DEFAULT_SIZE.editor}
-          minSize={28}
-          className="min-w-0 overflow-hidden"
-          style={{ background: 'var(--color-bg-primary)' }}
-          onCollapse={() => onPanelVisibility('editor', false)}
-          onExpand={() => onPanelVisibility('editor', true)}
-        >
-          <div className="h-full" style={edgeStyle('editor')} {...focusProps('editor')}>
-            <PanelErrorBoundary panelName={t('mainLayout.editor')}>
-              <Suspense fallback={<EditorLoadingFallback />}>
-                <EditorPane />
-              </Suspense>
-            </PanelErrorBoundary>
-          </div>
-        </Panel>
-
-        <WorkspaceResizeHandle active={editorVisible && previewVisible} />
-
-        <Panel
-          id="research-preview"
-          order={3}
-          ref={previewRef}
-          collapsible
-          collapsedSize={0}
-          defaultSize={PANEL_DEFAULT_SIZE.preview}
-          minSize={22}
-          maxSize={60}
-          className="min-w-0 overflow-hidden border-l"
-          style={{
-            borderLeftColor: 'var(--color-border-subtle)',
-            background: 'var(--color-bg-secondary)',
-          }}
-          onCollapse={() => onPanelVisibility('preview', false)}
-          onExpand={() => onPanelVisibility('preview', true)}
-        >
-          <div className="h-full" style={edgeStyle('preview')} {...focusProps('preview')}>
-            <PreviewPanel previewTitle={previewTitle} />
-          </div>
-        </Panel>
+      <PanelGroup direction="horizontal" autoSaveId="research-workspace-v6" className="h-full">
+        {visiblePanels.flatMap((panel, index) => {
+          const cfg = panelProps[panel];
+          const nodes: React.ReactNode[] = [];
+          // 分隔条只出现在两个可见面板之间(声明式 → 与面板增删天然一致)。
+          if (index > 0) nodes.push(<WorkspaceResizeHandle key={`handle-${panel}`} />);
+          nodes.push(
+            // key 用面板身份 → 切换其它面板时本面板实例原地保留,不重挂载。
+            <Panel
+              key={panel}
+              id={`research-${panel}`}
+              order={PANEL_ORDER[panel]}
+              defaultSize={PANEL_DEFAULT_SIZE[panel]}
+              minSize={cfg.minSize}
+              maxSize={cfg.maxSize}
+              className={cfg.className}
+              style={cfg.style}
+            >
+              <div className="h-full" style={edgeStyle(panel)} {...focusProps(panel)}>
+                {renderPanelBody(panel)}
+              </div>
+            </Panel>
+          );
+          return nodes;
+        })}
       </PanelGroup>
     </WorkspaceShell>
   );

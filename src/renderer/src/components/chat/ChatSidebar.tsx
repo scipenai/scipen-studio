@@ -53,6 +53,14 @@ type StartupState =
   | { kind: 'ready'; sessionId: string }
   | { kind: 'error'; message: string };
 
+/**
+ * 已 startProject 过的项目缓存(模块级,跨组件挂载存活)。主页面三面板改为
+ * 声明式条件渲染后,折叠聊天会卸载 ChatSidebar、展开会重挂 —— 用它让重挂
+ * 只恢复本地 UI(startup/threads),不再重跑 startProject / reset 已有会话。
+ * chatStreamStore 本就是模块级单例,消息在卸载期间继续累积、重挂后照常显示。
+ */
+const startedProjects = new Map<string, { sessionId: string; threads: ThreadSummary[] }>();
+
 export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): React.ReactElement {
   const { t } = useTranslation();
   const [startup, setStartup] = useState<StartupState>({ kind: 'idle' });
@@ -108,17 +116,28 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
     stick.current = true;
   }, [activeThreadId]);
 
-  // Start the project session once the workspaceRoot is known.
+  // Start (or re-attach to) the project session once the workspaceRoot is known.
+  // 重挂载安全:同一 root 已 start 过 → 只恢复本地 UI,不再 startProject、
+  // 不 reset 已有 chatStreamStore(面板切换卸载/重挂时对话不丢)。
   useEffect(() => {
     if (!workspaceRoot) return;
     if (startedFor.current === workspaceRoot) return;
     startedFor.current = workspaceRoot;
+
+    const cached = startedProjects.get(workspaceRoot);
+    if (cached) {
+      setStartup({ kind: 'ready', sessionId: cached.sessionId });
+      setThreads(cached.threads);
+      void refreshThreads();
+      return;
+    }
 
     setStartup({ kind: 'starting' });
     setThreadError(null);
     void agentClient
       .startProject(workspaceRoot, displayName)
       .then((res) => {
+        startedProjects.set(workspaceRoot, { sessionId: res.sessionId, threads: res.threads });
         setStartup({ kind: 'ready', sessionId: res.sessionId });
         setThreads(res.threads);
         // Reset prior store before binding to the fresh session, then mirror
