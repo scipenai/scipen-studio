@@ -569,12 +569,28 @@ export class UIService implements IDisposable {
     return !othersVisible;
   }
 
+  private _isPanelVisible(panel: PanelId): boolean {
+    return panel === 'chat'
+      ? this._chatVisible
+      : panel === 'editor'
+        ? this._editorVisible
+        : this._isPreviewVisible;
+  }
+
+  /** 当前焦点面板被隐藏后,把焦点(细描边)落到下一个可见面板,避免「无主」。 */
+  private _ensureActivePanelVisible(): void {
+    if (this._isPanelVisible(this._activePanel)) return;
+    const next = (['editor', 'chat', 'preview'] as PanelId[]).find((p) => this._isPanelVisible(p));
+    if (next) this.setActivePanel(next);
+  }
+
   setChatVisible(visible: boolean): void {
     if (this._chatVisible === visible) return;
     if (!visible && this._wouldHideLastPanel('chat')) return;
     this._chatVisible = visible;
     this._storage.store(STORAGE_KEYS.CHAT_VISIBLE, visible);
     this._onDidChangeChatVisible.fire(visible);
+    this._ensureActivePanelVisible();
   }
 
   setEditorVisible(visible: boolean): void {
@@ -583,6 +599,7 @@ export class UIService implements IDisposable {
     this._editorVisible = visible;
     this._storage.store(STORAGE_KEYS.EDITOR_VISIBLE, visible);
     this._onDidChangeEditorVisible.fire(visible);
+    this._ensureActivePanelVisible();
   }
 
   setActivePanel(panel: PanelId): void {
@@ -625,6 +642,7 @@ export class UIService implements IDisposable {
     this._isPreviewVisible = visible;
     this._storage.store(STORAGE_KEYS.PREVIEW_VISIBLE, visible);
     this._onDidChangePreviewVisible.fire(visible);
+    this._ensureActivePanelVisible();
   }
 
   // ====== Command Palette ======
