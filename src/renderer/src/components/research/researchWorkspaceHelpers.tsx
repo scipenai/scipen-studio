@@ -14,10 +14,24 @@ export const PANEL_DEFAULT_SIZE = {
   preview: 26,
 } as const;
 
-/** 浅色分隔条:静默 1px border-subtle 细线,hover 才显 accent。 */
-export const WorkspaceResizeHandle = () => (
-  <PanelResizeHandle className="group relative w-2 bg-transparent transition-colors">
-    <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--color-border-subtle)] transition-colors group-hover:bg-[var(--color-accent)]" />
-    <div className="absolute left-1/2 top-1/2 h-10 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-transparent transition-colors group-hover:bg-[var(--color-accent-muted)]" />
+/**
+ * 浅色分隔条:静默 1px border-subtle 细线,hover 才显 accent。
+ *
+ * **必须常驻**(不要按面板可见性条件挂载/卸载)—— 三面板常驻 + collapsible 时,
+ * 增删 handle 会破坏 react-resizable-panels 的子结构稳定性,首挂载帧 handle 注册
+ * 错乱(表现:相邻面板间分隔线不渲染,需手动 toggle 才出现)。这里恒渲染,
+ * 仅用 `active` 切换可见线与可拖性:不活动时宽度 0、无线、disabled。
+ */
+export const WorkspaceResizeHandle = ({ active = true }: { active?: boolean }) => (
+  <PanelResizeHandle
+    disabled={!active}
+    className={`group relative bg-transparent transition-colors ${active ? 'w-2' : 'w-0'}`}
+  >
+    {active && (
+      <>
+        <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--color-border-subtle)] transition-colors group-hover:bg-[var(--color-accent)]" />
+        <div className="absolute left-1/2 top-1/2 h-10 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-transparent transition-colors group-hover:bg-[var(--color-accent-muted)]" />
+      </>
+    )}
   </PanelResizeHandle>
 );

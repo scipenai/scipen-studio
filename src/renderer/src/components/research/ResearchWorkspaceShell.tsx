@@ -242,7 +242,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
           </div>
         </Panel>
 
-        {chatVisible && editorVisible && <WorkspaceResizeHandle />}
+        <WorkspaceResizeHandle active={chatVisible && editorVisible} />
 
         <Panel
           id="research-editor"
@@ -266,7 +266,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
           </div>
         </Panel>
 
-        {previewVisible && (chatVisible || editorVisible) && <WorkspaceResizeHandle />}
+        <WorkspaceResizeHandle active={editorVisible && previewVisible} />
 
         <Panel
           id="research-preview"
