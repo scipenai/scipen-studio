@@ -6,7 +6,7 @@
  */
 
 import type React from 'react';
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, memo } from 'react';
 import { useRightPanelTab, usePreviewMode } from '../../services/core/hooks';
 import { getUIService } from '../../services/core/ServiceRegistry';
 import { useTranslation } from '../../locales';
@@ -38,7 +38,7 @@ export function usePreviewTitle(): string {
   }
 }
 
-export function PreviewPanel({ previewTitle }: { previewTitle: string }): React.ReactElement {
+function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.ReactElement {
   const { t } = useTranslation();
   const rightPanelTab = useRightPanelTab();
 
@@ -89,3 +89,9 @@ export function PreviewPanel({ previewTitle }: { previewTitle: string }): React.
     </div>
   );
 }
+
+/**
+ * memo:切面板时 shell 重渲,但 previewTitle 稳定 → 跳过预览子树
+ * (PreviewController / pdf.js)重渲。
+ */
+export const PreviewPanel = memo(PreviewPanelInner);

@@ -21,6 +21,7 @@
 
 import { History, Plus } from 'lucide-react';
 import React, {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -61,7 +62,7 @@ type StartupState =
  */
 const startedProjects = new Map<string, { sessionId: string; threads: ThreadSummary[] }>();
 
-export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): React.ReactElement {
+function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): React.ReactElement {
   const { t } = useTranslation();
   const [startup, setStartup] = useState<StartupState>({ kind: 'idle' });
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
@@ -421,6 +422,13 @@ export function ChatSidebar({ workspaceRoot, displayName }: ChatSidebarProps): R
     </div>
   );
 }
+
+/**
+ * memo:主页面切面板时 shell 会重渲,但本组件 props(workspaceRoot/displayName)
+ * 稳定 → 跳过整棵聊天子树重渲(含 N 条 ChatMessage 的 reconciliation)。
+ * 流式时由内部 chatStreamStore 订阅自行重渲,不受 memo 影响。
+ */
+export const ChatSidebar = memo(ChatSidebarInner);
 
 function StartupBadge({ state }: { state: StartupState }): React.ReactElement {
   switch (state.kind) {
