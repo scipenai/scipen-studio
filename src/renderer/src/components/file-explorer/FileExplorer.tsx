@@ -24,7 +24,6 @@ import { getParentPath } from './utils/file-path';
 import { ContextMenu } from './ContextMenu';
 import { InlineInput } from './InlineInput';
 import { setClipboardItem } from './clipboard';
-import { useFileIndexing } from './hooks/useFileIndexing';
 import { useFileTreeRefresh } from './hooks/useFileTreeRefresh';
 import { useFileOperations } from './hooks/useFileOperations';
 import { useFileSelection } from './hooks/useFileSelection';
@@ -67,11 +66,8 @@ export const FileExplorer: React.FC = () => {
 
   // ====== Hooks ======
 
-  const { scheduleIndexing } = useFileIndexing(projectPath, fileTree);
-
   const { isRefreshing, refreshFileTree, refreshFileTreeRef } = useFileTreeRefresh({
     projectPath,
-    scheduleIndexing,
   });
 
   const {

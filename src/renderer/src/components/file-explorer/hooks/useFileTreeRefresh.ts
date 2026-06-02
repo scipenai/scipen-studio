@@ -19,10 +19,9 @@ export type RefreshReason = 'manual' | 'focus' | 'auto';
 
 interface UseFileTreeRefreshOptions {
   projectPath: string | null;
-  scheduleIndexing: (tree: import('../../../types').FileNode | null, reason: string) => void;
 }
 
-export function useFileTreeRefresh({ projectPath, scheduleIndexing }: UseFileTreeRefreshOptions) {
+export function useFileTreeRefresh({ projectPath }: UseFileTreeRefreshOptions) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshFileTreeRef = useRef<(() => Promise<void>) | null>(null);
   const editorService = getEditorService();
@@ -43,7 +42,6 @@ export function useFileTreeRefresh({ projectPath, scheduleIndexing }: UseFileTre
           projectService.setProject(projectPath, result.fileTree, {
             rebuildIndex: shouldRebuildIndex,
           });
-          scheduleIndexing(result.fileTree, 'refresh');
         }
 
         // Refresh active tab content if externally modified
@@ -71,7 +69,7 @@ export function useFileTreeRefresh({ projectPath, scheduleIndexing }: UseFileTre
         setIsRefreshing(false);
       }
     },
-    [projectPath, uiService, editorService, scheduleIndexing]
+    [projectPath, uiService, editorService]
   );
 
   useEffect(() => {

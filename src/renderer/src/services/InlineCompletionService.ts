@@ -232,6 +232,11 @@ export class InlineCompletionService implements IDisposable {
     completionManager.clearCache();
   }
 
+  /** 清空项目索引(标签/引用)—— 切换项目时调用,避免旧项目数据串味。 */
+  resetIndex(): void {
+    completionManager.getIndexer().clear();
+  }
+
   // ====== Partial Acceptance Feature ======
 
   getNextWordFromSuggestion(): string | null {

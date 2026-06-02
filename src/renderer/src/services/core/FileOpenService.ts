@@ -6,6 +6,7 @@
 
 import { api } from '../../api';
 import { createLogger } from '../LogService';
+import { getFileIndexService } from '../FileIndexService';
 import type { FileNode } from '../../types';
 import { getLanguageForFile } from '../../utils';
 import { isSameOrChildPath, isSamePath } from '../../utils/pathComparison';
@@ -57,6 +58,8 @@ export async function bootstrapProject(
   // ── 0. Reset runtime + load file tree ──
   getProjectRuntimeContext().update({ bootstrapState: 'booting', rootPath: projectPath });
   projectService.setProject(projectPath, fileTree);
+  // 内联补全的项目级内容索引:每项目一次(服务持久化,不随文件抽屉重挂重跑)。
+  getFileIndexService().indexProject(projectPath, fileTree);
 
   // ── 1. Overleaf metadata restore/cleanup ──
   // Prefer caller-provided override (e.g. freshly downloaded metadata); otherwise restore from disk
