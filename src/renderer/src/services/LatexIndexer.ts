@@ -132,30 +132,6 @@ export class LatexIndexer {
   private citeUsage: Map<string, number> = new Map();
 
   /**
-   * Index entire project
-   */
-  async indexProject(projectPath: string): Promise<void> {
-    this.labels = [];
-    this.citations = [];
-    this.files = [];
-    this.indexedFiles.clear();
-    this.citeUsage.clear();
-
-    try {
-      await this.scanDirectory(projectPath, '');
-    } catch (error) {
-      console.error('Failed to index project:', error);
-    }
-  }
-
-  /**
-   * Recursively scan directory
-   */
-  private async scanDirectory(_basePath: string, _relativePath: string): Promise<void> {
-    // Indexing is driven by file tree events, not directory scanning
-  }
-
-  /**
    * Index a single file
    */
   async indexFile(filePath: string, content: string): Promise<void> {

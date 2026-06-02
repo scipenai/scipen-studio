@@ -683,8 +683,7 @@
     "closeFileDrawer": "Close file drawer",
     "panelChat": "Chat panel",
     "panelEditor": "Editor panel",
-    "panelPreview": "Preview panel",
-    "loadingFiles": "Loading files..."
+    "panelPreview": "Preview panel"
   },
   "markdownContent": {
     "copied": "Copied",

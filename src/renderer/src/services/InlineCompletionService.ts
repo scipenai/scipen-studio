@@ -261,10 +261,6 @@ export class InlineCompletionService implements IDisposable {
 
   // ====== Index Management ======
 
-  async indexProjectFiles(projectPath: string): Promise<void> {
-    await completionManager.getIndexer().indexProject(projectPath);
-  }
-
   /**
    * Update single file index (with debounce)
    */
@@ -658,10 +654,6 @@ export function resetPartialAccept(): void {
 
 export function getSuggestionSource(): string | null {
   return service.suggestionSource;
-}
-
-export async function indexProjectFiles(projectPath: string): Promise<void> {
-  return service.indexProjectFiles(projectPath);
 }
 
 export function updateFileIndex(filePath: string, content: string): void {

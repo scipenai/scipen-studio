@@ -683,8 +683,7 @@
     "closeFileDrawer": "关闭文件抽屉",
     "panelChat": "聊天面板",
     "panelEditor": "编辑面板",
-    "panelPreview": "预览面板",
-    "loadingFiles": "正在加载文件..."
+    "panelPreview": "预览面板"
   },
   "markdownContent": {
     "copied": "已复制",

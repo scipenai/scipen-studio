@@ -80,13 +80,6 @@ export class FileIndexService {
     }
   }
 
-  /** 项目关闭复位(下次 open 切换会自然清理,这里供显式调用)。 */
-  reset(): void {
-    this._indexedProjectPath = null;
-    this._indexedMtime.clear();
-    this._runId++;
-  }
-
   private _scheduleBatches(paths: string[]): void {
     const runId = ++this._runId;
 
