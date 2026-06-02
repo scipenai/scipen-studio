@@ -295,7 +295,7 @@ export function AgentChatInput({
   }, []);
 
   return (
-    <div className="border-t border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2.5">
+    <div className="mx-auto w-full max-w-[560px] px-3 py-2">
       {composer && (
         <div className="mb-1.5 flex items-center gap-1">
           <button
@@ -304,7 +304,7 @@ export function AgentChatInput({
             disabled={disabled || busy}
             title={armed ? composer.armedTooltip : composer.idleTooltip}
             aria-pressed={armed}
-            className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               armed
                 ? 'bg-[var(--color-accent)] text-white'
                 : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
@@ -315,7 +315,7 @@ export function AgentChatInput({
           </button>
         </div>
       )}
-      <div className="relative rounded-md border border-[var(--color-border)] bg-[var(--color-bg-elevated)] focus-within:border-[var(--color-accent)]">
+      <div className="relative rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)] shadow-[var(--shadow-md)] focus-within:border-[var(--color-accent)]">
         {fileDropdownActive && (
           <AtFileDropdown
             items={candidates}
@@ -347,7 +347,7 @@ export function AgentChatInput({
           disabled={disabled}
           rows={1}
           onKeyDown={handleKeyDown}
-          className="w-full resize-none bg-transparent px-3 py-2 pr-12 text-[13px] leading-[1.55] text-[var(--color-text-primary)] caret-[var(--color-accent)] outline-none placeholder:text-[var(--color-text-muted)] disabled:cursor-not-allowed"
+          className="w-full resize-none bg-transparent px-3 py-2.5 pr-12 text-[13px] leading-[1.55] text-[var(--color-text-primary)] caret-[var(--color-accent)] outline-none placeholder:text-[var(--color-text-muted)] disabled:cursor-not-allowed"
         />
         <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1">
           {busy && onCancel ? (
@@ -355,7 +355,7 @@ export function AgentChatInput({
               type="button"
               onClick={onCancel}
               title="取消"
-              className="rounded-md bg-[var(--color-bg-secondary)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-primary)] hover:text-[var(--color-text-primary)]"
+              className="rounded-lg bg-[var(--color-bg-secondary)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-primary)] hover:text-[var(--color-text-primary)]"
             >
               停止
             </button>
@@ -364,7 +364,7 @@ export function AgentChatInput({
               type="button"
               onClick={submit}
               disabled={!value.trim() || disabled}
-              className="rounded-md bg-[var(--color-accent)] px-2 py-1 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg bg-[var(--color-accent)] px-2 py-1 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
               发送
             </button>

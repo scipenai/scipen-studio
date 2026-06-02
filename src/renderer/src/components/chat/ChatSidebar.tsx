@@ -325,10 +325,29 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
   }, [startup]);
 
   const threadTitle = activeThread?.title || t('thread.newConversation');
+  const isEmpty = messages.length === 0 && !currentTurn;
+
+  // 单一 composer 元素:空态置于 hero 中央、有对话时落底部(docked)。
+  const composer = (
+    <AgentChatInput
+      busy={busy}
+      disabled={startup.kind !== 'ready'}
+      placeholder={placeholder}
+      onSend={handleSend}
+      onCancel={handleCancel}
+      seedValue={seedValue}
+      seedKey={seedKey}
+      composer={{
+        label: t('chat.composerTaskMode'),
+        armedTooltip: t('chat.composerChatMode'),
+        idleTooltip: t('chat.composerTaskMode'),
+      }}
+    />
+  );
 
   return (
     <div className="relative flex h-full flex-col bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]">
-      <header className="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2">
+      <header className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-4 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
           <button
             type="button"
@@ -366,9 +385,10 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         </div>
       )}
 
-      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-3 py-3">
-        {messages.length === 0 && !currentTurn ? (
+      {isEmpty ? (
+        <div className="flex-1 overflow-y-auto">
           <EmptyState
+            composerSlot={composer}
             onPickExample={(text) => {
               // 直填输入框原文(可改后再发),不走 requestChatWithText —— 那条会把
               // 文本包成 `> 引用块`,不适合示例 prompt。
@@ -376,8 +396,10 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
               setSeedKey((k) => k + 1);
             }}
           />
-        ) : (
-          <>
+        </div>
+      ) : (
+        <>
+          <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-4">
             {messages.map((m, idx) => (
               <ChatMessage
                 key={`${m.role}-${m.ts}-${m.turnId ?? idx}`}
@@ -390,24 +412,10 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
               />
             ))}
             {currentTurn && <ChatMessage message={null} turn={currentTurn} />}
-          </>
-        )}
-      </div>
-
-      <AgentChatInput
-        busy={busy}
-        disabled={startup.kind !== 'ready'}
-        placeholder={placeholder}
-        onSend={handleSend}
-        onCancel={handleCancel}
-        seedValue={seedValue}
-        seedKey={seedKey}
-        composer={{
-          label: t('chat.composerTaskMode'),
-          armedTooltip: t('chat.composerChatMode'),
-          idleTooltip: t('chat.composerTaskMode'),
-        }}
-      />
+          </div>
+          <div className="pb-3">{composer}</div>
+        </>
+      )}
 
       <ThreadHistoryDrawer
         open={drawerOpen}
@@ -460,8 +468,10 @@ function StartupBadge({ state }: { state: StartupState }): React.ReactElement {
 
 function EmptyState({
   onPickExample,
+  composerSlot,
 }: {
   onPickExample: (text: string) => void;
+  composerSlot?: React.ReactNode;
 }): React.ReactElement {
   const { t } = useTranslation();
   const examples = [
@@ -470,7 +480,7 @@ function EmptyState({
     t('chat.examplePrompt3'),
   ];
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 px-4 text-center">
+    <div className="flex min-h-full flex-col items-center justify-center gap-4 px-4 py-6 text-center">
       <div className="flex flex-col items-center gap-2 text-[var(--color-text-muted)]">
         <div className="text-[24px]">✦</div>
         <div className="text-[13px] text-[var(--color-text-secondary)]">
@@ -478,6 +488,8 @@ function EmptyState({
         </div>
         <div className="text-[11px]">{t('chat.welcomeSubtitle')}</div>
       </div>
+
+      {composerSlot && <div className="w-full">{composerSlot}</div>}
 
       <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-[10px] text-[var(--color-text-muted)]">
         <span className="inline-flex items-center gap-1">
@@ -503,7 +515,7 @@ function EmptyState({
             key={ex}
             type="button"
             onClick={() => onPickExample(ex)}
-            className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)] px-3 py-2 text-left text-[12px] text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+            className="rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)] px-3 py-2 text-left text-[12px] text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
           >
             {ex}
           </button>
