@@ -448,8 +448,7 @@
     }
   },
   "workspaceSidebar": {
-    "subtitle": "AI Workspace",
-    "imTab": "IM",
+    "imTab": "Chat",
     "filesTab": "Files",
     "settingsTab": "Settings",
     "settingsLoading": "Loading settings..."

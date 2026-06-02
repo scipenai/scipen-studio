@@ -448,8 +448,7 @@
     }
   },
   "workspaceSidebar": {
-    "subtitle": "AI 工作台",
-    "imTab": "IM",
+    "imTab": "对话",
     "filesTab": "文件",
     "settingsTab": "设置",
     "settingsLoading": "正在加载设置..."

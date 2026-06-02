@@ -8,12 +8,9 @@ import type React from 'react';
 import { forwardRef } from 'react';
 
 export interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  /** Button variant
-   *  - default/ghost/solid/destructive:通用图标按钮(走 size + active/idle ternary)
-   *  - rail:Sidebar 导航专用(44×44,rounded-2xl,active glow,hover 联动)
-   */
-  variant?: 'default' | 'ghost' | 'solid' | 'destructive' | 'rail';
-  /** Button size(rail variant 忽略此 prop,固定 44×44) */
+  /** Button variant — 通用图标按钮(走 size + active/idle ternary) */
+  variant?: 'default' | 'ghost' | 'solid' | 'destructive';
+  /** Button size */
   size?: 'sm' | 'md' | 'lg';
   /** Active state */
   active?: boolean;
@@ -75,15 +72,6 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         text-[var(--color-text-muted)]
         hover:text-[var(--color-error)] hover:bg-[var(--color-error-muted)]
       `,
-      // Rail variant: Sidebar 导航专用,自带 border 开关 + hover 联动 + accent-muted bg
-      rail: `
-        border-transparent
-        bg-[color-mix(in_srgb,var(--color-bg-elevated)_88%,transparent)]
-        text-[var(--color-text-muted)]
-        hover:border-[var(--color-border-subtle)]
-        hover:bg-[color-mix(in_srgb,var(--color-bg-primary)_92%,transparent)]
-        hover:text-[var(--color-text-primary)]
-      `,
     };
 
     const activeStyles = {
@@ -92,20 +80,9 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       solid:
         'text-[var(--color-accent)] bg-[var(--color-accent-muted)] border-[var(--color-accent)]',
       destructive: 'text-[var(--color-error)] bg-[var(--color-error-muted)]',
-      // Rail active: accent glow + 24% 混合边框 + accent-muted bg
-      rail: `
-        border-[color-mix(in_srgb,var(--color-accent)_24%,transparent)]
-        bg-[var(--color-accent-muted)]
-        text-[var(--color-accent)]
-        shadow-[0_10px_24px_color-mix(in_srgb,var(--color-accent)_14%,transparent)]
-      `,
     };
 
-    // Rail 走独立形状(44×44 + rounded-2xl + border 开关),其他 variant 走通用 size/iconSize 矩阵
-    const isRail = variant === 'rail';
-    const shapeStyles = isRail
-      ? 'w-11 h-11 rounded-2xl border [&>svg]:w-[17px] [&>svg]:h-[17px]'
-      : clsx('rounded-lg', sizeStyles[size], iconSizes[size]);
+    const shapeStyles = clsx('rounded-lg', sizeStyles[size], iconSizes[size]);
 
     return (
       <button
