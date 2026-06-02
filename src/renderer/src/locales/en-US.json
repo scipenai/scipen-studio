@@ -399,8 +399,6 @@
     "examplePrompt3": "What are the weak points in this section's argument?",
     "statusComposingPlan": "Composing plan…",
     "statusWaiting": "Waiting for reply…",
-    "roleUser": "You",
-    "roleAssistant": "Assistant",
     "usageInOut": "tokens in {{in}} · out {{out}}",
     "usageCached": " · cached {{cached}}",
     "inputAriaLabel": "Chat message input"

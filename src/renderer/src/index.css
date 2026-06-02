@@ -224,8 +224,6 @@
     --diff-removed-line: rgba(216, 132, 132, 0.72);
     --diff-removed-text: rgba(232, 176, 176, 0.88);
 
-    --research-chat-user-bg: linear-gradient(135deg, rgba(105, 167, 199, 0.24) 0%, rgba(143, 162, 217, 0.16) 100%);
-    --research-chat-user-border: rgba(105, 167, 199, 0.24);
     --research-chat-assistant-bg: linear-gradient(180deg, rgba(22, 27, 36, 0.96) 0%, rgba(29, 36, 48, 0.98) 100%);
     --research-chat-assistant-border: rgba(105, 167, 199, 0.14);
     --research-chat-embed-bg: linear-gradient(180deg, rgba(16, 20, 28, 0.96) 0%, rgba(21, 26, 36, 0.98) 100%);
@@ -381,8 +379,6 @@
     --diff-removed-line: rgba(198, 112, 112, 0.72);
     --diff-removed-text: rgba(148, 86, 86, 0.84);
 
-    --research-chat-user-bg: linear-gradient(135deg, rgba(63, 137, 168, 0.18) 0%, rgba(114, 141, 199, 0.12) 100%);
-    --research-chat-user-border: rgba(63, 137, 168, 0.18);
     --research-chat-assistant-bg: linear-gradient(180deg, rgba(255, 253, 248, 0.96) 0%, rgba(250, 246, 238, 0.98) 100%);
     --research-chat-assistant-border: rgba(63, 137, 168, 0.1);
     --research-chat-embed-bg: linear-gradient(180deg, rgba(255, 253, 248, 0.96) 0%, rgba(247, 242, 233, 0.98) 100%);

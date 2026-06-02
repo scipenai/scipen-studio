@@ -62,8 +62,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
     const showPlanComposing =
       suppressText && turn.pending && !turn.plan;
     return (
-      <div className="mb-4">
-        <RoleBadge role="assistant" pending />
+      <div className="mb-3">
         <Timeline
           events={turn.events}
           toolCalls={turn.toolCalls}
@@ -95,15 +94,11 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
 
   if (message.role === 'user') {
     return (
-      <div
-        className="mb-3 rounded-xl border p-2.5"
-        style={{
-          background: 'var(--research-chat-user-bg)',
-          borderColor: 'var(--research-chat-user-border)',
-        }}
-      >
-        <RoleBadge role="user" />
-        <div className="whitespace-pre-wrap break-words text-[length:var(--chat-font-size)] leading-[1.6]">
+      <div className="mb-3 flex gap-2 text-[length:var(--chat-font-size)] leading-[1.6]">
+        <span aria-hidden="true" className="select-none font-semibold text-[var(--color-accent)]">
+          ›
+        </span>
+        <div className="min-w-0 flex-1 whitespace-pre-wrap break-words font-medium text-[var(--color-text-primary)]">
           {message.text}
         </div>
       </div>
@@ -118,8 +113,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
     completedTurn?.events?.some((e) => e.kind === 'text') ?? false;
   const renderLegacyTail = !suppressText && !hasTextEvent && message.text.length > 0;
   return (
-    <div className="group mb-4">
-      <RoleBadge role="assistant" />
+    <div className="group mb-3">
       {completedTurn && (
         <Timeline
           events={completedTurn.events}
@@ -199,39 +193,23 @@ function Timeline({
   );
 }
 
-function RoleBadge({
-  role,
-  pending,
-}: {
-  role: 'user' | 'assistant';
-  pending?: boolean;
-}): ReactElement {
-  const { t } = useTranslation();
-  return (
-    <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">
-      <span>{role === 'user' ? t('chat.roleUser') : t('chat.roleAssistant')}</span>
-      {pending && <span className="h-1 w-1 animate-pulse rounded-full bg-[var(--color-accent)]" />}
-    </div>
-  );
-}
-
 function ToolCallCard({ call }: { call: ChatTurn['toolCalls'][number] }): ReactElement {
   const [open, setOpen] = useState(false);
   const argsPreview = formatArgsPreview(call.args);
   return (
-    <div className="rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] text-[11px]">
+    <div className="text-[11px]">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-2 py-1 text-left"
+        className="flex w-full items-center gap-2 py-0.5 text-left text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-primary)]"
       >
         <ChevronRight
           size={10}
           className={`flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
         />
         <span className={`font-medium ${statusColor(call.status)}`}>{statusGlyph(call.status)}</span>
-        <span className="font-medium text-[var(--color-text-primary)]">{call.tool}</span>
+        <span className="font-medium text-[var(--color-text-secondary)]">{call.tool}</span>
         {argsPreview && (
           <span className="truncate text-[var(--color-text-muted)]">{argsPreview}</span>
         )}
@@ -240,7 +218,7 @@ function ToolCallCard({ call }: { call: ChatTurn['toolCalls'][number] }): ReactE
         )}
       </button>
       {open && (
-        <div className="border-t border-[var(--color-border-subtle)] px-2 py-1.5 space-y-1">
+        <div className="ml-3 space-y-1 border-l border-[var(--color-border-subtle)] py-1 pl-3">
           {call.args !== undefined && (
             <DetailBlock label="参数" body={prettyJson(call.args)} mono />
           )}

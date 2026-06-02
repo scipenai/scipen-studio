@@ -399,8 +399,6 @@
     "examplePrompt3": "这一节的论证有哪些薄弱点?",
     "statusComposingPlan": "正在生成计划…",
     "statusWaiting": "等待回复…",
-    "roleUser": "你",
-    "roleAssistant": "助手",
     "usageInOut": "输入 {{in}} · 输出 {{out}}",
     "usageCached": " · 缓存 {{cached}}",
     "inputAriaLabel": "聊天输入框"
