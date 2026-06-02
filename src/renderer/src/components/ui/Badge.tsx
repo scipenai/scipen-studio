@@ -83,7 +83,7 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
       <span
         ref={ref}
         className={clsx(
-          'inline-flex items-center gap-1 rounded-full font-medium',
+          'inline-flex items-center gap-1 rounded-md font-medium',
           sizeStyles[size],
           variantStyles[variant],
           className

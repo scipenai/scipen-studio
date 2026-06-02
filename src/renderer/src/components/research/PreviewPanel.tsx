@@ -57,7 +57,7 @@ function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.Re
       >
         {label}
         {active && (
-          <span className="absolute inset-x-1.5 -bottom-px h-0.5 rounded-full bg-[var(--color-accent)]" />
+          <span className="absolute inset-x-1.5 -bottom-px h-0.5 rounded-sm bg-[var(--color-accent)]" />
         )}
       </button>
     );
@@ -69,11 +69,8 @@ function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.Re
       style={{ background: 'var(--color-bg-secondary)' }}
     >
       <div
-        className="flex items-center gap-1 border-b px-2 py-1.5"
-        style={{
-          borderBottomColor: 'var(--color-border-subtle)',
-          background: 'color-mix(in srgb, var(--color-bg-elevated) 92%, transparent)',
-        }}
+        className="flex items-center gap-1 border-b px-3 py-2"
+        style={{ borderBottomColor: 'var(--color-border-subtle)' }}
       >
         {tabBtn('preview', previewTitle)}
         {tabBtn('paper', t('mainLayout.paperTab'))}

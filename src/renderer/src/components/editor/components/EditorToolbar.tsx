@@ -115,7 +115,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
       >
         {pendingReview && (
           <div
-            className="flex items-center gap-2 rounded-[18px] border px-3 py-1.5 text-[12px]"
+            className="flex items-center gap-2 rounded-xl border px-3 py-1.5 text-[12px]"
             style={{
               borderColor: 'color-mix(in srgb, var(--color-warning) 24%, transparent)',
               background:
@@ -139,7 +139,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             <button
               type="button"
               onClick={pendingReview.onNextChange}
-              className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50"
               style={{
                 borderColor: 'color-mix(in srgb, var(--color-warning) 18%, transparent)',
                 background: 'color-mix(in srgb, var(--color-bg-primary) 82%, transparent)',
@@ -154,7 +154,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             <button
               type="button"
               onClick={pendingReview.onAcceptAll}
-              className="flex items-center gap-1.5 rounded-full bg-[linear-gradient(135deg,#16a34a_0%,#22c55e_100%)] px-3.5 py-1.5 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(34,197,94,0.22)] transition-all hover:-translate-y-[1px] hover:shadow-[0_16px_28px_rgba(34,197,94,0.26)] disabled:translate-y-0 disabled:opacity-50 disabled:shadow-none"
+              className="flex items-center gap-1.5 rounded-lg bg-[linear-gradient(135deg,#16a34a_0%,#22c55e_100%)] px-3.5 py-1.5 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(34,197,94,0.22)] transition-all hover:-translate-y-[1px] hover:shadow-[0_16px_28px_rgba(34,197,94,0.26)] disabled:translate-y-0 disabled:opacity-50 disabled:shadow-none"
               title={t('diffReview.acceptAll')}
               disabled={pendingReview.disabled}
             >
@@ -164,7 +164,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             <button
               type="button"
               onClick={pendingReview.onRejectAll}
-              className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50"
               style={{
                 borderColor: 'color-mix(in srgb, var(--color-error) 18%, transparent)',
                 background: 'color-mix(in srgb, var(--color-bg-primary) 80%, transparent)',

@@ -887,7 +887,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                       type="button"
                       onClick={() => setFailureLogTab('diagnostics')}
                       className={clsx(
-                        'rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+                        'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
                         failureLogTab === 'diagnostics'
                           ? 'bg-[var(--color-accent-muted)] text-[var(--color-accent)]'
                           : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
@@ -906,7 +906,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                       type="button"
                       onClick={() => setFailureLogTab('raw')}
                       className={clsx(
-                        'rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+                        'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
                         failureLogTab === 'raw'
                           ? 'bg-[var(--color-accent-muted)] text-[var(--color-accent)]'
                           : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
@@ -1010,7 +1010,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
         >
           <div className="flex items-center gap-2">
             <div
-              className="flex items-center gap-2 rounded-full px-4 py-2 text-sm text-[var(--color-accent)] ring-1 ring-inset"
+              className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-[var(--color-accent)] ring-1 ring-inset"
               style={{
                 background: 'var(--color-accent-muted)',
                 borderColor: 'color-mix(in srgb, var(--color-accent) 18%, transparent)',
