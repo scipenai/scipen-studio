@@ -20,13 +20,11 @@ export function ThinkingRenderer({ text, streaming }: ThinkingRendererProps): Re
   if (!text) return null;
 
   return (
-    <div
-      className="mb-2 rounded-md border border-[var(--color-border-subtle)] bg-[color-mix(in_srgb,var(--color-bg-elevated)_60%,transparent)] text-[12px]"
-    >
+    <div className="mb-2 border-l-2 border-[var(--color-accent-dim)] pl-2.5 text-[12px]">
       <button
         type="button"
         onClick={() => setExpanded((e) => !e)}
-        className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+        className="flex w-full items-center justify-between gap-2 py-0.5 text-left text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
       >
         <span className="flex items-center gap-1.5">
           <svg width="10" height="10" viewBox="0 0 10 10" className={expanded ? 'rotate-90 transition' : 'transition'}>
@@ -39,7 +37,7 @@ export function ThinkingRenderer({ text, streaming }: ThinkingRendererProps): Re
         {streaming && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-accent)]" />}
       </button>
       {expanded && (
-        <pre className="border-t border-[var(--color-border-subtle)] px-3 py-2 font-mono text-[11px] leading-[1.55] text-[var(--color-text-muted)] whitespace-pre-wrap break-words max-h-72 overflow-y-auto">
+        <pre className="mt-1 max-h-72 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.55] text-[var(--color-text-muted)] opacity-90">
           {text}
         </pre>
       )}

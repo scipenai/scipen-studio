@@ -6,6 +6,7 @@
 
 import type { AIConfigDTO, AIProviderDTO, SelectedModels } from '../../../../../shared/ipc/types';
 import {
+  DEFAULT_CHAT_FONT_SIZE,
   DEFAULT_COMPILER_AUTO_COMPILE,
   DEFAULT_COMPILER_COMPILE_ON_SAVE,
   DEFAULT_EDITOR_AUTO_COMPLETION,
@@ -105,6 +106,7 @@ export const defaultSettings: AppSettings = {
   ui: {
     theme: DEFAULT_THEME,
     language: DEFAULT_LANGUAGE,
+    chatFontSize: DEFAULT_CHAT_FONT_SIZE,
     previewWidth: 400,
     rightPanelWidth: 400,
     sidebarPosition: 'left',

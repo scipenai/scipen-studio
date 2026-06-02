@@ -51,6 +51,9 @@
     --scipen-font-sans: 'Inter', 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei UI', system-ui, -apple-system, sans-serif;
     --scipen-font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
 
+    /* 聊天面板正文/输入字号(px);由设置 ui.chatFontSize 在 ChatSidebar 根覆盖 */
+    --chat-font-size: 14px;
+
     /* Motion tokens — Doherty 阈值 + 心流原则
        fast:   hover / 微交互
        base:   panel 切换 / modal
@@ -1065,7 +1068,7 @@ body {
 }
 
 .chat-markdown {
-  font-size: 0.94rem;
+  font-size: var(--chat-font-size, 14px);
   line-height: 1.75;
 }
 
@@ -1093,14 +1096,11 @@ body {
   font-size: 0.92em;
 }
 
+/* Reasonix 气质:代码块压平(无 gradient/重阴影),仅留扁平面 + 细边;高亮/复制/语言标签照旧 */
 .chat-markdown .markdown-code-block {
-  border-color: color-mix(in srgb, var(--color-accent) 14%, transparent);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--color-bg-primary) 92%, transparent) 0%,
-    color-mix(in srgb, var(--color-bg-elevated) 98%, transparent) 100%
-  );
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22);
+  border-color: var(--color-border-subtle);
+  background: var(--color-bg-primary);
+  box-shadow: none;
 }
 
 .chat-markdown .markdown-code-block--compact {
@@ -1223,6 +1223,28 @@ body {
 .chat-markdown .markdown-code-block {
   margin-top: 0.75rem;
   margin-bottom: 0.75rem;
+}
+
+/* Reasonix 气质:克制引用/列表/链接 —— dim 左条、accent marker、收敛下划线 */
+.chat-markdown blockquote {
+  border-left-width: 2px;
+  border-left-color: var(--color-accent-dim);
+  padding-left: 0.8rem;
+  font-style: normal;
+  color: var(--color-text-muted);
+}
+.chat-markdown ul,
+.chat-markdown ol {
+  list-style-position: outside;
+}
+.chat-markdown li::marker {
+  color: var(--color-accent);
+}
+.chat-markdown a {
+  text-decoration: none;
+}
+.chat-markdown a:hover {
+  text-decoration: underline;
 }
 
 /* ── 浅色主题：代码块 ───────────────────────────────────────── */

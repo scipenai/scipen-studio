@@ -36,6 +36,7 @@ import { buildChatContext } from '../../services/agent/ChatContextBuilder';
 import { buildMentions } from '../../services/AtMentionResolver';
 import { chatStreamStore } from '../../services/agent/ChatStreamStore';
 import { getUIService } from '../../services/core/ServiceRegistry';
+import { useSettings } from '../../services/core/hooks';
 import type { AskAIAboutErrorRequest } from '../../services/core/UIService';
 import { AgentChatInput, type SendIntent } from './AgentChatInput';
 import { ChatMessage } from './ChatMessage';
@@ -64,6 +65,7 @@ const startedProjects = new Map<string, { sessionId: string; threads: ThreadSumm
 
 function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): React.ReactElement {
   const { t } = useTranslation();
+  const chatFontSize = useSettings((s) => s.ui.chatFontSize);
   const [startup, setStartup] = useState<StartupState>({ kind: 'idle' });
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -346,7 +348,10 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
   );
 
   return (
-    <div className="relative flex h-full flex-col bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]">
+    <div
+      className="relative flex h-full flex-col bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]"
+      style={{ '--chat-font-size': `${chatFontSize}px` } as React.CSSProperties}
+    >
       <header className="flex items-center justify-between border-b border-[var(--color-border-subtle)] px-4 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
           <button
