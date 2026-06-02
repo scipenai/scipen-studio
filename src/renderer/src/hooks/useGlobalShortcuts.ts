@@ -4,7 +4,7 @@
  *              to avoid duplicate handling. Supports user-customizable keybindings.
  * @depends api, LogService, services/core, useDOM
  */
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 import { api } from '../api';
 import { createLogger } from '../services/LogService';
 import { t } from '../locales';
@@ -55,9 +55,7 @@ function matchesShortcut(event: KeyboardEvent, shortcutStr: string): boolean {
 
 export function useGlobalShortcuts() {
   const uiService = getUIService();
-  const settings = useSettings();
-
-  const shortcuts = useMemo(() => settings.shortcuts, [settings.shortcuts]);
+  const shortcuts = useSettings((s) => s.shortcuts);
 
   /**
    * Saves the current file with version-based conflict detection.

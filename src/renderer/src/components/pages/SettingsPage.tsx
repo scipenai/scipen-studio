@@ -6,12 +6,8 @@
 import { motion } from 'framer-motion';
 import { X } from 'lucide-react';
 import type React from 'react';
-import { Suspense, lazy } from 'react';
 import { useTranslation } from '../../locales';
-
-const GeneralSettingsPanel = lazy(() =>
-  import('../SettingsPanel').then((module) => ({ default: module.SettingsPanel }))
-);
+import { useLazyModule } from '../../hooks/useLazyModule';
 
 const LoadingFallback = () => {
   const { t } = useTranslation();
@@ -24,6 +20,9 @@ const LoadingFallback = () => {
 
 export const SettingsPage: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const { t } = useTranslation();
+  const GeneralSettingsPanel = useLazyModule(() =>
+    import('../SettingsPanel').then((m) => m.SettingsPanel)
+  );
 
   return (
     <div
@@ -87,9 +86,7 @@ export const SettingsPage: React.FC<{ onClose: () => void }> = ({ onClose }) => 
           className="min-h-0 flex-1 overflow-hidden"
           style={{ background: 'var(--color-bg-secondary)' }}
         >
-          <Suspense fallback={<LoadingFallback />}>
-            <GeneralSettingsPanel />
-          </Suspense>
+          {GeneralSettingsPanel ? <GeneralSettingsPanel /> : <LoadingFallback />}
         </div>
       </motion.div>
     </div>

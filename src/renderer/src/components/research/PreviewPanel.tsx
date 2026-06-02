@@ -6,20 +6,13 @@
  */
 
 import type React from 'react';
-import { Suspense, lazy, memo } from 'react';
+import { memo } from 'react';
 import { useRightPanelTab, usePreviewMode } from '../../services/core/hooks';
 import { getUIService } from '../../services/core/ServiceRegistry';
 import { useTranslation } from '../../locales';
+import { useLazyModule } from '../../hooks/useLazyModule';
 import { PanelErrorBoundary } from '../ErrorBoundary';
 import { PreviewLoadingFallback } from '../LoadingFallback';
-
-const PreviewController = lazy(() =>
-  import('../preview/PreviewController').then((module) => ({ default: module.PreviewController }))
-);
-
-const ZoteroPaperPane = lazy(() =>
-  import('../preview/ZoteroPaperPane').then((module) => ({ default: module.ZoteroPaperPane }))
-);
 
 /** 预览标题随 previewMode(pdf / markdown / typst)切换。 */
 export function usePreviewTitle(): string {
@@ -41,6 +34,12 @@ export function usePreviewTitle(): string {
 function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.ReactElement {
   const { t } = useTranslation();
   const rightPanelTab = useRightPanelTab();
+  const PreviewController = useLazyModule(() =>
+    import('../preview/PreviewController').then((m) => m.PreviewController)
+  );
+  const ZoteroPaperPane = useLazyModule(() =>
+    import('../preview/ZoteroPaperPane').then((m) => m.ZoteroPaperPane)
+  );
 
   const setTab = (tab: 'preview' | 'paper') => getUIService().setRightPanelTab(tab);
   // 紧凑文字 tab:活动 = 主文本色 + 2px accent 下划线;非活动 = muted。
@@ -81,9 +80,13 @@ function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.Re
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         <PanelErrorBoundary panelName={previewTitle}>
-          <Suspense fallback={<PreviewLoadingFallback />}>
-            {rightPanelTab === 'paper' ? <ZoteroPaperPane /> : <PreviewController />}
-          </Suspense>
+          {rightPanelTab === 'paper' ? (
+            ZoteroPaperPane ? <ZoteroPaperPane /> : <PreviewLoadingFallback />
+          ) : PreviewController ? (
+            <PreviewController />
+          ) : (
+            <PreviewLoadingFallback />
+          )}
         </PanelErrorBoundary>
       </div>
     </div>

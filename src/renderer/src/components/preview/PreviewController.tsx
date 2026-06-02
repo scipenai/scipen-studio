@@ -5,22 +5,10 @@
 
 import { FileText } from 'lucide-react';
 import type React from 'react';
-import { Suspense, lazy } from 'react';
 import { usePreviewMode } from '../../services/core/hooks';
 import { useTranslation } from '../../locales';
+import { useLazyModule } from '../../hooks/useLazyModule';
 import { PreviewLoadingFallback } from '../LoadingFallback';
-
-const PdfPreviewPane = lazy(() =>
-  import('./PdfPreviewPane').then((module) => ({ default: module.PdfPreviewPane }))
-);
-
-const MarkdownPreviewPane = lazy(() =>
-  import('./MarkdownPreviewPane').then((module) => ({ default: module.MarkdownPreviewPane }))
-);
-
-const TypstPreviewPane = lazy(() =>
-  import('./TypstPreviewPane').then((module) => ({ default: module.TypstPreviewPane }))
-);
 
 const NoPreview: React.FC = () => {
   const { t } = useTranslation();
@@ -39,26 +27,25 @@ const NoPreview: React.FC = () => {
 
 export const PreviewController: React.FC = () => {
   const previewMode = usePreviewMode();
+  // 三个 leaf 全部经 useLazyModule 动态加载(替代 lazy+Suspense),提交可靠;
+  // hook 规则要求无条件调用,故三个都 warm,按 previewMode 渲染选中者。
+  const PdfPreviewPane = useLazyModule(() =>
+    import('./PdfPreviewPane').then((m) => m.PdfPreviewPane)
+  );
+  const MarkdownPreviewPane = useLazyModule(() =>
+    import('./MarkdownPreviewPane').then((m) => m.MarkdownPreviewPane)
+  );
+  const TypstPreviewPane = useLazyModule(() =>
+    import('./TypstPreviewPane').then((m) => m.TypstPreviewPane)
+  );
 
   switch (previewMode) {
     case 'pdf':
-      return (
-        <Suspense fallback={<PreviewLoadingFallback />}>
-          <PdfPreviewPane />
-        </Suspense>
-      );
+      return PdfPreviewPane ? <PdfPreviewPane /> : <PreviewLoadingFallback />;
     case 'markdown':
-      return (
-        <Suspense fallback={<PreviewLoadingFallback />}>
-          <MarkdownPreviewPane />
-        </Suspense>
-      );
+      return MarkdownPreviewPane ? <MarkdownPreviewPane /> : <PreviewLoadingFallback />;
     case 'typst':
-      return (
-        <Suspense fallback={<PreviewLoadingFallback />}>
-          <TypstPreviewPane />
-        </Suspense>
-      );
+      return TypstPreviewPane ? <TypstPreviewPane /> : <PreviewLoadingFallback />;
     default:
       return <NoPreview />;
   }

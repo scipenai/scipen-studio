@@ -80,11 +80,9 @@ export const EditorPane: React.FC = React.memo(() => {
   const activeTabPath = useActiveTabPath();
   const isCompiling = useIsCompiling();
   const pdfData = usePdfData();
-  const settings = useSettings();
-
-  const editorSettings = settings.editor;
-  const uiTheme = settings.ui.theme;
-  const compilerEngine = settings.compiler.engine;
+  const editorSettings = useSettings((s) => s.editor);
+  const uiTheme = useSettings((s) => s.ui.theme);
+  const compilerEngine = useSettings((s) => s.compiler.engine);
   const runtime = useProjectRuntime();
 
   const activeTab = useMemo(() => {

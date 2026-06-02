@@ -229,12 +229,6 @@ export function useEditorVisible() {
   return useServiceEvent(service.onDidChangeEditorVisible, () => service.editorVisible);
 }
 
-/** Returns the currently focused panel — drives the active-task edge highlight. */
-export function useActivePanel() {
-  const service = getUIService();
-  return useServiceEvent(service.onDidChangeActivePanel, () => service.activePanel);
-}
-
 /** Returns command palette open state. */
 export function useIsCommandPaletteOpen() {
   const service = getUIService();

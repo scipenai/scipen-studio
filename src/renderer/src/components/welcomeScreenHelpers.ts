@@ -39,7 +39,6 @@ export function resetWorkspaceToChat(): void {
   uiService.setChatVisible(true);
   uiService.setEditorVisible(false);
   uiService.setPreviewVisible(false);
-  uiService.setActivePanel('chat');
   uiService.setActiveArtifactPath(null);
   uiService.setActiveArtifactId(null);
 }

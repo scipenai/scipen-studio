@@ -1776,3 +1776,8 @@ input, textarea, [contenteditable], .monaco-editor * {
 @keyframes blink-cursor {
   50% { opacity: 0; }
 }
+
+/* 主页面「当前任务区」细描边:纯 CSS 跟随真实焦点,零 React 重渲(取代旧 activePanel state)。 */
+.panel-focus-edge:focus-within {
+  box-shadow: inset 2px 0 0 var(--color-accent-dim);
+}

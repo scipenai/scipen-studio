@@ -128,6 +128,7 @@ export const SettingsPanel: React.FC = () => {
     return tabs.some((tab) => tab.id === storedTab) ? storedTab : 'ai';
   });
   const { t } = useTranslation();
+
   const activeMeta = useMemo(
     () => tabs.find((tab) => tab.id === activeTab) ?? tabs[0],
     [activeTab]
