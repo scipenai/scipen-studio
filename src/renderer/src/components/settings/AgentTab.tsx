@@ -226,6 +226,19 @@ export const AgentTab: React.FC = () => {
     void api.config.set(ConfigKeys.AgentApprovalMode, next, true);
   }, []);
 
+  // --- Web search (Tavily) -------------------------------------------
+
+  const [webSearchKey, setWebSearchKey] = useState('');
+  useEffect(() => {
+    void api.config.get<string | undefined>(ConfigKeys.AgentWebSearchApiKey).then((v) => {
+      if (typeof v === 'string') setWebSearchKey(v);
+    });
+  }, []);
+  const onWebSearchKeyChange = useCallback((next: string) => {
+    setWebSearchKey(next);
+    void api.config.set(ConfigKeys.AgentWebSearchApiKey, next.trim(), true);
+  }, []);
+
   // --- Engine overrides ----------------------------------------------
 
   const [engine, setEngine] = useState<EngineOverrides>({});
@@ -328,6 +341,26 @@ export const AgentTab: React.FC = () => {
           <option value="auto_allow">{t('settingsAgent.approval.autoAllow')}</option>
           <option value="auto_deny">{t('settingsAgent.approval.autoDeny')}</option>
         </select>
+      </SettingItem>
+
+      {/* ---------- Web search (Tavily) ---------- */}
+      <SectionTitle>{t('settingsAgent.webSearch.title')}</SectionTitle>
+      <p className="text-xs text-[var(--color-text-muted)] mb-3 -mt-1">
+        {t('settingsAgent.webSearch.desc')}
+      </p>
+      <SettingItem
+        label={t('settingsAgent.webSearch.apiKey')}
+        description={t('settingsAgent.webSearch.apiKeyDesc')}
+      >
+        <input
+          type="password"
+          value={webSearchKey}
+          onChange={(e) => onWebSearchKeyChange(e.target.value)}
+          placeholder={t('settingsAgent.webSearch.apiKeyPlaceholder')}
+          className={inputClassName}
+          autoComplete="off"
+          spellCheck={false}
+        />
       </SettingItem>
 
       {/* ---------- MCP Servers ---------- */}

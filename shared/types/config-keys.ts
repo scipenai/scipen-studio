@@ -24,6 +24,10 @@ export enum ConfigKeys {
   // args?, env?, url?, init_timeout_secs? }`. Wire-shape; passed
   // straight to `SnacaConfig.mcp_servers`.
   AgentMcpServers = 'agent.mcpServers',
+  // Tavily API key for the built-in WebSearch tool. Stored here, injected
+  // into the sidecar process env as TAVILY_API_KEY at spawn time (the key
+  // value never crosses into SnacaConfig). Changing it restarts the sidecar.
+  AgentWebSearchApiKey = 'agent.webSearchApiKey',
 
   // ====== Editor Configuration ======
   EditorFontSize = 'editor.fontSize',

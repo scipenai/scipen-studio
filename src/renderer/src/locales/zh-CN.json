@@ -792,6 +792,13 @@
       "autoAllow": "全部自动放行",
       "autoDeny": "全部自动拒绝"
     },
+    "webSearch": {
+      "title": "联网搜索",
+      "desc": "内置 WebSearch 工具使用 Tavily,需填入 API Key 后方可联网检索;WebFetch(抓取网页)无需 Key。",
+      "apiKey": "Tavily API Key",
+      "apiKeyDesc": "保存后自动重启 Agent 运行时使其生效。留空则关闭 WebSearch(WebFetch 仍可用)。",
+      "apiKeyPlaceholder": "tvly-..."
+    },
     "engine": {
       "title": "Engine 高级参数",
       "expand": "展开",

@@ -485,6 +485,12 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
   store.add({
     dispose: config.subscribe(ConfigKeys.AgentMcpServers, scheduleSidecarReload),
   });
+  // The Tavily key is injected into the sidecar process env at spawn time
+  // (buildSnacaSidecarEnv), so an already-running sidecar won't see a new
+  // value until it is respawned — a full restart, like engine.*/mcp.
+  store.add({
+    dispose: config.subscribe(ConfigKeys.AgentWebSearchApiKey, scheduleSidecarReload),
+  });
   store.add({
     dispose: () => {
       if (restartTimer) {
@@ -956,10 +962,15 @@ export function buildSnacaSidecarEnv(config: IConfigManager): NodeJS.ProcessEnv 
     [SNACA_API_KEY_ENV]: apiKey,
     RUST_LOG: process.env.SNACA_LOG ?? 'snaca_editor=info,info',
   };
-  // WebSearch (Tavily) reads its key from TAVILY_API_KEY; forward it when the
-  // host environment provides one so the tool works without extra config.
-  if (process.env.TAVILY_API_KEY) {
-    env.TAVILY_API_KEY = process.env.TAVILY_API_KEY;
+  // WebSearch (Tavily) reads its key from TAVILY_API_KEY. The Settings value
+  // wins; `process.env` is a developer-only fallback. Mirrors how the chat
+  // api-key is sourced — only the resolved value is injected into the env,
+  // never persisted into SnacaConfig.
+  const tavilyKey =
+    config.get<string | undefined>(ConfigKeys.AgentWebSearchApiKey, undefined)?.trim() ||
+    process.env.TAVILY_API_KEY;
+  if (tavilyKey) {
+    env.TAVILY_API_KEY = tavilyKey;
   }
   return env;
 }

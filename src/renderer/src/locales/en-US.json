@@ -792,6 +792,13 @@
       "autoAllow": "Auto-allow all",
       "autoDeny": "Auto-deny all"
     },
+    "webSearch": {
+      "title": "Web search",
+      "desc": "The built-in WebSearch tool uses Tavily and needs an API key to query the web; WebFetch (page fetching) needs no key.",
+      "apiKey": "Tavily API key",
+      "apiKeyDesc": "Saving restarts the Agent runtime so it takes effect. Leave empty to disable WebSearch (WebFetch still works).",
+      "apiKeyPlaceholder": "tvly-..."
+    },
     "engine": {
       "title": "Engine advanced",
       "expand": "Expand",
