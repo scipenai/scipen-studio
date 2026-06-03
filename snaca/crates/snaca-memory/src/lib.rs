@@ -49,4 +49,7 @@ pub use embed::{cosine, EmbedError, EmbedResult, Embedder, HashEmbedder};
 pub use fastembed_backend::{FastEmbedConfig, FastEmbedEmbedder};
 pub use indexed::{IndexedMemoryStore, SearchHit};
 pub use scope::MemoryScope;
-pub use store::{sanitize_name, MemoryEntry, MemoryError, MemoryResult, MemoryStore};
+pub use store::{
+    parse_frontmatter, render_with_frontmatter, sanitize_name, MemoryEntry, MemoryError,
+    MemoryMeta, MemoryResult, MemoryStore,
+};

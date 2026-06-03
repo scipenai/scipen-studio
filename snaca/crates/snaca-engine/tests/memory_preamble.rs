@@ -69,7 +69,7 @@ async fn fresh_project_has_no_memory_preamble_in_system_prompt() {
     fix.engine.handle_turn(turn_request("hello")).await.unwrap();
 
     let req = &observed(fix.llm.as_ref())[0];
-    let sys = req.system.as_deref().unwrap_or("");
+    let sys = req.flat_system().unwrap_or_default();
     assert!(
         !sys.contains("## Project Memory"),
         "fresh project should have no memory preamble; got: {sys}"
@@ -108,7 +108,7 @@ async fn written_memory_appears_in_next_turn_system_prompt() {
     let reqs = observed(fix.llm.as_ref());
     // Turn 1 had two LLM calls (tool_use + terminal); turn 2 had one.
     let turn2_first = &reqs[2];
-    let sys = turn2_first.system.as_deref().unwrap_or("");
+    let sys = turn2_first.flat_system().unwrap_or_default();
     assert!(
         sys.contains("## Project Memory"),
         "expected memory preamble in turn-2 system prompt; got: {sys}"
@@ -140,10 +140,8 @@ async fn ephemeral_system_is_appended_to_system_prompt() {
     fix.engine.handle_turn(req).await.unwrap();
 
     let sys = observed(fix.llm.as_ref())[0]
-        .system
-        .as_deref()
-        .unwrap_or("")
-        .to_string();
+        .flat_system()
+        .unwrap_or_default();
     assert!(
         sys.contains("intro.tex"),
         "ephemeral context should ride the system prompt; got: {sys}"
@@ -160,10 +158,8 @@ async fn empty_ephemeral_system_leaves_prompt_unchanged() {
     fix.engine.handle_turn(turn_request("hi")).await.unwrap();
 
     let sys = observed(fix.llm.as_ref())[0]
-        .system
-        .as_deref()
-        .unwrap_or("")
-        .to_string();
+        .flat_system()
+        .unwrap_or_default();
     assert!(
         !sys.contains("<context>"),
         "no context block expected; got: {sys}"

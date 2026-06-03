@@ -37,11 +37,18 @@ use tracing::{debug, warn};
 /// valid, writes the entry through `MemoryStore`. `scope` is
 /// constrained to `User` or `Feedback` — the only two categories the
 /// plan calls out for automatic mining.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `confidence` is the extractor LLM's self-rating in `[0.0, 1.0]`.
+/// Recall-time scoring multiplies the cosine score by this value
+/// (defaulting to `extractor_default_confidence` when absent). Missing
+/// field deserialises to `None` so legacy transcripts stay compatible.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MemoryProposal {
     pub scope: MemoryScope,
     pub name: String,
     pub content: String,
+    #[serde(default)]
+    pub confidence: Option<f32>,
 }
 
 #[async_trait]
@@ -95,7 +102,7 @@ const EXTRACTOR_SYSTEM_PROMPT: &str =
     "You analyse a single conversation turn and propose memory entries to save \
      for future conversations between this user and the assistant.\n\n\
      Output a JSON array, exactly one shape:\n\
-     [{\"scope\":\"user|feedback\",\"name\":\"short-slug\",\"content\":\"one sentence\"}]\n\n\
+     [{\"scope\":\"user|feedback\",\"name\":\"short-slug\",\"content\":\"one sentence\",\"confidence\":0.0_to_1.0}]\n\n\
      Rules:\n\
      - ONLY propose if the user EXPLICITLY stated a preference, correction, \
        rule, or fact about themselves to remember.\n\
@@ -107,6 +114,12 @@ const EXTRACTOR_SYSTEM_PROMPT: &str =
        \"prefer terse answers\").\n\
      - `name` must match `[a-z0-9_-]+`, max 64 chars, 2-5 words ideally.\n\
      - `content` is one sentence in third person (\"user prefers X\").\n\
+     - `confidence` is your honest self-rating in [0.0, 1.0] that future \
+       conversations should treat this entry as a durable rule. Calibrate: \
+       0.9+ for explicit, repeated, unambiguous rules; 0.6-0.8 for clear \
+       single-shot statements without strong framing; 0.4-0.5 for inferred \
+       preferences or ambiguous wording. `feedback` scope skews lower than \
+       `user` since behaviour rules age faster than personal facts.\n\
      - Convert relative dates to absolute ones (\"Thursday\" → the calendar \
        date) so the memory stays interpretable after time passes.\n\
      - If nothing qualifies, return exactly `[]`.\n\
@@ -521,6 +534,7 @@ mod tests {
             scope: MemoryScope::Feedback,
             name: "no-emojis".into(),
             content: "user said: stop using emojis".into(),
+            confidence: Some(0.8),
         }];
         let e = ConstantExtractor::new(canned.clone());
         let out = e
@@ -555,6 +569,19 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].scope, MemoryScope::Feedback);
         assert_eq!(out[0].name, "no-emojis");
+        // Legacy proposals without confidence parse as None — the
+        // engine substitutes its configured default at write time.
+        assert_eq!(out[0].confidence, None);
+    }
+
+    #[test]
+    fn parse_proposals_carries_confidence_when_present() {
+        let raw = r#"[
+            {"scope": "feedback", "name": "no-mocks", "content": "no mocks in integration tests", "confidence": 0.92}
+        ]"#;
+        let out = LlmMemoryExtractor::parse_proposals(raw);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].confidence, Some(0.92));
     }
 
     #[test]
@@ -648,11 +675,13 @@ mod tests {
                 scope: MemoryScope::User,
                 name: "contact".into(),
                 content: "user's email is alice@example.com".into(),
+                confidence: None,
             },
             MemoryProposal {
                 scope: MemoryScope::User,
                 name: "tone".into(),
                 content: "user prefers terse answers".into(),
+                confidence: None,
             },
         ];
         let inner = Arc::new(ConstantExtractor::new(canned));
@@ -674,6 +703,7 @@ mod tests {
             scope: MemoryScope::User,
             name: "contact".into(),
             content: "user's email is alice@example.com".into(),
+            confidence: None,
         }];
         let inner = Arc::new(ConstantExtractor::new(canned));
         let filtered = FilteredMemoryExtractor::new(inner, SensitiveFilter::empty());

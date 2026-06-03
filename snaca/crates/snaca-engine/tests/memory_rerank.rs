@@ -141,7 +141,7 @@ async fn rerank_output_drives_recall_order() {
     let reqs = observed(fix.llm.as_ref());
     let with_recall = reqs
         .iter()
-        .filter_map(|r| r.system.as_deref())
+        .filter_map(|r| r.flat_system())
         .find(|s| s.contains("## Relevant Memories"))
         .expect("expected a recall block");
 
@@ -204,7 +204,7 @@ async fn cosine_only_order(_llm: &MockLlmClient) -> Vec<String> {
     let reqs = observed(fix.llm.as_ref());
     let recall = reqs
         .iter()
-        .filter_map(|r| r.system.as_deref())
+        .filter_map(|r| r.flat_system())
         .find(|s| s.contains("## Relevant Memories"))
         .expect("cosine-only fixture should also produce a recall block");
     let recall_section = recall.split("## Relevant Memories").nth(1).unwrap();
@@ -238,7 +238,7 @@ async fn rerank_falls_back_to_cosine_on_garbage_output() {
     let reqs = observed(fix.llm.as_ref());
     let with_recall = reqs
         .iter()
-        .filter_map(|r| r.system.as_deref())
+        .filter_map(|r| r.flat_system())
         .find(|s| s.contains("## Relevant Memories"))
         .expect("expected a request with recall block (fallback path)");
     // At least some memory entry should still surface.
@@ -262,7 +262,7 @@ async fn no_reranker_truncates_cosine_top_k() {
     let reqs = observed(fix.llm.as_ref());
     let with_recall = reqs
         .iter()
-        .filter_map(|r| r.system.as_deref())
+        .filter_map(|r| r.flat_system())
         .find(|s| s.contains("## Relevant Memories"));
     // Recall section can be present (cosine matches style-* entries).
     // No rerank call was made — verify by counting memory-write

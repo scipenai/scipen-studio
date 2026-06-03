@@ -32,7 +32,7 @@ pub use client::{LlmClient, ProviderCaps};
 pub use deepseek::DeepSeekClient;
 pub use error::{LlmError, LlmResult};
 pub use openai::OpenAIClient;
-pub use request::{MessageRequest, ToolSchema};
+pub use request::{MessageRequest, SystemSegment, ToolSchema};
 pub use response::{MessageResponse, StopReason};
 pub use retry::{RetryConfig, RetryingLlmClient};
 pub use stream::{

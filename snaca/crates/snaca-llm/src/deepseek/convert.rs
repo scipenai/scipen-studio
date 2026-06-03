@@ -24,12 +24,15 @@ use std::time::SystemTime;
 pub fn build_chat_request(req: &MessageRequest, stream: bool) -> LlmResult<ChatRequest> {
     let mut messages = Vec::with_capacity(req.messages.len() + 1);
 
-    // Top-level system prompt → first system wire message.
-    if let Some(system) = &req.system {
+    // Top-level system prompt → first system wire message. DeepSeek's
+    // context cache is transparent and has no `cache_control` knob, so
+    // the segmentation is irrelevant on the wire — flatten back to a
+    // single string and let the platform deduplicate prefixes itself.
+    if let Some(system) = req.flat_system() {
         if !system.is_empty() {
             messages.push(WireMessage {
                 role: "system".into(),
-                content: Some(system.clone()),
+                content: Some(system),
                 reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,
@@ -328,6 +331,24 @@ mod tests {
         assert_eq!(wire.messages[0].role, "system");
         assert_eq!(wire.messages[0].content.as_deref(), Some("You are SNACA"));
         assert_eq!(wire.messages[1].role, "user");
+    }
+
+    #[test]
+    fn segmented_system_flattens_back_into_one_system_message() {
+        use crate::request::SystemSegment;
+        let req = MessageRequest::new("deepseek-chat")
+            .with_system_segments(vec![
+                SystemSegment::cacheable("BASE"),
+                SystemSegment::cacheable("MEMORY"),
+                SystemSegment::volatile("RECALL"),
+            ])
+            .with_messages(vec![user("hi")]);
+        let wire = build_chat_request(&req, false).unwrap();
+        assert_eq!(wire.messages[0].role, "system");
+        assert_eq!(
+            wire.messages[0].content.as_deref(),
+            Some("BASE\n\nMEMORY\n\nRECALL")
+        );
     }
 
     #[test]

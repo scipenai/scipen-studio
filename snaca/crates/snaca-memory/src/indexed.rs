@@ -28,11 +28,19 @@
 
 use crate::embed::{cosine, Embedder};
 use crate::scope::MemoryScope;
-use crate::store::{MemoryEntry, MemoryError, MemoryResult, MemoryStore};
+use crate::store::{parse_frontmatter, MemoryEntry, MemoryError, MemoryResult, MemoryStore};
 use snaca_core::{ProjectId, TenantId};
 use snaca_state::Database;
 use std::sync::Arc;
 use tracing::{debug, warn};
+
+/// Strip YAML frontmatter from the entry content before embedding, so
+/// metadata words (`source: extractor`, `confidence: 0.6`) don't
+/// contaminate the cosine ranking. Even semantic embedders pick up
+/// vocabulary like "extractor" and skew scores away from the body.
+fn embed_body(content: &str) -> String {
+    parse_frontmatter(content).1
+}
 
 /// One ranked search hit. Carries enough to fetch the entry's body
 /// (`scope`, `name`) plus the cosine score for callers that want to
@@ -96,7 +104,7 @@ impl IndexedMemoryStore {
         let entry = self.store.write(scope, name, content).await?;
         let vec = match self
             .embedder
-            .embed(&[content.to_string()])
+            .embed(&[embed_body(content)])
             .await
         {
             Ok(v) => v,
@@ -263,7 +271,7 @@ impl IndexedMemoryStore {
         if needs.is_empty() {
             return Ok(0);
         }
-        let bodies: Vec<String> = needs.iter().map(|(_, _, c)| c.clone()).collect();
+        let bodies: Vec<String> = needs.iter().map(|(_, _, c)| embed_body(c)).collect();
         let vectors = self
             .embedder
             .embed(&bodies)
@@ -302,7 +310,7 @@ impl IndexedMemoryStore {
         let mut bodies = Vec::with_capacity(entries.len());
         for (scope, name) in &entries {
             let entry = self.store.read(*scope, name).await?;
-            bodies.push(entry.content);
+            bodies.push(embed_body(&entry.content));
         }
         if bodies.is_empty() {
             return Ok(0);

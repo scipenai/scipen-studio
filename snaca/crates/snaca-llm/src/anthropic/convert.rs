@@ -25,7 +25,7 @@ use crate::anthropic::wire::{
     WireTool, EPHEMERAL_CACHE,
 };
 use crate::error::{LlmError, LlmResult};
-use crate::request::{MessageRequest, ToolSchema};
+use crate::request::{MessageRequest, SystemSegment, ToolSchema};
 use crate::response::{MessageResponse, StopReason};
 use snaca_core::{ContentBlock, Message, MessageId, Role, ToolUseId};
 use std::time::SystemTime;
@@ -55,23 +55,7 @@ pub fn build_messages_request_with_cache(
 ) -> LlmResult<MessagesRequest> {
     let (extra_system, messages) = split_system_and_messages(&req.messages)?;
 
-    // Concatenate top-level system + history-derived system into one
-    // text. The Anthropic API charges cache by *prefix*, so anything
-    // earlier in the prefix gets cached together — a single block
-    // attached with cache_control is enough to cover all of it.
-    let system_text = match (req.system.as_ref(), extra_system) {
-        (Some(top), Some(extra)) => Some(format!("{top}\n\n{extra}")),
-        (Some(top), None) => Some(top.clone()),
-        (None, Some(extra)) => Some(extra),
-        (None, None) => None,
-    };
-    let system = system_text.map(|t| {
-        if enable_cache {
-            SystemField::Blocks(vec![SystemBlock::text(t).with_cache_control(EPHEMERAL_CACHE)])
-        } else {
-            SystemField::Text(t)
-        }
-    });
+    let system = build_system_field(req, extra_system, enable_cache);
 
     let mut tools: Vec<WireTool> = req.tools.iter().map(tool_schema_to_wire).collect();
     if enable_cache {
@@ -93,6 +77,91 @@ pub fn build_messages_request_with_cache(
             Some(req.stop_sequences.clone())
         },
         stream,
+    })
+}
+
+/// Build the `system` field of the Anthropic request.
+///
+/// Two paths:
+///
+/// 1. **Segmented** (`req.system_segments` non-empty): emit each
+///    non-empty segment as its own `SystemBlock`, and place a single
+///    `cache_control: ephemeral` breakpoint on the LAST cacheable
+///    segment that appears BEFORE the first volatile segment. Marking
+///    later segments would cache content that already includes a
+///    per-turn-volatile slice, silently defeating the cache.
+///
+/// 2. **Legacy** (only `req.system` set): concat top-level + history
+///    system into a single block, cache_control attached when caching
+///    is enabled. Backwards-compatible with the summariser path.
+fn build_system_field(
+    req: &MessageRequest,
+    extra_system: Option<String>,
+    enable_cache: bool,
+) -> Option<SystemField> {
+    if !req.system_segments.is_empty() {
+        let mut segs: Vec<SystemSegment> = Vec::new();
+        // History-derived system was persisted in the thread, not
+        // generated this turn — treat it as stable and slot it before
+        // the engine's segments so the volatile suffix still controls
+        // where the cache breakpoint lands.
+        if let Some(extra) = extra_system {
+            segs.push(SystemSegment {
+                text: extra,
+                cacheable: true,
+            });
+        }
+        segs.extend(req.system_segments.iter().cloned());
+        segs.retain(|s| !s.text.trim().is_empty());
+        if segs.is_empty() {
+            return None;
+        }
+
+        if !enable_cache {
+            // No cache means segmentation buys nothing; concat back.
+            let mut out = String::new();
+            for (i, s) in segs.iter().enumerate() {
+                if i > 0 {
+                    out.push_str("\n\n");
+                }
+                out.push_str(&s.text);
+            }
+            return Some(SystemField::Text(out));
+        }
+
+        let first_volatile = segs.iter().position(|s| !s.cacheable);
+        let breakpoint_idx: Option<usize> = match first_volatile {
+            Some(0) => None, // first segment volatile → nothing to cache
+            Some(i) => Some(i - 1),
+            None => Some(segs.len() - 1),
+        };
+
+        let blocks: Vec<SystemBlock> = segs
+            .into_iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let mut b = SystemBlock::text(s.text);
+                if Some(i) == breakpoint_idx {
+                    b = b.with_cache_control(EPHEMERAL_CACHE);
+                }
+                b
+            })
+            .collect();
+        return Some(SystemField::Blocks(blocks));
+    }
+
+    let system_text = match (req.system.as_ref(), extra_system) {
+        (Some(top), Some(extra)) => Some(format!("{top}\n\n{extra}")),
+        (Some(top), None) => Some(top.clone()),
+        (None, Some(extra)) => Some(extra),
+        (None, None) => None,
+    };
+    system_text.map(|t| {
+        if enable_cache {
+            SystemField::Blocks(vec![SystemBlock::text(t).with_cache_control(EPHEMERAL_CACHE)])
+        } else {
+            SystemField::Text(t)
+        }
     })
 }
 
@@ -359,6 +428,105 @@ mod tests {
         // the rest. First tool stays bare.
         assert!(wire.tools[0].cache_control.is_none());
         assert!(wire.tools[1].cache_control.is_some());
+    }
+
+    #[test]
+    fn segmented_system_caches_only_through_last_stable_before_volatile() {
+        // [cacheable base, cacheable memory, volatile recall] —
+        // breakpoint must land on segment index 1 ("memory"), so the
+        // cache prefix covers base+memory but not the volatile recall.
+        let r = req(vec![user("hi")]).with_system_segments(vec![
+            SystemSegment::cacheable("BASE"),
+            SystemSegment::cacheable("MEMORY"),
+            SystemSegment::volatile("RECALL"),
+        ]);
+        let wire = build_messages_request(&r, false).unwrap();
+        match &wire.system {
+            Some(SystemField::Blocks(bs)) => {
+                assert_eq!(bs.len(), 3);
+                assert!(bs[0].cache_control.is_none(), "block 0 must not be marked");
+                assert!(
+                    bs[1].cache_control.is_some(),
+                    "block 1 (last stable before volatile) must be the breakpoint"
+                );
+                assert!(
+                    bs[2].cache_control.is_none(),
+                    "volatile block must not carry cache_control"
+                );
+                assert_eq!(bs[0].text, "BASE");
+                assert_eq!(bs[1].text, "MEMORY");
+                assert_eq!(bs[2].text, "RECALL");
+            }
+            other => panic!("expected blocks form, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn segmented_system_all_cacheable_marks_last_block() {
+        let r = req(vec![user("hi")]).with_system_segments(vec![
+            SystemSegment::cacheable("BASE"),
+            SystemSegment::cacheable("MEMORY"),
+        ]);
+        let wire = build_messages_request(&r, false).unwrap();
+        match &wire.system {
+            Some(SystemField::Blocks(bs)) => {
+                assert_eq!(bs.len(), 2);
+                assert!(bs[0].cache_control.is_none());
+                assert!(bs[1].cache_control.is_some());
+            }
+            other => panic!("expected blocks form, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn segmented_system_drops_empty_segments() {
+        let r = req(vec![user("hi")]).with_system_segments(vec![
+            SystemSegment::cacheable("BASE"),
+            SystemSegment::cacheable(""),
+            SystemSegment::volatile("   "),
+            SystemSegment::cacheable("MEMORY"),
+        ]);
+        let wire = build_messages_request(&r, false).unwrap();
+        match &wire.system {
+            Some(SystemField::Blocks(bs)) => {
+                assert_eq!(bs.len(), 2, "empty / whitespace-only segments are dropped");
+                assert_eq!(bs[0].text, "BASE");
+                assert_eq!(bs[1].text, "MEMORY");
+            }
+            other => panic!("expected blocks form, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn segmented_system_first_volatile_emits_no_breakpoint() {
+        // Pathological: first segment is volatile. Nothing can be
+        // cached without including volatile content, so emit blocks
+        // with no cache_control at all.
+        let r = req(vec![user("hi")]).with_system_segments(vec![
+            SystemSegment::volatile("VOLATILE"),
+            SystemSegment::cacheable("LATER"),
+        ]);
+        let wire = build_messages_request(&r, false).unwrap();
+        match &wire.system {
+            Some(SystemField::Blocks(bs)) => {
+                assert_eq!(bs.len(), 2);
+                assert!(bs.iter().all(|b| b.cache_control.is_none()));
+            }
+            other => panic!("expected blocks form, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn segmented_system_concats_when_cache_disabled() {
+        let r = req(vec![user("hi")]).with_system_segments(vec![
+            SystemSegment::cacheable("BASE"),
+            SystemSegment::volatile("RECALL"),
+        ]);
+        let wire = build_messages_request_with_cache(&r, false, false).unwrap();
+        match &wire.system {
+            Some(SystemField::Text(t)) => assert_eq!(t, "BASE\n\nRECALL"),
+            other => panic!("expected Text form when cache disabled, got {other:?}"),
+        }
     }
 
     #[test]

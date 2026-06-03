@@ -97,7 +97,7 @@ async fn relevant_memory_excerpt_appears_in_next_turn_system_prompt() {
     let reqs = observed(fix.llm.as_ref());
     // Three calls so far: turn-1 tool_use, turn-1 terminal, turn-2 terminal.
     let turn2 = &reqs[2];
-    let sys = turn2.system.as_deref().unwrap_or("");
+    let sys = turn2.flat_system().unwrap_or_default();
     assert!(
         sys.contains("## Relevant Memories"),
         "expected recall section; got: {sys}"
@@ -141,12 +141,54 @@ async fn no_embedder_means_no_recall_section() {
 
     let reqs = observed(fix.llm.as_ref());
     let turn2 = &reqs[2];
-    let sys = turn2.system.as_deref().unwrap_or("");
+    let sys = turn2.flat_system().unwrap_or_default();
     // The MEMORY.md index can still be there (it's not gated on embedder),
     // but the auto-retrieval section must not.
     assert!(
         !sys.contains("## Relevant Memories"),
         "no embedder should mean no recall block; got: {sys}"
+    );
+}
+
+#[tokio::test]
+async fn low_confidence_extractor_entry_is_filtered_from_recall() {
+    // Plant a memory entry with extractor frontmatter declaring a very
+    // low confidence. Even when cosine matches the query, confidence
+    // multiplication should drag the adjusted score below
+    // `recall_confidence_floor` and drop the hit before the prompt.
+    let fix = fixture(true).await;
+
+    let workspace_dir = fix._tmp.path();
+    let memory_root = workspace_dir
+        .join("tenant_a")
+        .join("projects")
+        .join("proj_recall")
+        .join("memory");
+    tokio::fs::create_dir_all(&memory_root).await.unwrap();
+    let store = snaca_memory::MemoryStore::new(&memory_root);
+
+    let low_conf_body = "---\nsource: extractor\nconfidence: 0.05\n---\nthe project follows kebab-case for file names";
+    store
+        .write(snaca_memory::MemoryScope::Feedback, "low-conf", low_conf_body)
+        .await
+        .unwrap();
+
+    fix.llm.enqueue(assistant_text("ack"));
+    fix.engine
+        .handle_turn(turn_request(
+            "what's our convention for kebab-case file names",
+        ))
+        .await
+        .unwrap();
+
+    let reqs = observed(fix.llm.as_ref());
+    let sys = reqs[0].flat_system().unwrap_or_default();
+    // The MEMORY.md index can still list the entry; what must NOT
+    // happen is the entry being auto-spliced in via recall.
+    let recall_section = sys.split("## Relevant Memories").nth(1).unwrap_or("");
+    assert!(
+        !recall_section.contains("feedback/low-conf"),
+        "low-confidence extractor entry should not appear in recall block; got: {recall_section}"
     );
 }
 
@@ -179,7 +221,7 @@ async fn unrelated_query_falls_below_recall_threshold() {
         .unwrap();
 
     let reqs = observed(fix.llm.as_ref());
-    let sys = reqs[2].system.as_deref().unwrap_or("");
+    let sys = reqs[2].flat_system().unwrap_or_default();
     assert!(
         !sys.contains("## Relevant Memories"),
         "unrelated query should not surface recall; got: {sys}"

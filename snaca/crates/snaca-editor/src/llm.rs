@@ -146,6 +146,7 @@ pub async fn run_chat_turn(
     let request = MessageRequest {
         model,
         system,
+        system_segments: Vec::new(),
         messages,
         tools: Vec::new(),
         max_tokens: Some(4096),

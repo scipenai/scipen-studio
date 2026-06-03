@@ -25,12 +25,14 @@ use std::time::SystemTime;
 pub fn build_chat_request(req: &MessageRequest, stream: bool) -> LlmResult<ChatRequest> {
     let mut messages = Vec::with_capacity(req.messages.len() + 1);
 
-    // Top-level system prompt → first system wire message.
-    if let Some(system) = &req.system {
+    // Top-level system prompt → first system wire message. OpenAI has
+    // no per-segment cache knob, so flatten any segmented system back
+    // into one string (mirrors the DeepSeek path).
+    if let Some(system) = req.flat_system() {
         if !system.is_empty() {
             messages.push(WireMessage {
                 role: "system".into(),
-                content: Some(system.clone()),
+                content: Some(system),
                 reasoning_content: None,
                 tool_calls: None,
                 tool_call_id: None,

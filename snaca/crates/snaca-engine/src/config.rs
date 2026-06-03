@@ -146,6 +146,19 @@ pub struct EngineConfig {
     /// extended-output beta, DeepSeek and OpenAI cap lower. Default
     /// 32768 is safe across most providers.
     pub max_output_token_ceiling: u32,
+
+    /// Recall-time confidence floor. After multiplying the cosine
+    /// score by the entry's frontmatter `confidence` (defaulting to
+    /// 1.0 when absent), hits whose adjusted score falls below this
+    /// value are dropped from the `## Relevant Memories` block.
+    /// Legacy entries without frontmatter are never subject to this
+    /// extra floor. Default 0.30.
+    pub recall_confidence_floor: f32,
+
+    /// Fallback confidence applied to extractor proposals that omit
+    /// the `confidence` field — conservative so a non-compliant
+    /// extractor doesn't get auto-promoted to "trusted". Default 0.6.
+    pub extractor_default_confidence: f32,
 }
 
 impl EngineConfig {
@@ -170,6 +183,8 @@ impl EngineConfig {
             stream_tool_execution: true,
             max_output_token_escalation_attempts: 2,
             max_output_token_ceiling: 32_768,
+            recall_confidence_floor: 0.30,
+            extractor_default_confidence: 0.6,
         }
     }
 }

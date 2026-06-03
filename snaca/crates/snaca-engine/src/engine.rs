@@ -36,7 +36,7 @@ use snaca_core::{
 };
 use snaca_llm::{
     ContentBlockStart, ContentDelta, LlmClient, LlmError, MessageRequest, MessageResponse,
-    StopReason, StreamAccumulator, StreamEvent, ToolSchema,
+    StopReason, StreamAccumulator, StreamEvent, SystemSegment, ToolSchema,
 };
 use snaca_state::{Database, NewMessage, NewThread, PersistedDecision};
 use snaca_tools_api::{
@@ -599,16 +599,21 @@ impl Engine {
             // fine — memory rarely changes mid-turn, and a stale read in the
             // middle of an iteration would only mean the model misses an
             // entry that was added a couple of seconds ago.
-            let base_system_prompt = self
+            let base_system_segments = self
                 .system_prompt_for(&tenant_id, &project_id, &thread_id, &turn_query)
                 .await;
             // Splice the front-end's per-turn ephemeral context onto the
-            // tail of the composed system prompt. Lives only for this turn:
-            // it rides `system_prompt` (recomputed every turn) rather than
-            // thread history, so stale snapshots never accumulate.
-            let system_prompt = match ephemeral_system {
-                Some(extra) if !extra.is_empty() => format!("{base_system_prompt}\n\n{extra}"),
-                _ => base_system_prompt,
+            // tail as a *volatile* segment. It's recomputed every turn, so
+            // it must never enter the cacheable prefix — appended after the
+            // recall block, it leaves the cache breakpoint on the stable
+            // base+memory prefix while still reaching the model this turn.
+            let system_segments = match ephemeral_system {
+                Some(extra) if !extra.is_empty() => {
+                    let mut segs = base_system_segments;
+                    segs.push(SystemSegment::volatile(extra));
+                    segs
+                }
+                _ => base_system_segments,
             };
             let mut iterations = 0usize;
             let mut total_usage = Usage::default();
@@ -652,7 +657,7 @@ impl Engine {
                 let request_max_tokens = max_tokens_override.or(self.config.max_tokens);
                 let llm_outcome = self
                     .call_llm_and_prerun(
-                        &system_prompt,
+                        &system_segments,
                         history,
                         tool_schemas.clone(),
                         &runtime_tools,
@@ -699,6 +704,21 @@ impl Engine {
                     Err(e) => return Err(e),
                 };
                 total_usage.add(&resp.usage);
+                // Per-iteration cache visibility. `cache_creation_input_tokens`
+                // = cost of writing this turn's prefix to cache;
+                // `cache_read_input_tokens` = bill avoided by reading from it.
+                if resp.usage.cache_creation_input_tokens.is_some()
+                    || resp.usage.cache_read_input_tokens.is_some()
+                {
+                    debug!(
+                        iter = iterations,
+                        cache_creation = resp.usage.cache_creation_input_tokens.unwrap_or(0),
+                        cache_read = resp.usage.cache_read_input_tokens.unwrap_or(0),
+                        fresh_input = resp.usage.input_tokens,
+                        thread_id = thread_id.as_str(),
+                        "llm cache usage"
+                    );
+                }
 
                 // Skip persisting an empty assistant response. A turn with no
                 // text/thinking/tool_use blocks would poison every later turn —
@@ -774,10 +794,24 @@ impl Engine {
 
                 if resp.stop_reason.is_terminal() {
                     let text = ContentBlock::collect_text(&resp.message.content);
+                    let cache_creation = total_usage.cache_creation_input_tokens.unwrap_or(0);
+                    let cache_read = total_usage.cache_read_input_tokens.unwrap_or(0);
+                    // Hit rate among input-side billing: how much of this
+                    // turn's input bytes were served from cache vs. paid
+                    // fresh. Stays 0 when no cache info is returned.
+                    let cache_denom = total_usage.input_tokens + cache_read + cache_creation;
+                    let cache_hit_rate = if cache_denom > 0 {
+                        cache_read as f64 / cache_denom as f64
+                    } else {
+                        0.0
+                    };
                     info!(
                         iterations,
                         input_tokens = total_usage.input_tokens,
                         output_tokens = total_usage.output_tokens,
+                        cache_creation_tokens = cache_creation,
+                        cache_read_tokens = cache_read,
+                        cache_hit_rate = format!("{:.2}", cache_hit_rate),
                         stop_reason = ?resp.stop_reason,
                         "turn complete"
                     );
@@ -1079,6 +1113,7 @@ impl Engine {
         // see — same window the engine uses for retrieval, so the
         // extractor sees the same context the LLM did.
         let history_limit = self.config.history_limit;
+        let default_confidence = self.config.extractor_default_confidence;
         tokio::spawn(async move {
             let rows = match state.recent_messages(&thread, history_limit).await {
                 Ok(r) => r,
@@ -1114,14 +1149,26 @@ impl Engine {
                     );
                     continue;
                 }
+                // Wrap the proposal body in YAML frontmatter so recall
+                // can downweight by `confidence` and the index can audit
+                // `source`. Missing confidence falls back to the engine's
+                // configured default rather than full trust.
+                let confidence = proposal.confidence.unwrap_or(default_confidence);
+                let meta = snaca_memory::MemoryMeta {
+                    source: Some("extractor".into()),
+                    confidence: Some(confidence),
+                    created_at: Some(chrono::Utc::now().to_rfc3339()),
+                };
+                let wrapped = snaca_memory::render_with_frontmatter(&meta, &proposal.content);
                 match store
-                    .write(proposal.scope, &proposal.name, &proposal.content)
+                    .write(proposal.scope, &proposal.name, &wrapped)
                     .await
                 {
                     Ok(entry) => {
                         debug!(
                             scope = %entry.scope,
                             name = entry.name.as_str(),
+                            confidence,
                             "extractor wrote memory entry"
                         );
                         // The extractor writes through `MemoryStore::write`
@@ -1155,17 +1202,21 @@ impl Engine {
     /// best-effort — IO or embedder failures fall back to the base
     /// prompt rather than aborting the turn, since memory is auxiliary
     /// context, not a hard requirement.
+    ///
+    /// Returns the prompt as ordered [`SystemSegment`]s so the provider
+    /// layer can apply prompt-cache breakpoints precisely: the base +
+    /// MEMORY.md prefix is `cacheable`, the per-turn recall block is
+    /// not. DeepSeek/OpenAI flatten back to a single string.
     async fn system_prompt_for(
         &self,
         tenant: &TenantId,
         project: &ProjectId,
         thread: &ThreadId,
         user_query: &str,
-    ) -> String {
+    ) -> Vec<SystemSegment> {
         let memory_dir = self.workspace.memory_dir(tenant, project);
         let store = snaca_memory::MemoryStore::new(memory_dir);
 
-        // Section 1: full MEMORY.md index.
         let idx = match store.index_text().await {
             Ok(s) => s,
             Err(e) => {
@@ -1174,9 +1225,6 @@ impl Engine {
             }
         };
 
-        // Section 2: vector-retrieved excerpts. Skipped when there is
-        // no embedder, no query (rare but possible), or the recall
-        // returns nothing relevant.
         let recall_block = if !user_query.trim().is_empty() {
             self.retrieval_block(tenant, project, thread, &store, user_query)
                 .await
@@ -1184,7 +1232,7 @@ impl Engine {
             String::new()
         };
 
-        compose_system_prompt(&self.config.system_prompt, &idx, &recall_block)
+        compose_system_segments(&self.config.system_prompt, &idx, &recall_block)
     }
 
     /// Run vector recall against the project memory and render the
@@ -1276,31 +1324,64 @@ impl Engine {
         }
 
         // Rerank optional. Body lookup happens here so the reranker
-        // sees full content, not just names — that's the point of
-        // running it at all.
+        // sees full content, not just names. Frontmatter parsing folds
+        // in two checks: the body shown to the model is post-frontmatter
+        // (no YAML leakage), and when an entry sets `confidence`
+        // explicitly we multiply cosine by it and drop hits below
+        // `recall_confidence_floor`. Legacy entries (no frontmatter) are
+        // not subject to this extra floor — `RECALL_MIN_SCORE` upstream
+        // is their only gate, preserving prior behaviour.
+        let floor = self.config.recall_confidence_floor;
         let candidates: Vec<crate::reranker::RerankCandidate> = {
             let mut out = Vec::with_capacity(filtered.len());
             for h in filtered.drain(..) {
-                let entry = match store.read(h.scope, &h.name).await {
-                    Ok(e) => e,
+                let (meta, body) = match store.read_with_meta(h.scope, &h.name).await {
+                    Ok(v) => v,
                     Err(e) => {
                         warn!(scope = %h.scope, name = %h.name, error = %e, "memory body read failed during recall");
                         continue;
                     }
                 };
+                let (adjusted, confidence_applied) = match meta.confidence {
+                    Some(c) => (h.score * c, Some(c)),
+                    None => (h.score, None),
+                };
+                if confidence_applied.is_some() && adjusted < floor {
+                    debug!(
+                        scope = %h.scope,
+                        name = %h.name,
+                        cosine = h.score,
+                        confidence = confidence_applied.unwrap_or(1.0),
+                        adjusted,
+                        floor,
+                        "recall: dropping low-confidence-adjusted hit"
+                    );
+                    continue;
+                }
                 out.push(crate::reranker::RerankCandidate {
                     scope: h.scope,
                     name: h.name,
-                    content: entry.content,
-                    initial_score: h.score,
+                    content: body,
+                    initial_score: adjusted,
                 });
             }
             out
         };
+        if candidates.is_empty() {
+            return String::new();
+        }
         let ranked: Vec<crate::reranker::RerankCandidate> = match &self.reranker {
             Some(r) => r.rerank(query, candidates, RECALL_TOP_K).await,
             None => {
+                // Sort by adjusted score; multiplying by confidence may
+                // have flipped the cosine ordering. `partial_cmp` can't
+                // fail on the floats here, but fall back defensively.
                 let mut v = candidates;
+                v.sort_by(|a, b| {
+                    b.initial_score
+                        .partial_cmp(&a.initial_score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
                 v.truncate(RECALL_TOP_K);
                 v
             }
@@ -1550,7 +1631,7 @@ impl Engine {
     #[allow(clippy::too_many_arguments)]
     async fn call_llm_and_prerun(
         &self,
-        system_prompt: &str,
+        system_segments: &[SystemSegment],
         history: Vec<Message>,
         tool_schemas: Vec<ToolSchema>,
         tools: &ToolRegistry,
@@ -1559,7 +1640,7 @@ impl Engine {
         max_tokens_override: Option<u32>,
     ) -> EngineResult<(MessageResponse, PrerunCache)> {
         let mut req = MessageRequest::new(&self.config.model)
-            .with_system(system_prompt)
+            .with_system_segments(system_segments.to_vec())
             .with_messages(history)
             .with_tools(tool_schemas);
         if let Some(max) = max_tokens_override {
@@ -2171,31 +2252,78 @@ const RECALL_EXCERPT_BYTES: usize = 400;
 /// ring lives in memory only; process restart resets it.
 const SURFACED_RING_CAP: usize = 20;
 
-/// Build the per-turn system prompt by stacking three sections, each
-/// optional: the base prompt, the static MEMORY.md index, and the
-/// vector-recall hits. Pulled out of `system_prompt_for` so test code
-/// can exercise the formatter without spinning up a `MemoryStore`.
-fn compose_system_prompt(base: &str, index: &str, recall: &str) -> String {
-    let mut out = String::from(base);
+/// Build the per-turn system prompt as ordered, cache-aware segments.
+///
+/// - **Segment 1 (cacheable)** — base prompt + MEMORY.md index. Stable
+///   within a thread, so Anthropic's prompt cache holds the prefix.
+///   MEMORY.md changing invalidates it exactly once.
+/// - **Segment 2 (volatile)** — the `## Relevant Memories` block. Keyed
+///   by the user's query (changes every turn), so it's excluded from
+///   any cache breakpoint to avoid silently invalidating the prefix.
+///
+/// Empty sections collapse the segment list.
+fn compose_system_segments(base: &str, index: &str, recall: &str) -> Vec<SystemSegment> {
+    let mut stable = String::from(base);
     if !index.trim().is_empty() {
-        out.push_str(
+        stable.push_str(
             "\n\n---\n\n## Project Memory\n\n\
              The following memory entries are stored for this project. Use the \
              `MemoryRead` tool with `scope` and `name` to read any entry's full \
              content. Do not assume content beyond what's in the index below.\n\n",
         );
-        out.push_str(index.trim());
+        stable.push_str(index.trim());
     }
+    let mut segs: Vec<SystemSegment> = vec![SystemSegment::cacheable(stable)];
     if !recall.trim().is_empty() {
-        out.push_str(
+        let mut volatile = String::from(
             "\n\n---\n\n## Relevant Memories (auto-retrieved)\n\n\
              The following excerpts were pulled from memory by similarity to the \
              user's request. Treat them as hints — the full content is one \
              `MemoryRead` call away.\n\n",
         );
-        out.push_str(recall.trim());
+        volatile.push_str(recall.trim());
+        segs.push(SystemSegment::volatile(volatile));
     }
-    out
+    segs
+}
+
+#[cfg(test)]
+mod system_prompt_tests {
+    use super::*;
+
+    #[test]
+    fn segments_split_stable_prefix_from_volatile_recall() {
+        // base + memory go in one cacheable segment, recall lives in
+        // its own volatile segment. If anyone collapses these the
+        // prompt cache silently breaks.
+        let segs = compose_system_segments("BASE", "user/foo — bar", "hit one");
+        assert_eq!(segs.len(), 2, "expected stable + volatile, got {segs:?}");
+        assert!(segs[0].cacheable, "first segment must be cacheable");
+        assert!(segs[0].text.contains("BASE"));
+        assert!(segs[0].text.contains("## Project Memory"));
+        assert!(segs[0].text.contains("user/foo — bar"));
+        assert!(!segs[0].text.contains("Relevant Memories"));
+        assert!(!segs[1].cacheable, "second segment must be volatile");
+        assert!(segs[1].text.contains("## Relevant Memories"));
+        assert!(segs[1].text.contains("hit one"));
+    }
+
+    #[test]
+    fn segments_collapse_when_no_recall() {
+        let segs = compose_system_segments("BASE", "user/foo", "");
+        assert_eq!(segs.len(), 1, "no recall => single segment");
+        assert!(segs[0].cacheable);
+        assert!(segs[0].text.contains("BASE"));
+        assert!(segs[0].text.contains("user/foo"));
+    }
+
+    #[test]
+    fn segments_collapse_when_no_memory_and_no_recall() {
+        let segs = compose_system_segments("BASE", "", "");
+        assert_eq!(segs.len(), 1);
+        assert!(segs[0].cacheable);
+        assert!(!segs[0].text.contains("## Project Memory"));
+    }
 }
 
 /// Truncate `s` to roughly `max_bytes`, ending on a word boundary when

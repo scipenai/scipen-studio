@@ -6,6 +6,35 @@
 use serde::{Deserialize, Serialize};
 use snaca_core::Message;
 
+/// One slice of the system prompt, with a hint about whether the slice
+/// is stable enough to benefit from prompt caching.
+///
+/// Providers that support per-segment caching (Anthropic) mark the
+/// `cacheable` segments with `cache_control: ephemeral`; providers
+/// without an opt-in cache (DeepSeek's transparent cache, OpenAI)
+/// concatenate everything and ignore the flag.
+#[derive(Debug, Clone)]
+pub struct SystemSegment {
+    pub text: String,
+    pub cacheable: bool,
+}
+
+impl SystemSegment {
+    pub fn cacheable(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            cacheable: true,
+        }
+    }
+
+    pub fn volatile(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            cacheable: false,
+        }
+    }
+}
+
 /// One LLM round trip's input.
 ///
 /// `system` is kept separate from `messages` because providers handle it
@@ -16,9 +45,16 @@ use snaca_core::Message;
 pub struct MessageRequest {
     pub model: String,
 
-    /// Optional global system prompt. The engine assembles this from
-    /// `MEMORY.md` excerpts, project guidance, etc.
+    /// Legacy single-string system prompt. Kept for callers that don't
+    /// care about cache segmentation (tests, summarisation). Mutually
+    /// exclusive with `system_segments` — providers prefer the segments
+    /// when both are populated.
     pub system: Option<String>,
+
+    /// Segmented system prompt. Each segment is rendered as its own
+    /// provider block (Anthropic) or concatenated back (DeepSeek /
+    /// OpenAI). Empty vec = use `system` instead.
+    pub system_segments: Vec<SystemSegment>,
 
     /// Conversation history. Newest message is last. The engine's job to
     /// truncate / compact before sending.
@@ -43,6 +79,7 @@ impl MessageRequest {
         Self {
             model: model.into(),
             system: None,
+            system_segments: Vec::new(),
             messages: Vec::new(),
             tools: Vec::new(),
             max_tokens: None,
@@ -53,7 +90,36 @@ impl MessageRequest {
 
     pub fn with_system(mut self, system: impl Into<String>) -> Self {
         self.system = Some(system.into());
+        self.system_segments.clear();
         self
+    }
+
+    /// Provide the system prompt as ordered segments. Each `cacheable`
+    /// segment may benefit from prompt caching on providers that
+    /// support it; `!cacheable` segments are always sent fresh.
+    /// Setting this clears any prior single-string `system`.
+    pub fn with_system_segments(mut self, segments: Vec<SystemSegment>) -> Self {
+        self.system_segments = segments;
+        self.system = None;
+        self
+    }
+
+    /// Flatten the system into a single string, regardless of whether
+    /// it was set via `with_system` or `with_system_segments`. Used by
+    /// providers without segmented system support.
+    pub fn flat_system(&self) -> Option<String> {
+        if !self.system_segments.is_empty() {
+            let mut out = String::new();
+            for (i, seg) in self.system_segments.iter().enumerate() {
+                if i > 0 {
+                    out.push_str("\n\n");
+                }
+                out.push_str(&seg.text);
+            }
+            Some(out)
+        } else {
+            self.system.clone()
+        }
     }
 
     pub fn with_messages(mut self, messages: Vec<Message>) -> Self {

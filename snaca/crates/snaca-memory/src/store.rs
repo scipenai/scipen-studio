@@ -226,6 +226,11 @@ impl MemoryStore {
     /// dirs. Cheap (just dirent listings + a string build). Called
     /// automatically after every `write` / `delete`; exposed publicly so
     /// tests can force a rebuild after manual filesystem mutations.
+    ///
+    /// Idempotent w.r.t. disk: when the rendered bytes are identical
+    /// to what's already on disk, we skip the `fs::write`. This keeps
+    /// mtime stable for unchanged contents — useful for downstream fs
+    /// watchers and prompt-cache hit visibility.
     pub async fn regenerate_index(&self) -> MemoryResult<()> {
         let mut sections: Vec<(MemoryScope, Vec<String>)> = Vec::new();
         let mut total_entries = 0usize;
@@ -235,10 +240,11 @@ impl MemoryStore {
             sections.push((*scope, names));
         }
 
+        let path = self.index_path();
         if total_entries == 0 {
             // Empty tree — clear the index file too, so the system
-            // prompt doesn't see a stale list.
-            let path = self.index_path();
+            // prompt doesn't see a stale list. `try_exists` is the
+            // idempotence gate here.
             if fs::try_exists(&path).await.unwrap_or(false) {
                 fs::remove_file(&path).await?;
             }
@@ -246,8 +252,134 @@ impl MemoryStore {
         }
 
         let rendered = render_index(&sections);
-        fs::write(self.index_path(), rendered).await?;
+        // Skip-write-when-unchanged. `read_to_string` failure (NotFound,
+        // permissions, mid-write race) falls through to a normal write.
+        if let Ok(existing) = fs::read_to_string(&path).await {
+            if existing == rendered {
+                return Ok(());
+            }
+        }
+        fs::write(&path, rendered).await?;
         Ok(())
+    }
+}
+
+/// Render a `MemoryMeta` + body pair back into the on-disk text form,
+/// prefixing a `---`-delimited YAML block when any meta field is set.
+/// An all-`None` meta returns the body verbatim — keeps legacy
+/// entries (and operator-authored plain markdown) round-trip clean.
+pub fn render_with_frontmatter(meta: &MemoryMeta, body: &str) -> String {
+    let has_any = meta.source.is_some() || meta.confidence.is_some() || meta.created_at.is_some();
+    if !has_any {
+        return body.to_string();
+    }
+    let mut out = String::from("---\n");
+    if let Some(src) = &meta.source {
+        out.push_str(&format!("source: {src}\n"));
+    }
+    if let Some(c) = meta.confidence {
+        // Clamp on render too so the file never carries an out-of-range value.
+        let c = c.clamp(0.0, 1.0);
+        out.push_str(&format!("confidence: {c}\n"));
+    }
+    if let Some(t) = &meta.created_at {
+        out.push_str(&format!("created_at: {t}\n"));
+    }
+    out.push_str("---\n");
+    out.push_str(body);
+    out
+}
+
+/// Frontmatter we recognise on memory entries. Entries written by
+/// `MemoryExtractor` carry a top YAML block with these fields so
+/// recall-time scoring can downweight low-confidence auto-extracted
+/// memory. Manually-authored entries can omit the block;
+/// [`parse_frontmatter`] returns an all-`None` `MemoryMeta` then.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MemoryMeta {
+    /// Origin tag — `"extractor"`, `"user"`, `"import"`, … `None`
+    /// means legacy entry without provenance.
+    pub source: Option<String>,
+    /// `0.0..=1.0` self-reported confidence. `None` = treat as 1.0.
+    pub confidence: Option<f32>,
+    /// ISO-8601 timestamp; opaque to the store.
+    pub created_at: Option<String>,
+}
+
+/// Pull YAML frontmatter off the head of an entry file. Returns
+/// `(meta, body)`. Non-frontmatter content is returned verbatim with
+/// `meta = MemoryMeta::default()`. Schema is fixed and tiny
+/// (`source`, `confidence`, `created_at`) — no `serde_yaml` dep.
+/// Unknown keys are ignored so future fields don't break older readers.
+pub fn parse_frontmatter(raw: &str) -> (MemoryMeta, String) {
+    // Must START with `---\n`; otherwise treat as body.
+    let after_open = match raw.strip_prefix("---\n") {
+        Some(s) => s,
+        // Tolerate a single CRLF too, since some editors write that.
+        None => match raw.strip_prefix("---\r\n") {
+            Some(s) => s,
+            None => return (MemoryMeta::default(), raw.to_string()),
+        },
+    };
+    // Find the closing `---` on its own line.
+    let mut close_at: Option<usize> = None;
+    let mut search_offset = 0usize;
+    for line in after_open.split_inclusive('\n') {
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if trimmed == "---" {
+            close_at = Some(search_offset + line.len());
+            break;
+        }
+        search_offset += line.len();
+    }
+    let Some(end) = close_at else {
+        // Opened but never closed — treat as body so a runaway `---`
+        // in user content doesn't get swallowed.
+        return (MemoryMeta::default(), raw.to_string());
+    };
+    let block = &after_open[..end - {
+        // length of the closing line; recompute since `end` is the
+        // tail offset including that line's newline.
+        let closing_line = &after_open[search_offset..end];
+        closing_line.len()
+    }];
+    let body = after_open[end..].trim_start_matches('\n').to_string();
+
+    let mut meta = MemoryMeta::default();
+    for line in block.lines() {
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
+        let key = k.trim();
+        let val = v.trim().trim_matches(['"', '\'']);
+        if val.is_empty() {
+            continue;
+        }
+        match key {
+            "source" => meta.source = Some(val.to_string()),
+            "confidence" => {
+                if let Ok(f) = val.parse::<f32>() {
+                    meta.confidence = Some(f.clamp(0.0, 1.0));
+                }
+            }
+            "created_at" => meta.created_at = Some(val.to_string()),
+            _ => {}
+        }
+    }
+    (meta, body)
+}
+
+impl MemoryStore {
+    /// Read one entry and split its YAML frontmatter from the body.
+    /// Legacy entries without frontmatter return `MemoryMeta::default()`
+    /// (all `None`) and the full file content as body.
+    pub async fn read_with_meta(
+        &self,
+        scope: MemoryScope,
+        name: &str,
+    ) -> MemoryResult<(MemoryMeta, String)> {
+        let entry = self.read(scope, name).await?;
+        Ok(parse_frontmatter(&entry.content))
     }
 }
 
@@ -480,5 +612,94 @@ mod tests {
     fn sanitize_name_strips_md_suffix_and_lowercases() {
         assert_eq!(sanitize_name("Conventions.md").unwrap(), "conventions");
         assert_eq!(sanitize_name("  trim_me  ").unwrap(), "trim_me");
+    }
+
+    #[tokio::test]
+    async fn regenerate_index_is_idempotent_on_unchanged_content() {
+        let (_t, s) = store();
+        s.write(MemoryScope::User, "a", "x").await.unwrap();
+        let idx_path = s.root().join("MEMORY.md");
+        let mtime1 = tokio::fs::metadata(&idx_path).await.unwrap().modified().unwrap();
+        // Force a tiny delay so the filesystem can give us a different
+        // mtime if a rewrite occurs.
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        // Re-run regenerate without changing any entry — index is
+        // unchanged, so the on-disk file should be untouched.
+        s.regenerate_index().await.unwrap();
+        let mtime2 = tokio::fs::metadata(&idx_path).await.unwrap().modified().unwrap();
+        assert_eq!(mtime1, mtime2, "index mtime changed despite identical content");
+    }
+
+    #[tokio::test]
+    async fn read_with_meta_parses_frontmatter() {
+        let (_t, s) = store();
+        let body_with_fm = "---\nsource: extractor\nconfidence: 0.42\ncreated_at: 2026-05-19T10:23:11Z\n---\nactual body line one\nline two";
+        s.write(MemoryScope::Feedback, "auto-fb", body_with_fm)
+            .await
+            .unwrap();
+        let (meta, body) = s
+            .read_with_meta(MemoryScope::Feedback, "auto-fb")
+            .await
+            .unwrap();
+        assert_eq!(meta.source.as_deref(), Some("extractor"));
+        assert_eq!(meta.confidence, Some(0.42));
+        assert_eq!(meta.created_at.as_deref(), Some("2026-05-19T10:23:11Z"));
+        assert_eq!(body, "actual body line one\nline two");
+    }
+
+    #[tokio::test]
+    async fn read_with_meta_legacy_entry_returns_empty_meta() {
+        let (_t, s) = store();
+        s.write(MemoryScope::User, "plain", "no frontmatter here")
+            .await
+            .unwrap();
+        let (meta, body) = s.read_with_meta(MemoryScope::User, "plain").await.unwrap();
+        assert_eq!(meta, MemoryMeta::default());
+        assert_eq!(body, "no frontmatter here");
+    }
+
+    #[test]
+    fn parse_frontmatter_tolerates_unclosed_block() {
+        // A runaway `---` shouldn't swallow the body.
+        let raw = "---\nsource: extractor\n(but never closes)";
+        let (meta, body) = parse_frontmatter(raw);
+        assert_eq!(meta, MemoryMeta::default());
+        assert_eq!(body, raw);
+    }
+
+    #[test]
+    fn parse_frontmatter_clamps_confidence_to_unit_interval() {
+        let (meta, _) = parse_frontmatter("---\nconfidence: 1.7\n---\nx");
+        assert_eq!(meta.confidence, Some(1.0));
+        let (meta, _) = parse_frontmatter("---\nconfidence: -0.3\n---\nx");
+        assert_eq!(meta.confidence, Some(0.0));
+    }
+
+    #[test]
+    fn render_with_frontmatter_round_trips() {
+        let meta = MemoryMeta {
+            source: Some("extractor".into()),
+            confidence: Some(0.42),
+            created_at: Some("2026-05-19T10:23:11Z".into()),
+        };
+        let raw = render_with_frontmatter(&meta, "the body");
+        let (back, body) = parse_frontmatter(&raw);
+        assert_eq!(back, meta);
+        assert_eq!(body, "the body");
+    }
+
+    #[test]
+    fn render_with_frontmatter_empty_meta_returns_body_verbatim() {
+        assert_eq!(
+            render_with_frontmatter(&MemoryMeta::default(), "plain body"),
+            "plain body"
+        );
+    }
+
+    #[test]
+    fn parse_frontmatter_ignores_unknown_keys() {
+        let (meta, body) = parse_frontmatter("---\nsource: user\nfuture_field: hi\n---\nbody");
+        assert_eq!(meta.source.as_deref(), Some("user"));
+        assert_eq!(body, "body");
     }
 }

@@ -78,11 +78,13 @@ async fn extractor_writes_proposals_after_terminal_turn() {
             scope: MemoryScope::Feedback,
             name: "no-emojis".into(),
             content: "user said: stop using emojis".into(),
+            confidence: Some(0.85),
         },
         MemoryProposal {
             scope: MemoryScope::User,
             name: "tone".into(),
             content: "user prefers terse responses".into(),
+            confidence: Some(0.7),
         },
     ];
     let extractor = Arc::new(ConstantExtractor::new(canned));
@@ -115,11 +117,14 @@ async fn extractor_writes_proposals_after_terminal_turn() {
 
     assert!(landed, "extractor proposals should be persisted within 2s");
 
-    let body = store
-        .read(MemoryScope::Feedback, "no-emojis")
+    let (meta, body) = store
+        .read_with_meta(MemoryScope::Feedback, "no-emojis")
         .await
         .unwrap();
-    assert_eq!(body.content, "user said: stop using emojis");
+    assert_eq!(body, "user said: stop using emojis");
+    assert_eq!(meta.source.as_deref(), Some("extractor"));
+    assert_eq!(meta.confidence, Some(0.85));
+    assert!(meta.created_at.is_some());
 }
 
 #[tokio::test]
@@ -152,16 +157,19 @@ async fn proposals_in_disallowed_scopes_are_rejected() {
             scope: MemoryScope::Project,
             name: "smuggled".into(),
             content: "should not land".into(),
+            confidence: Some(0.5),
         },
         MemoryProposal {
             scope: MemoryScope::Reference,
             name: "external-tool".into(),
             content: "should not land".into(),
+            confidence: Some(0.5),
         },
         MemoryProposal {
             scope: MemoryScope::User,
             name: "allowed".into(),
             content: "this one is fine".into(),
+            confidence: Some(0.7),
         },
     ];
     let extractor = Arc::new(ConstantExtractor::new(canned));
