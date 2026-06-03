@@ -211,7 +211,7 @@ export interface AppSettings {
   ui: {
     theme: UITheme;
     language: UILocale;
-    /** 聊天面板正文/输入字号(px)。离散档:13 / 14 / 16 / 18。 */
+    /** 聊天面板正文/输入字号(px),12–20 可调。 */
     chatFontSize: number;
     previewWidth: number;
     rightPanelWidth: number;
