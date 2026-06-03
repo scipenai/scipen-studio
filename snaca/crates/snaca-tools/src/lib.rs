@@ -10,7 +10,6 @@
 
 pub mod bash;
 pub mod edit;
-pub mod fs_util;
 pub mod glob;
 pub mod grep;
 pub mod http_client;
