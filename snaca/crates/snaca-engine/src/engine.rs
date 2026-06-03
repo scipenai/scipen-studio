@@ -139,6 +139,12 @@ pub struct Engine {
     /// `turn_id` for host-side telemetry; a static instance would
     /// either drop that signal or require interior mutability.
     context_requester_factory: Option<ContextRequesterFactory>,
+    /// Per-turn factory for the `QuestionGate` the `AskUserQuestion`
+    /// tool uses to ask the user a multiple-choice question and await
+    /// their answer. Per-turn (like `context_requester_factory`) so the
+    /// gate captures `turn_id` for routing the reverse-RPC. `None` =>
+    /// tool surfaces a clean `Unsupported` error (no interactive host).
+    question_gate_factory: Option<QuestionGateFactory>,
     /// Per-(thread, message) cancellation tokens for in-flight turns.
     /// The engine registers a token when `handle_turn_full` enters
     /// and removes it on exit (via `InflightGuard`); external
@@ -204,6 +210,11 @@ struct LoopGuardHint {
 /// across spawned tasks without `H: Clone`.
 pub type ContextRequesterFactory = Arc<dyn Fn(String) -> Arc<dyn ContextRequester> + Send + Sync>;
 
+/// Closure that builds a per-turn `QuestionGate` (takes `turn_id`).
+/// Same lifecycle/ownership story as [`ContextRequesterFactory`].
+pub type QuestionGateFactory =
+    Arc<dyn Fn(String) -> Arc<dyn crate::question_gate::QuestionGate> + Send + Sync>;
+
 /// One entry on the surfaced-memories dedup ring — the `(scope, name)`
 /// pair that uniquely identifies a memory file in a project.
 type SurfacedKey = (snaca_memory::MemoryScope, String);
@@ -252,6 +263,7 @@ impl Engine {
             memory_sink: None,
             task_registry: None,
             context_requester_factory: None,
+            question_gate_factory: None,
             inflight: Arc::new(Mutex::new(HashMap::new())),
             surfaced_memories: Arc::new(Mutex::new(HashMap::new())),
             read_trackers: Arc::new(Mutex::new(HashMap::new())),
@@ -316,6 +328,16 @@ impl Engine {
     /// turn entry and drops the result when the turn ends.
     pub fn with_context_requester_factory(mut self, factory: ContextRequesterFactory) -> Self {
         self.context_requester_factory = Some(factory);
+        self
+    }
+
+    /// Attach a per-turn factory for the `QuestionGate`. The wiring
+    /// layer supplies a closure that takes the current `turn_id` and
+    /// returns an `Arc<dyn QuestionGate>` bridging to the host's
+    /// interactive question card. Unset => `AskUserQuestion` surfaces a
+    /// clean `Unsupported` tool_error.
+    pub fn with_question_gate_factory(mut self, factory: QuestionGateFactory) -> Self {
+        self.question_gate_factory = Some(factory);
         self
     }
 
@@ -591,6 +613,17 @@ impl Engine {
         if let Some(factory) = self.context_requester_factory.clone() {
             let requester = factory(turn_message_id.clone());
             tool_ctx = tool_ctx.with_context_requester(requester);
+        }
+        // Per-turn QuestionGate for the AskUserQuestion tool. Wrapped in
+        // QuestionGateSlot (a Sized newtype) because `dyn QuestionGate`
+        // can't coerce to `dyn Any`; the tool downcasts it back. Unset
+        // factory => tool surfaces a clean Unsupported error.
+        if let Some(factory) = self.question_gate_factory.clone() {
+            let gate = factory(turn_message_id.clone());
+            tool_ctx = tool_ctx.with_question_gate(Arc::new(
+                crate::question_gate::QuestionGateSlot::new(gate),
+            )
+                as Arc<dyn std::any::Any + Send + Sync>);
         }
 
         // Wrap the rest of the turn in `tokio::select!` so external

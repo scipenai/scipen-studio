@@ -104,6 +104,12 @@ struct Inner {
     /// editor host is connected — affected tools surface a clear
     /// "unavailable" error instead of crashing.
     context_requester: Option<Arc<dyn ContextRequester>>,
+    /// Opaque side-channel for the engine's `QuestionGate` (defined in
+    /// `snaca-engine`). Used by the `AskUserQuestion` tool to send a
+    /// multiple-choice prompt to the user and await their selection.
+    /// Stored as `Arc<dyn Any>` for the same dependency-decoupling
+    /// reason as `task_registry`: the concrete trait lives one layer up.
+    question_gate: Option<Arc<dyn Any + Send + Sync>>,
 }
 
 impl ToolContext {
@@ -124,6 +130,7 @@ impl ToolContext {
                 task_registry: None,
                 cancellation_token: None,
                 context_requester: None,
+                question_gate: None,
             }),
         }
     }
@@ -145,6 +152,7 @@ impl ToolContext {
             task_registry: self.inner.task_registry.clone(),
             cancellation_token: self.inner.cancellation_token.clone(),
             context_requester: self.inner.context_requester.clone(),
+            question_gate: self.inner.question_gate.clone(),
         };
         self.inner = Arc::new(inner);
         self
@@ -166,6 +174,7 @@ impl ToolContext {
             task_registry: self.inner.task_registry.clone(),
             cancellation_token: self.inner.cancellation_token.clone(),
             context_requester: self.inner.context_requester.clone(),
+            question_gate: self.inner.question_gate.clone(),
         };
         self.inner = Arc::new(inner);
         self
@@ -187,6 +196,7 @@ impl ToolContext {
             task_registry: Some(registry),
             cancellation_token: self.inner.cancellation_token.clone(),
             context_requester: self.inner.context_requester.clone(),
+            question_gate: self.inner.question_gate.clone(),
         };
         self.inner = Arc::new(inner);
         self
@@ -210,6 +220,7 @@ impl ToolContext {
             task_registry: self.inner.task_registry.clone(),
             cancellation_token: Some(token),
             context_requester: self.inner.context_requester.clone(),
+            question_gate: self.inner.question_gate.clone(),
         };
         self.inner = Arc::new(inner);
         self
@@ -236,6 +247,7 @@ impl ToolContext {
             task_registry: self.inner.task_registry.clone(),
             cancellation_token: self.inner.cancellation_token.clone(),
             context_requester: Some(requester),
+            question_gate: self.inner.question_gate.clone(),
         };
         self.inner = Arc::new(inner);
         self
@@ -247,6 +259,35 @@ impl ToolContext {
     /// one.
     pub fn context_requester(&self) -> Option<&Arc<dyn ContextRequester>> {
         self.inner.context_requester.as_ref()
+    }
+
+    /// Attach the engine's `QuestionGate` as an opaque slot (same
+    /// dependency-decoupling reason as `task_registry`: the concrete
+    /// trait lives in `snaca-engine`). The `AskUserQuestion` tool
+    /// downcasts it back. Unset in deployments without an interactive
+    /// channel — the tool then surfaces a clean `Unsupported` error.
+    pub fn with_question_gate(mut self, gate: Arc<dyn Any + Send + Sync>) -> Self {
+        let inner = Inner {
+            tenant_id: self.inner.tenant_id.clone(),
+            project_id: self.inner.project_id.clone(),
+            session_id: self.inner.session_id,
+            workspace_root: self.inner.workspace_root.clone(),
+            outbound_files: self.inner.outbound_files.clone(),
+            read_tracker: self.inner.read_tracker.clone(),
+            task_registry: self.inner.task_registry.clone(),
+            cancellation_token: self.inner.cancellation_token.clone(),
+            context_requester: self.inner.context_requester.clone(),
+            question_gate: Some(gate),
+        };
+        self.inner = Arc::new(inner);
+        self
+    }
+
+    /// Opaque getter for the attached question gate. The
+    /// `AskUserQuestion` tool downcasts to `QuestionGateSlot`. `None`
+    /// when no interactive channel is wired.
+    pub fn question_gate_opaque(&self) -> Option<Arc<dyn Any + Send + Sync>> {
+        self.inner.question_gate.clone()
     }
 
     pub fn tenant_id(&self) -> &TenantId {

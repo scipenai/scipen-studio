@@ -8,6 +8,7 @@
 //! `snaca_workspace::resolve_within` and reject anything that escapes the
 //! per-project workspace root. There is no exception path.
 
+pub mod ask_user_question;
 pub mod bash;
 pub mod edit;
 pub mod glob;
@@ -28,6 +29,7 @@ pub mod web_search;
 pub mod write;
 pub mod zotero;
 
+pub use ask_user_question::AskUserQuestionTool;
 pub use bash::BashTool;
 pub use edit::EditTool;
 pub use glob::GlobTool;
@@ -112,4 +114,7 @@ fn base_tool_registry_builder() -> ToolRegistryBuilder {
         // clear error, tool stays registered); WebFetch needs no key.
         .add(WebSearchTool::default())
         .add(WebFetchTool::new())
+        // Interactive question tool. Surfaces a clean tool_error when no
+        // QuestionGate is attached, so it's safe in every deployment shape.
+        .add(AskUserQuestionTool)
 }

@@ -22,12 +22,17 @@ pub mod listener;
 pub mod loop_guard;
 pub mod memory_extractor;
 pub mod memory_sink;
+pub mod question_gate;
 pub mod reranker;
 pub mod tools_factory;
 
 pub use approval::{
     ApprovalDecision, ApprovalError, ApprovalGate, ApprovalRequest, CountingGate,
     DenyAllApprovalGate, NoopApprovalGate,
+};
+pub use question_gate::{
+    FixedQuestionGate, NoopQuestionGate, QuestionAnswer, QuestionAnswers, QuestionError,
+    QuestionGate, QuestionGateSlot, QuestionOption, QuestionRequest, QuestionSpec,
 };
 pub use config::EngineConfig;
 pub use engine::{ContextRequesterFactory, Engine, TurnOutcome, TurnRequest};

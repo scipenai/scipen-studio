@@ -13,6 +13,10 @@ snaca-core.workspace = true
 snaca-tools-api.workspace = true
 snaca-workspace.workspace = true
 snaca-skills.workspace = true
+# AskUserQuestion tool consumes the `QuestionGate` trait defined in
+# snaca-engine. engine→snaca-tools is only a dev-dependency, so this
+# back-edge stays a permitted dev-dependency cycle, not a real one.
+snaca-engine.workspace = true
 snaca-memory = { workspace = true, features = ["pdf"] }
 async-trait.workspace = true
 tokio = { workspace = true, features = ["fs", "process", "io-util", "time", "sync"] }
