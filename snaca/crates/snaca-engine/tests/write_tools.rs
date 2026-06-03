@@ -185,3 +185,142 @@ async fn multi_edit_chain_is_atomic_via_engine() {
     let on_disk = std::fs::read_to_string(&target).unwrap();
     assert_eq!(on_disk, "ALPHA beta GAMMA");
 }
+
+#[tokio::test]
+async fn read_tracker_carries_across_turns_on_same_thread() {
+    // Regression for the wedged-loop bug: a user pinging the bot
+    // mid-task used to reset the read_tracker and force a re-Read
+    // before any Edit. The tracker is now thread-scoped — Edit in
+    // turn 2 succeeds with no Read, because turn 1's Read is recorded.
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = WorkspaceLayout::new(tmp.path()).unwrap();
+    let db = Database::open_in_memory().await.unwrap();
+    let tools = default_m2_registry(SkillRegistry::empty());
+
+    let tenant = TenantId::new("t");
+    let project = ProjectId::from_raw("p");
+    layout.ensure_project(&tenant, &project).unwrap();
+    let target = layout.workspace_dir(&tenant, &project).join("notes.md");
+    std::fs::write(&target, "hello world\n").unwrap();
+
+    let llm = Arc::new(MockLlmClient::new());
+    // Turn 1: Read, then terminate.
+    llm.enqueue(assistant_tool_call(vec![(
+        "call_r",
+        "Read",
+        json!({"path": "notes.md"}),
+    )]));
+    llm.enqueue(assistant_text("read"));
+    // Turn 2: Edit without re-Reading. Per-turn tracker would error.
+    llm.enqueue(assistant_tool_call(vec![(
+        "call_e",
+        "Edit",
+        json!({"path": "notes.md", "old_string": "hello", "new_string": "hi"}),
+    )]));
+    llm.enqueue(assistant_text("done"));
+
+    let engine = Engine::new(
+        llm,
+        tools,
+        db.clone(),
+        layout,
+        EngineConfig::default_for("mock-model"),
+    );
+    let thread = ThreadId::new("chat_persist");
+
+    engine
+        .handle_turn(TurnRequest {
+            tenant_id: tenant.clone(),
+            project_id: project.clone(),
+            thread_id: thread.clone(),
+            user_text: "look at notes".into(),
+            message_id: None,
+            ephemeral_system: None,
+        })
+        .await
+        .unwrap();
+
+    engine
+        .handle_turn(TurnRequest {
+            tenant_id: tenant.clone(),
+            project_id: project.clone(),
+            thread_id: thread.clone(),
+            user_text: "you怎么样了".into(),
+            message_id: None,
+            ephemeral_system: None,
+        })
+        .await
+        .unwrap();
+
+    let on_disk = std::fs::read_to_string(&target).unwrap();
+    assert_eq!(on_disk, "hi world\n");
+}
+
+#[tokio::test]
+async fn read_tracker_independent_across_threads() {
+    // Sibling regression: tracker is per-thread, so a Read on thread A
+    // does NOT satisfy the gate on thread B. Edit on B without its own
+    // Read must still fail (file untouched).
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = WorkspaceLayout::new(tmp.path()).unwrap();
+    let db = Database::open_in_memory().await.unwrap();
+    let tools = default_m2_registry(SkillRegistry::empty());
+
+    let tenant = TenantId::new("t");
+    let project = ProjectId::from_raw("p");
+    layout.ensure_project(&tenant, &project).unwrap();
+    let target = layout.workspace_dir(&tenant, &project).join("notes.md");
+    std::fs::write(&target, "hello world\n").unwrap();
+
+    let llm = Arc::new(MockLlmClient::new());
+    llm.enqueue(assistant_tool_call(vec![(
+        "call_r",
+        "Read",
+        json!({"path": "notes.md"}),
+    )]));
+    llm.enqueue(assistant_text("read on A"));
+    llm.enqueue(assistant_tool_call(vec![(
+        "call_e",
+        "Edit",
+        json!({"path": "notes.md", "old_string": "hello", "new_string": "hi"}),
+    )]));
+    llm.enqueue(assistant_text("oops"));
+
+    let engine = Engine::new(
+        llm,
+        tools,
+        db.clone(),
+        layout,
+        EngineConfig::default_for("mock-model"),
+    );
+
+    engine
+        .handle_turn(TurnRequest {
+            tenant_id: tenant.clone(),
+            project_id: project.clone(),
+            thread_id: ThreadId::new("chat_A"),
+            user_text: "look".into(),
+            message_id: None,
+            ephemeral_system: None,
+        })
+        .await
+        .unwrap();
+
+    engine
+        .handle_turn(TurnRequest {
+            tenant_id: tenant,
+            project_id: project,
+            thread_id: ThreadId::new("chat_B"),
+            user_text: "edit".into(),
+            message_id: None,
+            ephemeral_system: None,
+        })
+        .await
+        .unwrap();
+
+    let on_disk = std::fs::read_to_string(&target).unwrap();
+    assert_eq!(
+        on_disk, "hello world\n",
+        "thread B must NOT have edited the file — it never Read it"
+    );
+}

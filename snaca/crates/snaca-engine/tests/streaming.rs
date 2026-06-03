@@ -277,6 +277,183 @@ async fn split_text_deltas_concatenate_into_one_block() {
     assert_eq!(outcome.assistant_text, "Hello, world");
 }
 
+/// Mock simulating DeepSeek on long-Chinese tool args:
+/// `create_message_stream` finalises with malformed JSON (the SSE-concat
+/// bug); `create_message` returns a clean response (non-streaming
+/// endpoint sidesteps it).
+struct StreamMalformedThenNonStreamSucceeds {
+    stream_calls: std::sync::atomic::AtomicUsize,
+    non_stream_queue: Mutex<std::collections::VecDeque<MessageResponse>>,
+    non_stream_calls: std::sync::atomic::AtomicUsize,
+}
+
+impl StreamMalformedThenNonStreamSucceeds {
+    fn new(non_stream_responses: Vec<MessageResponse>) -> Self {
+        Self {
+            stream_calls: std::sync::atomic::AtomicUsize::new(0),
+            non_stream_queue: Mutex::new(non_stream_responses.into()),
+            non_stream_calls: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+}
+
+#[async_trait]
+impl LlmClient for StreamMalformedThenNonStreamSucceeds {
+    fn provider_name(&self) -> &'static str {
+        "stream-broken-mock"
+    }
+    fn model(&self) -> &str {
+        "stream-broken-mock"
+    }
+    fn capabilities(&self) -> ProviderCaps {
+        ProviderCaps {
+            tool_use: true,
+            streaming: true,
+            ..Default::default()
+        }
+    }
+
+    async fn create_message(&self, _req: MessageRequest) -> LlmResult<MessageResponse> {
+        self.non_stream_calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.non_stream_queue
+            .lock()
+            .unwrap()
+            .pop_front()
+            .ok_or_else(|| LlmError::Other("non-stream queue exhausted".into()))
+    }
+
+    async fn create_message_stream(
+        &self,
+        _req: MessageRequest,
+    ) -> LlmResult<BoxStream<'static, LlmResult<StreamEvent>>> {
+        let n = self
+            .stream_calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // Only the first stream call emits malformed args; later
+        // iterations get a clean terminal so iteration 2 doesn't loop
+        // on the same bug forever.
+        let events = if n == 0 {
+            vec![
+                StreamEvent::MessageStart {
+                    message_id: "m".into(),
+                    model: None,
+                },
+                StreamEvent::ContentBlockStart {
+                    index: 0,
+                    block: ContentBlockStart::ToolUse {
+                        id: "tu".into(),
+                        name: "Echo".into(),
+                    },
+                },
+                StreamEvent::ContentBlockDelta {
+                    index: 0,
+                    delta: ContentDelta::ToolInputJson {
+                        partial_json: r#"{"text": "broken json without closing quote }"#.into(),
+                    },
+                },
+                StreamEvent::ContentBlockStop { index: 0 },
+                StreamEvent::MessageDelta {
+                    stop_reason: Some(StopReason::ToolUse),
+                    usage: None,
+                },
+                StreamEvent::MessageStop,
+            ]
+        } else {
+            text_stream("done")
+        };
+        Ok(Box::pin(stream::iter(events.into_iter().map(Ok))))
+    }
+}
+
+#[tokio::test]
+async fn malformed_streamed_tool_args_falls_back_to_non_streaming() {
+    use snaca_core::{Message, MessageId, Usage};
+    // The response the non-streaming endpoint would return: a clean
+    // tool_use with valid JSON args. The engine should run it just like
+    // the streaming success path.
+    let clean_resp = MessageResponse {
+        id: "mock-non-stream".into(),
+        message: Message {
+            id: MessageId::new(),
+            role: Role::Assistant,
+            content: vec![ContentBlock::tool_use(
+                "tu_clean",
+                "Echo",
+                json!({"text": "recovered"}),
+            )],
+            created_at: chrono::Utc::now(),
+        },
+        usage: Usage {
+            input_tokens: 1,
+            output_tokens: 1,
+            ..Default::default()
+        },
+        stop_reason: StopReason::ToolUse,
+    };
+    let llm = Arc::new(StreamMalformedThenNonStreamSucceeds::new(vec![clean_resp]));
+
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = WorkspaceLayout::new(tmp.path()).unwrap();
+    let db = Database::open_in_memory().await.unwrap();
+    let engine = Engine::new(
+        llm.clone(),
+        registry_with_echo(),
+        db.clone(),
+        layout,
+        EngineConfig::default_for("stream-broken-mock"),
+    );
+
+    let outcome = engine
+        .handle_turn(TurnRequest {
+            tenant_id: TenantId::new("t"),
+            project_id: ProjectId::from_raw("p"),
+            thread_id: ThreadId::new("c_retry"),
+            user_text: "go".into(),
+            message_id: None,
+            ephemeral_system: None,
+        })
+        .await
+        .expect("turn should succeed via non-streaming retry");
+
+    assert_eq!(
+        llm.non_stream_calls
+            .load(std::sync::atomic::Ordering::Relaxed),
+        1,
+        "engine must issue exactly one non-streaming retry for the malformed stream"
+    );
+    assert_eq!(
+        llm.stream_calls
+            .load(std::sync::atomic::Ordering::Relaxed),
+        2,
+        "iter 1 retries non-streaming, iter 2 produces the terminal"
+    );
+
+    assert_eq!(outcome.assistant_text, "done");
+
+    // The recovered tool must have actually executed.
+    let msgs = db
+        .recent_messages(&ThreadId::new("c_retry"), 20)
+        .await
+        .unwrap();
+    let tool_msg = msgs
+        .iter()
+        .find(|m| matches!(m.role, Role::Tool))
+        .expect("tool message must be persisted");
+    let txt = tool_msg
+        .content
+        .iter()
+        .find_map(|b| match b {
+            ContentBlock::ToolResult { content, .. } => content.iter().find_map(|c| match c {
+                ContentBlock::Text { text } => Some(text.clone()),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .unwrap_or_default();
+    assert!(txt.contains("recovered"), "tool result missing: {txt}");
+}
+
 #[tokio::test]
 async fn mid_stream_error_aborts_turn() {
     let llm = Arc::new(StreamingMockLlm::new());

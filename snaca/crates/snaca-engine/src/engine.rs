@@ -162,6 +162,30 @@ pub struct Engine {
     /// restart resets dedup state, which is acceptable since recall
     /// itself is also stateless across restarts.
     surfaced_memories: SurfacedMemoryMap,
+    /// Per-thread Read tracker — shared across turns on the same thread.
+    /// Each `ReadTracker` is `Arc<Mutex<HashMap<...>>>`, so the engine
+    /// hands the same Arc to every turn on a thread and Edit/MultiEdit's
+    /// "Read before Edit" gate accumulates across user interrupts.
+    /// Without this, every user message reset the tracker and forced the
+    /// model to re-Read large files just to satisfy the gate — the wedged
+    /// loop `loop_guard` was tripping on. Mtime/size validation in edit.rs
+    /// still catches files that changed on disk. In-memory only.
+    read_trackers: Arc<Mutex<HashMap<ThreadId, snaca_tools_api::ReadTracker>>>,
+    /// Per-thread one-shot hint about the previous turn's loop_guard trip.
+    /// Set when a turn aborts for repeated identical tool calls; the next
+    /// turn's system prompt picks it up, tells the model "don't repeat the
+    /// same call", then clears it.
+    loop_guard_hints: Arc<Mutex<HashMap<ThreadId, LoopGuardHint>>>,
+}
+
+/// One-shot hint about a loop_guard trip, injected into the next turn's
+/// system prompt so the model can break out of the loop. Short by
+/// design — just enough to recognise the call to avoid repeating.
+#[derive(Debug, Clone)]
+struct LoopGuardHint {
+    tool: String,
+    input_snippet: String,
+    count: usize,
 }
 
 /// Closure that builds a per-turn reverse-RPC channel back to the
@@ -221,6 +245,8 @@ impl Engine {
             context_requester_factory: None,
             inflight: Arc::new(Mutex::new(HashMap::new())),
             surfaced_memories: Arc::new(Mutex::new(HashMap::new())),
+            read_trackers: Arc::new(Mutex::new(HashMap::new())),
+            loop_guard_hints: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -516,14 +542,22 @@ impl Engine {
         let workspace_root = self.workspace.workspace_dir(&tenant_id, &project_id);
         let session_id = SessionId::new();
         let outbound_slot: Arc<Mutex<Vec<OutboundFile>>> = Arc::new(Mutex::new(Vec::new()));
-        // Fresh per-turn Read tracker. Edit / MultiEdit consult this
-        // to enforce "Read before Edit" and to detect external
-        // modifications between Read and Edit within the same turn.
-        // Resetting per turn is deliberate — across turns the file
-        // may have changed and the model isn't holding the old view
-        // in context anymore.
-        let read_tracker: snaca_tools_api::ReadTracker =
-            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        // Per-thread Read tracker. Edit / MultiEdit consult this to
+        // enforce "Read before Edit" and to detect external modifications
+        // between Read and Edit. Shared across turns on the same thread so
+        // a "how's it going?" mid-task ping doesn't reset the gate and
+        // force the model to re-Read. edit.rs revalidates mtime/size on
+        // every call, so a file that changed on disk between turns still
+        // gets caught.
+        let read_tracker: snaca_tools_api::ReadTracker = {
+            let mut map = self
+                .read_trackers
+                .lock()
+                .expect("read_trackers mutex poisoned");
+            map.entry(thread_id.clone())
+                .or_insert_with(|| Arc::new(Mutex::new(std::collections::HashMap::new())))
+                .clone()
+        };
         let mut tool_ctx = ToolContext::new(
             tenant_id.clone(),
             project_id.clone(),
@@ -599,8 +633,21 @@ impl Engine {
             // fine — memory rarely changes mid-turn, and a stale read in the
             // middle of an iteration would only mean the model misses an
             // entry that was added a couple of seconds ago.
+            // Drain a one-shot loop_guard hint if the previous turn on
+            // this thread tripped the guard. None on the common path.
+            let loop_guard_hint = self
+                .loop_guard_hints
+                .lock()
+                .ok()
+                .and_then(|mut m| m.remove(&thread_id));
             let base_system_segments = self
-                .system_prompt_for(&tenant_id, &project_id, &thread_id, &turn_query)
+                .system_prompt_for(
+                    &tenant_id,
+                    &project_id,
+                    &thread_id,
+                    &turn_query,
+                    loop_guard_hint.as_ref(),
+                )
                 .await;
             // Splice the front-end's per-turn ephemeral context onto the
             // tail as a *volatile* segment. It's recomputed every turn, so
@@ -882,7 +929,7 @@ impl Engine {
                 }
 
                 // Tool calls — execute each, then append a tool message with the results.
-                let tool_results = self
+                let tool_results = match self
                     .run_tool_calls(
                         &resp.message.content,
                         &assistant_msg.id,
@@ -892,7 +939,29 @@ impl Engine {
                         loop_guard.as_mut(),
                         prerun_cache,
                     )
-                    .await?;
+                    .await
+                {
+                    Ok(v) => v,
+                    Err(EngineError::LoopGuardTripped { tool, count }) => {
+                        // Stash a one-shot hint keyed by thread so the next
+                        // turn's system prompt can tell the model "you looped
+                        // on X — try something else". Without it, the next
+                        // turn often re-walks straight back into the loop.
+                        let snippet = loop_guard_input_snippet(&resp.message.content, &tool);
+                        if let Ok(mut map) = self.loop_guard_hints.lock() {
+                            map.insert(
+                                thread_id.clone(),
+                                LoopGuardHint {
+                                    tool: tool.clone(),
+                                    input_snippet: snippet,
+                                    count,
+                                },
+                            );
+                        }
+                        return Err(EngineError::LoopGuardTripped { tool, count });
+                    }
+                    Err(e) => return Err(e),
+                };
 
                 if tool_results.is_empty() {
                     // Model said "tool_use" but emitted no tool blocks — defensive
@@ -1213,6 +1282,7 @@ impl Engine {
         project: &ProjectId,
         thread: &ThreadId,
         user_query: &str,
+        loop_guard_hint: Option<&LoopGuardHint>,
     ) -> Vec<SystemSegment> {
         let memory_dir = self.workspace.memory_dir(tenant, project);
         let store = snaca_memory::MemoryStore::new(memory_dir);
@@ -1232,7 +1302,12 @@ impl Engine {
             String::new()
         };
 
-        compose_system_segments(&self.config.system_prompt, &idx, &recall_block)
+        compose_system_segments(
+            &self.config.system_prompt,
+            &idx,
+            &recall_block,
+            loop_guard_hint,
+        )
     }
 
     /// Run vector recall against the project memory and render the
@@ -1646,6 +1721,9 @@ impl Engine {
         if let Some(max) = max_tokens_override {
             req = req.with_max_tokens(max);
         }
+        // Keep a clone for the non-streaming retry path. Cheap on the
+        // common case (just an Arc bump on each segment / message body).
+        let retry_req = req.clone();
         let mut stream = self.llm.create_message_stream(req).await?;
         let mut acc = StreamAccumulator::new();
         // Mirror enough state to recover the (id, name, args) of each
@@ -1740,7 +1818,44 @@ impl Engine {
             }
         }
 
-        let resp = acc.finalize()?;
+        let resp = match acc.finalize() {
+            Ok(r) => r,
+            Err(LlmError::MalformedToolArgs {
+                tool,
+                args_len,
+                message,
+            }) => {
+                // Provider's SSE concatenated tool_use args into invalid
+                // JSON — most often DeepSeek with long Chinese tool args
+                // where escape sequences get corrupted between deltas.
+                // Re-issue the same request without streaming: the
+                // non-streaming endpoint returns `arguments` as a single
+                // complete string field, sidestepping the bug. Drop the
+                // prerun cache — its tool_use IDs came from the busted
+                // stream and won't match the new response's blocks.
+                warn!(
+                    tool = %tool,
+                    args_len,
+                    "streamed tool args malformed; retrying request in non-streaming mode"
+                );
+                let resp = self.llm.create_message(retry_req).await.map_err(|e| {
+                    // If the retry also fails, surface the *original*
+                    // streaming error — that's the one to diagnose.
+                    warn!(error = %e, "non-streaming retry also failed");
+                    EngineError::Llm(LlmError::MalformedToolArgs {
+                        tool: tool.clone(),
+                        args_len,
+                        message: format!("{message} (non-streaming retry also failed: {e})"),
+                    })
+                })?;
+                debug!(
+                    tool = %tool,
+                    "non-streaming retry succeeded; discarding streamed prerun cache"
+                );
+                return Ok((resp, PrerunCache::new()));
+            }
+            Err(e) => return Err(e.into()),
+        };
         debug!(
             prerun_count = cache.len(),
             "stream finished; consumed prerun cache for tool execution pass"
@@ -2252,6 +2367,26 @@ const RECALL_EXCERPT_BYTES: usize = 400;
 /// ring lives in memory only; process restart resets it.
 const SURFACED_RING_CAP: usize = 20;
 
+/// Pull a short, displayable snippet of the input that tripped the loop
+/// guard. Walks the assistant content for the *last* `ToolUse` block
+/// matching `tool` (the guard records every call; the final one pushed
+/// the count past the limit). Empty string when none is found — the
+/// error path must not panic.
+fn loop_guard_input_snippet(content: &[ContentBlock], tool: &str) -> String {
+    const SNIPPET_BYTES: usize = 240;
+    let raw = content
+        .iter()
+        .rev()
+        .find_map(|b| match b {
+            ContentBlock::ToolUse { name, input, .. } if name == tool => {
+                Some(serde_json::to_string(input).unwrap_or_default())
+            }
+            _ => None,
+        })
+        .unwrap_or_default();
+    excerpt(&raw, SNIPPET_BYTES)
+}
+
 /// Build the per-turn system prompt as ordered, cache-aware segments.
 ///
 /// - **Segment 1 (cacheable)** — base prompt + MEMORY.md index. Stable
@@ -2261,8 +2396,14 @@ const SURFACED_RING_CAP: usize = 20;
 ///   by the user's query (changes every turn), so it's excluded from
 ///   any cache breakpoint to avoid silently invalidating the prefix.
 ///
-/// Empty sections collapse the segment list.
-fn compose_system_segments(base: &str, index: &str, recall: &str) -> Vec<SystemSegment> {
+/// Empty sections collapse the segment list. A loop_guard hint, when
+/// present, is appended as its own volatile segment.
+fn compose_system_segments(
+    base: &str,
+    index: &str,
+    recall: &str,
+    loop_guard_hint: Option<&LoopGuardHint>,
+) -> Vec<SystemSegment> {
     let mut stable = String::from(base);
     if !index.trim().is_empty() {
         stable.push_str(
@@ -2284,6 +2425,26 @@ fn compose_system_segments(base: &str, index: &str, recall: &str) -> Vec<SystemS
         volatile.push_str(recall.trim());
         segs.push(SystemSegment::volatile(volatile));
     }
+    if let Some(hint) = loop_guard_hint {
+        let snippet = if hint.input_snippet.is_empty() {
+            "(input not captured)".to_string()
+        } else {
+            hint.input_snippet.clone()
+        };
+        let body = format!(
+            "\n\n---\n\n## Previous turn aborted: loop guard\n\n\
+             The previous turn on this thread was aborted because you called \
+             `{tool}` {count} times with identical input. Do **not** repeat \
+             that exact call. If the same operation is still required, change \
+             the approach — read the file in full (no offset/limit), split a \
+             large MultiEdit into smaller Edits, or use Grep to locate the \
+             target before retrying. The exact input that tripped the guard \
+             was: `{snippet}`.\n",
+            tool = hint.tool,
+            count = hint.count,
+        );
+        segs.push(SystemSegment::volatile(body));
+    }
     segs
 }
 
@@ -2296,7 +2457,7 @@ mod system_prompt_tests {
         // base + memory go in one cacheable segment, recall lives in
         // its own volatile segment. If anyone collapses these the
         // prompt cache silently breaks.
-        let segs = compose_system_segments("BASE", "user/foo — bar", "hit one");
+        let segs = compose_system_segments("BASE", "user/foo — bar", "hit one", None);
         assert_eq!(segs.len(), 2, "expected stable + volatile, got {segs:?}");
         assert!(segs[0].cacheable, "first segment must be cacheable");
         assert!(segs[0].text.contains("BASE"));
@@ -2310,7 +2471,7 @@ mod system_prompt_tests {
 
     #[test]
     fn segments_collapse_when_no_recall() {
-        let segs = compose_system_segments("BASE", "user/foo", "");
+        let segs = compose_system_segments("BASE", "user/foo", "", None);
         assert_eq!(segs.len(), 1, "no recall => single segment");
         assert!(segs[0].cacheable);
         assert!(segs[0].text.contains("BASE"));
@@ -2319,7 +2480,7 @@ mod system_prompt_tests {
 
     #[test]
     fn segments_collapse_when_no_memory_and_no_recall() {
-        let segs = compose_system_segments("BASE", "", "");
+        let segs = compose_system_segments("BASE", "", "", None);
         assert_eq!(segs.len(), 1);
         assert!(segs[0].cacheable);
         assert!(!segs[0].text.contains("## Project Memory"));

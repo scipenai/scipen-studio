@@ -45,11 +45,14 @@ pub struct ReadRecord {
     pub partial: bool,
 }
 
-/// Shared map of `absolute path -> ReadRecord`. The tracker is built
-/// fresh per turn (Edit can't carry "I read this last turn" across
-/// turns: the file may have changed and the model doesn't see the old
-/// view anymore). Wrapped in `Arc<Mutex<...>>` because multiple tool
-/// calls in one turn share it.
+/// Shared map of `absolute path -> ReadRecord`. The engine keeps one
+/// tracker per thread (not per turn) so a user pinging "how's it
+/// going?" mid-task doesn't force the model to re-Read every file just
+/// to satisfy the Read-before-Edit gate. The mtime/size check in
+/// edit.rs catches files that changed externally; the model's own
+/// "old_string not found" feedback handles the case where it has
+/// forgotten the file contents from its context window. Wrapped in
+/// `Arc<Mutex<...>>` because multiple tool calls in one turn share it.
 pub type ReadTracker = Arc<Mutex<HashMap<PathBuf, ReadRecord>>>;
 
 /// Information available during a tool call. Cheap to clone (Arc inside).
@@ -71,12 +74,13 @@ struct Inner {
     /// vec is the simplest correct primitive and the access pattern
     /// (push during turn, drain after) doesn't justify a real queue.
     outbound_files: Option<Arc<Mutex<Vec<OutboundFile>>>>,
-    /// Per-turn record of every successful Read. Edit / MultiEdit
+    /// Per-thread record of every successful Read. Edit / MultiEdit
     /// consult this to enforce "Read before Edit" and to detect
     /// external modifications between Read and Edit. `None` keeps the
     /// old semantics — the tracker is opt-in so unit tests that drive
     /// Edit directly (without a Read step) keep working. Production
-    /// turns always inject a tracker via `with_read_tracker`.
+    /// turns always inject a tracker via `with_read_tracker`; the
+    /// engine keeps one tracker per thread so it survives across turns.
     read_tracker: Option<ReadTracker>,
     /// Opaque side-channel for tools that need a long-lived shared
     /// resource the engine attaches. Currently used by Bash's

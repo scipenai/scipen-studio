@@ -129,3 +129,63 @@ async fn loop_guard_disabled_via_none_config() {
     let outcome = fix.engine.handle_turn(turn_request()).await.unwrap();
     assert_eq!(outcome.iterations, 6);
 }
+
+#[tokio::test]
+async fn loop_guard_trip_seeds_next_turn_system_prompt_with_hint() {
+    // Two-turn run. Turn 1 trips the guard on `Echo` with input
+    // `{"text":"stuck"}`. Turn 2 sends a benign reply; we assert that
+    // the request issued during turn 2 carries a system segment naming
+    // the tool + count, so the model sees the hint.
+    let fix = fixture(Some(2)).await;
+
+    // Turn 1: two identical calls; guard limit 2 → trips on the second.
+    for _ in 0..2 {
+        fix.llm.enqueue(assistant_tool_call_with_input(
+            "tu_loop",
+            "Echo",
+            json!({"text": "stuck"}),
+        ));
+    }
+    let err = fix
+        .engine
+        .handle_turn(turn_request())
+        .await
+        .expect_err("turn 1 should trip");
+    assert!(matches!(err, EngineError::LoopGuardTripped { .. }));
+
+    // Turn 2: same thread. Single terminal reply.
+    fix.llm.enqueue(common::assistant_text("ok"));
+    let mut req2 = turn_request();
+    req2.user_text = "你又怎么了？".into();
+    let outcome = fix.engine.handle_turn(req2).await.unwrap();
+    assert_eq!(outcome.assistant_text, "ok");
+
+    // The system segments of turn 2's request must include the hint.
+    let observed = fix.llm.observed_requests();
+    let last = observed.last().expect("turn 2 issued a request");
+    let found_hint = last.system_segments.iter().any(|seg| {
+        seg.text.contains("Previous turn aborted: loop guard")
+            && seg.text.contains("Echo")
+            && seg.text.contains("stuck")
+    });
+    assert!(
+        found_hint,
+        "turn 2 system prompt must carry the loop_guard hint; got: {:?}",
+        last.system_segments.iter().map(|s| &s.text).collect::<Vec<_>>()
+    );
+
+    // One-shot: a third turn must not carry it again.
+    fix.llm.enqueue(common::assistant_text("done"));
+    let mut req3 = turn_request();
+    req3.user_text = "继续".into();
+    fix.engine.handle_turn(req3).await.unwrap();
+    let observed = fix.llm.observed_requests();
+    let third = observed.last().unwrap();
+    for seg in &third.system_segments {
+        assert!(
+            !seg.text.contains("Previous turn aborted: loop guard"),
+            "turn 3 must not re-inject the hint; segment: {}",
+            seg.text
+        );
+    }
+}
