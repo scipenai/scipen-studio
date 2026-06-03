@@ -22,6 +22,7 @@ mod context_correlator;
 mod context_inject;
 mod context_requester;
 mod handler;
+mod question_gate;
 mod llm;
 mod mcp_runtime;
 mod memory_handler;

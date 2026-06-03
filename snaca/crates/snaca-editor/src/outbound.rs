@@ -41,6 +41,12 @@ use tokio::sync::Mutex;
 /// side parks longer than the other.
 pub const CONTEXT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// AskUserQuestion waits on a *human*, not a fast host lookup, so it
+/// gets a far longer budget than [`CONTEXT_REQUEST_TIMEOUT`]. The tool
+/// also races this against the turn's cancellation token, so an
+/// abandoned card is reclaimed promptly on turn abort regardless.
+pub const QUESTION_TIMEOUT: Duration = Duration::from_secs(600);
+
 #[derive(Debug, thiserror::Error)]
 pub enum ContextCallError {
     #[error("context.request timed out after {0:?}")]
@@ -191,6 +197,28 @@ impl OutboundWriter {
         turn_id: impl Into<String>,
         payload: ContextRequestPayload,
     ) -> Result<ContextPayload, ContextCallError> {
+        self.call_with_timeout(turn_id, payload, CONTEXT_REQUEST_TIMEOUT)
+            .await
+    }
+
+    /// Like [`call_context`] but with the long [`QUESTION_TIMEOUT`] —
+    /// used by the AskUserQuestion gate, which waits on a human answer
+    /// rather than a fast host lookup.
+    pub async fn call_question(
+        &self,
+        turn_id: impl Into<String>,
+        payload: ContextRequestPayload,
+    ) -> Result<ContextPayload, ContextCallError> {
+        self.call_with_timeout(turn_id, payload, QUESTION_TIMEOUT)
+            .await
+    }
+
+    async fn call_with_timeout(
+        &self,
+        turn_id: impl Into<String>,
+        payload: ContextRequestPayload,
+        timeout: Duration,
+    ) -> Result<ContextPayload, ContextCallError> {
         let request_id = self.fresh_request_id();
         let request_id_str = crate::context_correlator::id_to_string(&request_id);
 
@@ -212,12 +240,12 @@ impl OutboundWriter {
             return Err(ContextCallError::Io(io_err));
         }
 
-        let respond = match tokio::time::timeout(CONTEXT_REQUEST_TIMEOUT, rx).await {
+        let respond = match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(r)) => r,
             Ok(Err(_)) => return Err(ContextCallError::Closed),
             Err(_) => {
                 self.correlator.unregister(&request_id);
-                return Err(ContextCallError::Timeout(CONTEXT_REQUEST_TIMEOUT));
+                return Err(ContextCallError::Timeout(timeout));
             }
         };
 

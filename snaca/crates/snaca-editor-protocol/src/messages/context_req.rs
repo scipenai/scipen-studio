@@ -40,6 +40,12 @@ pub enum ContextRequestPayload {
     ZoteroRead {
         params: ZoteroReadParams,
     },
+    /// Present a multiple-choice question card to the user and await
+    /// their selection. Unlike the other kinds (fast host lookups),
+    /// this waits on a human — the host gives it a long timeout.
+    AskUserQuestion {
+        params: QuestionAskParams,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -78,6 +84,55 @@ pub struct ZoteroAnnotationsParams {
 pub struct ZoteroReadParams {
     /// BBT citation key or 8-char itemKey; renderer resolves both forms.
     pub key: String,
+}
+
+// --------- AskUserQuestion wire shapes ---------
+// Mirror `snaca_engine::QuestionSpec/QuestionOption/QuestionAnswers`
+// (the protocol crate keeps its own wire types so it doesn't depend on
+// the engine; snaca-editor maps between the two).
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuestionAskParams {
+    pub questions: Vec<QuestionSpecWire>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuestionSpecWire {
+    pub id: String,
+    pub question: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+    pub options: Vec<QuestionOptionWire>,
+    pub multi_select: bool,
+    pub allow_other: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuestionOptionWire {
+    pub id: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct QuestionAnswersWire {
+    pub answers: Vec<QuestionAnswerWire>,
+    pub user_id: String,
+    pub decided_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct QuestionAnswerWire {
+    pub question_id: String,
+    #[serde(default)]
+    pub selected_option_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub other_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
 }
 
 // --------- host → SNACA: respond ---------
@@ -119,6 +174,9 @@ pub enum ContextPayload {
         truncated: bool,
         /// Text source tier: "local" (pdf-parse) | "none" (no PDF).
         tier: String,
+    },
+    AskUserQuestion {
+        answers: QuestionAnswersWire,
     },
 }
 

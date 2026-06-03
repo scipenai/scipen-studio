@@ -35,7 +35,9 @@ pub use question_gate::{
     QuestionGate, QuestionGateSlot, QuestionOption, QuestionRequest, QuestionSpec,
 };
 pub use config::EngineConfig;
-pub use engine::{ContextRequesterFactory, Engine, TurnOutcome, TurnRequest};
+pub use engine::{
+    ContextRequesterFactory, Engine, QuestionGateFactory, TurnOutcome, TurnRequest,
+};
 pub use error::{EngineError, EngineResult};
 pub use listener::{NoopListener, RecordingListener, TurnEventListener};
 pub use loop_guard::{LoopGuard, LoopGuardConfig};

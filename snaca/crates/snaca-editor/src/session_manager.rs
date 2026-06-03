@@ -871,6 +871,7 @@ fn build_session_engine(
     // factory stays absent and Zotero context tools surface a clear
     // "unavailable" error instead of crashing the engine.
     if let Some(ob) = outbound {
+        let ob_q = ob.clone();
         let factory_fn: snaca_engine::ContextRequesterFactory =
             std::sync::Arc::new(move |turn_id| {
                 std::sync::Arc::new(crate::context_requester::EditorContextRequester::new(
@@ -879,6 +880,16 @@ fn build_session_engine(
                 ))
             });
         engine = engine.with_context_requester_factory(factory_fn);
+        // Same per-turn lifecycle for the AskUserQuestion gate: it
+        // bridges to the host's question card over the same outbound.
+        let q_factory_fn: snaca_engine::QuestionGateFactory =
+            std::sync::Arc::new(move |turn_id| {
+                std::sync::Arc::new(crate::question_gate::EditorQuestionGate::new(
+                    ob_q.clone(),
+                    turn_id,
+                ))
+            });
+        engine = engine.with_question_gate_factory(q_factory_fn);
     }
     if extractor_enabled {
         // Always wrap in the PII filter (email / phone / api key / bearer

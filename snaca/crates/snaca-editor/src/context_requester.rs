@@ -141,6 +141,7 @@ fn wrong_kind(expected: &str, got: &ContextPayload) -> ContextRequestError {
         ContextPayload::ZoteroLookup { .. } => "zotero_lookup",
         ContextPayload::ZoteroAnnotations { .. } => "zotero_annotations",
         ContextPayload::ZoteroRead { .. } => "zotero_read",
+        ContextPayload::AskUserQuestion { .. } => "ask_user_question",
     };
     ContextRequestError::InvalidPayload(format!("expected {expected}, host sent {got_kind}"))
 }
