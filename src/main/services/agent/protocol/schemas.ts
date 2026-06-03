@@ -279,6 +279,7 @@ export const SnacaConfigSchema = z.object({
   approval_mode: ApprovalModeSchema,
   mcp_servers: z.array(McpServerConfigSchema).optional(),
   logging: LoggingConfigSchema.optional(),
+  bundled_skills_dir: z.string().optional(),
 });
 export type SnacaConfig = z.infer<typeof SnacaConfigSchema>;
 

@@ -11,7 +11,8 @@
  * calls have somewhere to land.
  */
 
-import { BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import path from 'path';
 import { z } from 'zod';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import { ConfigKeys } from '../../../shared/types/config-keys';
@@ -845,6 +846,20 @@ function uuidV4ish(input: string): string {
 /** Wire name for SNACA's api-key env variable. */
 const SNACA_API_KEY_ENV = 'SNACA_API_KEY';
 
+/**
+ * Read-only skills shipped with the app (SNACA Bundled scope), staged into
+ * `resources/skills` at build (see scripts/copy-skills.js). Override via
+ * `SNACA_BUNDLED_SKILLS_DIR`. May be absent in dev — SNACA tolerates a missing dir.
+ */
+function resolveBundledSkillsDir(): string {
+  if (process.env.SNACA_BUNDLED_SKILLS_DIR) {
+    return process.env.SNACA_BUNDLED_SKILLS_DIR;
+  }
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'skills')
+    : path.join(app.getAppPath(), 'resources', 'skills');
+}
+
 /** Render `SnacaConfig` from Studio settings (provider + selected chat model). */
 export function buildSnacaConfigFromSettings(config: IConfigManager): SnacaConfig {
   const resolved = resolveChatProvider(config);
@@ -867,6 +882,7 @@ export function buildSnacaConfigFromSettings(config: IConfigManager): SnacaConfi
     // we keep it as the floor and let advanced users opt out via the
     // Agent settings tab.
     approval_mode: readApprovalMode(config),
+    bundled_skills_dir: resolveBundledSkillsDir(),
   };
 }
 
