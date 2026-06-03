@@ -83,8 +83,12 @@ resources/bin/tinymist
 resources/bin/tinymist.exe
 resources/bin/marksman
 resources/bin/marksman.exe
+resources/bin/snaca-editor
+resources/bin/snaca-editor.exe
 resources/bin/*.dll
 !resources/bin/README.md
+# Bundled skills (staged at build time via scripts/copy-skills.js)
+resources/skills/
 
 # Renderer assets copied from npm packages at build time (scripts/copy-public-assets.js)
 public/cmaps/

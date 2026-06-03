@@ -24,6 +24,7 @@ import {
 
 import {
   useAIConfigSync,
+  useAgentBridge,
   useFileOpen,
   useFileWatcher,
   useGlobalShortcuts,
@@ -31,6 +32,7 @@ import {
   useLocaleSync,
   useMemoryCleanup,
   useThemeSync,
+  useZoteroMirrorLifecycle,
 } from './hooks';
 
 setupGlobalErrorHandlers();
@@ -53,6 +55,8 @@ function AppContent() {
   useGlobalShortcuts();
   useMemoryCleanup();
   useFileOpen();
+  useAgentBridge();
+  useZoteroMirrorLifecycle();
 
   useEffect(() => {
     if (sidebarTab === 'im' || sidebarTab === 'files') {

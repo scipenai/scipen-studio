@@ -7,6 +7,8 @@
 // ====== UI Defaults ======
 export const DEFAULT_THEME: 'light' | 'dark' | 'system' = 'system';
 export const DEFAULT_LANGUAGE: 'zh-CN' | 'en-US' = 'zh-CN';
+/** 聊天面板正文/输入字号(px),设置内 12–20 可调,默认 14;驱动 --chat-font-size。 */
+export const DEFAULT_CHAT_FONT_SIZE = 14;
 
 // ====== Editor Defaults ======
 export const DEFAULT_EDITOR_FONT_SIZE = 14;

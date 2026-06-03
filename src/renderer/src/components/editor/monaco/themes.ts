@@ -38,35 +38,38 @@ function defineDarkTheme(monaco: Monaco): void {
       { token: 'markup.html', foreground: '10b981' },
     ],
     colors: {
-      // Synchronized with index.css --color-bg-secondary
+      // 注:Monaco 主题色只认 #RRGGBB[AA] hex,rgba() 会被丢弃回退默认 —— 全部用 hex
       'editor.background': '#111827',
-      // Synchronized with index.css --color-text-primary
       'editor.foreground': '#f1f5f9',
-      // Synchronized with index.css --color-accent
       'editorCursor.foreground': '#22d3ee',
-      // Synchronized with index.css --color-bg-tertiary
       'editor.lineHighlightBackground': '#1a2234',
-      // Synchronized with index.css --editor-selectionBackground
-      'editor.selectionBackground': 'rgba(34, 211, 238, 0.2)',
-      'editor.inactiveSelectionBackground': 'rgba(34, 211, 238, 0.1)',
-      // Synchronized with index.css --color-text-muted
+      // 选区:品牌 accent(柔青),替换原失效的 rgba(亮青)
+      'editor.selectionBackground': '#69a7c738',
+      'editor.inactiveSelectionBackground': '#69a7c71a',
+      'editor.selectionHighlightBackground': '#69a7c724',
       'editorLineNumber.foreground': '#64748b',
-      // Synchronized with index.css --color-text-secondary
       'editorLineNumber.activeForeground': '#94a3b8',
-      // Synchronized with index.css --color-border-subtle
-      'editorIndentGuide.background': 'rgba(56, 189, 248, 0.08)',
-      'editorIndentGuide.activeBackground': 'rgba(56, 189, 248, 0.12)',
-      // Sidebar synchronized with index.css --color-bg-primary
+      'editorIndentGuide.background': '#38bdf814',
+      'editorIndentGuide.activeBackground': '#38bdf81f',
       'editorWidget.background': '#0c1018',
-      'editorWidget.border': 'rgba(56, 189, 248, 0.12)',
+      'editorWidget.border': '#38bdf81f',
+      // 诊断:柔和 danger/warning,替换 Monaco 默认刺眼红
+      'editorError.foreground': '#d88484',
+      'editorWarning.foreground': '#d1a168',
+      // Overview ruler(右侧"红柱子"半透明降噪)
       'editorOverviewRuler.border': '#00000000',
-      'editorOverviewRuler.errorForeground': '#f8717166',
-      'editorOverviewRuler.warningForeground': '#fbbf2466',
-      'editorOverviewRuler.infoForeground': '#34d39955',
-      // Scrollbar
-      'scrollbarSlider.background': 'rgba(148, 163, 184, 0.2)',
-      'scrollbarSlider.hoverBackground': 'rgba(148, 163, 184, 0.35)',
-      'scrollbarSlider.activeBackground': 'rgba(148, 163, 184, 0.5)',
+      'editorOverviewRuler.errorForeground': '#d8848466',
+      'editorOverviewRuler.warningForeground': '#d1a16866',
+      'editorOverviewRuler.infoForeground': '#8fa2d955',
+      // Minimap(右侧缩略图:选区 / 错误 / 警告 / 查找命中)
+      'minimap.selectionHighlight': '#69a7c7',
+      'minimap.errorHighlight': '#d88484',
+      'minimap.warningHighlight': '#d1a168',
+      'minimap.findMatchHighlight': '#69a7c7',
+      // Scrollbar(中性 slate)
+      'scrollbarSlider.background': '#94a3b833',
+      'scrollbarSlider.hoverBackground': '#94a3b859',
+      'scrollbarSlider.activeBackground': '#94a3b880',
     },
   });
 }
@@ -104,35 +107,38 @@ function defineLightTheme(monaco: Monaco): void {
       { token: 'markup.html', foreground: '0d7377' },
     ],
     colors: {
-      // Synchronized with index.css --paper-cream
+      // 注:Monaco 主题色只认 #RRGGBB[AA] hex,rgba() 会被丢弃回退默认 —— 全部用 hex
       'editor.background': '#faf8f3',
-      // Synchronized with index.css --ink-black
       'editor.foreground': '#1a1c1e',
-      // Synchronized with index.css --academic-blue
       'editorCursor.foreground': '#1e4e8c',
-      // Synchronized with index.css --paper-warm
       'editor.lineHighlightBackground': '#f4f1ea',
-      // Selection background
-      'editor.selectionBackground': 'rgba(30, 78, 140, 0.15)',
-      'editor.inactiveSelectionBackground': 'rgba(30, 78, 140, 0.08)',
-      // Synchronized with index.css --ink-medium
+      // 选区:academic-blue(保持浅色主题既有蓝调身份)
+      'editor.selectionBackground': '#1e4e8c26',
+      'editor.inactiveSelectionBackground': '#1e4e8c14',
+      'editor.selectionHighlightBackground': '#1e4e8c1f',
       'editorLineNumber.foreground': '#6b7280',
-      // Synchronized with index.css --ink-dark
       'editorLineNumber.activeForeground': '#3d4249',
-      // Indent guides
-      'editorIndentGuide.background': 'rgba(30, 78, 140, 0.08)',
-      'editorIndentGuide.activeBackground': 'rgba(30, 78, 140, 0.15)',
-      // Widget background
+      'editorIndentGuide.background': '#1e4e8c14',
+      'editorIndentGuide.activeBackground': '#1e4e8c26',
       'editorWidget.background': '#ffffff',
-      'editorWidget.border': 'rgba(30, 78, 140, 0.15)',
+      'editorWidget.border': '#1e4e8c26',
+      // 诊断:柔和 danger/warning,替换 Monaco 默认刺眼红
+      'editorError.foreground': '#c67070',
+      'editorWarning.foreground': '#b7874c',
+      // Overview ruler(右侧"红柱子"半透明降噪)
       'editorOverviewRuler.border': '#00000000',
-      'editorOverviewRuler.errorForeground': '#de8f8573',
-      'editorOverviewRuler.warningForeground': '#c6a25770',
-      'editorOverviewRuler.infoForeground': '#6cae9f66',
+      'editorOverviewRuler.errorForeground': '#c6707073',
+      'editorOverviewRuler.warningForeground': '#b7874c70',
+      'editorOverviewRuler.infoForeground': '#728dc766',
+      // Minimap(右侧缩略图:选区 / 错误 / 警告 / 查找命中)
+      'minimap.selectionHighlight': '#1e4e8c',
+      'minimap.errorHighlight': '#c67070',
+      'minimap.warningHighlight': '#b7874c',
+      'minimap.findMatchHighlight': '#1e4e8c',
       // Scrollbar
-      'scrollbarSlider.background': 'rgba(30, 78, 140, 0.15)',
-      'scrollbarSlider.hoverBackground': 'rgba(30, 78, 140, 0.25)',
-      'scrollbarSlider.activeBackground': 'rgba(30, 78, 140, 0.35)',
+      'scrollbarSlider.background': '#1e4e8c26',
+      'scrollbarSlider.hoverBackground': '#1e4e8c40',
+      'scrollbarSlider.activeBackground': '#1e4e8c59',
     },
   });
 }

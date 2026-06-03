@@ -142,7 +142,6 @@ export type CursorBlinking = 'blink' | 'smooth' | 'phase' | 'expand' | 'solid';
 export type WhitespaceMode = 'none' | 'boundary' | 'selection' | 'all';
 
 export type LineHighlightMode = 'none' | 'gutter' | 'line' | 'all';
-export type AssistantRuntime = 'openclaw' | 'builtin';
 export interface AppSettings {
   ai: {
     provider: AIProvider;
@@ -212,6 +211,8 @@ export interface AppSettings {
   ui: {
     theme: UITheme;
     language: UILocale;
+    /** 聊天面板正文/输入字号(px),12–20 可调。 */
+    chatFontSize: number;
     previewWidth: number;
     rightPanelWidth: number;
     sidebarPosition: 'left' | 'right';
@@ -230,24 +231,10 @@ export interface AppSettings {
     chatWithSelection: string;
     togglePreview: string;
     newWindow: string;
-  };
-  im: {
-    serverUrl: string;
-    token: string;
-  };
-  collaboration: {
-    enabled: boolean;
-    serverUrl: string;
-    token: string;
+    inlineEdit: string;
   };
   assistant: {
-    runtime: AssistantRuntime;
     autoFixCompileErrors: boolean;
     maxAutoFixRetries: number;
-    openclaw: {
-      endpoint?: string;
-      mode?: 'daemon';
-      workspaceId?: string;
-    };
   };
 }

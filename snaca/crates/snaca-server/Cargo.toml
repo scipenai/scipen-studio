@@ -1,0 +1,65 @@
+[package]
+name = "snaca-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "SNACA main server: axum HTTP, process wiring, configuration"
+
+[lib]
+name = "snaca_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "snaca-server"
+path = "src/main.rs"
+
+[dependencies]
+snaca-core.workspace = true
+snaca-tools-api.workspace = true
+snaca-tools.workspace = true
+snaca-llm.workspace = true
+snaca-mcp.workspace = true
+snaca-skills.workspace = true
+snaca-workspace.workspace = true
+snaca-state.workspace = true
+snaca-memory.workspace = true
+snaca-engine.workspace = true
+snaca-channel-protocol.workspace = true
+snaca-channel-host.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+async-trait.workspace = true
+chrono = { workspace = true }
+uuid = { workspace = true }
+data-encoding = { workspace = true }
+
+[features]
+default = []
+# Enable the production memory embedder (downloads ONNX models on first
+# use). Forwards to `snaca-memory`'s feature.
+fastembed = ["snaca-memory/fastembed"]
+# Enable PDF / ZIP-bundle extraction in the bulk import pipeline.
+# Forwards to `snaca-memory`. Each pulls extra deps; opt in only when
+# needed. DOCX/XLSX/PPTX are handled out-of-process via the
+# `office-extract` skill, not via a cargo feature.
+pdf = ["snaca-memory/pdf"]
+bundle = ["snaca-memory/bundle"]
+
+[dev-dependencies]
+tempfile = "3"
+escargot = "0.5"
+chrono = { workspace = true }
+reqwest = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }

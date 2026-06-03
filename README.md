@@ -31,11 +31,11 @@
 - 🧩 **Built-in compiler** — WebAssembly pdfTeX / XeTeX, no local TeX install required. Tectonic and TeX Live are auto-detected when present.
 - ✏️ **Editor** — Monaco with TexLab, Tinymist, and Marksman: completion, diagnostics, hover, and jump-to-definition for LaTeX, Typst, and Markdown.
 - 📄 **Live PDF preview** — pdf.js renderer with SyncTeX two-way jump, KaTeX inline math, smooth zoom, and CJK glyph rendering.
-- 🤖 **AI assistant** — Integrates with OpenClaw to fit into your everyday research-writing workflow.
+- 🤖 **AI agent (built-in)** — SNACA runtime ships with the app: file editing with Diff Review, web search / fetch, interactive multiple-choice questions, per-project memory, and bundled academic-research skills (paper / reviewer / pipeline / deep-research, sourced from [Imbad0202/academic-research-skills](https://github.com/Imbad0202/academic-research-skills)). No separate server to run.
 - ☁️ **Overleaf sync** — Sign in once, projects download to disk, edits stay offline, three-way merge on push.
 
 > [!NOTE]
-> **Status: 0.2.0 — pre-1.0.** Editing, compile, preview, AI, and Overleaf flows are stable. Some settings and APIs may still change before 1.0; breaking changes are noted in [CHANGELOG.md](CHANGELOG.md).
+> **Status: 0.3.0-pre.1 — pre-1.0.** Editing, compile, preview, AI agent, and Overleaf flows are stable. Some settings and APIs may still change before 1.0; breaking changes are noted in [CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 
@@ -87,6 +87,7 @@ SciPen Studio builds on the work of these open-source projects:
 - [pdf.js](https://github.com/mozilla/pdf.js) — PDF rendering and CMap support
 - [KaTeX](https://katex.org/) — inline math preview
 - [diff-match-patch](https://github.com/google/diff-match-patch) — hunk-level diff for AI review
+- [academic-research-skills](https://github.com/Imbad0202/academic-research-skills) — the bundled SNACA Skills (`academic-paper`, `academic-paper-reviewer`, `academic-pipeline`, `deep-research`)
 - [Tectonic](https://tectonic-typesetting.github.io/) and [TeX Live](https://www.tug.org/texlive/) — optional full TeX distributions
 
 Thanks to everyone maintaining the upstream projects that make SciPen Studio possible.

@@ -14,7 +14,6 @@ import { KeybindingServiceImpl, _setKeybindingServiceInstance } from '../Keybind
 import { StorageService, _setStorageServiceInstance } from '../StorageService';
 import { BackupService, _setBackupServiceInstance } from './BackupService';
 import { CompileService, _setCompileServiceInstance } from './CompileService';
-import { ConversationScopeService } from './ConversationScopeService';
 import { EditorService } from './EditorService';
 import { ProjectService } from './ProjectService';
 import { SettingsService } from './SettingsService';
@@ -35,7 +34,6 @@ export interface IServiceRegistry extends IDisposable {
   readonly workingCopy: WorkingCopyService;
   readonly backup: BackupService;
   readonly compile: CompileService;
-  readonly conversationScope: ConversationScopeService;
   readonly command: CommandServiceImpl;
   readonly keybinding: KeybindingServiceImpl;
   readonly inlineCompletion: InlineCompletionService;
@@ -60,7 +58,6 @@ export class ServiceRegistry implements IServiceRegistry {
   readonly workingCopy: WorkingCopyService;
   readonly backup: BackupService;
   readonly compile: CompileService;
-  readonly conversationScope: ConversationScopeService;
   readonly command: CommandServiceImpl;
   readonly keybinding: KeybindingServiceImpl;
   readonly inlineCompletion: InlineCompletionService;
@@ -82,7 +79,6 @@ export class ServiceRegistry implements IServiceRegistry {
     this.workingCopy = new WorkingCopyService();
     this.backup = new BackupService();
     this.compile = new CompileService();
-    this.conversationScope = new ConversationScopeService(this.settings);
     _setWorkingCopyServiceInstance(this.workingCopy);
     _setBackupServiceInstance(this.backup);
     _setCompileServiceInstance(this.compile);
@@ -109,7 +105,6 @@ export class ServiceRegistry implements IServiceRegistry {
     this._disposables.add(this.workingCopy);
     this._disposables.add(this.backup);
     this._disposables.add(this.compile);
-    this._disposables.add(this.conversationScope);
     this._disposables.add(this.command);
     this._disposables.add(this.keybinding);
     this._disposables.add(this.inlineCompletion);
@@ -176,10 +171,6 @@ export function getBackupService(): BackupService {
 
 export function getCompileService(): CompileService {
   return ServiceRegistry.getInstance().compile;
-}
-
-export function getConversationScopeService(): ConversationScopeService {
-  return ServiceRegistry.getInstance().conversationScope;
 }
 
 export function getCommandService(): CommandServiceImpl {

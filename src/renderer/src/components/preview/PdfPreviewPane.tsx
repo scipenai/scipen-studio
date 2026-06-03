@@ -43,6 +43,7 @@ import {
   useIsCompiling,
   usePdfData,
   usePdfHighlight,
+  useZoteroPdf,
 } from '../../services/core/hooks';
 import { DOMScheduler, SchedulePriority } from '../../utils/DOMScheduler';
 import { useTranslation } from '../../locales';
@@ -194,10 +195,20 @@ const PDFPage = memo<{
 });
 PDFPage.displayName = 'PDFPage';
 
-export const PdfPreviewPane: React.FC = () => {
-  const pdfData = usePdfData();
-  const isCompiling = useIsCompiling();
-  const compilationResult = useCompilationResult();
+export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
+  source = 'compile',
+}) => {
+  // 两个数据 hook 都无条件调用(hook 规则),按 source 选。zotero 源是 Zotero
+  // 论文 PDF(无 synctex / 无编译态),compile 源是编译产物(默认,行为不变)。
+  const compilePdfData = usePdfData();
+  const zoteroPdfData = useZoteroPdf();
+  const pdfData = source === 'zotero' ? zoteroPdfData : compilePdfData;
+
+  const rawIsCompiling = useIsCompiling();
+  const rawCompilationResult = useCompilationResult();
+  const isCompiling = source === 'zotero' ? false : rawIsCompiling;
+  const compilationResult = source === 'zotero' ? null : rawCompilationResult;
+
   const pdfHighlight = usePdfHighlight();
   const activeTabPath = useActiveTabPath();
   const uiService = getUIService();
@@ -379,6 +390,8 @@ export const PdfPreviewPane: React.FC = () => {
   }, [currentZoomPercent]);
 
   useEffect(() => {
+    // SyncTeX 正向高亮是编译产物专属;zotero 论文 PDF 无 synctex,跳过。
+    if (source === 'zotero') return;
     if (!pdfHighlight || !pdfDoc || !pagesContainerRef.current) return;
 
     const { page } = pdfHighlight;
@@ -409,7 +422,7 @@ export const PdfPreviewPane: React.FC = () => {
     setTimeout(() => {
       uiService.setPdfHighlight(null);
     }, 500);
-  }, [pdfHighlight, pdfDoc, totalPages, uiService]);
+  }, [source, pdfHighlight, pdfDoc, totalPages, uiService]);
 
   // Use IntersectionObserver for virtual scrolling: detect visible pages
   // Use functional state updates to avoid including visiblePages in deps and prevent infinite loops
@@ -584,6 +597,13 @@ export const PdfPreviewPane: React.FC = () => {
     });
   }, [pdfDoc]);
 
+  // 每次新 PDF 文档加载后(切文件 / 切源 / 重编译都会产生新的 pdfDoc 实例),
+  // 默认按容器宽度自适应,而不是固定 120% —— 复用 fitToWidth,容器此时已挂载。
+  useEffect(() => {
+    if (!pdfDoc || totalPages === 0) return;
+    fitToWidth();
+  }, [pdfDoc, totalPages, fitToWidth]);
+
   const handleZoomInputCommit = useCallback(() => {
     const parsed = Number.parseInt(zoomInput, 10);
     if (Number.isNaN(parsed)) {
@@ -647,6 +667,10 @@ export const PdfPreviewPane: React.FC = () => {
       console.error('SyncTeX backward failed:', error);
     }
   }, []);
+
+  // zotero 论文 PDF 无 .synctex → 禁用反向同步点击(传 undefined 即关闭),
+  // 避免 backward 在无 synctexPath 时报错。
+  const pageClickHandler = source === 'zotero' ? undefined : handlePageClick;
 
   const pageNumbers = useMemo(
     () => Array.from({ length: totalPages }, (_, i) => i + 1),
@@ -755,7 +779,7 @@ export const PdfPreviewPane: React.FC = () => {
                 className="flex items-center gap-1.5 rounded-xl bg-[linear-gradient(135deg,#0ea5e9_0%,#2563eb_100%)] px-3.5 py-2 text-xs font-semibold text-white shadow-[0_12px_24px_rgba(37,99,235,0.24)] transition-transform hover:-translate-y-[1px] hover:shadow-[0_16px_28px_rgba(37,99,235,0.28)]"
               >
                 <Sparkles size={12} />
-                <span>{t('pdfPreview.askClaw')}</span>
+                <span>{t('pdfPreview.askAgent')}</span>
               </button>
             </div>
           </div>
@@ -863,7 +887,7 @@ export const PdfPreviewPane: React.FC = () => {
                       type="button"
                       onClick={() => setFailureLogTab('diagnostics')}
                       className={clsx(
-                        'rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+                        'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
                         failureLogTab === 'diagnostics'
                           ? 'bg-[var(--color-accent-muted)] text-[var(--color-accent)]'
                           : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
@@ -882,7 +906,7 @@ export const PdfPreviewPane: React.FC = () => {
                       type="button"
                       onClick={() => setFailureLogTab('raw')}
                       className={clsx(
-                        'rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+                        'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
                         failureLogTab === 'raw'
                           ? 'bg-[var(--color-accent-muted)] text-[var(--color-accent)]'
                           : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
@@ -986,7 +1010,7 @@ export const PdfPreviewPane: React.FC = () => {
         >
           <div className="flex items-center gap-2">
             <div
-              className="flex items-center gap-2 rounded-full px-4 py-2 text-sm text-[var(--color-accent)] ring-1 ring-inset"
+              className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-[var(--color-accent)] ring-1 ring-inset"
               style={{
                 background: 'var(--color-accent-muted)',
                 borderColor: 'color-mix(in srgb, var(--color-accent) 18%, transparent)',
@@ -1145,7 +1169,7 @@ export const PdfPreviewPane: React.FC = () => {
                         pdfDoc={pdfDoc}
                         scale={scale}
                         isVisible={true}
-                        onPageClick={handlePageClick}
+                        onPageClick={pageClickHandler}
                       />
                     ) : (
                       // Placeholder to prevent layout shift

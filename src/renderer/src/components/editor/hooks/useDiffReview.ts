@@ -17,7 +17,6 @@ import {
   normalizeReviewPath,
 } from '../../../services/core/DiffReviewService';
 import { getDiffReviewBridge } from '../../../services/core/DiffReviewBridge';
-import { getOTService, type OTRemoteUpdate } from '../../../services/core/OTService';
 import {
   renderDiffReview,
   renderDiffReviewWithSweep,
@@ -25,7 +24,35 @@ import {
   computeTotalChangedLines,
   type DiffDecorationState,
 } from '../DiffReviewRenderer';
-import { computeSingleEdit, opsToMonacoEdits } from '../utils/editorModelHelpers';
+import { computeSingleEdit } from '../utils/editorModelHelpers';
+
+/**
+ * Scroll the first hunk into view when it would otherwise be off-screen.
+ *
+ * Inline action buttons (`DiffReviewInlineWidget`) are positioned via
+ * `editor.getTopForLineNumber`, which returns absolute pixel offsets — so a
+ * hunk at line 200 in a tall file gets placed thousands of pixels below the
+ * editor viewport and is clipped by the container's `overflow: hidden`.
+ *
+ * Visible symptom: the toolbar shows a pending review and "Accept All" works,
+ * but the user can't see what changed or accept individual hunks. Revealing
+ * the first hunk after every render restores per-hunk visibility.
+ *
+ * Already-visible hunks short-circuit so we don't jerk the scroll when a bot
+ * edit lands inside the user's current viewport.
+ */
+function revealFirstHunkIfOffScreen(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  review: PendingReview
+): void {
+  const firstHunk = review.hunks[0];
+  if (!firstHunk) return;
+  const visible = editor.getVisibleRanges();
+  const target = firstHunk.startLine;
+  const inView = visible.some((r) => target >= r.startLineNumber && target <= r.endLineNumber);
+  if (inView) return;
+  editor.revealLineInCenter(target);
+}
 
 export interface UseDiffReviewParams {
   editorRef: React.RefObject<monaco.editor.IStandaloneCodeEditor | null>;
@@ -35,7 +62,6 @@ export interface UseDiffReviewParams {
   activeReviewKey: CollaborationReviewKey | null;
   runtime: {
     projectId: string;
-    botUserId?: string;
   };
 }
 
@@ -64,8 +90,6 @@ export interface UseDiffReviewReturn {
     version: number,
     preApplyOriginal?: string
   ) => void;
-  /** Handle OT remote update with bot-edit detection and diff review */
-  handleOTRemoteUpdate: (update: OTRemoteUpdate) => void;
   /** Restore diff review decorations when switching to a tab (called from tab switch effect) */
   restoreReviewForTab: (
     editor: monaco.editor.IStandaloneCodeEditor,
@@ -80,7 +104,6 @@ export function useDiffReview({
   isProgrammaticUpdateRef,
   activeTab,
   activeReviewKey,
-  runtime,
 }: UseDiffReviewParams): UseDiffReviewReturn {
   const diffStateRef = useRef<DiffDecorationState | null>(null);
   // Suppress content-change events emitted by review-internal edits (reject hunk) so they don't
@@ -314,6 +337,7 @@ export function useDiffReview({
       if (editor && monacoInstance) {
         if (diffStateRef.current) clearDiffReview(editor, diffStateRef.current);
         diffStateRef.current = renderDiffReviewWithSweep(editor, monacoInstance, addedReview);
+        revealFirstHunkIfOffScreen(editor, addedReview);
       }
     }
   });
@@ -429,88 +453,13 @@ export function useDiffReview({
       if (!review) return;
       if (diffStateRef.current) clearDiffReview(editor, diffStateRef.current);
       diffStateRef.current = renderDiffReviewWithSweep(editor, monacoInstance, review);
+      revealFirstHunkIfOffScreen(editor, review);
       setReviewTick((t) => t + 1);
     },
     []
   );
 
   // OT remote update with applyRemoteUpdate inlined
-  const applyRemoteUpdate = useCallback(
-    (
-      editor: monaco.editor.IStandaloneCodeEditor,
-      model: monaco.editor.ITextModel,
-      monacoInstance: Monaco,
-      update: OTRemoteUpdate
-    ) => {
-      if (model.getValue() === update.content) return;
-      const viewState = editor.saveViewState();
-      isProgrammaticUpdateRef.current = true;
-      try {
-        let edits =
-          update.ops && update.ops.length > 0
-            ? opsToMonacoEdits(update.ops, model, monacoInstance)
-            : computeSingleEdit(model.getValue(), update.content, model, monacoInstance);
-        if (edits.length > 0) {
-          model.pushEditOperations([], edits, () => null);
-        }
-        // Fallback: if the ops-based edit didn't land (delete-all + insert-all can silently fail in Monaco),
-        // retry with a plain string diff.
-        if (model.getValue() !== update.content) {
-          edits = computeSingleEdit(model.getValue(), update.content, model, monacoInstance);
-          if (edits.length > 0) {
-            model.pushEditOperations([], edits, () => null);
-          }
-        }
-      } finally {
-        queueMicrotask(() => {
-          isProgrammaticUpdateRef.current = false;
-        });
-      }
-      if (viewState) {
-        editor.restoreViewState(viewState);
-      }
-    },
-    []
-  );
-
-  const handleOTRemoteUpdate = useCallback(
-    (update: OTRemoteUpdate) => {
-      const editor = editorRef.current;
-      const monacoInstance = monacoRef.current;
-      if (!editor || !monacoInstance) return;
-      if (update.projectId !== runtime.projectId || update.fileId !== activeTab?._id) return;
-
-      const model = editor.getModel();
-      if (!model || model.getValue() === update.content) return;
-
-      const isBotEdit =
-        Boolean(update.userId) && Boolean(runtime.botUserId) && update.userId === runtime.botUserId;
-
-      if (isBotEdit) {
-        const originalBeforeApply = model.getValue();
-        applyRemoteUpdate(editor, model, monacoInstance, update);
-        applyBotEditToReview(
-          editor,
-          monacoInstance,
-          {
-            backend: 'scipen-ot',
-            projectId: update.projectId,
-            fileId: update.fileId,
-          },
-          update.fileId,
-          update.content,
-          update.version,
-          originalBeforeApply
-        );
-      } else {
-        applyRemoteUpdate(editor, model, monacoInstance, update);
-      }
-    },
-    [runtime.projectId, runtime.botUserId, activeTab?._id, applyRemoteUpdate, applyBotEditToReview]
-  );
-
-  useEvent(getOTService().onDidReceiveRemoteOp, handleOTRemoteUpdate);
-
   /** Restore diff review decorations when switching to a tab */
   const restoreReviewForTab = useCallback(
     (editor: monaco.editor.IStandaloneCodeEditor, monacoInstance: Monaco, fileId: string) => {
@@ -538,6 +487,7 @@ export function useDiffReview({
         diffStateRef.current = pendingEdit
           ? renderDiffReviewWithSweep(editor, monacoInstance, review)
           : renderDiffReview(editor, monacoInstance, review);
+        revealFirstHunkIfOffScreen(editor, review);
         setReviewTick((t) => t + 1);
       }
     },
@@ -556,7 +506,6 @@ export function useDiffReview({
     handleRejectHunk,
     handleJumpToReviewHunk,
     applyBotEditToReview,
-    handleOTRemoteUpdate,
     restoreReviewForTab,
   };
 }

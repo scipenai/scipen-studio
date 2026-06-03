@@ -10,6 +10,10 @@ import { getSettingsService } from '../../services/core/ServiceRegistry';
 import { useSettings } from '../../services/core/hooks';
 import { SectionTitle, SettingItem, selectClassName } from './SettingsUI';
 
+/** 聊天字号范围(px)。值写入 ui.chatFontSize,驱动 --chat-font-size。 */
+const CHAT_FONT_MIN = 12;
+const CHAT_FONT_MAX = 20;
+
 export const UITab: React.FC = () => {
   const settings = useSettings();
   const settingsService = getSettingsService();
@@ -53,6 +57,24 @@ export const UITab: React.FC = () => {
             </option>
           ))}
         </select>
+      </SettingItem>
+
+      <SettingItem label={t('settings.chatFontSize')}>
+        <div className="flex items-center gap-3">
+          <input
+            type="range"
+            min={CHAT_FONT_MIN}
+            max={CHAT_FONT_MAX}
+            step={1}
+            value={settings.ui.chatFontSize}
+            onChange={(e) => settingsService.updateUI({ chatFontSize: Number(e.target.value) })}
+            aria-label={t('settings.chatFontSize')}
+            className="flex-1 cursor-pointer accent-[var(--color-accent)]"
+          />
+          <span className="w-12 text-right text-sm tabular-nums text-[var(--color-text-secondary)]">
+            {settings.ui.chatFontSize}px
+          </span>
+        </div>
       </SettingItem>
     </>
   );

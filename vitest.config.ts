@@ -23,6 +23,12 @@ export default defineConfig({
       ],
     },
     testTimeout: 10000,
+    // CI Windows runners (cold IO + slow module resolution) routinely
+    // push beforeAll/beforeEach `await import(...)` past vitest's default
+    // 10s hookTimeout — observed for AIService / ConfigManager tests that
+    // re-import on every case via `vi.resetModules()`. 30s is comfortable
+    // for the slowest CI hooks while still bounding genuinely stuck ones.
+    hookTimeout: 30000,
     // React 组件测试需要的配置
     css: true,
     deps: {

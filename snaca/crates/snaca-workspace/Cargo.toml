@@ -1,0 +1,19 @@
+[package]
+name = "snaca-workspace"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "SNACA workspace layout, project isolation, layered config"
+
+[dependencies]
+snaca-core.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

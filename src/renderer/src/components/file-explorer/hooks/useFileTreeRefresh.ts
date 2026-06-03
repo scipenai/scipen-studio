@@ -1,6 +1,6 @@
 /**
  * @file useFileTreeRefresh.ts - File tree refresh hook
- * @description Handles manual/auto/focus-triggered refresh of the file tree from local FS or OT.
+ * @description Handles manual/auto/focus-triggered refresh of the file tree from the local FS.
  * Also refreshes active tab content when externally modified.
  */
 
@@ -10,7 +10,6 @@ import {
   TaskPriority,
   cancelIdleTask,
   getEditorService,
-  getOTService,
   getUIService,
   scheduleIdleTask,
 } from '../../../services/core';
@@ -20,15 +19,9 @@ export type RefreshReason = 'manual' | 'focus' | 'auto';
 
 interface UseFileTreeRefreshOptions {
   projectPath: string | null;
-  collaborationProjectId: string | null;
-  scheduleIndexing: (tree: import('../../../types').FileNode | null, reason: string) => void;
 }
 
-export function useFileTreeRefresh({
-  projectPath,
-  collaborationProjectId,
-  scheduleIndexing,
-}: UseFileTreeRefreshOptions) {
+export function useFileTreeRefresh({ projectPath }: UseFileTreeRefreshOptions) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshFileTreeRef = useRef<(() => Promise<void>) | null>(null);
   const editorService = getEditorService();
@@ -42,13 +35,6 @@ export function useFileTreeRefresh({
 
       setIsRefreshing(true);
       try {
-        if (collaborationProjectId) {
-          const tree = await getOTService().getProjectTree(projectPath, collaborationProjectId);
-          projectService.setProject(projectPath, tree, { rebuildIndex: shouldRebuildIndex });
-          scheduleIndexing(tree, 'refresh');
-          return;
-        }
-
         if (!api.file.refreshTree) return;
 
         const result = await api.file.refreshTree(projectPath);
@@ -56,7 +42,6 @@ export function useFileTreeRefresh({
           projectService.setProject(projectPath, result.fileTree, {
             rebuildIndex: shouldRebuildIndex,
           });
-          scheduleIndexing(result.fileTree, 'refresh');
         }
 
         // Refresh active tab content if externally modified
@@ -64,21 +49,11 @@ export function useFileTreeRefresh({
 
         if (activeTab && !activeTab.isDirty) {
           try {
-            if (collaborationProjectId && activeTab._id) {
-              const file = await getOTService().getProjectFile(
-                collaborationProjectId,
-                activeTab._id
-              );
-              if (file.content !== activeTab.content) {
-                editorService.setContentFromExternal(activeTab.path, file.content);
-              }
-            } else {
-              const result = await api.file.read(activeTab.path);
-              if (result !== undefined && result.content !== activeTab.content) {
-                console.info('[FileExplorer] Refreshing file content:', activeTab.path);
-                editorService.setContentFromExternal(activeTab.path, result.content);
-                editorService.updateFileMtime(activeTab.path, result.mtime);
-              }
+            const fileResult = await api.file.read(activeTab.path);
+            if (fileResult !== undefined && fileResult.content !== activeTab.content) {
+              console.info('[FileExplorer] Refreshing file content:', activeTab.path);
+              editorService.setContentFromExternal(activeTab.path, fileResult.content);
+              editorService.updateFileMtime(activeTab.path, fileResult.mtime);
             }
           } catch (e) {
             console.warn('[FileExplorer] Failed to refresh file content:', e);
@@ -94,28 +69,14 @@ export function useFileTreeRefresh({
         setIsRefreshing(false);
       }
     },
-    [collaborationProjectId, projectPath, uiService, editorService, scheduleIndexing]
+    [projectPath, uiService, editorService]
   );
 
   useEffect(() => {
     refreshFileTreeRef.current = refreshFileTree;
   }, [refreshFileTree]);
 
-  // OT file event listener
-  useEffect(() => {
-    const otService = getOTService();
-    const disposable = otService.onDidReceiveFileEvent((event) => {
-      if (event.projectId === collaborationProjectId) {
-        refreshFileTreeRef.current?.();
-      }
-    });
-    return () => {
-      disposable.dispose();
-    };
-  }, [collaborationProjectId]);
-
-  // Local-first: Overleaf projects run on local OT, so tree refreshes ride the standard OT pipeline.
-  // We no longer subscribe to OverleafLiveService.onDidReceiveTree.
+  // Local-first: Overleaf projects run on local OT, so tree refreshes ride the standard FS pipeline.
 
   // ====== Auto Refresh ======
 

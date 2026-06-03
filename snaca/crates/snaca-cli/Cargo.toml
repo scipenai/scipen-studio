@@ -1,0 +1,40 @@
+[package]
+name = "snaca-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "SNACA debug CLI: tenant/project mgmt, mock plugin, protocol probe"
+
+[[bin]]
+name = "snaca-cli"
+path = "src/main.rs"
+
+[dependencies]
+snaca-core.workspace = true
+snaca-channel-protocol.workspace = true
+snaca-state.workspace = true
+snaca-workspace.workspace = true
+snaca-memory.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+reqwest = { workspace = true }
+data-encoding.workspace = true
+
+[features]
+default = []
+pdf = ["snaca-memory/pdf"]
+bundle = ["snaca-memory/bundle"]
+
+[dev-dependencies]
+tempfile = "3"
+escargot = "0.5"
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

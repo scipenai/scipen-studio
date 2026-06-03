@@ -1,0 +1,15 @@
+[package]
+name = "snaca-channel-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "SNACA IM plugin protocol: JSON-RPC 2.0 schema and method enums"
+
+[dependencies]
+snaca-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

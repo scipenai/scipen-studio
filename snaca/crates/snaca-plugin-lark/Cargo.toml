@@ -1,0 +1,41 @@
+[package]
+name = "snaca-plugin-lark"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "SNACA Lark/Feishu IM plugin: speaks SNACA channel-protocol on stdio, bridges to Lark WebSocket + Open API"
+
+[[bin]]
+name = "snaca-plugin-lark"
+path = "src/main.rs"
+
+[dependencies]
+snaca-channel-protocol.workspace = true
+tokio = { workspace = true, features = ["full"] }
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+data-encoding.workspace = true
+reqwest = { workspace = true }
+# Lark / Feishu Open API + WebSocket long-poll. Feature set per the
+# `websocket_echo_bot` example shipping with openlark — `auth` for
+# `app_access_token`, `communication` for the IM_V1_MESSAGES endpoint
+# constant (we POST manually for now), `websocket` for the WS client.
+# Pinned to 0.15 — openlark-auth 0.16 added an exact `uuid = "=1.6.1"`
+# pin that conflicts with the rest of the workspace. Revisit when upstream
+# relaxes the constraint.
+openlark = { version = "0.15", default-features = false, features = ["auth", "communication", "websocket"] }
+# rustls is pulled in transitively (via reqwest + tokio-tungstenite via
+# openlark's WS client). Recent rustls releases require the consuming
+# binary to *explicitly* install a CryptoProvider before any TLS use,
+# even if exactly one provider crate is in the dep graph. Add rustls
+# as a direct dep with the `ring` feature so we can call
+# `rustls::crypto::ring::default_provider().install_default()` once at
+# startup.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }

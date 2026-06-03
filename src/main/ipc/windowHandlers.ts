@@ -3,7 +3,7 @@
  * @description Handles window control (minimize, close, fullscreen) and app events.
  */
 
-import { BrowserWindow, app, dialog, shell } from 'electron';
+import { BrowserWindow, ipcMain, app, dialog, shell } from 'electron';
 import log from 'electron-log';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import { createLogger } from '../services/LoggerService';
@@ -17,7 +17,11 @@ const logger = createLogger('WindowHandlers');
 export interface WindowHandlersDeps {
   getMainWindow: () => BrowserWindow | null;
   getWindows: () => Map<number, BrowserWindow>;
-  createWindow: (options?: { projectPath?: string }) => number;
+  createWindow: (options?: {
+    projectPath?: string;
+    windowKind?: 'main' | 'memory-viewer';
+    initialTab?: 'memory' | 'skills';
+  }) => number;
 }
 
 export function registerWindowHandlers(deps: WindowHandlersDeps): void {
@@ -170,6 +174,19 @@ export function registerWindowHandlers(deps: WindowHandlersDeps): void {
       }
     },
     { logErrors: true }
+  );
+
+  // Memory Viewer secondary window. Untyped — opaque payload + numeric
+  // window id keep the contract simple, and the agent IPC namespace
+  // already lives outside the typedIpc contract.
+  ipcMain.handle(
+    IpcChannel.Agent_OpenMemoryViewer,
+    (_e, payload?: { initialTab?: 'memory' | 'skills' }): number => {
+      return createWindow({
+        windowKind: 'memory-viewer',
+        initialTab: payload?.initialTab,
+      });
+    }
   );
 
   logger.info('[IPC] Window handlers registered (type-safe)');

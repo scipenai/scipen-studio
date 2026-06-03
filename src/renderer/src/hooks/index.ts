@@ -51,9 +51,6 @@ export { useFileWatcher } from './useFileWatcher';
 export { useGlobalShortcuts } from './useGlobalShortcuts';
 export { useMemoryCleanup } from './useMemoryCleanup';
 export { useFileOpen } from './useFileOpen';
-
-// ============ Chat Hooks ============
-export {
-  useChatService,
-  type UseChatServiceReturn,
-} from './useChatService';
+export { useAgentBridge } from './useAgentBridge';
+export { useZoteroBibMirror, useZoteroMirrorLifecycle } from './useZoteroBibMirror';
+export type { UseZoteroBibMirrorResult } from './useZoteroBibMirror';

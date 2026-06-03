@@ -1,0 +1,24 @@
+[package]
+name = "snaca-channel-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "SNACA IM plugin host: subprocess supervisor, router, approval registry"
+
+[dependencies]
+snaca-core.workspace = true
+snaca-channel-protocol.workspace = true
+tokio = { workspace = true, features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+data-encoding.workspace = true
+
+[dev-dependencies]
+escargot = "0.5"
+tracing-subscriber.workspace = true

@@ -6,6 +6,7 @@
 
 import type { AIConfigDTO, AIProviderDTO, SelectedModels } from '../../../../../shared/ipc/types';
 import {
+  DEFAULT_CHAT_FONT_SIZE,
   DEFAULT_COMPILER_AUTO_COMPILE,
   DEFAULT_COMPILER_COMPILE_ON_SAVE,
   DEFAULT_EDITOR_AUTO_COMPLETION,
@@ -31,53 +32,6 @@ import { OPENAI_BASE_URL, OVERLEAF_SERVER_URL } from '../../constants/api';
 import { DEFAULT_LATEX_ENGINE } from '../../constants/latex';
 import { DELAYS, TIMEOUTS } from '../../constants/timing';
 import type { AppSettings } from '../../types';
-
-// ====== Utility ======
-
-/**
- * Derive IM server URL from OT server URL.
- * Rules: port 8082→8081, path /ot→/im.
- */
-function deriveIMUrlFromOT(otUrl: string): string | null {
-  try {
-    const url = new URL(otUrl);
-    // Direct mode: http://host:8082 → http://host:8081
-    if (url.port === '8082') {
-      url.port = '8081';
-      return url.toString().replace(/\/+$/, '');
-    }
-    // Nginx proxy mode: http://host/ot → http://host/im
-    if (url.pathname.endsWith('/ot') || url.pathname.endsWith('/ot/')) {
-      url.pathname = url.pathname.replace(/\/ot\/?$/, '/im');
-      return url.toString().replace(/\/+$/, '');
-    }
-    // Cannot derive: keep same host and set port to 8081
-    url.port = '8081';
-    url.pathname = '';
-    return url.toString().replace(/\/+$/, '');
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Derive TexLive package service URL from OT server URL.
- * Rules: take the origin and append /texlive/ (unified nginx reverse-proxy path).
- * Direct port mode (8082) switches to port 80 via nginx; proxy mode uses same origin + /texlive/.
- */
-function deriveTexliveUrlFromOT(otUrl: string): string | null {
-  try {
-    const url = new URL(otUrl);
-    // Direct port mode: http://host:8082 → http://host/texlive/ (nginx on port 80)
-    if (url.port === '8082') {
-      return `${url.protocol}//${url.hostname}/texlive/`;
-    }
-    // Nginx proxy mode: http://host/ot → http://host/texlive/
-    return `${url.protocol}//${url.host}/texlive/`;
-  } catch {
-    return null;
-  }
-}
 
 // ====== Default Settings ======
 
@@ -152,6 +106,7 @@ export const defaultSettings: AppSettings = {
   ui: {
     theme: DEFAULT_THEME,
     language: DEFAULT_LANGUAGE,
+    chatFontSize: DEFAULT_CHAT_FONT_SIZE,
     previewWidth: 400,
     rightPanelWidth: 400,
     sidebarPosition: 'left',
@@ -189,25 +144,11 @@ export const defaultSettings: AppSettings = {
     chatWithSelection: 'Ctrl+L',
     togglePreview: 'Ctrl+Shift+V',
     newWindow: 'Ctrl+Shift+N',
-  },
-  im: {
-    serverUrl: '',
-    token: '',
-  },
-  collaboration: {
-    enabled: false,
-    serverUrl: '',
-    token: '',
+    inlineEdit: 'Ctrl+K',
   },
   assistant: {
-    runtime: 'openclaw',
     autoFixCompileErrors: true,
     maxAutoFixRetries: 3,
-    openclaw: {
-      endpoint: '',
-      mode: 'daemon',
-      workspaceId: '',
-    },
   },
 };
 
@@ -297,11 +238,8 @@ export class SettingsService implements IDisposable {
   }
 
   /**
-   * Setup config change listener for multi-window synchronization
-   */
-  /**
    * Cross-window settings sync: only theme and language propagate (global UI consistency).
-   * editor/compiler/im/collaboration/shortcuts are per-window and not broadcast.
+   * editor/compiler/shortcuts are per-window and not broadcast.
    * Extend here by handling additional keys.
    */
   private _setupConfigChangedListener(): void {
@@ -395,17 +333,13 @@ export class SettingsService implements IDisposable {
         parsed.rag = undefined;
         parsed.advanced = undefined;
 
-        // v3.x: Strip runtime fields from collaboration (migrated to ProjectRuntimeContext)
-        // Also strip legacy provider field (always 'scipen-ot', no longer configurable)
-        if (parsed?.collaboration) {
-          parsed.collaboration.projectId = undefined;
-          parsed.collaboration.fileId = undefined;
-          parsed.collaboration.rootPath = undefined;
-          parsed.collaboration.botUserId = undefined;
-          parsed.collaboration.overleafProjectId = undefined;
-          parsed.collaboration.overleafDocMap = undefined;
-          parsed.collaboration.overleafServerUrl = undefined;
-          parsed.collaboration.provider = undefined;
+        // v4.x: IM/OT remote collaboration removed; strip persisted blocks so deepMerge can't restore them
+        parsed.im = undefined;
+        parsed.collaboration = undefined;
+        // P4-C: builtin chat removed; SNACA is the only chat runtime so the
+        // legacy `assistant.runtime` field is dropped.
+        if (parsed?.assistant) {
+          parsed.assistant.runtime = undefined;
         }
 
         // Migration: 'overleaf' engine removed (local-first mode); fall back to xelatex
@@ -461,69 +395,6 @@ export class SettingsService implements IDisposable {
     };
     this._saveSettings();
     this._onDidChangeCompiler.fire(this._settings.compiler);
-    this._onDidChangeSettings.fire(this._settings);
-  }
-
-  updateIM(im: Partial<AppSettings['im']>): void {
-    this._settings = {
-      ...this._settings,
-      im: { ...this._settings.im, ...im },
-    };
-    this._saveSettings();
-    this._onDidChangeSettings.fire(this._settings);
-  }
-
-  updateCollaboration(collaboration: Partial<AppSettings['collaboration']>): void {
-    // Strip runtime fields — these moved to ProjectRuntimeContext
-    const RUNTIME_KEYS = [
-      'projectId',
-      'fileId',
-      'rootPath',
-      'botUserId',
-      'overleafProjectId',
-      'overleafDocMap',
-      'overleafServerUrl',
-    ] as const;
-    const filtered = { ...collaboration };
-    for (const key of RUNTIME_KEYS) {
-      if (key in filtered) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn(
-            `[SettingsService] updateCollaboration: runtime field "${key}" should use ProjectRuntimeContext.update() instead`
-          );
-        }
-        delete filtered[key as keyof typeof filtered];
-      }
-    }
-    if (Object.keys(filtered).length === 0) return;
-    this._settings = {
-      ...this._settings,
-      collaboration: { ...this._settings.collaboration, ...filtered },
-    };
-
-    // Auto-sync IM config: OT token doubles as the IM token; derive IM URL automatically.
-    // Only overwrite when IM has no standalone config or shares the same token, to avoid clobbering manual setup.
-    const merged = this._settings.collaboration;
-    if (merged.serverUrl && merged.token) {
-      const currentIM = this._settings.im;
-      if (!currentIM.serverUrl || currentIM.token === merged.token) {
-        const imUrl = deriveIMUrlFromOT(merged.serverUrl);
-        if (imUrl) {
-          this._settings.im = { serverUrl: imUrl, token: merged.token };
-        }
-      }
-
-      // Auto-derive TexLive endpoint: take host from OT URL, point at nginx /texlive/.
-      // Only applied when the user has not manually configured texliveEndpoint.
-      if (!this._settings.compiler.texliveEndpoint) {
-        const texliveUrl = deriveTexliveUrlFromOT(merged.serverUrl);
-        if (texliveUrl) {
-          this._settings.compiler = { ...this._settings.compiler, texliveEndpoint: texliveUrl };
-        }
-      }
-    }
-
-    this._saveSettings();
     this._onDidChangeSettings.fire(this._settings);
   }
 

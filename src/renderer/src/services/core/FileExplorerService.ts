@@ -10,9 +10,8 @@ import { t } from '../../locales';
 import type { FileNode } from '../../types';
 import { findAvailableFileName } from '../../utils/fileNaming';
 import { triggerOverleafNewFileSync } from '../../utils/overleaf-sync-helper';
-import { isSameOrChildPath, isSamePath } from '../../utils/pathComparison';
-import { getOTService } from './OTService';
-import { getProjectRuntimeContext, getProjectService, getSettingsService } from './ServiceRegistry';
+import { isSamePath } from '../../utils/pathComparison';
+import { getProjectService } from './ServiceRegistry';
 
 // ====== Type Definitions ======
 
@@ -75,21 +74,6 @@ class FileExplorerService extends Disposable {
    */
   private _batchOperationInProgress = false;
   private _pendingBatchEvents: FileNode[] = [];
-
-  private getCollaborationContext(): { projectPath: string; projectId: string } | null {
-    const settings = getSettingsService().settings;
-    const runtime = getProjectRuntimeContext();
-    const projectPath = getProjectService().projectPath;
-    if (
-      !projectPath ||
-      !settings.collaboration.enabled ||
-      !runtime.projectId ||
-      !isSamePath(runtime.rootPath, projectPath)
-    ) {
-      return null;
-    }
-    return { projectPath, projectId: runtime.projectId };
-  }
 
   private constructor() {
     super();
@@ -178,14 +162,6 @@ class FileExplorerService extends Disposable {
 
     this._isRefreshing = true;
     try {
-      const collaboration = this.getCollaborationContext();
-      if (collaboration && isSamePath(collaboration.projectPath, projectPath)) {
-        const tree = await getOTService().getProjectTree(projectPath, collaboration.projectId);
-        this._fireFileTreeChanged(tree);
-        getProjectService().setProject(projectPath, tree, { rebuildIndex: false });
-        return tree;
-      }
-
       const result = await api.file.refreshTree(projectPath);
       if (result.success && result.fileTree) {
         this._fireFileTreeChanged(result.fileTree);
@@ -206,18 +182,6 @@ class FileExplorerService extends Disposable {
   async createFile(parentPath: string, fileName: string): Promise<FileOperationResult> {
     const newPath = `${parentPath}/${fileName}`;
     try {
-      const collaboration = this.getCollaborationContext();
-      if (collaboration && isSameOrChildPath(newPath, collaboration.projectPath)) {
-        const file = await getOTService().createProjectFile(
-          collaboration.projectId,
-          collaboration.projectPath,
-          parentPath,
-          fileName
-        );
-        await api.file.create(newPath, '');
-        return { success: true, entityId: file.id };
-      }
-
       await api.file.create(newPath, '');
       return { success: true };
     } catch (error) {
@@ -230,18 +194,6 @@ class FileExplorerService extends Disposable {
   async createFolder(parentPath: string, folderName: string): Promise<FileOperationResult> {
     const newPath = `${parentPath}/${folderName}`;
     try {
-      const collaboration = this.getCollaborationContext();
-      if (collaboration && isSameOrChildPath(newPath, collaboration.projectPath)) {
-        const folder = await getOTService().createProjectFolder(
-          collaboration.projectId,
-          collaboration.projectPath,
-          parentPath,
-          folderName
-        );
-        await api.file.createFolder(newPath);
-        return { success: true, entityId: folder.id };
-      }
-
       await api.file.createFolder(newPath);
       return { success: true };
     } catch (error) {
@@ -256,7 +208,7 @@ class FileExplorerService extends Disposable {
   /**
    * Delete node (permanent deletion)
    *
-   * Use this method for remote files or scenarios requiring permanent deletion.
+   * Use this method for scenarios requiring permanent deletion.
    * For local files, prefer trashNode() to support recovery.
    */
   async deleteNode(
@@ -273,26 +225,6 @@ class FileExplorerService extends Disposable {
     }
 
     try {
-      const collaboration = this.getCollaborationContext();
-      if (
-        collaboration &&
-        node._id &&
-        isSameOrChildPath(node.path, collaboration.projectPath) &&
-        (entityType === 'file' || entityType === 'folder')
-      ) {
-        await getOTService().deleteProjectEntry(
-          collaboration.projectId,
-          node._id,
-          entityType === 'folder' ? 'directory' : 'file'
-        );
-        if (node.type === 'directory') {
-          await api.file.delete(node.path);
-        } else {
-          await api.file.trash(node.path);
-        }
-        return { success: true };
-      }
-
       if (entityType && node._id) {
         await api.file.delete(node.path, entityType, node._id);
       } else {
@@ -308,8 +240,6 @@ class FileExplorerService extends Disposable {
 
   /**
    * Move node to trash (recoverable deletion, VS Code default behavior)
-   *
-   * Only supports local files. For remote files, use deleteNode().
    */
   async trashNode(
     node: { path: string; name: string; type: string },
@@ -336,11 +266,6 @@ class FileExplorerService extends Disposable {
     }
 
     try {
-      const collaboration = this.getCollaborationContext();
-      if (collaboration && isSameOrChildPath(node.path, collaboration.projectPath)) {
-        return this.deleteNode(node, node.type === 'directory' ? 'folder' : 'file');
-      }
-
       await api.file.trash(node.path);
       return { success: true };
     } catch (error) {
@@ -385,25 +310,6 @@ class FileExplorerService extends Disposable {
     }
 
     try {
-      const collaboration = this.getCollaborationContext();
-      if (
-        collaboration &&
-        entityId &&
-        isSameOrChildPath(oldPath, collaboration.projectPath) &&
-        (entityType === 'file' || entityType === 'folder')
-      ) {
-        await getOTService().renameProjectEntry(
-          collaboration.projectId,
-          collaboration.projectPath,
-          entityId,
-          entityType === 'folder' ? 'directory' : 'file',
-          oldPath,
-          newName
-        );
-        await api.file.rename(oldPath, newPath);
-        return { success: true };
-      }
-
       if (entityType && entityId) {
         await api.file.rename(oldPath, newPath, entityType, entityId);
       } else {

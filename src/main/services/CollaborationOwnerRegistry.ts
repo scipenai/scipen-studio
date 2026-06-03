@@ -1,10 +1,14 @@
 import { BrowserWindow, type WebContents } from 'electron';
-import type { CollaborationBackend } from '../../../shared/ipc/im-contract';
 import { createLogger } from './LoggerService';
 
 const logger = createLogger('CollaborationOwnerRegistry');
 
-export type { CollaborationBackend };
+/**
+ * Identifier for the collaboration backend that owns the active editing
+ * session in a given window. The IM/OT remote stack was removed in P3 —
+ * only `scipen-ot` (Overleaf bridge) and `overleaf` (legacy alias) survive.
+ */
+export type CollaborationBackend = 'scipen-ot' | 'overleaf' | 'local';
 
 export interface CollaborationOwner {
   backend: CollaborationBackend;

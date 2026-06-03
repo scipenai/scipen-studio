@@ -13,7 +13,6 @@ import {
   ALLOWED_INVOKE_CHANNELS,
   aiApi,
   appApi,
-  chatApi,
   compileApi,
   configApi,
   createSafeListener,
@@ -28,10 +27,8 @@ import {
   settingsApi,
   traceApi,
   windowApi,
-  imApi,
-  otApi,
-  projectBindingApi,
-  projectConversationApi,
+  agentApi,
+  zoteroApi,
 } from './api';
 
 function createElectronApi() {
@@ -88,7 +85,6 @@ function createElectronApi() {
 
     // ====== Namespaced APIs ======
     window: windowApi,
-    chat: chatApi,
     ai: aiApi,
     fileWatcher: fileWatcherApi,
     log: logApi,
@@ -98,11 +94,9 @@ function createElectronApi() {
     dialog: dialogApi,
     settings: settingsApi,
     selection: selectionApi,
-    im: imApi,
-    ot: otApi,
     overleafLive: overleafLiveApi,
-    projectBinding: projectBindingApi,
-    projectConversation: projectConversationApi,
+    agent: agentApi,
+    zotero: zoteroApi,
 
     // Event listeners
     onMessage: createSafeListener<string>(IpcChannel.Message_FromMain),

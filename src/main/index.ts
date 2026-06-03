@@ -18,11 +18,9 @@ import {
 } from 'electron';
 import log from 'electron-log';
 import fs from 'fs-extra';
-import { runMigrations } from './database';
 
 import {
   getAIService,
-  getChatOrchestrator,
   getFileSystemService,
   getSelectionServiceFromContainer,
   getSyncTeXServiceFromContainer,
@@ -30,6 +28,7 @@ import {
   shutdownServices,
   warmupServices,
 } from './services/ServiceRegistry';
+import { getServiceContainer, ServiceNames } from './services/ServiceContainer';
 import { getCollaborationOwnerRegistry } from './services/CollaborationOwnerRegistry';
 import { OverleafAuthService } from './services/OverleafAuthService';
 import type { OverleafProjectMetaService } from './services/OverleafProjectMetaService';
@@ -38,10 +37,12 @@ import type { IOverleafFileSystemService } from './services/interfaces';
 
 import { initAllowedDirs, setupCSP } from './security';
 import {
+  addPermanentAllowedDirectory,
   clearAllowedDirectories,
   registerLocalFileProtocol,
   registerProtocolSchemes,
 } from './services/LocalFileProtocol';
+import { ZOTERO_CACHE_ROOT } from './services/zotero/ZoteroFullTextService';
 
 // ====== Registry Initialization (Lazy-Load) ======
 import { initializeCompilerRegistry } from './services/compiler/setup';
@@ -50,25 +51,28 @@ import { initializeLSPRegistry } from './services/lsp/setup';
 // ====== IPC Handlers ======
 import {
   registerAIHandlers,
-  registerChatHandlers,
   registerCompileHandlers,
   registerConfigHandlers,
   registerDialogHandlers,
   registerFileHandlers,
+  registerInlineEditHandlers,
   registerLSPHandlers,
   registerOverleafHandlers,
   registerOverleafLiveHandlers,
   registerSelectionHandlers,
-  registerIMHandlers,
   registerCollaborationOwnerHandlers,
-  registerOTHandlers,
-  registerProjectBindingHandlers,
-  registerProjectConversationHandlers,
+  registerAgentHandlers,
   registerSettingsHandlers,
   registerUpdateHandlers,
   registerWindowHandlers,
+  registerZoteroHandlers,
 } from './ipc';
 import { UpdateService } from './services/UpdateService';
+import { ConfigKeys } from '../../shared/types/config-keys';
+import { configManager } from './services/ConfigManager';
+import { getZoteroOrchestrator } from './services/zotero/ZoteroOrchestrator';
+import { getBibTexSyncService } from './services/zotero/BibTexSyncService';
+import { getEmbeddingIndexService } from './services/zotero/EmbeddingIndexService';
 
 const Dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -229,6 +233,18 @@ let overleafFileSystem: IOverleafFileSystemService | null = null;
 // ====== Recent Projects ======
 const recentProjectsFile = path.join(app.getPath('userData'), 'recent-projects.json');
 
+/**
+ * SciPen 的 Zotero 集成是否处于"启用"状态 — 唯一的 gate 主开关。
+ * 由 wizard finish() 显式置 true(用户走完所有步骤);Settings 页面可一键关。
+ *
+ * 不读 ZoteroPath:那是数据目录展示字段,文件系统状态不等于用户意图。
+ * 不读 ZoteroLocalApiEnabled:那是 Zotero 客户端 "Allow other applications"
+ * 开关的状态镜像,属于外部状态,用户没法在 SciPen 里关掉它。
+ */
+function isZoteroConfigured(): boolean {
+  return configManager.get<boolean>(ConfigKeys.ZoteroIntegrationEnabled, false);
+}
+
 async function loadRecentProjects(): Promise<
   Array<{
     id: string;
@@ -299,9 +315,19 @@ async function addRecentProject(projectPath: string, isRemote?: boolean): Promis
 
 /**
  * Creates a new application window.
+ *
+ * `windowKind` decides which sub-app the renderer mounts. The default
+ * `'main'` loads the full IDE. `'memory-viewer'` loads the MemoryViewer
+ * secondary UI (`#/memory-viewer`) — same renderer bundle, lighter
+ * dependency tree, sized for a side panel.
  */
-function createWindow(options?: { projectPath?: string }): number {
+function createWindow(options?: {
+  projectPath?: string;
+  windowKind?: 'main' | 'memory-viewer';
+  initialTab?: 'memory' | 'skills';
+}): number {
   const appPath = app.getAppPath();
+  const windowKind = options?.windowKind ?? 'main';
 
   let preloadPath: string;
   if (app.isPackaged) {
@@ -323,11 +349,14 @@ function createWindow(options?: { projectPath?: string }): number {
 
   const isMac = process.platform === 'darwin';
 
+  const isViewer = windowKind === 'memory-viewer';
+
   const newWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 800,
-    minHeight: 600,
+    width: isViewer ? 900 : 1400,
+    height: isViewer ? 700 : 900,
+    minWidth: isViewer ? 600 : 800,
+    minHeight: isViewer ? 500 : 600,
+    title: isViewer ? 'SciPen Studio — Memory & Skills' : undefined,
     icon: iconPath,
     // macOS uses a hidden inset title bar for native feel; Windows/Linux keep the standard bar for the menu.
     ...(isMac
@@ -344,7 +373,9 @@ function createWindow(options?: { projectPath?: string }): number {
       // sandbox=false is required because electron-vite compiles the preload as ESM (sandbox is incompatible).
       sandbox: false,
       webSecurity: true,
-      devTools: !app.isPackaged,
+      // packaged 默认关 DevTools 是安全姿态;SCIPEN_DEVTOOLS=1 是诊断逃生口,
+      // 不留在 prod 默认行为里,但出问题时不用重新打包就能开。
+      devTools: !app.isPackaged || process.env.SCIPEN_DEVTOOLS === '1',
     },
   });
 
@@ -369,6 +400,15 @@ function createWindow(options?: { projectPath?: string }): number {
     }
   });
 
+  // Refresh the bib index on focus when Zotero is configured. Cooldown is
+  // enforced inside the orchestrator, so alt-tab spam is safe to forward.
+  newWindow.on('focus', () => {
+    if (!isZoteroConfigured()) return;
+    getZoteroOrchestrator()
+      .refresh('focus')
+      .catch((err) => log.warn('[Main] Zotero focus-refresh failed:', err));
+  });
+
   newWindow.webContents.on('did-finish-load', () => {
     if (options?.projectPath) {
       newWindow.webContents.send('open-project-path', options.projectPath);
@@ -376,11 +416,21 @@ function createWindow(options?: { projectPath?: string }): number {
     newWindow.webContents.send('main-process-message', new Date().toLocaleString());
   });
 
+  const hash = isViewer
+    ? `#/memory-viewer${options?.initialTab ? `?tab=${options.initialTab}` : ''}`
+    : '';
+
   if (isDev && ELECTRON_RENDERER_URL) {
-    newWindow.loadURL(ELECTRON_RENDERER_URL);
-    newWindow.webContents.openDevTools();
+    newWindow.loadURL(`${ELECTRON_RENDERER_URL}${hash}`);
+    if (!isViewer) {
+      newWindow.webContents.openDevTools();
+    }
   } else {
-    newWindow.loadFile(path.join(RENDERER_DIST, 'index.html'));
+    newWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), { hash: hash || undefined });
+    // prod 诊断逃生口:SCIPEN_DEVTOOLS=1 启动时自动 detach 弹 DevTools,不挤主界面。
+    if (process.env.SCIPEN_DEVTOOLS === '1' && !isViewer) {
+      newWindow.webContents.openDevTools({ mode: 'detach' });
+    }
   }
 
   log.info(`[Main] Created window ${windowId}, total windows: ${windows.size}`);
@@ -445,8 +495,6 @@ app.on('activate', () => {
 app.whenReady().then(async () => {
   setupCSP();
   initAllowedDirs();
-
-  await runMigrations();
 
   // Custom protocol for efficient streaming of large files (PDFs).
   registerLocalFileProtocol();
@@ -519,6 +567,36 @@ app.whenReady().then(async () => {
   warmupServices().catch((err) => {
     console.error('[Main] Service warmup failed:', err);
   });
+
+  // Kick off the Zotero bib index cold-boot if the wizard already ran.
+  // The orchestrator is internally idempotent and fully async so this
+  // never blocks the renderer load — failures just keep status at
+  // 'error' until the user fixes Zotero and triggers refresh.
+  if (isZoteroConfigured()) {
+    getZoteroOrchestrator()
+      .bootstrap()
+      .catch((err) => log.warn('[Main] Zotero bootstrap failed:', err));
+  }
+
+  // 启动 references.bib 同步服务 —— 订阅 main 索引事件,debounce 写盘。
+  // 即使 isZoteroConfigured=false 也启动,这样设置里翻 enable 立刻生效。
+  // 项目路径由 fileTreeHandlers 在 Project_Open / Project_OpenByPath 时注入。
+  const bibTexSyncConfig = {
+    enabled: configManager.get<boolean>(ConfigKeys.ZoteroBibTexSyncEnabled, true),
+    fileName: configManager.get<string>(
+      ConfigKeys.ZoteroBibTexSyncFileName,
+      '.scipen/zotero_library.bib'
+    ),
+    translator: configManager.get<string>(ConfigKeys.ZoteroBibTexSyncTranslator, 'BetterBibLaTeX'),
+  };
+  getBibTexSyncService().setConfig(bibTexSyncConfig);
+  getBibTexSyncService().start();
+
+  // 启动 embedding 索引服务(M3 主动推荐)。无条件 start() 订阅 bib 增量;
+  // ensureBuilt() 内部自 gate(未开启 → disabled,无 key → no-key),仅在
+  // activeRecommendation=true 且 keychain 有 key 时才真正建库。全异步不阻塞。
+  getEmbeddingIndexService().start();
+  void getEmbeddingIndexService().ensureBuilt();
 
   // Handle file association on Windows startup
   if (process.platform === 'win32') {
@@ -745,6 +823,9 @@ function registerIpcHandlers() {
   registerAIHandlers({
     aiService,
   });
+  registerInlineEditHandlers({
+    inlineEdit: getServiceContainer().get(ServiceNames.INLINE_EDIT),
+  });
   // ====== Register Compile Handlers ======
   registerCompileHandlers({
     syncTeXService,
@@ -757,11 +838,6 @@ function registerIpcHandlers() {
     createWindow,
   });
 
-  // ====== Register Chat Handlers (Ask Mode) ======
-  registerChatHandlers({
-    chatOrchestrator: getChatOrchestrator(),
-  });
-
   // ====== Register LSP Handlers ======
   registerLSPHandlers({
     getMainWindow,
@@ -771,10 +847,10 @@ function registerIpcHandlers() {
   registerConfigHandlers();
   registerDialogHandlers();
   registerSettingsHandlers();
-  registerIMHandlers();
+  registerZoteroHandlers();
+  // Zotero 缓存根(MinerU 解析图片等)常驻可读 —— 跨项目共享,不随项目切换清空。
+  addPermanentAllowedDirectory(ZOTERO_CACHE_ROOT);
   registerCollaborationOwnerHandlers();
-  registerOTHandlers();
-  registerProjectConversationHandlers();
   registerOverleafHandlers({
     getProjectMetaService,
     setProjectMetaService,
@@ -783,7 +859,21 @@ function registerIpcHandlers() {
     getAuthService: () => overleafAuthService,
   });
   registerOverleafLiveHandlers({ getAuthService: () => overleafAuthService });
-  registerProjectBindingHandlers();
+
+  // ====== Register Agent Handlers (SNACA sidecar bridge) ======
+  // The sidecar is lazily spawned on first `startProject` call from
+  // renderer — keeps app boot fast and avoids spawning when the user
+  // never opens the chat.
+  {
+    const c = getServiceContainer();
+    registerAgentHandlers({
+      sidecar: c.get(ServiceNames.AGENT_SIDECAR),
+      client: c.get(ServiceNames.AGENT_PROTOCOL_CLIENT),
+      editApply: c.get(ServiceNames.AGENT_EDIT_APPLY),
+      contextRequest: c.get(ServiceNames.AGENT_CONTEXT_REQUEST),
+      config: c.get(ServiceNames.CONFIG),
+    });
+  }
 
   // ====== Register Update Handlers ======
   const updateService = new UpdateService();

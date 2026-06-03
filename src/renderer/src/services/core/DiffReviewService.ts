@@ -1,14 +1,19 @@
 /**
  * @file DiffReviewService.ts — AI Diff Review lifecycle manager
- * @description Tracks pending review state for OpenClaw AI edits. When a remote OT
+ * @description Tracks pending review state for SNACA AI edits. When a remote OT
  *   update is identified as a bot edit, creates a review entry (with diff hunks)
  *   that EditorPane renders as inline diff decorations with Accept/Reject buttons.
  */
 
 import DiffMatchPatch from 'diff-match-patch';
-import type { CollaborationBackend } from '../../../../../shared/api-types';
 import { Emitter, type Event, type IDisposable } from '../../../../../shared/utils';
 import { getPlatform } from '../../utils';
+
+/**
+ * Backend identifier used to scope a Diff Review entry. P3 removed the
+ * IM/OT remote stack; only Overleaf-bridged and local-only edits remain.
+ */
+export type CollaborationBackend = 'scipen-ot' | 'overleaf' | 'local';
 
 // ====== Data structures ======
 
@@ -59,6 +64,13 @@ interface CreateReviewOptions {
   reviewKey?: CollaborationReviewKey;
   source?: ReviewSourceOptions;
 }
+
+/** One user action against an in-flight review (see `onDidResolveAction`). */
+export type ReviewResolveAction =
+  | { reviewId: string; action: 'accept_all' }
+  | { reviewId: string; action: 'reject_all' }
+  | { reviewId: string; action: 'accept_hunk'; hunkId: string }
+  | { reviewId: string; action: 'reject_hunk'; hunkId: string };
 
 export interface LatestPendingReviewSource {
   reviewId: string;
@@ -271,6 +283,19 @@ export class DiffReviewService implements IDisposable {
   private readonly _onDidUpdateReview = new Emitter<PendingReview>();
   readonly onDidUpdateReview: Event<PendingReview> = this._onDidUpdateReview.event;
 
+  /**
+   * Fires once per user action against an existing review. Consumers (e.g.
+   * the SNACA edit-propose bridge) aggregate these to decide whether the
+   * overall outcome was accept / reject / accept_partial.
+   *
+   * `acceptReview` / `rejectReview` use `accept_all` / `reject_all`.
+   * `acceptHunk` / `rejectHunk` use `accept_hunk` / `reject_hunk` and carry
+   * the affected `hunkId`. The fire happens *before* the review is removed,
+   * so listeners can still cross-reference the review state.
+   */
+  private readonly _onDidResolveAction = new Emitter<ReviewResolveAction>();
+  readonly onDidResolveAction: Event<ReviewResolveAction> = this._onDidResolveAction.event;
+
   private indexReviewSource(review: PendingReview): void {
     if (!review.sourceMessageId) {
       return;
@@ -456,6 +481,8 @@ export class DiffReviewService implements IDisposable {
   }
 
   acceptReview(reviewId: string): void {
+    if (!this.reviews.has(reviewId)) return;
+    this._onDidResolveAction.fire({ reviewId, action: 'accept_all' });
     this.removeReviewById(reviewId);
   }
 
@@ -463,6 +490,7 @@ export class DiffReviewService implements IDisposable {
     const review = this.reviews.get(reviewId);
     if (!review) return null;
     const { originalFullContent } = review;
+    this._onDidResolveAction.fire({ reviewId, action: 'reject_all' });
     this.removeReviewById(reviewId);
     return { originalFullContent };
   }
@@ -470,9 +498,11 @@ export class DiffReviewService implements IDisposable {
   acceptHunk(reviewId: string, hunkId: string): void {
     const review = this.reviews.get(reviewId);
     if (!review) return;
+    if (!review.hunks.some((h) => h.id === hunkId)) return;
+    this._onDidResolveAction.fire({ reviewId, action: 'accept_hunk', hunkId });
     review.hunks = review.hunks.filter((hunk) => hunk.id !== hunkId);
     if (review.hunks.length === 0) {
-      this.acceptReview(reviewId);
+      this.removeReviewById(reviewId);
     } else {
       this._onDidUpdateReview.fire(review);
     }
@@ -483,6 +513,8 @@ export class DiffReviewService implements IDisposable {
     if (!review) return null;
     const hunk = review.hunks.find((entry) => entry.id === hunkId);
     if (!hunk) return null;
+
+    this._onDidResolveAction.fire({ reviewId, action: 'reject_hunk', hunkId });
 
     const lines = review.newFullContent.split('\n');
     const startIdx = hunk.startLine - 1;
@@ -621,6 +653,7 @@ export class DiffReviewService implements IDisposable {
     this._onDidAddReview.dispose();
     this._onDidRemoveReview.dispose();
     this._onDidUpdateReview.dispose();
+    this._onDidResolveAction.dispose();
   }
 }
 

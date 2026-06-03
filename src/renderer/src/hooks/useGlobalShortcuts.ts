@@ -4,14 +4,13 @@
  *              to avoid duplicate handling. Supports user-customizable keybindings.
  * @depends api, LogService, services/core, useDOM
  */
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 import { api } from '../api';
 import { createLogger } from '../services/LogService';
 import { t } from '../locales';
 import { triggerOverleafSyncAfterSave } from '../utils/overleaf-sync-helper';
 import {
   getEditorService,
-  getOTService,
   getProjectService,
   getUIService,
   parseShortcutString,
@@ -56,9 +55,7 @@ function matchesShortcut(event: KeyboardEvent, shortcutStr: string): boolean {
 
 export function useGlobalShortcuts() {
   const uiService = getUIService();
-  const settings = useSettings();
-
-  const shortcuts = useMemo(() => settings.shortcuts, [settings.shortcuts]);
+  const shortcuts = useSettings((s) => s.shortcuts);
 
   /**
    * Saves the current file with version-based conflict detection.
@@ -100,42 +97,15 @@ export function useGlobalShortcuts() {
         editorService.updateFileMtime(activeTabPath, result.currentMtime);
       }
 
-      let otSynced = true;
-      if (activeTab._id) {
-        const otProjectId = activeTab.projectId || getOTService().getProjectId();
-        if (otProjectId) {
-          otSynced = await getOTService().syncSavedContent(
-            otProjectId,
-            activeTab._id,
-            saveInfo.content
-          );
-        }
-      }
-
-      let wasClean = false;
-      if (otSynced) {
-        wasClean = editorService.completeSave(activeTabPath, saveInfo.version);
-      } else {
-        editorService.finalizeSaveKeepingDirty(activeTabPath);
-      }
+      const wasClean = editorService.completeSave(activeTabPath, saveInfo.version);
       logger.info(`File saved: ${activeTabPath}`);
 
-      if (!otSynced) {
-        uiService.addCompilationLog({
-          type: 'warning',
-          message: t('syncTeX.savedOtPending', { name: activeTab.name }),
-        });
-      } else if (wasClean) {
-        uiService.addCompilationLog({
-          type: 'success',
-          message: t('syncTeX.savedLocal', { name: activeTab.name }),
-        });
-      } else {
-        uiService.addCompilationLog({
-          type: 'info',
-          message: t('syncTeX.savedLocalWithEdits', { name: activeTab.name }),
-        });
-      }
+      uiService.addCompilationLog({
+        type: wasClean ? 'success' : 'info',
+        message: t(wasClean ? 'syncTeX.savedLocal' : 'syncTeX.savedLocalWithEdits', {
+          name: activeTab.name,
+        }),
+      });
 
       // Overleaf local-first: sync the just-saved file to Overleaf.
       triggerOverleafSyncAfterSave({
@@ -190,8 +160,7 @@ export function useGlobalShortcuts() {
 
     if (!monacoFocused && matchesShortcut(e, shortcuts.togglePreview)) {
       e.preventDefault();
-      const currentCollapsed = getUIService().isRightPanelCollapsed;
-      uiService.setRightPanelCollapsed(!currentCollapsed);
+      uiService.setPreviewVisible(!getUIService().isPreviewVisible);
       return;
     }
 

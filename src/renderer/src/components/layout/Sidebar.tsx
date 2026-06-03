@@ -1,67 +1,48 @@
 /**
- * @file Sidebar.tsx - Conversation sidebar
- * @description Manus/Codex-inspired left navigation with new chat, history, files, and settings
+ * @file Sidebar.tsx - 工作台左侧导航轨
+ * @description 紧凑「图标+小字」轨:品牌置顶,对话/文件导航,设置居底。
+ *   活动项以 accent 左条 + 轻 accent-muted 底标识(强调收敛,无 glow)。
  */
 
+import { clsx } from 'clsx';
 import { FolderKanban, MessageSquare, Settings } from 'lucide-react';
 import type React from 'react';
-import { memo } from 'react';
 import logoS from '../../assets/logo-s.svg';
 import { useTranslation } from '../../locales';
 import { getUIService } from '../../services/core/ServiceRegistry';
 import { useProjectPath, useSidebarTab } from '../../services/core/hooks';
 
-const RailAction = memo(function RailAction({
-  icon,
-  label,
-  active,
-  onClick,
-}: {
+interface SidebarNavItemProps {
   icon: React.ReactNode;
   label: string;
-  active?: boolean;
+  active: boolean;
   onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      className="flex h-11 w-11 items-center justify-center rounded-2xl border transition-all duration-200"
-      style={
-        active
-          ? {
-              borderColor: 'color-mix(in srgb, var(--color-accent) 24%, transparent)',
-              background: 'var(--color-accent-muted)',
-              color: 'var(--color-accent)',
-              boxShadow: '0 10px 24px color-mix(in srgb, var(--color-accent) 14%, transparent)',
-            }
-          : {
-              borderColor: 'transparent',
-              background: 'color-mix(in srgb, var(--color-bg-elevated) 88%, transparent)',
-              color: 'var(--color-text-muted)',
-            }
-      }
-      onMouseEnter={(event) => {
-        if (active) return;
-        event.currentTarget.style.borderColor = 'var(--color-border-subtle)';
-        event.currentTarget.style.background =
-          'color-mix(in srgb, var(--color-bg-primary) 92%, transparent)';
-        event.currentTarget.style.color = 'var(--color-text-primary)';
-      }}
-      onMouseLeave={(event) => {
-        if (active) return;
-        event.currentTarget.style.borderColor = 'transparent';
-        event.currentTarget.style.background =
-          'color-mix(in srgb, var(--color-bg-elevated) 88%, transparent)';
-        event.currentTarget.style.color = 'var(--color-text-muted)';
-      }}
-    >
-      <span className="flex h-5 w-5 items-center justify-center">{icon}</span>
-    </button>
-  );
-});
+}
+
+/** 单个导航项:图标竖叠小字标签。活动 = accent 左条 + accent-muted 底(无 glow)。 */
+const SidebarNavItem: React.FC<SidebarNavItemProps> = ({ icon, label, active, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-label={label}
+    aria-current={active ? 'page' : undefined}
+    className={clsx(
+      'relative flex w-full flex-col items-center gap-1 rounded-lg px-1 py-2',
+      'transition-colors focus:outline-none focus-visible:ring-2',
+      'focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1',
+      '[&>svg]:h-[18px] [&>svg]:w-[18px]',
+      active
+        ? 'bg-[var(--color-accent-muted)] text-[var(--color-accent)]'
+        : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
+    )}
+  >
+    {active && (
+      <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-[var(--color-accent)]" />
+    )}
+    {icon}
+    <span className="text-[10px] font-medium leading-none">{label}</span>
+  </button>
+);
 
 export const Sidebar: React.FC = () => {
   const uiService = getUIService();
@@ -75,26 +56,31 @@ export const Sidebar: React.FC = () => {
 
   return (
     <aside
-      className="flex w-[72px] flex-col items-center border-r px-3 py-4"
-      style={{
-        borderRightColor: 'var(--color-border-subtle)',
-        background: 'color-mix(in srgb, var(--color-bg-primary) 96%, transparent)',
-      }}
+      className={
+        'flex w-[84px] flex-col items-center gap-1 border-r px-2 py-3 ' +
+        'border-r-[var(--color-border-subtle)] ' +
+        'bg-[color-mix(in_srgb,var(--color-bg-primary)_96%,transparent)]'
+      }
     >
-      <div
-        className="flex h-12 w-12 items-center justify-center rounded-[20px] border"
-        style={{
-          borderColor: 'var(--color-border-subtle)',
-          background: 'color-mix(in srgb, var(--color-bg-elevated) 92%, transparent)',
-          boxShadow: 'var(--shadow-sm)',
-        }}
-      >
-        <img src={logoS} alt="SciPen" className="h-6 w-6" />
+      {/* 品牌:logo 字符牌 + 简短 wordmark */}
+      <div className="mb-2 flex flex-col items-center gap-1">
+        <div
+          className={
+            'flex h-11 w-11 items-center justify-center rounded-xl border ' +
+            'border-[var(--color-border-subtle)] ' +
+            'bg-[color-mix(in_srgb,var(--color-bg-elevated)_92%,transparent)]'
+          }
+        >
+          <img src={logoS} alt="SciPen" className="h-6 w-6" />
+        </div>
+        <span className="text-[10px] font-semibold tracking-wide text-[var(--color-text-secondary)]">
+          SciPen
+        </span>
       </div>
 
-      <div className="mt-6 flex flex-1 flex-col items-center gap-3">
-        <RailAction
-          icon={<MessageSquare size={17} />}
+      <nav className="flex w-full flex-1 flex-col gap-1">
+        <SidebarNavItem
+          icon={<MessageSquare />}
           label={t('workspaceSidebar.imTab')}
           active={sidebarTab === 'im'}
           onClick={() => {
@@ -102,8 +88,8 @@ export const Sidebar: React.FC = () => {
             uiService.setResearchLayoutFocus('chat');
           }}
         />
-        <RailAction
-          icon={<FolderKanban size={17} />}
+        <SidebarNavItem
+          icon={<FolderKanban />}
           label={t('workspaceSidebar.filesTab')}
           active={sidebarTab === 'files'}
           onClick={() => {
@@ -111,23 +97,15 @@ export const Sidebar: React.FC = () => {
             uiService.setResearchLayoutFocus('files');
           }}
         />
-      </div>
+      </nav>
 
-      <div
-        className="flex flex-col items-center gap-3 border-t pt-3"
-        style={{ borderTopColor: 'var(--color-border-subtle)' }}
-      >
-        <RailAction
-          icon={<Settings size={17} />}
+      <div className="w-full border-t pt-1 border-t-[var(--color-border-subtle)]">
+        <SidebarNavItem
+          icon={<Settings />}
           label={t('workspaceSidebar.settingsTab')}
           active={sidebarTab === 'settings'}
-          onClick={() => {
-            uiService.setSidebarTab('settings');
-          }}
+          onClick={() => uiService.setSidebarTab('settings')}
         />
-        <div className="text-[10px] leading-4 text-[var(--color-text-muted)] text-center">
-          {t('workspaceSidebar.subtitle')}
-        </div>
       </div>
     </aside>
   );

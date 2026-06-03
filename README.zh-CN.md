@@ -31,11 +31,11 @@
 - 🧩 **内置编译器** — WebAssembly pdfTeX / XeTeX,无需本地安装 TeX 发行版;若本地有 Tectonic 或 TeX Live 会自动识别。
 - ✏️ **编辑器** — Monaco 编辑器接入 TexLab、Tinymist、Marksman:为 LaTeX、Typst、Markdown 提供补全、诊断、悬浮提示与跳转定义。
 - 📄 **实时 PDF 预览** — 基于 pdf.js,支持 SyncTeX 正反向跳转、KaTeX 行内公式、平滑缩放与 CJK 字形显示。
-- 🤖 **AI 助手** — 集成 OpenClaw,可接入个人日常工作流一起辅助科研写作。
+- 🤖 **AI Agent(内置)** — SNACA 运行时随应用分发:文件编辑(逐 hunk Diff Review)、联网搜索 / 抓取、向用户发起的多选问题卡、按项目记忆、以及内置学术科研 Skill(paper / reviewer / pipeline / deep-research,源自 [Imbad0202/academic-research-skills](https://github.com/Imbad0202/academic-research-skills))。无需额外起服务。
 - ☁️ **Overleaf 同步** — 登录一次,项目下载到本地磁盘,可离线编辑,推送时基于 base / local / remote 进行三方合并。
 
 > [!NOTE]
-> **当前状态:0.2.0 — pre-1.0。** 编辑、编译、预览、AI 与 Overleaf 同步流程已稳定;部分设置项与 API 在 1.0 之前可能仍有调整,破坏性变更会在 [CHANGELOG.md](CHANGELOG.md) 中标注。
+> **当前状态:0.3.0-pre.1 — pre-1.0。** 编辑、编译、预览、AI Agent 与 Overleaf 同步流程已稳定;部分设置项与 API 在 1.0 之前可能仍有调整,破坏性变更会在 [CHANGELOG.md](CHANGELOG.md) 中标注。
 
 ## 安装
 
@@ -87,6 +87,7 @@ SciPen Studio 构建在以下开源项目之上:
 - [pdf.js](https://github.com/mozilla/pdf.js) — PDF 渲染与 CMap 支持
 - [KaTeX](https://katex.org/) — 行内公式预览
 - [diff-match-patch](https://github.com/google/diff-match-patch) — AI Diff Review 的逐块比对
+- [academic-research-skills](https://github.com/Imbad0202/academic-research-skills) — 内置的 SNACA Skill 内容(`academic-paper`、`academic-paper-reviewer`、`academic-pipeline`、`deep-research`)
 - [Tectonic](https://tectonic-typesetting.github.io/) 与 [TeX Live](https://www.tug.org/texlive/) — 可选的完整 TeX 发行版
 
 感谢上游所有维护者,SciPen Studio 因你们而存在。

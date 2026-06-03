@@ -33,7 +33,6 @@ export default defineConfig({
       emptyOutDir: false,
       rollupOptions: {
         external: [
-          'better-sqlite3',
           'pdf-parse',
           'fs-extra',
           'electron-store',

@@ -13,8 +13,7 @@ import { useSettings } from '../services/core';
  * @sideeffect Modifies document.documentElement.classList to apply theme classes
  */
 export function useThemeSync() {
-  const settings = useSettings();
-  const theme = settings.ui.theme;
+  const theme = useSettings((s) => s.ui.theme);
 
   useEffect(() => {
     const root = document.documentElement;

@@ -13,6 +13,15 @@
  * - 语义色保持清晰，但全部收敛到更克制、更有文稿气质的明度与饱和度
  * ============================================================ */
 
+/* ============================================================
+ * 半径纪律 (Radius Discipline) —— 去「廉价胶囊感」的统一约定
+ *   真圆 (状态点/spinner/头像/grip)         → rounded-full
+ *   矩形控件 (按钮/toggle/tab/chip/tag)      → rounded-lg  (8px)
+ *   容器/卡片 (面板/弹层/输入卡/抽屉/代码块) → rounded-xl  (12px)
+ *   大外壳 (WorkspaceShell)                 → rounded-2xl (16px)
+ * `rounded-full`/`999px`/`[18px]`/`1rem` 不得用于矩形表面。
+ * ============================================================ */
+
 @layer base {
 :root {
     /* ===== 基础色盘 (Zinc - 纯中性灰) ===== */
@@ -41,6 +50,22 @@
     /* ===== SciPen Design Tokens（统一语义层）===== */
     --scipen-font-sans: 'Inter', 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei UI', system-ui, -apple-system, sans-serif;
     --scipen-font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+
+    /* 聊天面板正文/输入字号(px);由设置 ui.chatFontSize 在 ChatSidebar 根覆盖 */
+    --chat-font-size: 14px;
+
+    /* Motion tokens — Doherty 阈值 + 心流原则
+       fast:   hover / 微交互
+       base:   panel 切换 / modal
+       slow:   大壳过渡 / 路由切换
+       pulse:  AI 流式 / 呼吸感(更长周期=更平静,降焦虑)
+       ease:   iOS 标准曲线,流畅且不弹 */
+    --motion-fast: 160ms;
+    --motion-base: 200ms;
+    --motion-slow: 320ms;
+    --motion-pulse: 2.4s;
+    --motion-ease: cubic-bezier(0.32, 0.72, 0, 1);
+
     --scipen-bg-canvas: #0f131a;
     --scipen-surface: #161b24;
     --scipen-surface-strong: #1d2430;
@@ -62,10 +87,8 @@
     --scipen-info: #8fa2d9;
     --scipen-info-soft: rgba(143, 162, 217, 0.16);
     --scipen-radius-xs: 4px;
-    --scipen-radius-sm: 8px;
     --scipen-radius-md: 14px;
     --scipen-radius-lg: 22px;
-    --scipen-radius-xl: 28px;
     --scipen-radius-full: 999px;
     --scipen-shadow-xs: 0 2px 6px rgba(0, 0, 0, 0.22);
     --scipen-shadow-sm: 0 10px 24px rgba(0, 0, 0, 0.28);
@@ -73,85 +96,102 @@
     --scipen-shadow-lg: 0 34px 70px rgba(0, 0, 0, 0.42);
     --scipen-shadow-glow: 0 0 24px rgba(105, 167, 199, 0.12);
 
-    /* ===== Shadcn/UI Style Variables (Dark Mode Default) ===== */
+    /* ===== 集成品牌色(跨主题恒定,不随 .light-theme 变化)=====
+       供 Overleaf 等第三方集成 UI 使用,与 SciPen 品牌色 --scipen-accent 区隔 */
+    --color-overleaf-primary: #305f8a;
+    --color-overleaf-muted: rgba(64, 114, 162, 0.08);
+    --color-overleaf-gradient: linear-gradient(135deg, #4072a2 0%, #305f8a 100%);
+
+    /* ===== Shadcn/UI Style Variables (Dark Mode Default) =====
+       HSL 值与上方 --scipen-* palette 在角色维度精确对齐:
+       - background ↔ --scipen-bg-canvas (#0f131a)
+       - card / popover ↔ --scipen-surface (#161b24)
+       - secondary / muted / accent ↔ --scipen-surface-strong (#1d2430)
+       - primary / ring ↔ --scipen-accent (#69a7c7)
+       - muted-foreground ↔ --scipen-text-muted (#8d98ad)
+       - destructive ↔ --scipen-danger (#d88484)
+       注:Shadcn "accent" 在语义上是次级背景,非品牌强调色 */
     --background: 222 24% 8%;
     --foreground: 214 31% 95%;
 
-    --card: 220 22% 12%;
+    --card: 218 24% 11%;
     --card-foreground: 214 31% 95%;
 
-    --popover: 220 22% 13%;
+    --popover: 218 24% 11%;
     --popover-foreground: 214 31% 95%;
 
-    --primary: 199 45% 60%;
+    --primary: 200 41% 60%;
     --primary-foreground: 222 24% 8%;
 
-    --secondary: 220 18% 18%;
+    --secondary: 218 25% 15%;
     --secondary-foreground: 214 31% 95%;
 
-    --muted: 220 18% 18%;
-    --muted-foreground: 220 18% 68%;
+    --muted: 218 25% 15%;
+    --muted-foreground: 220 16% 62%;
 
-    --accent: 220 18% 18%;
+    --accent: 218 25% 15%;
     --accent-foreground: 214 31% 95%;
 
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 50% 68%;
     --destructive-foreground: 0 0% 98%;
 
     --border: 220 18% 22%;
     --input: 220 18% 22%;
-    --ring: 199 45% 60%;
+    --ring: 200 41% 60%;
 
     --radius: 0.5rem;
 
-    /* ===== Legacy CSS Variables (Backward Compatibility) ===== */
-    /* 背景层次 - 从深到浅 (Zinc 系) */
-    --color-bg-void: var(--scipen-bg-canvas);        /* zinc-950 - 最深背景 */
-    --color-bg-primary: var(--scipen-surface);       /* zinc-900 - 主背景 */
-    --color-bg-secondary: var(--scipen-surface-strong);   /* zinc-800 - 次级背景 */
-    --color-bg-tertiary: var(--scipen-surface-muted);    /* zinc-700 - 三级背景 */
-    --color-bg-elevated: var(--scipen-surface-strong);    /* zinc-800 - 浮层 */
-    --color-bg-hover: var(--scipen-surface-muted);       /* zinc-700 - 悬停态 */
+    /* ===== Legacy CSS Variables (--color-*) ===== */
+    /* 业务消费的事实 API(1117 处 var(--color-*) 在 75 个文件中),经 alias
+       指向 --scipen-* palette。不可随意删除/改名,改值会广泛影响 UI */
 
-    /* 边框系统 (中性灰) */
-    --color-border-subtle: var(--scipen-border-soft);  /* zinc-400/8 */
-    --color-border: var(--scipen-border);         /* zinc-400/12 */
-    --color-border-strong: rgba(161, 161, 170, 0.2);   /* zinc-400/20 */
+    /* 背景层次 */
+    --color-bg-void: var(--scipen-bg-canvas);
+    --color-bg-primary: var(--scipen-surface);
+    --color-bg-secondary: var(--scipen-surface-strong);
+    --color-bg-tertiary: var(--scipen-surface-muted);
+    --color-bg-elevated: var(--scipen-surface-strong);
+    --color-bg-hover: var(--scipen-surface-muted);
 
-    /* 文字层次 */
-    --color-text-primary: var(--scipen-text-primary);   /* zinc-50 */
-    --color-text-secondary: var(--scipen-text-secondary); /* zinc-400 */
-    --color-text-muted: var(--scipen-text-muted);     /* zinc-500 */
-    --color-text-disabled: #52525b;  /* zinc-600 */
+    /* 边框 */
+    --color-border-subtle: var(--scipen-border-soft);
+    --color-border: var(--scipen-border);
+    --color-border-strong: rgba(161, 161, 170, 0.2);
 
-    /* 强调色 (Teal - 更柔和的青色) */
-    --color-accent: var(--scipen-accent);         /* teal-500 */
-    --color-accent-dim: var(--scipen-accent-strong);     /* teal-600 */
-    --color-accent-bright: #2dd4bf;  /* teal-400 */
+    /* 文字 */
+    --color-text-primary: var(--scipen-text-primary);
+    --color-text-secondary: var(--scipen-text-secondary);
+    --color-text-muted: var(--scipen-text-muted);
+    --color-text-disabled: #52525b;
+
+    /* 强调色 */
+    --color-accent: var(--scipen-accent);
+    --color-accent-dim: var(--scipen-accent-strong);
+    --color-accent-bright: var(--scipen-accent);
     --color-accent-muted: var(--scipen-accent-soft);
 
     /* 语义色 */
-    --color-success: var(--scipen-success);        /* emerald-500 */
+    --color-success: var(--scipen-success);
     --color-success-muted: var(--scipen-success-soft);
-    --color-warning: var(--scipen-warning);        /* amber-500 */
+    --color-warning: var(--scipen-warning);
     --color-warning-muted: var(--scipen-warning-soft);
-    --color-error: var(--scipen-danger);          /* rose-500 */
+    --color-error: var(--scipen-danger);
     --color-error-muted: var(--scipen-danger-soft);
-    --color-info: var(--scipen-info);           /* violet-500 */
+    --color-info: var(--scipen-info);
     --color-info-muted: var(--scipen-info-soft);
 
-    /* 渐变系统 (更柔和) */
+    /* 渐变 */
     --gradient-accent: linear-gradient(135deg, #69a7c7 0%, #90a2d9 100%);
     --gradient-warm: linear-gradient(135deg, #d1a168 0%, #d88484 100%);
     --gradient-cool: linear-gradient(135deg, #69a7c7 0%, #90a2d9 100%);
 
-    /* 阴影系统 (降低强度) */
+    /* 阴影 */
     --shadow-sm: var(--scipen-shadow-xs);
     --shadow-md: var(--scipen-shadow-sm);
     --shadow-lg: var(--scipen-shadow-md);
     --shadow-glow: var(--scipen-shadow-glow);
 
-    /* 遮罩层 */
+    /* 遮罩 */
     --color-backdrop: rgba(10, 13, 19, 0.82);
 
     /* Welcome Screen 专用变量 - 深色模式 */
@@ -184,8 +224,6 @@
     --diff-removed-line: rgba(216, 132, 132, 0.72);
     --diff-removed-text: rgba(232, 176, 176, 0.88);
 
-    --research-chat-user-bg: linear-gradient(135deg, rgba(105, 167, 199, 0.24) 0%, rgba(143, 162, 217, 0.16) 100%);
-    --research-chat-user-border: rgba(105, 167, 199, 0.24);
     --research-chat-assistant-bg: linear-gradient(180deg, rgba(22, 27, 36, 0.96) 0%, rgba(29, 36, 48, 0.98) 100%);
     --research-chat-assistant-border: rgba(105, 167, 199, 0.14);
     --research-chat-embed-bg: linear-gradient(180deg, rgba(16, 20, 28, 0.96) 0%, rgba(21, 26, 36, 0.98) 100%);
@@ -240,10 +278,8 @@
     --scipen-info: #728dc7;
     --scipen-info-soft: rgba(114, 141, 199, 0.14);
     --scipen-radius-xs: 4px;
-    --scipen-radius-sm: 8px;
     --scipen-radius-md: 14px;
     --scipen-radius-lg: 22px;
-    --scipen-radius-xl: 28px;
     --scipen-radius-full: 999px;
     --scipen-shadow-xs: 0 2px 8px rgba(56, 47, 36, 0.05);
     --scipen-shadow-sm: 0 12px 28px rgba(56, 47, 36, 0.08);
@@ -251,33 +287,38 @@
     --scipen-shadow-lg: 0 32px 72px rgba(56, 47, 36, 0.16);
     --scipen-shadow-glow: 0 0 24px rgba(63, 137, 168, 0.08);
 
-    --background: 40 34% 94%;
-    --foreground: 30 14% 14%;
+    /* 集成品牌色 — light theme 与 :root 同色(Overleaf 品牌跨主题一致) */
+    --color-overleaf-primary: #305f8a;
+    --color-overleaf-muted: rgba(64, 114, 162, 0.08);
+    --color-overleaf-gradient: linear-gradient(135deg, #4072a2 0%, #305f8a 100%);
 
-    --card: 42 35% 97%;
-    --card-foreground: 30 14% 14%;
+    --background: 36 32% 92%;
+    --foreground: 34 14% 12%;
 
-    --popover: 42 35% 97%;
-    --popover-foreground: 30 14% 14%;
+    --card: 38 50% 96%;
+    --card-foreground: 34 14% 12%;
 
-    --primary: 199 45% 45%;
-    --primary-foreground: 40 34% 94%;
+    --popover: 38 50% 96%;
+    --popover-foreground: 34 14% 12%;
 
-    --secondary: 40 20% 91%;
-    --secondary-foreground: 30 14% 18%;
+    --primary: 197 45% 45%;
+    --primary-foreground: 36 32% 92%;
 
-    --muted: 40 20% 91%;
-    --muted-foreground: 30 10% 44%;
+    --secondary: 40 28% 89%;
+    --secondary-foreground: 34 14% 12%;
 
-    --accent: 40 20% 91%;
-    --accent-foreground: 30 14% 18%;
+    --muted: 40 28% 89%;
+    --muted-foreground: 33 9% 49%;
 
-    --destructive: 0 72% 51%;
+    --accent: 40 28% 89%;
+    --accent-foreground: 34 14% 12%;
+
+    --destructive: 0 47% 61%;
     --destructive-foreground: 45 30% 96%;
 
-    --border: 35 18% 84%;
-    --input: 35 18% 84%;
-    --ring: 199 45% 45%;
+    --border: 38 18% 85%;
+    --input: 38 18% 85%;
+    --ring: 197 45% 45%;
 
     /* Legacy Variables (Light Mode - Research Desk) */
     --color-bg-void: var(--scipen-bg-canvas);
@@ -298,7 +339,7 @@
 
     --color-accent: var(--scipen-accent);
     --color-accent-dim: var(--scipen-accent-strong);
-    --color-accent-bright: #38bdf8;
+    --color-accent-bright: var(--scipen-accent);
     --color-accent-muted: var(--scipen-accent-soft);
 
     --color-success: var(--scipen-success);
@@ -338,8 +379,6 @@
     --diff-removed-line: rgba(198, 112, 112, 0.72);
     --diff-removed-text: rgba(148, 86, 86, 0.84);
 
-    --research-chat-user-bg: linear-gradient(135deg, rgba(63, 137, 168, 0.18) 0%, rgba(114, 141, 199, 0.12) 100%);
-    --research-chat-user-border: rgba(63, 137, 168, 0.18);
     --research-chat-assistant-bg: linear-gradient(180deg, rgba(255, 253, 248, 0.96) 0%, rgba(250, 246, 238, 0.98) 100%);
     --research-chat-assistant-border: rgba(63, 137, 168, 0.1);
     --research-chat-embed-bg: linear-gradient(180deg, rgba(255, 253, 248, 0.96) 0%, rgba(247, 242, 233, 0.98) 100%);
@@ -638,6 +677,7 @@ body {
   color: var(--markdown-preview-body);
   font-size: 0.98rem;
   line-height: 1.9;
+  letter-spacing: 0.01em;
   text-wrap: pretty;
 }
 
@@ -734,7 +774,7 @@ body {
 }
 
 .markdown-content [data-line] {
-  transition: background-color 0.15s ease;
+  transition: background-color var(--motion-fast) ease;
 }
 
 .markdown-content [data-line]:hover {
@@ -783,7 +823,7 @@ body {
   font-size: 1.45rem;
   line-height: 1.28;
   letter-spacing: -0.03em;
-  margin-top: 2rem;
+  margin-top: 1.4rem;
   margin-bottom: 0.9rem;
 }
 
@@ -894,7 +934,7 @@ body {
   display: inline-flex;
   align-items: center;
   border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 999px;
+  border-radius: 8px;
   background: rgba(148, 163, 184, 0.08);
   padding: 0.18rem 0.55rem;
   font-size: 0.66rem;
@@ -906,13 +946,13 @@ body {
 .markdown-code-block__copy {
   flex-shrink: 0;
   border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 999px;
+  border-radius: 8px;
   background: rgba(255,255,255,0.06);
   padding: 0.3rem 0.7rem;
   font-size: 0.72rem;
   font-weight: 600;
   color: #cbd5e1;
-  transition: all 0.16s ease;
+  transition: all var(--motion-fast) ease;
 }
 
 .markdown-code-block__copy:hover {
@@ -958,7 +998,7 @@ body {
   background: transparent !important;
   color: #e2e8f0 !important;
   font-size: 0.84rem;
-  line-height: 1.65;
+  line-height: 1.7;
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
 }
 .markdown-code-block__code {
@@ -1023,8 +1063,14 @@ body {
   margin-bottom: 0;
 }
 
+/* 聊天纯文本(用户消息/流式文本/输入框)字号 —— 与 .chat-markdown 同源,
+   靠真 CSS 变量缩放(Tailwind 任意值类 text-[length:var] 在本项目不生效)。 */
+.chat-msg-text {
+  font-size: var(--chat-font-size, 14px);
+}
+
 .chat-markdown {
-  font-size: 0.94rem;
+  font-size: var(--chat-font-size, 14px);
   line-height: 1.75;
 }
 
@@ -1052,14 +1098,11 @@ body {
   font-size: 0.92em;
 }
 
+/* Reasonix 气质:代码块压平(无 gradient/重阴影),仅留扁平面 + 细边;高亮/复制/语言标签照旧 */
 .chat-markdown .markdown-code-block {
-  border-color: color-mix(in srgb, var(--color-accent) 14%, transparent);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--color-bg-primary) 92%, transparent) 0%,
-    color-mix(in srgb, var(--color-bg-elevated) 98%, transparent) 100%
-  );
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22);
+  border-color: var(--color-border-subtle);
+  background: var(--color-bg-primary);
+  box-shadow: none;
 }
 
 .chat-markdown .markdown-code-block--compact {
@@ -1182,6 +1225,28 @@ body {
 .chat-markdown .markdown-code-block {
   margin-top: 0.75rem;
   margin-bottom: 0.75rem;
+}
+
+/* Reasonix 气质:克制引用/列表/链接 —— dim 左条、accent marker、收敛下划线 */
+.chat-markdown blockquote {
+  border-left-width: 2px;
+  border-left-color: var(--color-accent-dim);
+  padding-left: 0.8rem;
+  font-style: normal;
+  color: var(--color-text-muted);
+}
+.chat-markdown ul,
+.chat-markdown ol {
+  list-style-position: outside;
+}
+.chat-markdown li::marker {
+  color: var(--color-accent);
+}
+.chat-markdown a {
+  text-decoration: none;
+}
+.chat-markdown a:hover {
+  text-decoration: underline;
 }
 
 /* ── 浅色主题：代码块 ───────────────────────────────────────── */
@@ -1332,7 +1397,7 @@ body {
   gap: 0.18rem;
   padding: 0.72rem 0.82rem;
   border: 1px solid var(--markdown-preview-border);
-  border-radius: 1rem;
+  border-radius: 12px;
   background: var(--markdown-preview-paper);
 }
 
@@ -1377,7 +1442,7 @@ body {
 /* ===== Resize Handles ===== */
 .resize-handle {
   background: transparent;
-  transition: background-color 0.15s;
+  transition: background-color var(--motion-fast);
 }
 
 .resize-handle:hover {
@@ -1394,7 +1459,7 @@ body {
   to { opacity: 1; }
 }
 .animate-fade-in {
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn var(--motion-base) ease-out;
 }
 
 @keyframes slideUp {
@@ -1402,7 +1467,7 @@ body {
   to { transform: translateY(0); opacity: 1; }
 }
 .animate-slide-up {
-  animation: slideUp 0.3s ease-out;
+  animation: slideUp var(--motion-base) ease-out;
 }
 
 @keyframes slideDown {
@@ -1410,7 +1475,7 @@ body {
   to { transform: translateY(0); opacity: 1; }
 }
 .animate-slide-down {
-  animation: slideDown 0.3s ease-out;
+  animation: slideDown var(--motion-base) ease-out;
 }
 
 @keyframes shimmer {
@@ -1433,7 +1498,7 @@ body {
   50% { box-shadow: 0 0 40px var(--welcome-glow-primary); }
 }
 .animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
+  animation: pulse-glow var(--motion-pulse) ease-in-out infinite;
 }
 
 /* ===== Welcome Screen Title Gradient ===== */
@@ -1531,12 +1596,12 @@ input, textarea, [contenteditable], .monaco-editor * {
 /* 尚未被 sweep 扫过的 decoration：低透明度 */
 .diff-review-sweep-pending {
   opacity: 0.25;
-  transition: opacity 0.2s ease-out;
+  transition: opacity var(--motion-base) ease-out;
 }
 
 /* 被扫过后恢复正常——仅在 sweep 场景（带 .diff-review-sweep-revealed 标记）触发渐变动画 */
 .diff-review-added.diff-review-sweep-revealed {
-  animation: diff-review-reveal 0.3s ease-out;
+  animation: diff-review-reveal var(--motion-base) ease-out;
 }
 
 @keyframes diff-review-reveal {
@@ -1579,14 +1644,14 @@ input, textarea, [contenteditable], .monaco-editor * {
   align-items: center;
   gap: 3px;
   padding: 3px;
-  border-radius: 999px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--color-bg-elevated) 92%, white 8%);
   border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.14);
   pointer-events: auto;
   z-index: 22;
   opacity: 0.94;
-  transition: opacity 0.15s, transform 0.15s ease;
+  transition: opacity var(--motion-fast), transform var(--motion-fast) ease;
 }
 .diff-review-hunk-inline:hover {
   opacity: 1;
@@ -1603,7 +1668,7 @@ input, textarea, [contenteditable], .monaco-editor * {
   background: rgba(255, 255, 255, 0.72);
   cursor: pointer;
   padding: 0 6px;
-  transition: background 0.12s ease;
+  transition: background var(--motion-fast) ease;
 }
 .diff-review-hunk-inline__preview:hover {
   background: rgba(255, 255, 255, 0.94);
@@ -1623,7 +1688,7 @@ input, textarea, [contenteditable], .monaco-editor * {
   border: none;
   border-radius: 999px;
   cursor: pointer;
-  transition: background 0.12s;
+  transition: background var(--motion-fast);
   padding: 0;
 }
 .diff-review-hunk-inline__btn--accept {
@@ -1641,7 +1706,7 @@ input, textarea, [contenteditable], .monaco-editor * {
   right: 0;
   bottom: calc(100% + 10px);
   width: min(360px, calc(100vw - 96px));
-  border-radius: 18px;
+  border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
   background: color-mix(in srgb, var(--color-bg-primary) 96%, white 4%);
   box-shadow: 0 20px 36px rgba(15, 23, 42, 0.18);
@@ -1715,12 +1780,13 @@ input, textarea, [contenteditable], .monaco-editor * {
   height: 1em;
   background: var(--color-accent);
   margin-left: 2px;
-  animation: blink-cursor 0.8s step-end infinite;
+  /* 渐隐脉动而非硬闪(step-end)—— 降低打字机焦虑感 */
+  animation: blink-cursor 1.4s ease-in-out infinite;
   vertical-align: text-bottom;
 }
 
 .chat-input-pulse {
-  animation: chat-input-context-pulse 1.6s ease-out;
+  animation: chat-input-context-pulse var(--motion-pulse) ease-out;
 }
 
 @keyframes chat-input-context-pulse {
@@ -1742,4 +1808,9 @@ input, textarea, [contenteditable], .monaco-editor * {
 }
 @keyframes blink-cursor {
   50% { opacity: 0; }
+}
+
+/* 主页面「当前任务区」细描边:纯 CSS 跟随真实焦点,零 React 重渲(取代旧 activePanel state)。 */
+.panel-focus-edge:focus-within {
+  box-shadow: inset 2px 0 0 var(--color-accent-dim);
 }

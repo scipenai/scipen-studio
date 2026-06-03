@@ -78,7 +78,7 @@ export class AIService implements IAIService {
         // All OpenAI-compatible providers use createOpenAI
         const openai = createOpenAI({
           apiKey,
-          baseURL: baseUrl,
+          baseURL: normalizeOpenAIBaseUrl(baseUrl),
         });
         // Use .chat() to ensure Chat Completions API instead of new Responses API
         // (many compatible services don't support Responses API)
@@ -125,7 +125,7 @@ export class AIService implements IAIService {
       default: {
         const openai = createOpenAI({
           apiKey: effectiveApiKey,
-          baseURL: effectiveBaseUrl,
+          baseURL: normalizeOpenAIBaseUrl(effectiveBaseUrl),
         });
         return openai.chat(effectiveModel);
       }
@@ -334,17 +334,30 @@ export class AIService implements IAIService {
     try {
       const model = this.createModel();
 
-      const { text } = await generateText({
+      // Reasoning models (deepseek-v4-pro, deepseek-v4-flash + thinking,
+      // gpt-o*, …) spend the bulk of their token budget on internal
+      // chain-of-thought; a 10-token cap leaves zero visible output. Give
+      // enough headroom that even a thinking model emits SOME text, while
+      // staying small enough that the round-trip is cheap.
+      const result = await generateText({
         model,
         prompt: 'Hello',
-        maxOutputTokens: 10,
+        maxOutputTokens: 256,
       });
 
-      if (text) {
-        return { success: true, message: `Connected! Model: ${this.currentConfig.model}` };
-      }
-
-      return { success: false, message: 'Connection failed: no response' };
+      // A successful HTTP round-trip without a thrown error is the real
+      // signal we're configured correctly — even if the model returned an
+      // empty assistant message (some servers do under stop_reason=length).
+      const tokens =
+        result.usage && typeof result.usage.outputTokens === 'number'
+          ? result.usage.outputTokens
+          : null;
+      return {
+        success: true,
+        message: result.text
+          ? `Connected! Model: ${this.currentConfig.model}`
+          : `Connected (model accepted request${tokens != null ? `, ${tokens} tokens` : ''}, no text in 256-token probe).`,
+      };
     } catch (error: unknown) {
       console.error('[AIService] Connection test failed:', error);
 
@@ -361,6 +374,25 @@ export class AIService implements IAIService {
       return { success: false, message: `Connection failed: ${message}` };
     }
   }
+}
+
+/**
+ * Vercel `@ai-sdk/openai` concatenates `{baseURL}/chat/completions`
+ * verbatim — it does NOT auto-append `/v1`. Users routinely paste
+ * `https://api.deepseek.com` (or trailing-slashed variants) into the
+ * Settings field; SNACA's clients tolerate both forms, so AIService
+ * does too. Anthropic SDK handles its own versioning, hence this only
+ * runs on the OpenAI-compatible path.
+ *
+ * @internal Exported for unit tests.
+ */
+export function normalizeOpenAIBaseUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim().replace(/\/+$/, '');
+  if (!trimmed) return undefined;
+  // Already ends in `/v1`, `/v2`, etc. — leave it.
+  if (/\/v\d+$/i.test(trimmed)) return trimmed;
+  return `${trimmed}/v1`;
 }
 
 /**

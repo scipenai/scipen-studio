@@ -3,7 +3,7 @@
 /**
  * @file EditorPane.tsx - Code Editor Pane (Shell Component)
  * @description Monaco Editor based LaTeX/Typst editor with syntax highlighting and intelligent completion.
- *              Logic extracted into focused hooks: useOTCollaboration, useDiffReview, useCompilation, useSyncTeX, useDiagnostics.
+ *              Logic extracted into focused hooks: useDiffReview, useCompilation, useSyncTeX, useDiagnostics.
  * @depends monaco-editor, api, LSPService, services/core
  */
 
@@ -30,12 +30,12 @@ import {
   useEditorTabs,
   useIsCompiling,
   usePdfData,
-  useProjectPath,
   useProjectRuntime,
   useSettings,
-  useWorkspaceMode,
 } from '../../services/core/hooks';
 import { registerLSPProviders } from '../../utils/LSPProviderRegistry';
+import { citePreviewService } from '../../services/CitePreviewService';
+import { registerCiteCompletionProviders } from './CiteCompletionProvider';
 import { getModelCache } from '../../utils/ModelCache';
 import { EditorToolbar } from './components';
 import {
@@ -45,8 +45,8 @@ import {
   setupScrollTracking,
   setupShortcuts,
   setupSyncTexClick,
+  setupActiveRecommendation,
   useEditorEvents,
-  useOTCollaboration,
   useDiffReview,
   useCompilation,
   useSyncTeX,
@@ -78,16 +78,11 @@ export const EditorPane: React.FC = React.memo(() => {
 
   const openTabs = useEditorTabs();
   const activeTabPath = useActiveTabPath();
-  const projectPath = useProjectPath();
   const isCompiling = useIsCompiling();
   const pdfData = usePdfData();
-  const settings = useSettings();
-  const workspaceMode = useWorkspaceMode();
-
-  const editorSettings = settings.editor;
-  const uiTheme = settings.ui.theme;
-  const compilerEngine = settings.compiler.engine;
-  const collaborationConfig = settings.collaboration;
+  const editorSettings = useSettings((s) => s.editor);
+  const uiTheme = useSettings((s) => s.ui.theme);
+  const compilerEngine = useSettings((s) => s.compiler.engine);
   const runtime = useProjectRuntime();
 
   const activeTab = useMemo(() => {
@@ -113,14 +108,6 @@ export const EditorPane: React.FC = React.memo(() => {
     (activeTab?.path ? normalizeReviewPath(activeTab.path) : null);
 
   // ====== Extracted Hooks ======
-
-  useOTCollaboration({
-    collaborationConfig,
-    runtime,
-    projectPath,
-    activeTab,
-    activeReviewKey,
-  });
 
   const {
     displayReview,
@@ -280,6 +267,7 @@ export const EditorPane: React.FC = React.memo(() => {
       setupSyncTexClick(editor);
       setupShortcuts(editor, monacoInstance);
       setupContentChangeTracking(editor, isProgrammaticUpdateRef);
+      disposablesRef.current.add(setupActiveRecommendation(editor));
 
       if (editorSettings.autoCompletion) {
         try {
@@ -294,6 +282,8 @@ export const EditorPane: React.FC = React.memo(() => {
       }
 
       registerLSPProviders(monacoInstance);
+      citePreviewService.initialize(editor, monacoInstance);
+      registerCiteCompletionProviders(monacoInstance);
       setupLSPDiagnostics(editor, monacoInstance);
 
       try {
@@ -326,11 +316,25 @@ export const EditorPane: React.FC = React.memo(() => {
         );
         previousTabPathRef.current = editorService.activeTabPath;
         initializeLSPDocument(editor);
+
+        // Surface any review created while the editor was unmounted. The
+        // tab-switch effect (below) short-circuits when `previousTabPathRef`
+        // already matches the active tab — so without this call, a review
+        // produced by an `edit.propose` arriving in chat-only mode never
+        // gets decorations when the user finally opens the editor.
+        const initialIdentity = initialTab._id || normalizeReviewPath(editorService.activeTabPath);
+        restoreReviewForTab(editor, monacoInstance, initialIdentity);
       }
 
       isEditorMountedRef.current = true;
     },
-    [editorSettings.autoCompletion, uiTheme, runDiagnostics, setupLSPDiagnostics]
+    [
+      editorSettings.autoCompletion,
+      uiTheme,
+      runDiagnostics,
+      setupLSPDiagnostics,
+      restoreReviewForTab,
+    ]
   );
 
   useEffect(() => {
@@ -372,6 +376,7 @@ export const EditorPane: React.FC = React.memo(() => {
   useEffect(() => {
     const disposables = disposablesRef.current;
     disposables.add({ dispose: () => mathPreviewService.dispose() });
+    disposables.add({ dispose: () => citePreviewService.dispose() });
 
     return () => {
       disposables.dispose();
@@ -419,11 +424,6 @@ export const EditorPane: React.FC = React.memo(() => {
           <p className="mt-2 text-xs leading-6 text-[var(--color-text-disabled)]">
             {t('editor.selectFileHint')}
           </p>
-          <div className="mt-4 space-y-1 text-[11px] text-slate-400">
-            <div>{t('editor.shortcutOpenClaw')}</div>
-            <div>{t('editor.shortcutSearchFile')}</div>
-            <div>{t('editor.shortcutAIGenerate')}</div>
-          </div>
         </div>
       </div>
     );
@@ -440,7 +440,6 @@ export const EditorPane: React.FC = React.memo(() => {
         activeTabPath={activeTabPath}
         isCompiling={isCompiling}
         hasPdf={!!pdfData}
-        documentMode={workspaceMode !== 'chat'}
         onTabClick={(path) => getEditorService().setActiveTab(path)}
         onTabClose={handleCloseTab}
         onSyncTexJump={handleSyncTexJump}

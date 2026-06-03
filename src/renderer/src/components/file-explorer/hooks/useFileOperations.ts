@@ -7,7 +7,6 @@ import { useFileCreateRename } from './useFileCreateRename';
 
 interface UseFileOperationsOptions {
   projectPath: string | null;
-  collaborationProjectId: string | null;
   selectedNodeRef: MutableRefObject<FileNode | null>;
   projectPathRef: MutableRefObject<string | null>;
   refreshFileTreeRef: MutableRefObject<(() => Promise<void>) | null>;
@@ -18,7 +17,6 @@ interface UseFileOperationsOptions {
 
 export function useFileOperations({
   projectPath,
-  collaborationProjectId,
   selectedNodeRef,
   projectPathRef,
   refreshFileTreeRef,
@@ -29,7 +27,6 @@ export function useFileOperations({
   const { handleDeleteSelected, handleDelete, handlePasteToSelected, handlePaste } =
     useFileDeletePaste({
       projectPath,
-      collaborationProjectId,
       selectedNodeRef,
       projectPathRef,
       refreshFileTreeRef,
@@ -38,7 +35,6 @@ export function useFileOperations({
     });
 
   const { handleCreateSubmit, handleRenameSubmit } = useFileCreateRename({
-    collaborationProjectId,
     refreshFileTree,
     setRenamingPath,
   });

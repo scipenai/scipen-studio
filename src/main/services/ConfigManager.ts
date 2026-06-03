@@ -87,6 +87,14 @@ class ConfigManagerImpl implements IConfigManager {
       [ConfigKeys.TelemetryEnabled]: false,
       [ConfigKeys.AutoUpdate]: true,
       [ConfigKeys.RecentProjects]: [],
+      [ConfigKeys.ZoteroIntegrationEnabled]: false,
+      [ConfigKeys.ZoteroPath]: '',
+      [ConfigKeys.ZoteroLocalApiEnabled]: false,
+      [ConfigKeys.ZoteroEmbeddingProvider]: 'zhipu',
+      [ConfigKeys.ZoteroActiveRecommendation]: false,
+      [ConfigKeys.ZoteroBibTexSyncEnabled]: true,
+      [ConfigKeys.ZoteroBibTexSyncFileName]: '.scipen/zotero_library.bib',
+      [ConfigKeys.ZoteroBibTexSyncTranslator]: 'BetterBibLaTeX',
     };
   }
 

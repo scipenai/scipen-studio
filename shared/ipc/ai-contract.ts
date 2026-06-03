@@ -12,17 +12,6 @@ import type {
   SelectionCaptureDTO,
   SelectionConfigDTO,
 } from './types';
-import type {
-  ChatGetMessagesParams,
-  ChatMessagesResult,
-  ChatOperationResult,
-  ChatRenameSessionParams,
-  ChatSendMessageParams,
-  ChatSendMessageResult,
-  ChatSession,
-  ChatSessionsResult,
-} from '../types/chat';
-
 // ====== AI Types ======
 
 export interface AIConfig {
@@ -95,35 +84,7 @@ export interface IPCAiContract {
     };
   };
 
-  // ============ Chat ============
-  [IpcChannel.Chat_SendMessage]: {
-    args: [params: ChatSendMessageParams];
-    result: ChatSendMessageResult;
-  };
-  [IpcChannel.Chat_Cancel]: {
-    args: [sessionId: string];
-    result: ChatOperationResult;
-  };
-  [IpcChannel.Chat_GetSessions]: {
-    args: [];
-    result: ChatSessionsResult;
-  };
-  [IpcChannel.Chat_GetMessages]: {
-    args: [params: ChatGetMessagesParams];
-    result: ChatMessagesResult;
-  };
-  [IpcChannel.Chat_DeleteSession]: {
-    args: [sessionId: string];
-    result: ChatOperationResult;
-  };
-  [IpcChannel.Chat_RenameSession]: {
-    args: [params: ChatRenameSessionParams];
-    result: ChatOperationResult;
-  };
-  [IpcChannel.Chat_CreateSession]: {
-    args: [];
-    result: ChatSession;
-  };
+  // ============ Chat ============ removed in P4-C (SNACA is the only chat runtime)
 
   // ============ Settings (AI Providers) ============
   [IpcChannel.Settings_GetAIProviders]: {

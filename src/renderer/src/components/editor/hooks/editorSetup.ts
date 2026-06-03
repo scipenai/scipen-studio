@@ -22,14 +22,17 @@ import {
 } from '../../../services/LSPService';
 import { createLogger } from '../../../services/LogService';
 import { getSyncTeXService } from '../../../services/SyncTeXService';
+import { findCitationKeyAt } from '../citationKeyScan';
+import { getZoteroBibMirror } from '../../../services/zotero/ZoteroBibMirror';
+import { getActiveRecommendationService } from '../../../services/zotero/ActiveRecommendationService';
 import {
   getEditorService,
-  getOTService,
   getSettingsService,
   getShortcutService,
   getUIService,
 } from '../../../services/core';
 import { SyncEventType } from '../../../services/core/PreviewTypes';
+import { inlineEditController } from '../../../services/inlineEdit';
 
 const logger = createLogger('EditorSetup');
 
@@ -123,24 +126,20 @@ export function setupContentChangeTracking(
       LSPService.updateDocumentIncremental(filePath, changes);
     }
 
-    // Forward changes to OT service when collaboration is active
-    const otService = getOTService();
-
-    if (otService.isActive) {
-      const changes = event.changes.map((change) => ({
-        rangeOffset: change.rangeOffset,
-        rangeLength: change.rangeLength,
-        text: change.text,
-      }));
-      // modelValueLengthBefore = content length before changes
-      // event.changes describe what changed in the original text, so baseLength = current - net delta
-      const netDelta = event.changes.reduce((sum, c) => sum + c.text.length - c.rangeLength, 0);
-      const baseLength = content.length - netDelta;
-      otService.applyLocalChange(changes, baseLength);
-    }
-
     resetPartialAccept();
   });
+}
+
+/**
+ * 挂接 M3 主动文献推荐(标尺5)。**独立于 setupContentChangeTracking** —— 该函数
+ * 是每 keystroke 的高频热路径,推荐触发绝不能塞进去。这里把 editor 交给
+ * ActiveRecommendationService,由它做 1.5s debounce + 段落 hash 守卫后才查询。
+ * @returns Disposable,编辑器销毁时解绑监听。
+ */
+export function setupActiveRecommendation(editor: Editor): { dispose: () => void } {
+  const svc = getActiveRecommendationService();
+  svc.attachEditor(editor);
+  return { dispose: () => svc.dispose() };
 }
 
 let syncTexDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -203,11 +202,41 @@ function performLocalSyncTeX(
 
 export function setupSyncTexClick(editor: Editor): void {
   editor.onMouseDown((e: monaco.editor.IEditorMouseEvent) => {
-    if (e.event.ctrlKey && e.target.position) {
-      const { lineNumber, column } = e.target.position;
-      performSyncTexForward(lineNumber, column);
+    if (!e.event.ctrlKey || !e.target.position) return;
+    const { lineNumber, column } = e.target.position;
+
+    // cite 优先:光标在 \cite{key} / @key 上 → 打开 Zotero PDF;否则 SyncTeX。
+    const model = editor.getModel();
+    if (model) {
+      const key = findCitationKeyAt(model, e.target.position, model.getLanguageId());
+      if (key) {
+        void openZoteroPaper(key);
+        return; // cite 命中,绝不再触发 SyncTeX
+      }
     }
+    performSyncTexForward(lineNumber, column);
   });
+}
+
+/** Ctrl+Click \cite{key} → 解析 itemKey → 拉 PDF → 切右栏「论文」tab。 */
+async function openZoteroPaper(key: string): Promise<void> {
+  const uiService = getUIService();
+  const mirror = getZoteroBibMirror();
+  const item = mirror.getByCitationKey(key) ?? mirror.getByItemKey(key);
+  if (!item) {
+    uiService.addCompilationLog({ type: 'warning', message: t('zoteroPaper.notFound', { key }) });
+    return;
+  }
+  try {
+    const buf = await api.zotero.loadPdf(item.itemKey);
+    uiService.loadZoteroPaper(item.itemKey, new Uint8Array(buf));
+  } catch (err) {
+    const noPdf = String(err instanceof Error ? err.message : err).includes('NO_PDF_ATTACHMENT');
+    uiService.addCompilationLog({
+      type: noPdf ? 'info' : 'error',
+      message: noPdf ? t('zoteroPaper.noPdf', { key }) : t('zoteroPaper.loadFailed', { key }),
+    });
+  }
 }
 
 /**
@@ -247,9 +276,16 @@ export function setupShortcuts(editor: Editor, monacoInstance: Monaco): void {
     getUIService().requestChatWithText(selectedText, 'editor');
   });
 
+  shortcutService.registerHandler('inlineEdit', () => {
+    const model = editor.getModel();
+    const path = model?.uri.path;
+    // Pass the basename as a label so the LLM prompt is shorter than a full path.
+    const fileLabel = path ? (path.split('/').pop() ?? path) : undefined;
+    inlineEditController.trigger(editor, { fileLabel });
+  });
+
   shortcutService.registerHandler('togglePreview', () => {
-    const currentCollapsed = uiService.isRightPanelCollapsed;
-    uiService.setRightPanelCollapsed(!currentCollapsed);
+    uiService.setPreviewVisible(!uiService.isPreviewVisible);
   });
 
   shortcutService.registerHandler('newWindow', () => {
@@ -305,41 +341,14 @@ async function handleSaveCommand(): Promise<void> {
 
     await api.file.write(path, saveInfo.content);
 
-    let otSynced = true;
-    if (currentTab._id) {
-      const otProjectId = currentTab.projectId || getOTService().getProjectId();
-      if (otProjectId) {
-        otSynced = await getOTService().syncSavedContent(
-          otProjectId,
-          currentTab._id,
-          saveInfo.content
-        );
-      }
-    }
+    const wasClean = editorService.completeSave(path, saveInfo.version);
 
-    let wasClean = false;
-    if (otSynced) {
-      wasClean = editorService.completeSave(path, saveInfo.version);
-    } else {
-      editorService.finalizeSaveKeepingDirty(path);
-    }
-
-    if (!otSynced) {
-      uiService.addCompilationLog({
-        type: 'warning',
-        message: t('syncTeX.savedLocalWithEdits', { name: currentTab.name }),
-      });
-    } else if (wasClean) {
-      uiService.addCompilationLog({
-        type: 'success',
-        message: t('syncTeX.savedLocal', { name: currentTab.name }),
-      });
-    } else {
-      uiService.addCompilationLog({
-        type: 'info',
-        message: t('syncTeX.savedLocalWithEdits', { name: currentTab.name }),
-      });
-    }
+    uiService.addCompilationLog({
+      type: wasClean ? 'success' : 'info',
+      message: t(wasClean ? 'syncTeX.savedLocal' : 'syncTeX.savedLocalWithEdits', {
+        name: currentTab.name,
+      }),
+    });
 
     // Overleaf local-first: push the saved content to Overleaf
     triggerOverleafSyncAfterSave({

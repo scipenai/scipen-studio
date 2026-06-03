@@ -7,8 +7,7 @@ import { type LocaleKey, setLocale } from '../locales';
 import { useSettings } from '../services/core';
 
 export function useLocaleSync() {
-  const settings = useSettings();
-  const language = settings.ui?.language as LocaleKey | undefined;
+  const language = useSettings((s) => s.ui?.language) as LocaleKey | undefined;
 
   useEffect(() => {
     if (language && (language === 'zh-CN' || language === 'en-US')) {

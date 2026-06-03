@@ -51,33 +51,5 @@ export type {
   SelectionConfig,
 } from './ISelectionService';
 
-// ====== Project Binding Services ======
-export type { IProjectBindingService } from './IProjectBindingService';
-export {
-  OT_MANAGED_EXTENSIONS,
-  RESOURCE_EXTENSIONS,
-  ALWAYS_IGNORE_DIRS,
-} from './IProjectBindingService';
-
-// ====== Remote Project Bridge ======
-export type {
-  IRemoteProjectBridge,
-  BridgeConnectionState,
-  BridgeConnectionStateDTO,
-  BridgeProjectSnapshot,
-  BridgeFileEntry,
-  BridgeFolderEntry,
-  BridgeDocumentState,
-  BridgeRemotePatchEvent,
-  BridgeTreeChangeEvent,
-  BridgeSubmitOpsParams,
-  BridgeSubmitOpsResult,
-  BridgeCreateFileParams,
-  BridgeCreateFolderParams,
-  BridgeRenameParams,
-  BridgeMoveParams,
-  BridgeDeleteParams,
-} from './IRemoteProjectBridge';
-
 // ====== Configuration ======
 export type { IConfigManager } from './IConfigManager';

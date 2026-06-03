@@ -1,0 +1,32 @@
+/target
+/data
+/data-lark
+/tmp
+*.log
+.env
+.env.local
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Local config
+config.local.toml
+settings.local.json
+snaca.toml
+snaca.toml.lark
+snaca.toml.local
+.cargo/config.toml
+
+# SQLite
+*.sqlite
+*.sqlite-*
+*.db
+
+# Cache
+.cache/
+
+# Local reference checkout — third-party source vendored for comparison only
+/reference/

@@ -215,18 +215,30 @@ export const ServiceNames = {
   TINYMIST: 'tinymist',
 
   SELECTION: 'selection',
-  STUDIO_IM: 'studioIM',
-  STUDIO_OT: 'studioOT',
   STUDIO_OVERLEAF_LIVE: 'studioOverleafLive',
-  PROJECT_CONVERSATION: 'projectConversation',
-  PROJECT_BINDING: 'projectBinding',
-  REPLICA_WRITEBACK: 'replicaWriteback',
-  EXTERNAL_CHANGE_DETECTOR: 'externalChangeDetector',
-  OFFLINE_OPS_STORE: 'offlineOpsStore',
-  OFFLINE_OPS_MANAGER: 'offlineOpsManager',
 
   AI: 'ai',
-  CHAT_ORCHESTRATOR: 'chatOrchestrator',
+  /**
+   * Ctrl+K inline edit. Streams a single LLM completion through `AIService`
+   * config; independent of SNACA. See `InlineEditService`.
+   */
+  INLINE_EDIT: 'inlineEdit',
+
+  /** SNACA editor sidecar process (spawn / restart / pipe). */
+  AGENT_SIDECAR: 'agentSidecar',
+  /** JSON-RPC editor-protocol client over the sidecar. */
+  AGENT_PROTOCOL_CLIENT: 'agentProtocolClient',
+  /**
+   * Bridges renderer's edit-proposal decisions onto disk + back to SNACA
+   * via `editConfirm`. Owns the host_applies fs writes.
+   */
+  AGENT_EDIT_APPLY: 'agentEditApply',
+  /**
+   * Answers SNACA reverse-RPC `context.request` (flush_unsaved /
+   * file_content). Bridges to renderer via webContents.send for the
+   * flush case.
+   */
+  AGENT_CONTEXT_REQUEST: 'agentContextRequest',
 } as const;
 
 /** Union of all service name values. */

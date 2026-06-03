@@ -4,15 +4,12 @@
  * @security Path validation utilities.
  */
 
-import path from 'path';
 import type { BrowserWindow } from 'electron';
 import {
   type PathAccessMode,
   PathSecurityService,
   checkPathSecurity,
 } from '../services/PathSecurityService';
-import { ServiceNames, getServiceContainer } from '../services/ServiceContainer';
-import type { ProjectBindingService } from '../services/ProjectBindingService';
 import type { IFileSystemService } from '../services/interfaces';
 import { createLogger } from '../services/LoggerService';
 
@@ -22,48 +19,12 @@ export const logger = createLogger('FileHandlers');
 
 // ============ Project Root Resolution ============
 
-const DERIVED_PROJECT_DIRS = new Set(['output', 'out', 'dist', 'build', 'target']);
-
-function getBindingService(): ProjectBindingService {
-  return getServiceContainer().get<ProjectBindingService>(ServiceNames.PROJECT_BINDING);
-}
-
-function shouldReuseResolvedProjectRoot(requestedPath: string, bindingRootPath: string): boolean {
-  const normalizedRequested = path.normalize(requestedPath);
-  const normalizedRoot = path.normalize(bindingRootPath);
-  if (normalizedRequested === normalizedRoot) {
-    return true;
-  }
-  if (!normalizedRequested.startsWith(`${normalizedRoot}${path.sep}`)) {
-    return false;
-  }
-
-  const relative = path.relative(normalizedRoot, normalizedRequested);
-  const segments = relative.split(path.sep).filter(Boolean);
-  return (
-    segments.length > 0 &&
-    segments.every((segment) => DERIVED_PROJECT_DIRS.has(segment.toLowerCase()))
-  );
-}
-
+/**
+ * After the IM/OT cleanup, project bindings are gone — we no longer
+ * resolve ancestor project roots through the binding service. Callers
+ * just open the path they requested.
+ */
 export async function resolveProjectOpenRoot(projectPath: string): Promise<string> {
-  try {
-    const resolved = await getBindingService().resolveBinding(projectPath);
-    if (
-      resolved.found &&
-      resolved.binding?.localRootPath &&
-      shouldReuseResolvedProjectRoot(projectPath, resolved.binding.localRootPath)
-    ) {
-      return resolved.binding.localRootPath;
-    }
-    if (resolved.found && resolved.binding?.localRootPath) {
-      logger.info(
-        `Ignoring ancestor binding and opening project from requested path: ${projectPath} (binding=${resolved.binding.localRootPath})`
-      );
-    }
-  } catch (error) {
-    logger.warn('Failed to resolve project open root, falling back to the requested path:', error);
-  }
   return projectPath;
 }
 
