@@ -121,7 +121,7 @@ Once a chat model is configured, the assistant can call tools to read / edit pro
 - A top overlay bar offers *Accept All* / *Reject All*
 - Each hunk has its own ✓ / ✗ buttons
 
-Built-in tools include `Read` / `Write` / `Edit` / `MultiEdit` / `Grep` / `Glob` / `LS` / `Bash` / `Skill` / memory + Zotero / **WebSearch / WebFetch** / **AskUserQuestion**. The high-risk ones (file mutations, shell, Bash) route through an **approval card** in chat — *Allow once*, *Always allow*, or *Deny*.
+Built-in tools include `Read` / `Write` / `Edit` / `MultiEdit` / `Grep` / `Glob` / `LS` / `Bash` / `Skill` / memory + Zotero / `TodoWrite` / `TaskOutput` / `TaskStop` / **WebSearch / WebFetch** / **AskUserQuestion**. The high-risk ones (file mutations, shell, Bash) route through an **approval card** in chat — *Allow once*, *Always allow*, or *Deny*.
 
 ### 3. AskUserQuestion (interactive multiple-choice)
 
@@ -153,8 +153,7 @@ Tenant- or project-scoped Skills (`<workspace>/.scipen/skills/...`) override bun
 
 ### 6. Memory and Skills viewer
 
-The agent remembers user preferences and project facts in per-project markdown under
-`~/.scipen-studio/snaca/<tenant>/projects/<project>/memory/`. Two read-only inspectors are available from *Settings → Agent*:
+The agent remembers user preferences and project facts in per-project markdown under the OS application-data directory (`~/Library/Application Support/SciPen Studio/.snaca/...` on macOS, `%APPDATA%\SciPen Studio\.snaca\...` on Windows, `~/.config/SciPen Studio/.snaca/...` on Linux). Two read-only inspectors are available from *Settings → Agent*:
 - **Memory viewer** — browse / search what's been written for the active project, see source (extractor vs user) and self-rated confidence
 - **Skills viewer** — list all Skills currently in scope (Bundled / Tenant / Project), inspect their body
 

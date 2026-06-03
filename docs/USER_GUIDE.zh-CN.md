@@ -121,7 +121,7 @@ LSP 二进制随安装包一同分发,**无需手动安装**。
 - 顶部覆盖条提供 *Accept All* / *Reject All*
 - 每个 hunk 旁有独立 ✓ / ✗ 按钮
 
-内置工具包含 `Read` / `Write` / `Edit` / `MultiEdit` / `Grep` / `Glob` / `LS` / `Bash` / `Skill` / 内存 + Zotero / **WebSearch / WebFetch** / **AskUserQuestion**。文件改动 / shell / Bash 这类高风险工具会走**审批卡片** —— *允许一次*、*始终允许*、*拒绝*。
+内置工具包含 `Read` / `Write` / `Edit` / `MultiEdit` / `Grep` / `Glob` / `LS` / `Bash` / `Skill` / 内存 + Zotero / `TodoWrite` / `TaskOutput` / `TaskStop` / **WebSearch / WebFetch** / **AskUserQuestion**。文件改动 / shell / Bash 这类高风险工具会走**审批卡片** —— *允许一次*、*始终允许*、*拒绝*。
 
 ### 3. AskUserQuestion(多选问题卡)
 
@@ -153,8 +153,7 @@ Tenant / 项目级的 Skill(`<workspace>/.scipen/skills/...`)按同名覆盖 Bun
 
 ### 6. 记忆与 Skill 查看器
 
-Agent 把用户偏好和项目事实存为按项目分目录的 Markdown,位于
-`~/.scipen-studio/snaca/<tenant>/projects/<project>/memory/`。**只读**查看器从 *设置 → Agent* 入口打开:
+Agent 把用户偏好和项目事实存为按项目分目录的 Markdown,落在操作系统的**应用数据目录**下(macOS 是 `~/Library/Application Support/SciPen Studio/.snaca/...`、Windows 是 `%APPDATA%\SciPen Studio\.snaca\...`、Linux 是 `~/.config/SciPen Studio/.snaca/...`)。**只读**查看器从 *设置 → Agent* 入口打开:
 - **Memory 查看器** — 浏览 / 搜索当前项目的记忆条目,看 source(extractor 还是 user)与自评 confidence
 - **Skills 查看器** — 列出当前生效 scope 下所有 Skill(Bundled / Tenant / Project),查看具体内容
 
