@@ -137,8 +137,7 @@ export function useFileDeletePaste({
         hasDirtyContent = checkDirtyInDir(node);
       }
 
-      let result;
-      result = await fileService.trashNode(
+      const result = await fileService.trashNode(
         { path: node.path, name: node.name, type: node.type },
         { hasDirtyContent }
       );
