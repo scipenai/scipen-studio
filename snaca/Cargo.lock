@@ -4022,6 +4022,7 @@ dependencies = [
  "serde",
  "serde_json",
  "snaca-core",
+ "snaca-engine",
  "snaca-memory",
  "snaca-skills",
  "snaca-tools-api",
