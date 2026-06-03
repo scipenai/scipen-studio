@@ -850,7 +850,7 @@ export type MemoryRevealResult = z.infer<typeof MemoryRevealResultSchema>;
 
 // ============ skills.* RPC ============
 
-export const SkillScopeSchema = z.enum(['bundled', 'tenant', 'project']);
+export const SkillScopeSchema = z.enum(['bundled', 'global', 'tenant', 'project']);
 export type SkillScope = z.infer<typeof SkillScopeSchema>;
 
 export const SkillSummarySchema = z.object({

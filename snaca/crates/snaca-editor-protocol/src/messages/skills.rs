@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 pub enum SkillScope {
     /// Bundled with SNACA itself. Not editable.
     Bundled,
+    /// Operator-supplied global dir, shared across tenants.
+    Global,
     /// `<data_root>/<tenant>/skills/`
     Tenant,
     /// `<data_root>/<tenant>/projects/<project>/skills/`

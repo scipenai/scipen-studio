@@ -79,9 +79,25 @@ impl SkillRegistryBuilder {
     ///
     /// Missing directory is treated as "no skills" (not an error).
     /// Per-entry load failures are logged + skipped so one bad skill
-    /// doesn't kill the whole registry. Deeper nesting (e.g. a
-    /// `SKILL.md` two levels down) is intentionally not loaded — keep
-    /// the layout predictable.
+    /// doesn't kill the whole registry.
+    ///
+    /// Layout rules:
+    /// - Flat `<dir>/foo.md` → loaded as a flat skill.
+    /// - Directory-form `<dir>/foo/SKILL.md` (+ sibling assets in
+    ///   `<dir>/foo/`) → loaded as one skill; the folder is then
+    ///   pruned so adjacent files don't become standalone skills.
+    /// - A subdirectory **without** a `SKILL.md` is treated as a
+    ///   *category folder*: the walker keeps descending and picks up
+    ///   `*.md` files (recursive flat skills) or further
+    ///   directory-form skills nested inside it. This lets operators
+    ///   group skills by domain (`dev/`, `writing/`, `ops/…`).
+    /// - Hidden entries (names starting with `.`) at any depth are
+    ///   ignored so `.git`, `.cache`, editor scratch files etc. never
+    ///   leak in.
+    /// - The root directory itself is never treated as a single
+    ///   directory-form skill, even if it contains `SKILL.md` (that
+    ///   `SKILL.md` is loaded as a flat skill instead, matching the
+    ///   M1 behaviour).
     pub fn add_from_dir(&mut self, dir: &Path, scope: SkillScope) -> SkillResult<&mut Self> {
         if !dir.exists() {
             debug!(path = %dir.display(), "skill dir does not exist; skipping");
@@ -91,11 +107,24 @@ impl SkillRegistryBuilder {
             warn!(path = %dir.display(), "skill path exists but is not a directory; skipping");
             return Ok(self);
         }
-        for entry in walkdir::WalkDir::new(dir)
-            .max_depth(1)
-            .min_depth(1)
+        let mut iter = walkdir::WalkDir::new(dir)
             .follow_links(false)
-        {
+            .into_iter()
+            .filter_entry(|e| {
+                // Drop dotfiles / dotdirs across the tree — but never
+                // the root we were asked to scan. Tempdir paths look
+                // like `/tmp/.tmpXXXXXX` and operators may legitimately
+                // point `global_dir` at a hidden folder in their home;
+                // filtering the root would silently disable the loader.
+                if e.depth() == 0 {
+                    return true;
+                }
+                e.file_name()
+                    .to_str()
+                    .map(|n| !n.starts_with('.'))
+                    .unwrap_or(true)
+            });
+        while let Some(entry) = iter.next() {
             let entry = match entry {
                 Ok(e) => e,
                 Err(e) => {
@@ -103,23 +132,29 @@ impl SkillRegistryBuilder {
                     continue;
                 }
             };
+            // depth 0 = the root dir we were handed — never load it as
+            // a single directory-form skill (would make the whole
+            // skills tree into one skill, which is never what an
+            // operator wants).
+            if entry.depth() == 0 {
+                continue;
+            }
             let ft = entry.file_type();
             if ft.is_dir() {
-                // Directory-form: requires a SKILL.md inside. Folders
-                // without one are silently ignored (they may hold
-                // unrelated assets / non-skill content).
+                // Directory-form skill stops descent so siblings are
+                // treated as sidecar assets. Category folders (no
+                // SKILL.md) fall through and walkdir keeps descending.
                 let manifest = entry.path().join("SKILL.md");
-                if !manifest.exists() {
-                    debug!(path = %entry.path().display(), "directory has no SKILL.md; skipping");
-                    continue;
-                }
-                match Skill::load_directory(entry.path(), scope) {
-                    Ok(skill) => {
-                        insert_with_priority(&mut self.skills, skill);
+                if manifest.exists() {
+                    match Skill::load_directory(entry.path(), scope) {
+                        Ok(skill) => {
+                            insert_with_priority(&mut self.skills, skill);
+                        }
+                        Err(e) => {
+                            warn!(error = %e, path = %manifest.display(), "failed to load directory-form skill; skipping");
+                        }
                     }
-                    Err(e) => {
-                        warn!(error = %e, path = %manifest.display(), "failed to load directory-form skill; skipping");
-                    }
+                    iter.skip_current_dir();
                 }
                 continue;
             }
@@ -288,7 +323,11 @@ mod tests {
     }
 
     #[test]
-    fn add_from_dir_ignores_folder_without_skill_md() {
+    fn category_folder_with_only_unparseable_files_adds_nothing() {
+        // The walker now descends into folders that lack SKILL.md
+        // (they're treated as category dirs), but their contents must
+        // still parse as a skill to register. A README without
+        // frontmatter is malformed → skipped with a warning.
         let dir = tempfile::tempdir().unwrap();
         let nope = dir.path().join("not-a-skill");
         std::fs::create_dir(&nope).unwrap();
@@ -300,21 +339,121 @@ mod tests {
     }
 
     #[test]
-    fn add_from_dir_does_not_descend_below_depth_one() {
-        // A `SKILL.md` two levels down must not be loaded — layout is
-        // intentionally flat-or-one-level.
+    fn add_from_dir_recurses_into_category_subdirs() {
+        // `<dir>/<category>/<file>.md` where the category has no
+        // SKILL.md must be picked up — that's the whole point of
+        // letting operators group skills by domain.
         let dir = tempfile::tempdir().unwrap();
-        let nested = dir.path().join("outer").join("inner");
-        std::fs::create_dir_all(&nested).unwrap();
+        for (rel, name) in [
+            ("dev/auth.md", "auth"),
+            ("dev/login.md", "login"),
+            ("writing/changelog.md", "changelog"),
+            ("ops/deeply/nested/deploy.md", "deploy"),
+        ] {
+            let path = dir.path().join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(
+                &path,
+                format!("---\nname: {name}\ndescription: d\n---\n{name} body\n"),
+            )
+            .unwrap();
+        }
+
+        let mut b = SkillRegistryBuilder::default();
+        b.add_from_dir(dir.path(), SkillScope::Tenant).unwrap();
+        let reg = b.build();
+        assert_eq!(reg.len(), 4);
+        for n in ["auth", "login", "changelog", "deploy"] {
+            assert!(reg.get(n).is_some(), "expected {n} to load");
+        }
+    }
+
+    #[test]
+    fn add_from_dir_stops_descent_at_directory_form_skill() {
+        // Sidecars inside a directory-form skill folder must NOT be
+        // loaded as standalone skills, even with recursion enabled.
+        let dir = tempfile::tempdir().unwrap();
+        let skill_dir = dir.path().join("office-extract");
+        std::fs::create_dir(&skill_dir).unwrap();
         std::fs::write(
-            nested.join("SKILL.md"),
-            "---\nname: deep\ndescription: d\n---\nbody\n",
+            skill_dir.join("SKILL.md"),
+            "---\nname: office-extract\ndescription: d\n---\nbody\n",
+        )
+        .unwrap();
+        // Adjacent `.md` files that LOOK like flat skills must be
+        // treated as sidecars and skipped.
+        std::fs::write(
+            skill_dir.join("notes.md"),
+            "---\nname: notes\ndescription: d\n---\nbody\n",
+        )
+        .unwrap();
+        std::fs::create_dir(skill_dir.join("templates")).unwrap();
+        std::fs::write(
+            skill_dir.join("templates").join("readme.md"),
+            "---\nname: readme\ndescription: d\n---\nbody\n",
         )
         .unwrap();
 
         let mut b = SkillRegistryBuilder::default();
         b.add_from_dir(dir.path(), SkillScope::Tenant).unwrap();
-        assert!(b.build().get("deep").is_none());
+        let reg = b.build();
+        assert_eq!(reg.len(), 1, "only the directory-form skill should register");
+        assert!(reg.get("office-extract").is_some());
+        assert!(reg.get("notes").is_none(), "sidecar adjacent .md must not load");
+        assert!(reg.get("readme").is_none(), "nested sidecar must not load");
+    }
+
+    #[test]
+    fn add_from_dir_descends_to_nested_directory_form_skill() {
+        // Deep `<dir>/cat/sub/<name>/SKILL.md` must load as a
+        // directory-form skill; the previous max_depth(1) behaviour
+        // was the explicit thing we lifted here.
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("outer").join("inner").join("greeter");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(
+            nested.join("SKILL.md"),
+            "---\nname: greeter\ndescription: d\n---\nbody\n",
+        )
+        .unwrap();
+        std::fs::write(nested.join("script.sh"), "echo hi").unwrap();
+
+        let mut b = SkillRegistryBuilder::default();
+        b.add_from_dir(dir.path(), SkillScope::Tenant).unwrap();
+        let reg = b.build();
+        let s = reg.get("greeter").expect("nested directory-form must load");
+        assert_eq!(s.asset_dir.as_deref(), Some(nested.as_path()));
+    }
+
+    #[test]
+    fn add_from_dir_skips_hidden_entries() {
+        // `.git`, `.cache`, `.foo.md` are conventionally noise — must
+        // be skipped at every depth so they never pollute the registry.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        std::fs::write(
+            dir.path().join(".git").join("hook.md"),
+            "---\nname: hidden\ndescription: d\n---\nbody\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join(".scratch.md"),
+            "---\nname: scratch\ndescription: d\n---\nbody\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("real.md"),
+            "---\nname: real\ndescription: d\n---\nbody\n",
+        )
+        .unwrap();
+
+        let mut b = SkillRegistryBuilder::default();
+        b.add_from_dir(dir.path(), SkillScope::Tenant).unwrap();
+        let reg = b.build();
+        assert_eq!(reg.len(), 1);
+        assert!(reg.get("real").is_some());
+        assert!(reg.get("hidden").is_none());
+        assert!(reg.get("scratch").is_none());
     }
 
     #[test]

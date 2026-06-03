@@ -15,6 +15,7 @@ use snaca_skills::{Skill, SkillRegistry, SkillRegistryBuilder, SkillScope};
 fn scope_to_wire(s: SkillScope) -> WireScope {
     match s {
         SkillScope::Bundled => WireScope::Bundled,
+        SkillScope::Global => WireScope::Global,
         SkillScope::Tenant => WireScope::Tenant,
         SkillScope::Project => WireScope::Project,
     }

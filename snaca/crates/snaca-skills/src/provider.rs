@@ -9,11 +9,12 @@
 //! - [`StaticSkillProvider`] — returns the same registry no matter the
 //!   keys. Used by tests (and single-tenant deployments that don't bother
 //!   with the layout-driven loader).
-//! - [`LayoutSkillProvider`] — scans
-//!   `<data_root>/<tenant>/skills/` and `<data_root>/<tenant>/projects/<project>/skills/`,
-//!   merging tenant + project scopes (project wins). Caches the resulting
-//!   registry per (tenant, project) for `ttl` to avoid disk-thrashing on
-//!   every turn.
+//! - [`LayoutSkillProvider`] — scans an optional operator-supplied global
+//!   directory, then `<data_root>/<tenant>/skills/`, then
+//!   `<data_root>/<tenant>/projects/<project>/skills/`, merging global +
+//!   tenant + project scopes (project wins, tenant overrides global).
+//!   Caches the resulting registry per (tenant, project) for `ttl` to
+//!   avoid disk-thrashing on every turn.
 
 use crate::registry::{SkillRegistry, SkillRegistryBuilder};
 use crate::scope::SkillScope;
@@ -59,10 +60,17 @@ impl SkillProvider for StaticSkillProvider {
 }
 
 /// Loads skills from the on-disk workspace layout. Project-scope files
-/// override tenant-scope files of the same name (per `SkillScope::rank`).
+/// override tenant-scope files of the same name; tenant overrides the
+/// optional operator-supplied global directory (see [`SkillScope::rank`]).
 pub struct LayoutSkillProvider {
     layout: WorkspaceLayout,
+    /// App-shipped read-only skills (`SkillScope::Bundled`, rank 0 — lowest).
     bundled_dir: Option<PathBuf>,
+    /// Optional operator-supplied directory whose `*.md` files apply to
+    /// every (tenant, project). Lowest on-disk priority — tenant and
+    /// project skills with the same name override entries here. `None`
+    /// disables the global scope entirely (existing two-scope behaviour).
+    global_dir: Option<PathBuf>,
     ttl: Duration,
     cache: Mutex<HashMap<(TenantId, ProjectId), CacheEntry>>,
 }
@@ -84,21 +92,31 @@ impl LayoutSkillProvider {
         Self {
             layout,
             bundled_dir: None,
+            global_dir: None,
             ttl,
             cache: Mutex::new(HashMap::new()),
         }
-    }
-
-    /// Set the read-only bundled-skills dir (lowest-priority Bundled scope).
-    pub fn with_bundled_dir(mut self, dir: Option<PathBuf>) -> Self {
-        self.bundled_dir = dir;
-        self
     }
 
     /// Build a provider that re-scans on every call. Convenient for tests
     /// that mutate skill files between turns.
     pub fn without_cache(layout: WorkspaceLayout) -> Self {
         Self::with_ttl(layout, Duration::from_secs(0))
+    }
+
+    /// Attach an operator-supplied global skills directory. `None` clears
+    /// it. The directory is loaded with `SkillScope::Global` (rank 1) so
+    /// tenant + project entries with the same name override it.
+    pub fn with_global_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.global_dir = dir;
+        self
+    }
+
+    /// Attach the app-shipped read-only bundled-skills dir (`SkillScope::Bundled`,
+    /// rank 0 — overridden by global/tenant/project of the same name).
+    pub fn with_bundled_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.bundled_dir = dir;
+        self
     }
 
     /// Drop any cached entry for `(tenant, project)`. The next call will
@@ -110,10 +128,15 @@ impl LayoutSkillProvider {
 
     async fn load(&self, tenant: &TenantId, project: &ProjectId) -> SkillRegistry {
         let mut b = SkillRegistryBuilder::default();
-        // bundled (lowest) → tenant → project (highest).
-        if let Some(dir) = &self.bundled_dir {
-            if let Err(e) = b.add_from_dir(dir, SkillScope::Bundled) {
-                tracing::warn!(error = %e, dir = %dir.display(), "bundled skill load failed");
+        // bundled (rank 0) → global → tenant → project (highest).
+        if let Some(bundled_dir) = &self.bundled_dir {
+            if let Err(e) = b.add_from_dir(bundled_dir, SkillScope::Bundled) {
+                tracing::warn!(error = %e, dir = %bundled_dir.display(), "bundled skill load failed");
+            }
+        }
+        if let Some(global_dir) = &self.global_dir {
+            if let Err(e) = b.add_from_dir(global_dir, SkillScope::Global) {
+                tracing::warn!(error = %e, dir = %global_dir.display(), "global skill load failed");
             }
         }
         let tenant_dir = self.layout.tenant_skills_dir(tenant);
@@ -254,11 +277,88 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bundled_scope_loads_and_tenant_overrides() {
+    async fn global_scope_is_visible_across_tenants() {
         let dir = tempfile::tempdir().unwrap();
-        let bundled = dir.path().join("bundled");
-        let data = dir.path().join("data");
-        let layout = WorkspaceLayout::new(&data).unwrap();
+        let layout = WorkspaceLayout::new(dir.path()).unwrap();
+        let global_dir = dir.path().join("global-skills");
+        write_skill(&global_dir, "house.md", &skill_md("house", "house rules"));
+
+        let provider = LayoutSkillProvider::without_cache(layout)
+            .with_global_dir(Some(global_dir));
+
+        let t_a = TenantId::new("alpha");
+        let t_b = TenantId::new("beta");
+        let p = ProjectId::from_raw("p");
+        let a = provider.skills_for(&t_a, &p).await;
+        let b = provider.skills_for(&t_b, &p).await;
+
+        assert!(a.get("house").is_some(), "alpha tenant sees global skill");
+        assert!(b.get("house").is_some(), "beta tenant sees the same global skill");
+        assert_eq!(a.get("house").unwrap().scope, SkillScope::Global);
+    }
+
+    #[tokio::test]
+    async fn tenant_and_project_override_global_in_that_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = WorkspaceLayout::new(dir.path()).unwrap();
+        let global_dir = dir.path().join("global-skills");
+        let t = TenantId::new("t");
+        let p = ProjectId::from_raw("p");
+
+        // Same skill name `review` in all three scopes.
+        write_skill(&global_dir, "review.md", &skill_md("review", "global body"));
+        write_skill(
+            &layout.tenant_skills_dir(&t),
+            "review.md",
+            &skill_md("review", "tenant body"),
+        );
+        write_skill(
+            &layout.project_skills_dir(&t, &p),
+            "review.md",
+            &skill_md("review", "project body"),
+        );
+
+        let provider = LayoutSkillProvider::without_cache(layout.clone())
+            .with_global_dir(Some(global_dir));
+        let registry = provider.skills_for(&t, &p).await;
+        let review = registry.get("review").unwrap();
+        assert_eq!(review.scope, SkillScope::Project, "project beats tenant beats global");
+        assert!(review.body.contains("project body"));
+
+        // Drop the project copy → tenant should win, with global still in the
+        // background but overridden.
+        let proj_skill = layout.project_skills_dir(&t, &p).join("review.md");
+        std::fs::remove_file(&proj_skill).unwrap();
+        let registry = provider.skills_for(&t, &p).await;
+        let review = registry.get("review").unwrap();
+        assert_eq!(review.scope, SkillScope::Tenant);
+        assert!(review.body.contains("tenant body"));
+    }
+
+    #[tokio::test]
+    async fn missing_global_dir_is_tolerated() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = WorkspaceLayout::new(dir.path()).unwrap();
+        let t = TenantId::new("t");
+        let p = ProjectId::from_raw("p");
+        write_skill(
+            &layout.tenant_skills_dir(&t),
+            "audit.md",
+            &skill_md("audit", "tenant body"),
+        );
+        // Point at a path that doesn't exist on disk — provider must not panic.
+        let provider = LayoutSkillProvider::without_cache(layout)
+            .with_global_dir(Some(dir.path().join("absent")));
+        let registry = provider.skills_for(&t, &p).await;
+        assert_eq!(registry.len(), 1);
+        assert!(registry.get("audit").is_some());
+    }
+
+    #[tokio::test]
+    async fn bundled_scope_loads_and_is_overridden_by_tenant() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = WorkspaceLayout::new(dir.path()).unwrap();
+        let bundled = dir.path().join("bundled-skills");
         let t = TenantId::new("t");
         let p = ProjectId::from_raw("p");
         write_skill(&bundled, "writer.md", &skill_md("writer", "bundled writer"));
