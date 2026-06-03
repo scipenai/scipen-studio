@@ -20,6 +20,8 @@ import {
   type ChatProposalRecord,
   type ChatTimelineEvent,
   type ChatTurn,
+  type ChatUserQuestion,
+  type ChatUserQuestionSpec,
 } from '../../services/agent/ChatStreamStore';
 import { agentEditProposalBridge } from '../../services/agent/AgentEditProposalBridge';
 import { useTranslation, type TranslationKey } from '../../locales';
@@ -71,6 +73,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
         />
         {turn.plan && <PlanCard plan={turn.plan} turnId={turn.turnId} />}
         <ApprovalList approvals={turn.approvals} />
+        <QuestionsList questions={turn.questions} />
         <ProposalsList proposals={turn.proposals} />
         {showPlanComposing && (
           <div className="flex items-center gap-1.5 text-[12px] text-[var(--color-text-muted)]">
@@ -739,4 +742,165 @@ function riskText(risk: 'low' | 'medium' | 'high'): string {
     default:
       return 'text-[var(--color-text-muted)]';
   }
+}
+
+function QuestionsList({
+  questions,
+}: {
+  questions: ChatUserQuestion[];
+}): ReactElement | null {
+  // Mirror ApprovalList: only pending cards render; answered ones vanish
+  // (the picked answer flows back to SNACA as the tool_result).
+  const pending = questions.filter((q) => q.status === 'pending');
+  if (pending.length === 0) return null;
+  return (
+    <div className="mb-2 space-y-2">
+      {pending.map((q) => (
+        <UserQuestionCard key={q.requestId} card={q} />
+      ))}
+    </div>
+  );
+}
+
+const questionOptionRow =
+  'flex cursor-pointer items-start gap-1.5 rounded px-1 py-0.5 hover:bg-[var(--color-bg-hover)]';
+
+function QuestionBlock({
+  q,
+  groupKey,
+  ids,
+  other,
+  onIds,
+  onOther,
+  otherLabel,
+}: {
+  q: ChatUserQuestionSpec;
+  /** Card-unique prefix so radio groups don't collide across cards. */
+  groupKey: string;
+  ids: string[];
+  other: string;
+  onIds: (ids: string[]) => void;
+  onOther: (other: string) => void;
+  otherLabel: string;
+}): ReactElement {
+  const toggle = (optId: string): void => {
+    if (q.multiSelect) {
+      onIds(ids.includes(optId) ? ids.filter((x) => x !== optId) : [...ids, optId]);
+    } else {
+      onIds([optId]);
+    }
+  };
+  return (
+    <div className="mb-2 last:mb-0">
+      {q.header && (
+        <span className="mb-1 inline-block rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">
+          {q.header}
+        </span>
+      )}
+      <div className="mb-1 font-medium text-[var(--color-text-primary)]">{q.question}</div>
+      <div className="space-y-0.5">
+        {q.options.map((o) => (
+          <label key={o.id} className={questionOptionRow}>
+            <input
+              type={q.multiSelect ? 'checkbox' : 'radio'}
+              name={`q-${groupKey}-${q.id}`}
+              checked={ids.includes(o.id)}
+              onChange={() => toggle(o.id)}
+              className="mt-0.5 shrink-0"
+            />
+            <span className="min-w-0">
+              <span className="text-[var(--color-text-primary)]">{o.label}</span>
+              {o.description && (
+                <span className="block text-[10px] text-[var(--color-text-muted)]">
+                  {o.description}
+                </span>
+              )}
+              {o.preview && (
+                <pre className="mt-0.5 max-h-24 overflow-y-auto whitespace-pre-wrap rounded bg-[var(--color-bg-primary)] px-1.5 py-1 font-mono text-[10px] text-[var(--color-text-primary)]">
+                  {o.preview}
+                </pre>
+              )}
+            </span>
+          </label>
+        ))}
+      </div>
+      {q.allowOther && (
+        <input
+          type="text"
+          value={other}
+          onChange={(e) => onOther(e.target.value)}
+          placeholder={otherLabel}
+          className="mt-1 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-1.5 py-0.5 text-[11px] text-[var(--color-text-primary)]"
+        />
+      )}
+    </div>
+  );
+}
+
+function UserQuestionCard({ card }: { card: ChatUserQuestion }): ReactElement {
+  const { t } = useTranslation();
+  const [picks, setPicks] = useState<Record<string, { ids: string[]; other: string }>>(() =>
+    Object.fromEntries(card.questions.map((q) => [q.id, { ids: [], other: '' }]))
+  );
+
+  const setIds = useCallback((qid: string, ids: string[]) => {
+    setPicks((prev) => ({ ...prev, [qid]: { ids, other: prev[qid]?.other ?? '' } }));
+  }, []);
+  const setOther = useCallback((qid: string, other: string) => {
+    setPicks((prev) => ({ ...prev, [qid]: { ids: prev[qid]?.ids ?? [], other } }));
+  }, []);
+
+  // Every question needs at least one option or some "other" text.
+  const canSubmit = card.questions.every((q) => {
+    const p = picks[q.id];
+    return (p?.ids.length ?? 0) > 0 || (p?.other.trim().length ?? 0) > 0;
+  });
+
+  const submit = useCallback(async () => {
+    // Optimistic: hide the card before the IPC round-trip lands.
+    chatStreamStore.markQuestionAnswered(card.requestId);
+    const answers = card.questions.map((q) => {
+      const p = picks[q.id];
+      const otherText = (p?.other ?? '').trim();
+      return {
+        question_id: q.id,
+        selected_option_ids: p?.ids ?? [],
+        other_text: otherText.length > 0 ? otherText : undefined,
+      };
+    });
+    try {
+      await agentClient.respondUserQuestion({
+        requestId: card.requestId,
+        ok: true,
+        answers: { answers },
+      });
+    } catch {
+      /* best-effort — engine timeout covers a dropped reply */
+    }
+  }, [card.requestId, card.questions, picks]);
+
+  return (
+    <div className="rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] p-2 text-[11px]">
+      {card.questions.map((q) => (
+        <QuestionBlock
+          key={q.id}
+          q={q}
+          groupKey={card.requestId}
+          ids={picks[q.id]?.ids ?? []}
+          other={picks[q.id]?.other ?? ''}
+          onIds={(ids) => setIds(q.id, ids)}
+          onOther={(o) => setOther(q.id, o)}
+          otherLabel={t('chat.questionOther')}
+        />
+      ))}
+      <button
+        type="button"
+        disabled={!canSubmit}
+        onClick={() => void submit()}
+        className="mt-1 rounded border border-[var(--color-accent)]/50 bg-[var(--color-accent)] px-2.5 py-0.5 text-[10px] text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {t('chat.questionSubmit')}
+      </button>
+    </div>
+  );
 }

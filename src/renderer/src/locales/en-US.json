@@ -362,6 +362,8 @@
     "approvalAllowOnce": "Allow once",
     "approvalAllowAlways": "Always allow",
     "approvalDeny": "Deny",
+    "questionSubmit": "Submit",
+    "questionOther": "Other (type your own)…",
     "proposalPending": "Pending review",
     "proposalAccepted": "Accepted",
     "proposalRejected": "Rejected",

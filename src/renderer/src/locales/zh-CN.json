@@ -362,6 +362,8 @@
     "approvalAllowOnce": "允许一次",
     "approvalAllowAlways": "始终允许",
     "approvalDeny": "拒绝",
+    "questionSubmit": "提交",
+    "questionOther": "其他(自行填写)…",
     "proposalPending": "待审阅",
     "proposalAccepted": "已接受",
     "proposalRejected": "已拒绝",

@@ -254,6 +254,30 @@ class AgentClientServiceImpl {
     return this.api.respondContextZotero(payload);
   }
 
+  /** AskUserQuestion card request (main → renderer). */
+  onUserQuestionRequest(cb: (e: any) => void): () => void {
+    return this.api.onUserQuestionRequest(cb);
+  }
+
+  /** Reply with the user's selection once they submit the card. */
+  respondUserQuestion(payload: {
+    requestId: string;
+    ok: boolean;
+    answers?: {
+      answers: Array<{
+        question_id: string;
+        selected_option_ids: string[];
+        other_text?: string;
+        notes?: string;
+      }>;
+      user_id?: string;
+      decided_at?: string;
+    };
+    error?: string;
+  }): Promise<{ ok: true }> {
+    return this.api.respondUserQuestion(payload);
+  }
+
   // ---- Memory viewer ----
 
   memoryList(scope?: 'user' | 'feedback' | 'project' | 'reference'): Promise<any> {

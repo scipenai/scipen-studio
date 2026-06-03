@@ -340,6 +340,7 @@ export class ContextRequestService implements IContextRequestService {
         try {
           wc.send(IpcChannel.Agent_UserQuestionRequest, {
             requestId: req.request_id,
+            turnId: req.turn_id,
             questions: req.params.questions,
           });
         } catch (err) {

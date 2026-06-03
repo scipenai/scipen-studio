@@ -88,6 +88,32 @@ export interface ChatApprovalRequest {
   status: 'pending' | 'resolved';
 }
 
+export interface ChatUserQuestionOption {
+  id: string;
+  label: string;
+  description?: string;
+  preview?: string;
+}
+
+export interface ChatUserQuestionSpec {
+  id: string;
+  question: string;
+  header?: string;
+  options: ChatUserQuestionOption[];
+  multiSelect: boolean;
+  allowOther: boolean;
+}
+
+/** An AskUserQuestion card awaiting the user's selection. Ephemeral —
+ *  like approvals, never restored from IDB cache. */
+export interface ChatUserQuestion {
+  /** Correlator key; the reply echoes it back to resolve the reverse-RPC. */
+  requestId: string;
+  questions: ChatUserQuestionSpec[];
+  /** Flipped to 'answered' by markQuestionAnswered on submit. */
+  status: 'pending' | 'answered';
+}
+
 /**
  * Ordered timeline entry for in-order rendering. Each consecutive run of
  * deltas of the same kind collapses into a single event; switching kinds
@@ -128,6 +154,8 @@ export interface ChatTurn {
   plan: ChatPlan | null;
   /** Pending tool-approval cards waiting for the user's decision. */
   approvals: ChatApprovalRequest[];
+  /** Pending AskUserQuestion cards waiting for the user's selection. */
+  questions: ChatUserQuestion[];
   /** True until a `done` event arrives. */
   pending: boolean;
   /** Final reason if not pending. */
@@ -190,6 +218,7 @@ class ChatStreamStoreImpl {
     agentClient.onPlanUpdate((evt) => this.handlePlanUpdate(evt));
     agentClient.onEditApplied((evt) => this.handleEditApplied(evt));
     agentClient.onToolApprovalRequest((evt) => this.handleToolApprovalRequest(evt));
+    agentClient.onUserQuestionRequest((evt) => this.handleUserQuestionRequest(evt));
   }
 
   // ---- public read API ----
@@ -719,6 +748,51 @@ class ChatStreamStoreImpl {
     }
   }
 
+  private handleUserQuestionRequest(evt: any): void {
+    const turnId = evt?.turnId as string | undefined;
+    const requestId = evt?.requestId as string | undefined;
+    if (!turnId || !requestId || !Array.isArray(evt.questions)) return;
+    const turn = this.acquireTurn(turnId);
+    // Wire (snake_case) -> store (camelCase).
+    const questions: ChatUserQuestionSpec[] = evt.questions.map((q: any) => ({
+      id: String(q.id ?? ''),
+      question: String(q.question ?? ''),
+      header: typeof q.header === 'string' ? q.header : undefined,
+      options: Array.isArray(q.options)
+        ? q.options.map((o: any) => ({
+            id: String(o.id ?? ''),
+            label: String(o.label ?? ''),
+            description: typeof o.description === 'string' ? o.description : undefined,
+            preview: typeof o.preview === 'string' ? o.preview : undefined,
+          }))
+        : [],
+      multiSelect: Boolean(q.multi_select),
+      allowOther: q.allow_other !== false,
+    }));
+    // Idempotent on re-emit (mirror handleToolApprovalRequest).
+    const existing = turn.questions.find((x) => x.requestId === requestId);
+    const record: ChatUserQuestion = { requestId, questions, status: 'pending' };
+    if (existing) {
+      Object.assign(existing, record);
+    } else {
+      turn.questions.push(record);
+    }
+    this.fire();
+  }
+
+  /** Flip a question card to 'answered' after the user submits, so it
+   *  stops rendering without waiting for a server echo. */
+  markQuestionAnswered(requestId: string): void {
+    for (const turn of this.iterAllTurns()) {
+      const q = turn.questions.find((x) => x.requestId === requestId);
+      if (q) {
+        q.status = 'answered';
+        this.fire();
+        return;
+      }
+    }
+  }
+
   private handlePlanUpdate(evt: any): void {
     const turnId = evt?.turn_id as string | undefined;
     if (!turnId) return;
@@ -796,6 +870,7 @@ function makeEmptyTurn(turnId: string): ChatTurn {
     proposals: [],
     plan: null,
     approvals: [],
+    questions: [],
     pending: true,
   };
 }
@@ -824,8 +899,9 @@ function recordToCompletedTurn(r: TurnMetaRecord): ChatTurn {
     events,
     proposals: r.proposals.map(migrateProposal),
     plan: r.plan ? { ...r.plan, files: r.plan.files.map(migratePlanFile) } : null,
-    // Approval cards are ephemeral — never restored from cache.
+    // Approval / question cards are ephemeral — never restored from cache.
     approvals: [],
+    questions: [],
     pending: false,
     doneReason: 'completed',
     usage: r.usage,

@@ -130,6 +130,8 @@ export interface AgentUserQuestionSpec {
 /** Main → renderer via `Agent_UserQuestionRequest`. */
 export interface AgentUserQuestionRequestPayload {
   requestId: string;
+  /** Turn the question belongs to — the card renders under this turn. */
+  turnId: string;
   questions: AgentUserQuestionSpec[];
 }
 
@@ -147,8 +149,9 @@ export interface AgentUserQuestionResponsePayload {
   ok: boolean;
   answers?: {
     answers: AgentUserQuestionAnswer[];
-    user_id: string;
-    decided_at: string;
+    // Host fills these when omitted (single-user desktop).
+    user_id?: string;
+    decided_at?: string;
   };
   error?: string;
 }
