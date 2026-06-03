@@ -45,7 +45,9 @@ const VALID_EMBEDDING_PROVIDERS = ['zhipu', 'aliyun', 'openai'] as const;
 type ValidEmbeddingProvider = (typeof VALID_EMBEDDING_PROVIDERS)[number];
 
 function isValidEmbeddingProvider(value: unknown): value is ValidEmbeddingProvider {
-  return typeof value === 'string' && (VALID_EMBEDDING_PROVIDERS as readonly string[]).includes(value);
+  return (
+    typeof value === 'string' && (VALID_EMBEDDING_PROVIDERS as readonly string[]).includes(value)
+  );
 }
 
 /**
@@ -81,10 +83,7 @@ function readSettings(): ZoteroSettingsDTO {
     path: configManager.get<string>(ConfigKeys.ZoteroPath, ''),
     localApiEnabled: configManager.get<boolean>(ConfigKeys.ZoteroLocalApiEnabled, false),
     embeddingProvider: isValidEmbeddingProvider(provider) ? provider : 'zhipu',
-    activeRecommendation: configManager.get<boolean>(
-      ConfigKeys.ZoteroActiveRecommendation,
-      false
-    ),
+    activeRecommendation: configManager.get<boolean>(ConfigKeys.ZoteroActiveRecommendation, false),
     hasMinerUApiKey: secureHas(SecureStorageKeys.ZoteroMinerUApiKey),
     hasEmbeddingApiKey: secureHas(SecureStorageKeys.ZoteroEmbeddingApiKey),
     bibTexSync: {
@@ -174,9 +173,7 @@ export function registerZoteroHandlers(): void {
   });
 
   // ---- 探测 / 探活(无副作用,wizard 自己根据返回再决定是否 finish) ----
-  registerHandler(IpcChannel.Zotero_DetectInstallation, () =>
-    getZoteroDiscoveryService().detect()
-  );
+  registerHandler(IpcChannel.Zotero_DetectInstallation, () => getZoteroDiscoveryService().detect());
   registerHandler(IpcChannel.Zotero_PingLocalApi, () => getZoteroLocalApiClient().ping());
 
   // ---- Main-canonical bib index(方案 D / D-1) ----
@@ -188,23 +185,16 @@ export function registerZoteroHandlers(): void {
   registerHandler(IpcChannel.Zotero_RequestRefresh, () =>
     getZoteroOrchestrator().refresh('manual')
   );
-  registerHandler(IpcChannel.Zotero_GetDiagnostics, () =>
-    getZoteroOrchestrator().getDiagnostics()
-  );
+  registerHandler(IpcChannel.Zotero_GetDiagnostics, () => getZoteroOrchestrator().getDiagnostics());
 
   // ---- references.bib 同步(M2 Phase 2)----
   registerHandler(IpcChannel.Zotero_SyncBibTex, () => getBibTexSyncService().syncNow());
-  registerHandler(IpcChannel.Zotero_GetBibTexSyncStatus, () =>
-    getBibTexSyncService().getStatus()
-  );
+  registerHandler(IpcChannel.Zotero_GetBibTexSyncStatus, () => getBibTexSyncService().getStatus());
 
-  registerHandler(
-    IpcChannel.Zotero_GetCslByKey,
-    async (rawKey): Promise<unknown | null> => {
-      if (typeof rawKey !== 'string' || rawKey.length === 0) return null;
-      return getBetterBibTexClient().getCslByKey(rawKey);
-    }
-  );
+  registerHandler(IpcChannel.Zotero_GetCslByKey, async (rawKey): Promise<unknown | null> => {
+    if (typeof rawKey !== 'string' || rawKey.length === 0) return null;
+    return getBetterBibTexClient().getCslByKey(rawKey);
+  });
 
   registerHandler(
     IpcChannel.Zotero_GetItemAnnotations,

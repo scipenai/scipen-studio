@@ -164,11 +164,7 @@ export class ZoteroBibMirror {
    * 评分语义见 `bibSearchScoring.ts`(citation-key 前缀 → token 交集 → substring)。
    * `mode` 见 RecallMode:键入补全传 'prefix-only',搜索框 / LLM 工具用默认 'full'。
    */
-  searchByQueryWithScore(
-    query: string,
-    limit = 20,
-    mode: RecallMode = 'full'
-  ): BibSearchHit[] {
+  searchByQueryWithScore(query: string, limit = 20, mode: RecallMode = 'full'): BibSearchHit[] {
     return searchBibCorpus(
       {
         items: this.items,

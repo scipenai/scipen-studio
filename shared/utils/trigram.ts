@@ -110,7 +110,10 @@ export class TrigramIndex<K> {
 export function extractTrigrams(text: string): Set<string> {
   const out = new Set<string>();
   if (!text) return out;
-  const folded = text.toLowerCase().replace(/[^a-z0-9一-鿿]+/g, ' ').trim();
+  const folded = text
+    .toLowerCase()
+    .replace(/[^a-z0-9一-鿿]+/g, ' ')
+    .trim();
   if (folded.length === 0) return out;
 
   for (const token of folded.split(/\s+/)) {

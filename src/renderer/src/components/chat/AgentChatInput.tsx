@@ -17,7 +17,8 @@
  */
 
 import { Wrench } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type React from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMentionTrigger } from '../../hooks/useMentionTrigger';
 import { useZoteroWizardController } from '../../hooks/useZoteroWizard';
 import { useTranslation } from '../../locales';
@@ -343,7 +344,9 @@ export function AgentChatInput({
           onKeyUp={syncCaret}
           onClick={syncCaret}
           aria-label={t('chat.inputAriaLabel')}
-          placeholder={placeholder ?? (disabled ? t('chat.initializing') : t('chat.inputPlaceholder'))}
+          placeholder={
+            placeholder ?? (disabled ? t('chat.initializing') : t('chat.inputPlaceholder'))
+          }
           disabled={disabled}
           rows={1}
           onKeyDown={handleKeyDown}

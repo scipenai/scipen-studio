@@ -15,7 +15,7 @@ import type { ZoteroFullTextResultDTO } from '../../../../shared/types/zotero';
 import type { MinerUContentList } from '../../../../shared/types/zotero-mineru';
 import { truncateToBytes } from '../../../../shared/utils';
 import { createLogger } from '../LoggerService';
-import { getZoteroLocalApiClient, ZoteroLocalApiClient } from './ZoteroLocalApiClient';
+import { getZoteroLocalApiClient, type ZoteroLocalApiClient } from './ZoteroLocalApiClient';
 import { resolveZoteroDataDir } from './ZoteroDiscoveryService';
 
 const logger = createLogger('ZoteroFullTextService');
@@ -141,7 +141,9 @@ export class ZoteroFullTextService {
    * 给「论文」面板的「解析 MD」视图用:返回完整 markdown(不截断)+ parsed 目录
    * 绝对路径(renderer 据此把相对图片引用重写成 scipen-file:// URL)。无解析 → null。
    */
-  async getParsedMarkdown(itemKey: string): Promise<{ markdown: string; parsedDir: string } | null> {
+  async getParsedMarkdown(
+    itemKey: string
+  ): Promise<{ markdown: string; parsedDir: string } | null> {
     const markdown = await this.readMinerUCache(itemKey);
     if (markdown === null) return null;
     return { markdown, parsedDir: zoteroParsedDir(itemKey) };

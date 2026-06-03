@@ -150,9 +150,13 @@ export class EditorProtocolClient extends Disposable implements IEditorProtocolC
   private readonly _onTurnDelta = this._register(new Emitter<TurnDeltaParams>());
   private readonly _onEditPropose = this._register(new Emitter<EditProposeParams>());
   private readonly _onEditProposeDelta = this._register(new Emitter<EditProposeDeltaParams>());
-  private readonly _onEditProposeComplete = this._register(new Emitter<EditProposeCompleteParams>());
+  private readonly _onEditProposeComplete = this._register(
+    new Emitter<EditProposeCompleteParams>()
+  );
   private readonly _onPlanUpdate = this._register(new Emitter<PlanUpdateParams>());
-  private readonly _onToolApprovalRequest = this._register(new Emitter<ToolApprovalRequestParams>());
+  private readonly _onToolApprovalRequest = this._register(
+    new Emitter<ToolApprovalRequestParams>()
+  );
   private readonly _onUsageUpdate = this._register(new Emitter<UsageUpdateParams>());
   private readonly _onMemoryUpdated = this._register(new Emitter<MemoryUpdatedParams>());
   private readonly _onError = this._register(new Emitter<ErrorNotificationParams>());
@@ -511,22 +515,29 @@ export class EditorProtocolClient extends Disposable implements IEditorProtocolC
     const kind = classifyMessage(raw as Record<string, unknown>);
     switch (kind.kind) {
       case 'response':
-        this.handleResponse(raw as { id: JsonRpcRequestId; result?: unknown; error?: WireJsonRpcError });
+        this.handleResponse(
+          raw as { id: JsonRpcRequestId; result?: unknown; error?: WireJsonRpcError }
+        );
         break;
       case 'request':
         // The only request SNACA sends is `context.request`.
-        this.handleInboundRequest(raw as { id: JsonRpcRequestId; method: string; params?: unknown });
+        this.handleInboundRequest(
+          raw as { id: JsonRpcRequestId; method: string; params?: unknown }
+        );
         break;
       case 'notification':
         this.handleNotification(raw as { method: string; params?: unknown });
         break;
-      case 'invalid':
       default:
         logger.warn('inbound message has invalid envelope; dropping');
     }
   }
 
-  private handleResponse(msg: { id: JsonRpcRequestId; result?: unknown; error?: WireJsonRpcError }): void {
+  private handleResponse(msg: {
+    id: JsonRpcRequestId;
+    result?: unknown;
+    error?: WireJsonRpcError;
+  }): void {
     const id = String(msg.id);
     const pending = this.pending.get(id);
     if (!pending) {
@@ -659,12 +670,7 @@ export class EditorProtocolClient extends Disposable implements IEditorProtocolC
         this.parseAndFire(MemoryUpdatedParamsSchema, msg.params, this._onMemoryUpdated, msg.method);
         break;
       case SnacaToHost.Error:
-        this.parseAndFire(
-          ErrorNotificationParamsSchema,
-          msg.params,
-          this._onError,
-          msg.method
-        );
+        this.parseAndFire(ErrorNotificationParamsSchema, msg.params, this._onError, msg.method);
         break;
       case SnacaToHost.LogWrite:
         this.parseAndFire(LogWriteParamsSchema, msg.params, this._onLog, msg.method);

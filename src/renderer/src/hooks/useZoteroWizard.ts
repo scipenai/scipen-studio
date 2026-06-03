@@ -200,9 +200,7 @@ function goNext(): void {
 
 function goBack(): void {
   setState((prev) =>
-    prev.currentStep > 1
-      ? { ...prev, currentStep: (prev.currentStep - 1) as 1 | 2 | 3 }
-      : prev
+    prev.currentStep > 1 ? { ...prev, currentStep: (prev.currentStep - 1) as 1 | 2 | 3 } : prev
   );
 }
 

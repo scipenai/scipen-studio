@@ -33,7 +33,7 @@ describe('ZoteroIndex / hydrate', () => {
   it('citation-key map is rebuilt on hydrate', () => {
     const idx = new ZoteroIndex();
     idx.hydrate([item('AAA', 'foo')]);
-    idx.hydrate([item('BBB', 'foo')]);  // ck moved to a different itemKey
+    idx.hydrate([item('BBB', 'foo')]); // ck moved to a different itemKey
     expect(idx.getByCitationKey('foo')?.itemKey).toBe('BBB');
   });
 

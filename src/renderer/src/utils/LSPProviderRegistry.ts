@@ -142,10 +142,7 @@ export function registerLSPProviders(monacoInstance: Monaco): void {
   //   call / method / argument list 的通用触发集。
   monacoInstance.languages.registerCompletionItemProvider('typst', {
     triggerCharacters: ['@', '#', '.', ',', '(', ' '],
-    provideCompletionItems: async (
-      model: monaco.editor.ITextModel,
-      position: monaco.Position
-    ) => {
+    provideCompletionItems: async (model: monaco.editor.ITextModel, position: monaco.Position) => {
       if (!LSPService.isRunning()) return { suggestions: [] };
       const filePath = normalizeModelPath(model.uri.path);
       if (!isLSPSupportedFile(filePath)) return { suggestions: [] };

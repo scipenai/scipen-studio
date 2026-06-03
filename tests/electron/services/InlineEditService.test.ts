@@ -11,7 +11,7 @@
  *     - dispose() aborts everything and short-circuits future starts
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../src/main/services/LoggerService', () => ({
   createLogger: () => ({
@@ -68,7 +68,10 @@ interface ScriptedStream {
   throwAbortAfter?: number;
 }
 
-function makeStreamMock(script: ScriptedStream, abortSignal?: AbortSignal): {
+function makeStreamMock(
+  script: ScriptedStream,
+  abortSignal?: AbortSignal
+): {
   textStream: AsyncIterable<string>;
 } {
   return {
@@ -276,7 +279,9 @@ describe('InlineEditService', () => {
     mockStreamText.mockImplementation(() => ({
       textStream: (async function* () {
         throw new Error('401 Unauthorized');
+        // Unreachable yield kept so TS infers the generator's yield type.
         // eslint-disable-next-line no-unreachable
+        // biome-ignore lint/correctness/noUnreachable: intentional for type inference
         yield '';
       })(),
     }));

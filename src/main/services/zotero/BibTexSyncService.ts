@@ -253,9 +253,7 @@ export class BibTexSyncService {
       this.lastWrittenHash = nextHash;
       this.lastWrittenMtimeMs = stat.mtimeMs;
       // .gitignore 维护与写盘解耦 —— 失败不影响 sync 状态,只 warn 不抛。
-      void this.ensureGitignore().catch((err) =>
-        logger.warn('ensureGitignore failed', err)
-      );
+      void this.ensureGitignore().catch((err) => logger.warn('ensureGitignore failed', err));
       this.status = {
         kind: 'ok',
         filePath,
@@ -276,10 +274,7 @@ export class BibTexSyncService {
 
   /** 递归 mkdir;已存在则 no-op。fs.promises.mkdir({recursive:true}) 语义。 */
   private async ensureDir(dir: string): Promise<void> {
-    type MkdirFn = (
-      p: string,
-      opts: { recursive: boolean }
-    ) => Promise<unknown>;
+    type MkdirFn = (p: string, opts: { recursive: boolean }) => Promise<unknown>;
     const mk = (this.fileIO as { mkdir?: MkdirFn }).mkdir;
     if (typeof mk === 'function') {
       await mk(dir, { recursive: true });

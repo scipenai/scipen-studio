@@ -69,7 +69,10 @@ export function buildChatContext(): ChatContext {
       };
       ctx.active_file.selection = {
         range,
-        text: truncateToBytes(extractSelectionText(activeTab.content, sel), SELECTION_TEXT_MAX_BYTES),
+        text: truncateToBytes(
+          extractSelectionText(activeTab.content, sel),
+          SELECTION_TEXT_MAX_BYTES
+        ),
       };
     }
   }
@@ -90,7 +93,11 @@ export function buildChatContext(): ChatContext {
   );
   if (projectType) {
     const meta: ProjectMeta = { type: projectType };
-    const main = pickMainFile(tabs.map((t) => t.path), projectType, projectPath);
+    const main = pickMainFile(
+      tabs.map((t) => t.path),
+      projectType,
+      projectPath
+    );
     if (main) meta.main_file = main;
     const engine = pickEngine(projectType, settings.compiler);
     if (engine) meta.engine = engine;
@@ -145,8 +152,7 @@ export function buildChatContext(): ChatContext {
       lastCompile: compileResult
         ? {
             success: Boolean(compileResult.success),
-            errorCount:
-              compileResult.parsedErrors?.length ?? compileResult.errors?.length ?? 0,
+            errorCount: compileResult.parsedErrors?.length ?? compileResult.errors?.length ?? 0,
             warningCount:
               compileResult.parsedWarnings?.length ?? compileResult.warnings?.length ?? 0,
             durationMs: compileResult.time,

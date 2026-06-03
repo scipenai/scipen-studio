@@ -78,7 +78,11 @@ function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.Re
       <div className="min-h-0 flex-1 overflow-hidden">
         <PanelErrorBoundary panelName={previewTitle}>
           {rightPanelTab === 'paper' ? (
-            ZoteroPaperPane ? <ZoteroPaperPane /> : <PreviewLoadingFallback />
+            ZoteroPaperPane ? (
+              <ZoteroPaperPane />
+            ) : (
+              <PreviewLoadingFallback />
+            )
           ) : PreviewController ? (
             <PreviewController />
           ) : (

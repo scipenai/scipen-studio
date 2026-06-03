@@ -20,7 +20,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { History, Plus } from 'lucide-react';
-import React, {
+import type React from 'react';
+import {
   memo,
   useCallback,
   useEffect,
@@ -171,14 +172,17 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
     }
   }, []);
 
-  const hydrateThread = useCallback(async (threadId: string) => {
-    try {
-      const { messages: wire } = await agentClient.getMessages(threadId);
-      chatStreamStore.replaceMessages(threadId, wire);
-    } catch (err) {
-      setThreadError(`${t('thread.loadFailed')}: ${extractErrorMessage(err)}`);
-    }
-  }, [t]);
+  const hydrateThread = useCallback(
+    async (threadId: string) => {
+      try {
+        const { messages: wire } = await agentClient.getMessages(threadId);
+        chatStreamStore.replaceMessages(threadId, wire);
+      } catch (err) {
+        setThreadError(`${t('thread.loadFailed')}: ${extractErrorMessage(err)}`);
+      }
+    },
+    [t]
+  );
 
   // ---- inbound prompt injection (Ask-AI buttons → input seed) ----
 
@@ -275,9 +279,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
     async (threadId: string, title: string) => {
       setThreadError(null);
       // Optimistic: update locally first so the drawer feels responsive.
-      setThreads((prev) =>
-        prev.map((th) => (th.thread_id === threadId ? { ...th, title } : th))
-      );
+      setThreads((prev) => prev.map((th) => (th.thread_id === threadId ? { ...th, title } : th)));
       try {
         await agentClient.renameThread(threadId, title);
       } catch (err) {
@@ -320,7 +322,6 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         return t('chat.initializing');
       case 'error':
         return t('chat.startupError', { message: startup.message });
-      case 'ready':
       default:
         return undefined;
     }
@@ -365,7 +366,10 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
           >
             <History size={14} aria-hidden="true" />
           </button>
-          <span className="truncate text-[12px] font-medium text-[var(--color-text-primary)]" title={threadTitle}>
+          <span
+            className="truncate text-[12px] font-medium text-[var(--color-text-primary)]"
+            title={threadTitle}
+          >
             {threadTitle}
           </span>
         </div>
@@ -385,7 +389,10 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
       </header>
 
       {threadError && (
-        <div role="alert" className="border-b border-[var(--color-border)] bg-[var(--color-error-muted)] px-3 py-1.5 text-[11px] text-[var(--color-error)]">
+        <div
+          role="alert"
+          className="border-b border-[var(--color-border)] bg-[var(--color-error-muted)] px-3 py-1.5 text-[11px] text-[var(--color-error)]"
+        >
           {threadError}
         </div>
       )}
@@ -410,9 +417,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
                 key={`${m.role}-${m.ts}-${m.turnId ?? idx}`}
                 message={m}
                 completedTurn={
-                  m.role === 'assistant' && m.turnId
-                    ? chatStreamStore.getTurn(m.turnId)
-                    : undefined
+                  m.role === 'assistant' && m.turnId ? chatStreamStore.getTurn(m.turnId) : undefined
                 }
               />
             ))}
@@ -463,7 +468,10 @@ function StartupBadge({ state }: { state: StartupState }): React.ReactElement {
       );
     case 'error':
       return (
-        <span className="flex items-center gap-1.5 text-[10px] text-[var(--color-error)]" title={state.message}>
+        <span
+          className="flex items-center gap-1.5 text-[10px] text-[var(--color-error)]"
+          title={state.message}
+        >
           <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-error)]" />
           错误
         </span>
@@ -479,11 +487,7 @@ function EmptyState({
   composerSlot?: React.ReactNode;
 }): React.ReactElement {
   const { t } = useTranslation();
-  const examples = [
-    t('chat.examplePrompt1'),
-    t('chat.examplePrompt2'),
-    t('chat.examplePrompt3'),
-  ];
+  const examples = [t('chat.examplePrompt1'), t('chat.examplePrompt2'), t('chat.examplePrompt3')];
   return (
     <div className="flex min-h-full flex-col items-center justify-center gap-4 px-4 py-6 text-center">
       <div className="flex flex-col items-center gap-2 text-[var(--color-text-muted)]">
@@ -543,8 +547,7 @@ function extractErrorMessage(err: unknown): string {
  * log here, only enough to anchor the question.
  */
 function formatErrorPrompt(req: AskAIAboutErrorRequest): string {
-  const where =
-    req.file && req.line != null ? `${req.file}:${req.line}` : req.file ?? '';
+  const where = req.file && req.line != null ? `${req.file}:${req.line}` : (req.file ?? '');
   const intro = translate('chat.compileErrorIntro', {
     compiler: req.compilerType,
     where: where ? ` (${where})` : '',

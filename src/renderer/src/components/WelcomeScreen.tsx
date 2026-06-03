@@ -10,13 +10,7 @@ import { api } from '../api';
 import { useTranslation } from '../locales';
 import type { FileNode } from '../types';
 import { OverleafDownloadDialog } from './OverleafDownloadDialog';
-import {
-  WelcomeBackdrop,
-  WelcomeFooter,
-  WelcomeHero,
-  WelcomeRecent,
-  WelcomeTips,
-} from './welcome';
+import { WelcomeBackdrop, WelcomeFooter, WelcomeHero, WelcomeRecent, WelcomeTips } from './welcome';
 import { bootstrapExistingProject, type RecentProjectSummary } from './welcomeScreenHelpers';
 
 export const WelcomeScreen: React.FC = () => {

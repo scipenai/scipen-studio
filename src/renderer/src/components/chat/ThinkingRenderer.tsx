@@ -6,7 +6,8 @@
  * never produce these deltas, so the component is invisible.
  */
 
-import React, { useState } from 'react';
+import type React from 'react';
+import { useState } from 'react';
 
 interface ThinkingRendererProps {
   text: string;
@@ -14,7 +15,10 @@ interface ThinkingRendererProps {
   streaming?: boolean;
 }
 
-export function ThinkingRenderer({ text, streaming }: ThinkingRendererProps): React.ReactElement | null {
+export function ThinkingRenderer({
+  text,
+  streaming,
+}: ThinkingRendererProps): React.ReactElement | null {
   const [expanded, setExpanded] = useState<boolean>(streaming ?? false);
 
   if (!text) return null;
@@ -27,14 +31,21 @@ export function ThinkingRenderer({ text, streaming }: ThinkingRendererProps): Re
         className="flex w-full items-center justify-between gap-2 py-0.5 text-left text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
       >
         <span className="flex items-center gap-1.5">
-          <svg width="10" height="10" viewBox="0 0 10 10" className={expanded ? 'rotate-90 transition' : 'transition'}>
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            className={expanded ? 'rotate-90 transition' : 'transition'}
+          >
             <path d="M3 1 L7 5 L3 9 Z" fill="currentColor" />
           </svg>
           <span className="font-medium">
             {streaming ? '思考中…' : '思考过程'} ({text.length})
           </span>
         </span>
-        {streaming && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-accent)]" />}
+        {streaming && (
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-accent)]" />
+        )}
       </button>
       {expanded && (
         <pre className="mt-1 max-h-72 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.55] text-[var(--color-text-muted)] opacity-90">

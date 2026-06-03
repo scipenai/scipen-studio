@@ -63,11 +63,7 @@ function makeOrchestrator(
   });
 }
 
-function item(
-  itemKey: string,
-  title = `Paper ${itemKey}`,
-  citationKey?: string
-): ZoteroItemDTO {
+function item(itemKey: string, title = `Paper ${itemKey}`, citationKey?: string): ZoteroItemDTO {
   return {
     itemKey,
     itemType: 'journalArticle',
@@ -146,7 +142,7 @@ describe('ZoteroOrchestrator / bootstrap', () => {
       {}
     );
     await orch.bootstrap();
-    await orch.bootstrap();  // second call should short-circuit
+    await orch.bootstrap(); // second call should short-circuit
     expect(calls).toBe(1);
   });
 });
@@ -172,12 +168,12 @@ describe('ZoteroOrchestrator / refresh + cooldown', () => {
     await orch.bootstrap();
     expect(calls).toBe(1);
 
-    now += 500;  // < REFRESH_COOLDOWN_MS
+    now += 500; // < REFRESH_COOLDOWN_MS
     const r1 = await orch.refresh('focus');
     expect(r1.triggered).toBe(false);
     expect(calls).toBe(1);
 
-    now += 2000;  // > cooldown
+    now += 2000; // > cooldown
     const r2 = await orch.refresh('focus');
     expect(r2.triggered).toBe(true);
     expect(calls).toBe(2);
@@ -225,7 +221,7 @@ describe('mergeBbtIntoItems', () => {
       items,
       new Map([
         ['AAA', 'smith2024'],
-        ['CCC', 'orphan'],  // doesn't apply
+        ['CCC', 'orphan'], // doesn't apply
       ])
     );
     expect(merged[0]?.citationKey).toBe('smith2024');

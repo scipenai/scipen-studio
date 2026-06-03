@@ -27,11 +27,7 @@ import type {
   AgentResolveEditProposalResult,
   IAgentEditApplyService,
 } from './interfaces/IAgentEditApplyService';
-import type {
-  EditProposeParams,
-  LineHunk,
-  PerHunkChoice,
-} from './protocol/schemas';
+import type { EditProposeParams, LineHunk, PerHunkChoice } from './protocol/schemas';
 
 const logger = createLogger('AgentEditApply');
 
@@ -78,9 +74,7 @@ export class AgentEditApplyService implements IAgentEditApplyService {
     );
   }
 
-  async resolve(
-    params: AgentResolveEditProposalParams
-  ): Promise<AgentResolveEditProposalResult> {
+  async resolve(params: AgentResolveEditProposalParams): Promise<AgentResolveEditProposalResult> {
     const cached = this.proposals.get(params.proposalId);
     if (!cached) {
       throw new Error(`Unknown proposal: ${params.proposalId}`);
@@ -95,11 +89,7 @@ export class AgentEditApplyService implements IAgentEditApplyService {
       return { applied: false, confirmResult };
     }
 
-    const acceptedHunks = filterAcceptedHunks(
-      cached.params.hunks,
-      params.decision,
-      params.perHunk
-    );
+    const acceptedHunks = filterAcceptedHunks(cached.params.hunks, params.decision, params.perHunk);
 
     if (acceptedHunks.length === 0) {
       // Treat "accept_partial with all rejected" as a regular reject so the

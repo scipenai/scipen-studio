@@ -15,7 +15,7 @@ vi.mock('../../../src/main/services/zotero/ZoteroOrchestrator', () => ({
 }));
 
 import type { ZoteroItemDTO } from '../../../shared/types/zotero';
-import { EmbeddingClient } from '../../../src/main/services/zotero/EmbeddingClient';
+import type { EmbeddingClient } from '../../../src/main/services/zotero/EmbeddingClient';
 import { EmbeddingStore } from '../../../src/main/services/zotero/EmbeddingStore';
 import { EmbeddingIndexService } from '../../../src/main/services/zotero/EmbeddingIndexService';
 import { ZoteroEventBus } from '../../../src/main/services/zotero/ZoteroEventBus';
@@ -54,7 +54,11 @@ class FakeClient {
   embedCalls: string[][] = [];
   async embedBatch(texts: string[]) {
     this.embedCalls.push(texts);
-    return { vectors: texts.map((t) => [t.length, t.charCodeAt(0) || 0]), modelId: this.modelId, dim: 2 };
+    return {
+      vectors: texts.map((t) => [t.length, t.charCodeAt(0) || 0]),
+      modelId: this.modelId,
+      dim: 2,
+    };
   }
   async embedOne(text: string) {
     return { vector: [text.length, text.charCodeAt(0) || 0], modelId: this.modelId };

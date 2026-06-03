@@ -93,7 +93,10 @@ export class EmbeddingClient {
   }
 
   /** 单条 embedding(查询用)。返回向量 + modelId。 */
-  async embedOne(text: string, signal?: AbortSignal): Promise<{ vector: number[]; modelId: string }> {
+  async embedOne(
+    text: string,
+    signal?: AbortSignal
+  ): Promise<{ vector: number[]; modelId: string }> {
     const vectors = await this.callEmbeddings([text], signal);
     return { vector: vectors[0], modelId: this.modelId };
   }

@@ -31,9 +31,9 @@ import type {
   ZoteroDiagnosticsDTO,
 } from '../../../../shared/types/zotero-events';
 import { createLogger } from '../LoggerService';
-import { BetterBibTexClient, getBetterBibTexClient } from './BetterBibTexClient';
-import { ZoteroLocalApiClient, getZoteroLocalApiClient } from './ZoteroLocalApiClient';
-import { ZoteroEventBus, getZoteroEventBus } from './ZoteroEventBus';
+import { type BetterBibTexClient, getBetterBibTexClient } from './BetterBibTexClient';
+import { type ZoteroLocalApiClient, getZoteroLocalApiClient } from './ZoteroLocalApiClient';
+import { type ZoteroEventBus, getZoteroEventBus } from './ZoteroEventBus';
 import { ZoteroIndex } from './ZoteroIndex';
 
 const logger = createLogger('ZoteroOrchestrator');
@@ -101,7 +101,9 @@ export class ZoteroOrchestrator {
    * Manual / focus-triggered refresh. Honors a cooldown to dampen the
    * `window.on('focus')` torrent users generate by alt-tabbing.
    */
-  async refresh(reason: 'focus' | 'manual' | 'error-recovery' = 'manual'): Promise<RefreshResultDTO> {
+  async refresh(
+    reason: 'focus' | 'manual' | 'error-recovery' = 'manual'
+  ): Promise<RefreshResultDTO> {
     const elapsed = this.now() - this.lastAttemptAt;
     if (this.inFlight) {
       return this.inFlight;
@@ -165,9 +167,7 @@ export class ZoteroOrchestrator {
     }
 
     this.localApiProbe = { ok: true };
-    this.bbtProbe = bbtHealthResult.ok
-      ? { ok: true }
-      : { ok: false, error: bbtHealthResult.error };
+    this.bbtProbe = bbtHealthResult.ok ? { ok: true } : { ok: false, error: bbtHealthResult.error };
 
     // citation key 由 LocalApi 直接从 data.citationKey 注入,无需 BBT 合并。
     // mergeBbtIntoItems 仍 export 作为可测试纯函数 + 将来 opt-in reconcile 工具。

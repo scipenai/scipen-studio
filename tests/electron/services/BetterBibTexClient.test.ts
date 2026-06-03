@@ -111,9 +111,7 @@ describe('BetterBibTexClient', () => {
   describe('getCslByKey', () => {
     it('returns parsed CSL when BBT replies', async () => {
       const csl = { id: 'smith2024deep', type: 'article-journal', title: 'Deep Learning' };
-      installFetchMock(() =>
-        jsonResponse({ jsonrpc: '2.0', id: 1, result: [csl] })
-      );
+      installFetchMock(() => jsonResponse({ jsonrpc: '2.0', id: 1, result: [csl] }));
       const client = new BetterBibTexClient();
       const result = await client.getCslByKey('smith2024deep');
       expect(result).toEqual([csl]);

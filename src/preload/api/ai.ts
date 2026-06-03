@@ -49,8 +49,7 @@ export const aiApi = {
     language: string;
     fileLabel?: string;
     surroundingContext?: string;
-  }): Promise<{ turnId: string }> =>
-    ipcRenderer.invoke(IpcChannel.AI_InlineEditStart, params),
+  }): Promise<{ turnId: string }> => ipcRenderer.invoke(IpcChannel.AI_InlineEditStart, params),
 
   inlineEditCancel: (turnId: string): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke(IpcChannel.AI_InlineEditCancel, turnId),

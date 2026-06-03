@@ -6,8 +6,6 @@
 
 import { describe, expect, it } from 'vitest';
 import { IpcChannel } from '../../../shared/ipc/channels';
-
-import { z } from 'zod';
 import { channelSchemas } from '../../../src/main/ipc/typedIpc';
 
 // ====== Test Data Preparation ======

@@ -8,7 +8,8 @@
  */
 
 import { Pencil, Plus, Trash2, X } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type React from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '../../locales';
 import type { ThreadSummary } from '../../services/agent/AgentClientService';
 
@@ -219,7 +220,9 @@ function DeleteButton({ onConfirm, confirmText, title }: DeleteButtonProps): Rea
     <button
       type="button"
       className={`rounded p-1 hover:bg-[var(--color-bg-tertiary)] ${
-        armed ? 'text-red-500' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
+        armed
+          ? 'text-red-500'
+          : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
       }`}
       title={armed ? confirmText : title}
       onClick={(e) => {

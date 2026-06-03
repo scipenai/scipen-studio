@@ -45,11 +45,7 @@ const MAX_PAGE_SIZE = 100;
 const DEFAULT_PAGE_SIZE = 25;
 
 /** 顶级 endpoint 仍可能放过 standalone attachment / 误入的 note;客户端兜底。 */
-const IGNORED_ITEM_TYPES: ReadonlySet<string> = new Set([
-  'attachment',
-  'annotation',
-  'note',
-]);
+const IGNORED_ITEM_TYPES: ReadonlySet<string> = new Set(['attachment', 'annotation', 'note']);
 
 /**
  * Zotero 对无数据 entry 仍渲染一个空 `<div class="csl-bib-body">…</div>` 壳;
@@ -91,9 +87,7 @@ export class ZoteroLocalApiClient {
       const isConnRefused = /ECONNREFUSED|fetch failed|aborted/i.test(reason);
       return {
         ok: false,
-        error: isConnRefused
-          ? 'Zotero is not running or its Local API is not enabled'
-          : reason,
+        error: isConnRefused ? 'Zotero is not running or its Local API is not enabled' : reason,
       };
     } finally {
       clearTimeout(timer);
@@ -107,10 +101,7 @@ export class ZoteroLocalApiClient {
   async getItems(opts: ZoteroGetItemsOptionsDTO = {}): Promise<ZoteroItemDTO[]> {
     const limit = clampPageSize(opts.limit);
     const start = Math.max(0, opts.start ?? 0);
-    const url =
-      `${this.baseUrl}/api/users/0/items/top` +
-      `?format=json&include=data,bib,citation&style=apa` +
-      `&limit=${limit}&start=${start}`;
+    const url = `${this.baseUrl}/api/users/0/items/top?format=json&include=data,bib,citation&style=apa&limit=${limit}&start=${start}`;
 
     const json = await this.fetchJson<ZoteroRawItem[]>(url);
 
@@ -139,9 +130,7 @@ export class ZoteroLocalApiClient {
    */
   async getItemAnnotations(itemKey: string): Promise<ZoteroAnnotationDTO[]> {
     if (!itemKey) return [];
-    const url =
-      `${this.baseUrl}/api/users/0/items/${encodeURIComponent(itemKey)}/children` +
-      `?format=json&include=data&itemType=annotation`;
+    const url = `${this.baseUrl}/api/users/0/items/${encodeURIComponent(itemKey)}/children?format=json&include=data&itemType=annotation`;
     const raw = await this.fetchJson<ZoteroRawItem[]>(url);
     return (Array.isArray(raw) ? raw : [])
       .map((entry) => toAnnotationDTO(entry, itemKey))
@@ -154,13 +143,9 @@ export class ZoteroLocalApiClient {
    */
   async getItemAttachments(itemKey: string): Promise<ZoteroAttachmentDTO[]> {
     if (!itemKey) return [];
-    const url =
-      `${this.baseUrl}/api/users/0/items/${encodeURIComponent(itemKey)}/children` +
-      `?format=json&include=data&itemType=attachment`;
+    const url = `${this.baseUrl}/api/users/0/items/${encodeURIComponent(itemKey)}/children?format=json&include=data&itemType=attachment`;
     const raw = await this.fetchJson<ZoteroRawItem[]>(url);
-    return (Array.isArray(raw) ? raw : [])
-      .map((entry) => toAttachmentDTO(entry))
-      .filter(notNull);
+    return (Array.isArray(raw) ? raw : []).map((entry) => toAttachmentDTO(entry)).filter(notNull);
   }
 
   getBaseUrl(): string {
@@ -278,10 +263,7 @@ function toItemDTO(raw: ZoteroRawItem): ZoteroItemDTO | null {
   };
 }
 
-function toAnnotationDTO(
-  raw: ZoteroRawItem,
-  fallbackParent: string
-): ZoteroAnnotationDTO | null {
+function toAnnotationDTO(raw: ZoteroRawItem, fallbackParent: string): ZoteroAnnotationDTO | null {
   const data = raw.data;
   if (!data) return null;
   const itemKey = data.key ?? raw.key ?? '';

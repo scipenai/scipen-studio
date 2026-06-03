@@ -109,10 +109,7 @@ export const WelcomeRecent: React.FC<WelcomeRecentProps> = ({
               {openingPath === project.path ? (
                 <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[var(--color-text-muted)]" />
               ) : (
-                <span
-                  className="shrink-0 text-xs"
-                  style={{ color: 'var(--color-text-muted)' }}
-                >
+                <span className="shrink-0 text-xs" style={{ color: 'var(--color-text-muted)' }}>
                   {formatTimeAgo(project.lastOpened)}
                 </span>
               )}

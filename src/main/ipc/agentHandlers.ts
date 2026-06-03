@@ -16,10 +16,7 @@ import path from 'path';
 import { z } from 'zod';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import { ConfigKeys } from '../../../shared/types/config-keys';
-import type {
-  AIProviderDTO,
-  ModelSelection,
-} from '../../../shared/ipc/types';
+import type { AIProviderDTO, ModelSelection } from '../../../shared/ipc/types';
 import type { IEditorProtocolClient } from '../services/agent/interfaces/IEditorProtocolClient';
 import type {
   ISnacaSidecarService,
@@ -336,8 +333,7 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
     // in-progress LLM round trip would orphan it. The grace window
     // protects against a stuck turn pinning the reload forever.
     const waitForInflight =
-      state.inflightTurn !== null &&
-      Date.now() - reloadRequestedAt < RELOAD_INFLIGHT_GRACE_MS;
+      state.inflightTurn !== null && Date.now() - reloadRequestedAt < RELOAD_INFLIGHT_GRACE_MS;
     const delay = waitForInflight ? 800 : 300;
     restartTimer = setTimeout(() => {
       restartTimer = null;
@@ -370,7 +366,9 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
       const snacaConfig = buildSnacaConfigFromSettings(config);
       client
         .configReload(snacaConfig)
-        .then(() => logger.info('config.reload applied', { approvalMode: snacaConfig.approval_mode }))
+        .then(() =>
+          logger.info('config.reload applied', { approvalMode: snacaConfig.approval_mode })
+        )
         .catch((err) => {
           logger.warn('config.reload failed; falling back to sidecar restart', {
             error: (err as Error).message,
@@ -514,7 +512,9 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
   });
   store.add(client.onEditPropose((e) => broadcast(IpcChannel.Agent_EditPropose, e)));
   store.add(client.onEditProposeDelta((e) => broadcast(IpcChannel.Agent_EditProposeDelta, e)));
-  store.add(client.onEditProposeComplete((e) => broadcast(IpcChannel.Agent_EditProposeComplete, e)));
+  store.add(
+    client.onEditProposeComplete((e) => broadcast(IpcChannel.Agent_EditProposeComplete, e))
+  );
   store.add(client.onPlanUpdate((e) => broadcast(IpcChannel.Agent_PlanUpdate, e)));
   store.add(
     client.onToolApprovalRequest((e) => broadcast(IpcChannel.Agent_ToolApprovalRequest, e))
@@ -612,11 +612,7 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
   });
 
   ipcMain.handle(IpcChannel.Agent_StartComposer, async (_e, rawPayload: unknown) => {
-    const payload = parseOrThrow(
-      startComposerPayloadSchema,
-      rawPayload,
-      'startComposer payload'
-    );
+    const payload = parseOrThrow(startComposerPayloadSchema, rawPayload, 'startComposer payload');
     await ensureSessionReady();
     if (!state.threadId) {
       const t = await client.sessionNewThread(state.sessionId!, undefined);
@@ -691,18 +687,15 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
     return await client.toolConfirm(wire);
   });
 
-  ipcMain.handle(
-    IpcChannel.Agent_ContextFlushResponse,
-    (_e, rawPayload: unknown): { ok: true } => {
-      const payload = parseOrThrow(
-        contextFlushResponseSchema,
-        rawPayload,
-        'contextFlushResponse payload'
-      );
-      contextRequest.completeFlush(payload);
-      return { ok: true };
-    }
-  );
+  ipcMain.handle(IpcChannel.Agent_ContextFlushResponse, (_e, rawPayload: unknown): { ok: true } => {
+    const payload = parseOrThrow(
+      contextFlushResponseSchema,
+      rawPayload,
+      'contextFlushResponse payload'
+    );
+    contextRequest.completeFlush(payload);
+    return { ok: true };
+  });
 
   ipcMain.handle(
     IpcChannel.Agent_ContextZoteroResponse,
@@ -717,18 +710,15 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
     }
   );
 
-  ipcMain.handle(
-    IpcChannel.Agent_UserQuestionResponse,
-    (_e, rawPayload: unknown): { ok: true } => {
-      const payload = parseOrThrow(
-        contextQuestionResponseSchema,
-        rawPayload,
-        'contextQuestionResponse payload'
-      );
-      contextRequest.completeQuestion(payload);
-      return { ok: true };
-    }
-  );
+  ipcMain.handle(IpcChannel.Agent_UserQuestionResponse, (_e, rawPayload: unknown): { ok: true } => {
+    const payload = parseOrThrow(
+      contextQuestionResponseSchema,
+      rawPayload,
+      'contextQuestionResponse payload'
+    );
+    contextRequest.completeQuestion(payload);
+    return { ok: true };
+  });
 
   // ----- Memory viewer (P6-C) -----
   //
@@ -777,11 +767,7 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
   });
 
   ipcMain.handle(IpcChannel.Agent_MemoryReveal, async (_e, rawPayload: unknown) => {
-    const p = parseOrThrow(
-      memoryRevealPayloadSchema,
-      rawPayload ?? {},
-      'memoryReveal payload'
-    );
+    const p = parseOrThrow(memoryRevealPayloadSchema, rawPayload ?? {}, 'memoryReveal payload');
     const result = await client.memoryReveal({
       session_id: requireSession(),
       scope: p.scope,
@@ -868,7 +854,13 @@ function uuidV4ish(input: string): string {
     h2 = Math.imul(h2 ^ c, 0x85ebca6b) >>> 0;
   }
   const part = (n: number, len: number): string => n.toString(16).padStart(8, '0').slice(0, len);
-  return [part(h1, 8), part(h2, 4), '4' + part(h1 ^ h2, 3), '8' + part(h2 ^ h1, 3), part(h1 + h2, 8) + part(h2 - h1, 4)].join('-');
+  return [
+    part(h1, 8),
+    part(h2, 4),
+    '4' + part(h1 ^ h2, 3),
+    '8' + part(h2 ^ h1, 3),
+    part(h1 + h2, 8) + part(h2 - h1, 4),
+  ].join('-');
 }
 
 /** Wire name for SNACA's api-key env variable. */
@@ -1016,8 +1008,7 @@ function resolveChatProvider(config: IConfigManager): ResolvedChatProvider | nul
   // completion selection (the Settings UI keeps them aligned, but legacy
   // configs may only carry `completion`). Same providerId either way →
   // same credentials.
-  const selection: ModelSelection | null =
-    ai.selectedModels.chat ?? ai.selectedModels.completion;
+  const selection: ModelSelection | null = ai.selectedModels.chat ?? ai.selectedModels.completion;
   if (!selection) return null;
 
   const providers: AIProviderDTO[] = ai.providers;

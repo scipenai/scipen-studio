@@ -467,10 +467,7 @@ class ChatStreamStoreImpl {
    * Preserve the accumulated turn when its id matches.
    */
   beginUserTurn(turnId: string, content: string): void {
-    this.messages = [
-      ...this.messages,
-      { role: 'user', text: content, ts: Date.now() },
-    ];
+    this.messages = [...this.messages, { role: 'user', text: content, ts: Date.now() }];
     if (!this.currentTurn || this.currentTurn.turnId !== turnId) {
       this.currentTurn = makeEmptyTurn(turnId);
     }

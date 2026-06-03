@@ -58,8 +58,7 @@ export const WelcomeBackdrop: React.FC = () => {
         transition={{ delay: 0.5, duration: 1.5 }}
         className="absolute bottom-[20%] right-[15%] h-[400px] w-[400px] rounded-full blur-[120px]"
         style={{
-          background:
-            'radial-gradient(circle, var(--welcome-glow-secondary) 0%, transparent 70%)',
+          background: 'radial-gradient(circle, var(--welcome-glow-secondary) 0%, transparent 70%)',
         }}
       />
       <motion.div
@@ -78,8 +77,7 @@ export const WelcomeBackdrop: React.FC = () => {
         transition={{ delay: 0.9, duration: 2 }}
         className="absolute right-[25%] top-[10%] h-[250px] w-[250px] rounded-full blur-[80px]"
         style={{
-          background:
-            'radial-gradient(circle, var(--welcome-glow-secondary) 0%, transparent 70%)',
+          background: 'radial-gradient(circle, var(--welcome-glow-secondary) 0%, transparent 70%)',
           opacity: 0.5,
         }}
       />

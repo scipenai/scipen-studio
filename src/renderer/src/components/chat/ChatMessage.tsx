@@ -8,7 +8,15 @@
  * the same context the user saw mid-generation.
  */
 
-import { ChevronRight, CornerDownLeft, FileCog, FilePlus, FileX, FilePen, Loader2 } from 'lucide-react';
+import {
+  ChevronRight,
+  CornerDownLeft,
+  FileCog,
+  FilePlus,
+  FileX,
+  FilePen,
+  Loader2,
+} from 'lucide-react';
 import { useCallback, useState, type ReactElement } from 'react';
 import { agentClient } from '../../services/agent/AgentClientService';
 import {
@@ -59,10 +67,8 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
   const { t } = useTranslation();
   if (turn) {
     const suppressText = shouldSuppressPlanText(turn);
-    const showWaiting =
-      turn.pending && !suppressText && turn.events.length === 0;
-    const showPlanComposing =
-      suppressText && turn.pending && !turn.plan;
+    const showWaiting = turn.pending && !suppressText && turn.events.length === 0;
+    const showPlanComposing = suppressText && turn.pending && !turn.plan;
     return (
       <div className="mb-3">
         <Timeline
@@ -112,8 +118,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
   // Records persisted before text became a timeline event have thinking +
   // tool events but no text event — fall back to rendering `message.text`
   // at the end so legacy threads still show the assistant's reply.
-  const hasTextEvent =
-    completedTurn?.events?.some((e) => e.kind === 'text') ?? false;
+  const hasTextEvent = completedTurn?.events?.some((e) => e.kind === 'text') ?? false;
   const renderLegacyTail = !suppressText && !hasTextEvent && message.text.length > 0;
   return (
     <div className="group mb-3">
@@ -125,9 +130,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
           suppressText={suppressText}
         />
       )}
-      {completedTurn?.plan && (
-        <PlanCard plan={completedTurn.plan} turnId={completedTurn.turnId} />
-      )}
+      {completedTurn?.plan && <PlanCard plan={completedTurn.plan} turnId={completedTurn.turnId} />}
       {completedTurn && <ProposalsList proposals={completedTurn.proposals} />}
       {renderLegacyTail && (
         <div className="chat-msg-text leading-[1.6]">
@@ -162,13 +165,7 @@ function Timeline({
       {events.map((ev, i) => {
         const isLast = i === events.length - 1;
         if (ev.kind === 'thinking') {
-          return (
-            <ThinkingRenderer
-              key={`th-${i}`}
-              text={ev.text}
-              streaming={isLast && pending}
-            />
-          );
+          return <ThinkingRenderer key={`th-${i}`} text={ev.text} streaming={isLast && pending} />;
         }
         if (ev.kind === 'text') {
           if (suppressText) return null;
@@ -211,7 +208,9 @@ function ToolCallCard({ call }: { call: ChatTurn['toolCalls'][number] }): ReactE
           size={10}
           className={`flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
         />
-        <span className={`font-medium ${statusColor(call.status)}`}>{statusGlyph(call.status)}</span>
+        <span className={`font-medium ${statusColor(call.status)}`}>
+          {statusGlyph(call.status)}
+        </span>
         <span className="font-medium text-[var(--color-text-secondary)]">{call.tool}</span>
         {argsPreview && (
           <span className="truncate text-[var(--color-text-muted)]">{argsPreview}</span>
@@ -482,7 +481,10 @@ function PlanFileRow({ file }: { file: ChatPlanFile }): ReactElement {
           </span>
           {file.renameTo && (
             <>
-              <CornerDownLeft size={10} className="flex-shrink-0 -rotate-90 text-[var(--color-text-muted)]" />
+              <CornerDownLeft
+                size={10}
+                className="flex-shrink-0 -rotate-90 text-[var(--color-text-muted)]"
+              />
               <span className="truncate font-mono text-[10px] text-[var(--color-text-primary)]">
                 {file.renameTo}
               </span>
@@ -508,7 +510,6 @@ function planActionIcon(action: ChatPlanFile['action']): typeof FileCog {
       return FileX;
     case 'rename':
       return FilePen;
-    case 'modify':
     default:
       return FileCog;
   }
@@ -522,7 +523,6 @@ function planActionColor(action: ChatPlanFile['action']): string {
       return 'text-[var(--color-error)]';
     case 'rename':
       return 'text-[var(--color-warning)]';
-    case 'modify':
     default:
       return 'text-[var(--color-accent)]';
   }
@@ -537,7 +537,6 @@ function planStatusColor(status: ChatPlanFile['status']): string {
     case 'failed':
     case 'rejected':
       return 'text-[var(--color-error)]';
-    case 'pending':
     default:
       return 'text-[var(--color-text-muted)]';
   }
@@ -598,7 +597,9 @@ function ProposalRow({ proposal }: { proposal: ChatProposalRecord }): ReactEleme
       }
     >
       <FilePen size={11} className="flex-shrink-0 text-[var(--color-accent)]" />
-      <span className="truncate font-mono text-[10px] text-[var(--color-text-primary)]">{fileName}</span>
+      <span className="truncate font-mono text-[10px] text-[var(--color-text-primary)]">
+        {fileName}
+      </span>
       <span className="flex-shrink-0 text-[var(--color-text-muted)]">
         · {proposal.hunkCount} {t('chat.proposalChangesSuffix')}
       </span>
@@ -615,7 +616,6 @@ function proposalStatusColor(status: ChatProposalRecord['status']): string {
       return 'text-[var(--color-success)]';
     case 'rejected':
       return 'text-[var(--color-text-muted)]';
-    case 'pending':
     default:
       return 'text-[var(--color-accent)]';
   }
@@ -726,7 +726,6 @@ function riskBorder(risk: 'low' | 'medium' | 'high'): string {
       return 'border-[color-mix(in_srgb,var(--color-error)_50%,transparent)]';
     case 'medium':
       return 'border-[color-mix(in_srgb,var(--color-warning)_50%,transparent)]';
-    case 'low':
     default:
       return 'border-[var(--color-border-subtle)]';
   }
@@ -738,7 +737,6 @@ function riskText(risk: 'low' | 'medium' | 'high'): string {
       return 'text-[var(--color-error)]';
     case 'medium':
       return 'text-[var(--color-warning)]';
-    case 'low':
     default:
       return 'text-[var(--color-text-muted)]';
   }

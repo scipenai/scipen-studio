@@ -50,7 +50,11 @@ export class ActiveRecommendationService {
   private citationScores: Map<string, number> | null = null;
 
   private listeners = new Set<Listener>();
-  private stateSnapshot: RecommendationState = { indexState: 'disabled', items: [], loading: false };
+  private stateSnapshot: RecommendationState = {
+    indexState: 'disabled',
+    items: [],
+    loading: false,
+  };
   private unsubProgress: (() => void) | null = null;
 
   // ============================================================

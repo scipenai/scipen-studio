@@ -39,27 +39,48 @@ export enum EditorErrorCode {
  */
 export function errorCodeSymbol(code: number): string {
   switch (code) {
-    case EditorErrorCode.ParseError: return 'parse_error';
-    case EditorErrorCode.InvalidRequest: return 'invalid_request';
-    case EditorErrorCode.MethodNotFound: return 'method_not_found';
-    case EditorErrorCode.InvalidParams: return 'invalid_params';
-    case EditorErrorCode.InternalError: return 'internal_error';
-    case EditorErrorCode.NotInitialized: return 'not_initialized';
-    case EditorErrorCode.SessionNotFound: return 'session_not_found';
-    case EditorErrorCode.ThreadNotFound: return 'thread_not_found';
-    case EditorErrorCode.TurnNotFound: return 'turn_not_found';
-    case EditorErrorCode.ProposalNotFound: return 'proposal_not_found';
-    case EditorErrorCode.InflightTurnBusy: return 'inflight_turn_busy';
-    case EditorErrorCode.CapabilityNotSupported: return 'capability_not_supported';
-    case EditorErrorCode.ConfigInvalid: return 'config_invalid';
-    case EditorErrorCode.WorkspaceInvalid: return 'workspace_invalid';
-    case EditorErrorCode.LlmAuthFailed: return 'llm_auth_failed';
-    case EditorErrorCode.LlmContextOverflow: return 'llm_context_overflow';
-    case EditorErrorCode.LlmRateLimited: return 'llm_rate_limited';
-    case EditorErrorCode.BaseHashMismatch: return 'base_hash_mismatch';
-    case EditorErrorCode.Cancelled: return 'cancelled';
-    case EditorErrorCode.Timeout: return 'timeout';
-    default: return 'other';
+    case EditorErrorCode.ParseError:
+      return 'parse_error';
+    case EditorErrorCode.InvalidRequest:
+      return 'invalid_request';
+    case EditorErrorCode.MethodNotFound:
+      return 'method_not_found';
+    case EditorErrorCode.InvalidParams:
+      return 'invalid_params';
+    case EditorErrorCode.InternalError:
+      return 'internal_error';
+    case EditorErrorCode.NotInitialized:
+      return 'not_initialized';
+    case EditorErrorCode.SessionNotFound:
+      return 'session_not_found';
+    case EditorErrorCode.ThreadNotFound:
+      return 'thread_not_found';
+    case EditorErrorCode.TurnNotFound:
+      return 'turn_not_found';
+    case EditorErrorCode.ProposalNotFound:
+      return 'proposal_not_found';
+    case EditorErrorCode.InflightTurnBusy:
+      return 'inflight_turn_busy';
+    case EditorErrorCode.CapabilityNotSupported:
+      return 'capability_not_supported';
+    case EditorErrorCode.ConfigInvalid:
+      return 'config_invalid';
+    case EditorErrorCode.WorkspaceInvalid:
+      return 'workspace_invalid';
+    case EditorErrorCode.LlmAuthFailed:
+      return 'llm_auth_failed';
+    case EditorErrorCode.LlmContextOverflow:
+      return 'llm_context_overflow';
+    case EditorErrorCode.LlmRateLimited:
+      return 'llm_rate_limited';
+    case EditorErrorCode.BaseHashMismatch:
+      return 'base_hash_mismatch';
+    case EditorErrorCode.Cancelled:
+      return 'cancelled';
+    case EditorErrorCode.Timeout:
+      return 'timeout';
+    default:
+      return 'other';
   }
 }
 

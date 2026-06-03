@@ -58,10 +58,7 @@ export function registerCiteCompletionProviders(monacoInstance: Monaco): void {
   for (const languageId of LANGUAGE_IDS) {
     monacoInstance.languages.registerCompletionItemProvider(languageId, {
       triggerCharacters: ['{', '@', ',', ' '],
-      provideCompletionItems: (
-        model: monaco.editor.ITextModel,
-        position: monaco.Position
-      ) => {
+      provideCompletionItems: (model: monaco.editor.ITextModel, position: monaco.Position) => {
         const ctx = detectContext(model, position, languageId);
         if (!ctx) return { suggestions: [] };
         return buildSuggestions(monacoInstance, position, ctx);
@@ -129,7 +126,10 @@ function buildSuggestions(
   // 空 prefix 时 searchByQueryWithScore 对空查询返空,fallback 列全部文献。
   const hits: BibSearchHit[] =
     ctx.prefix.length === 0
-      ? mirror.getAllItems().slice(0, MAX_SUGGESTIONS).map((item) => ({ item, score: 0 }))
+      ? mirror
+          .getAllItems()
+          .slice(0, MAX_SUGGESTIONS)
+          .map((item) => ({ item, score: 0 }))
       : mirror.searchByQueryWithScore(ctx.prefix, MAX_SUGGESTIONS, 'prefix-only');
   if (hits.length === 0) return { suggestions: [] };
 

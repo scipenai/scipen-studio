@@ -11,7 +11,7 @@ import type { ZoteroItemDTO } from '../../../../shared/types/zotero';
 import { findCitationKeyAt } from '../components/editor/citationKeyScan';
 import { t } from '../locales';
 import { getZoteroBibMirror } from './zotero/ZoteroBibMirror';
-import { CiteShotResult, getCiteShotService } from './CiteShotService';
+import { type CiteShotResult, getCiteShotService } from './CiteShotService';
 import { createLogger } from './LogService';
 
 const logger = createLogger('CitePreviewService');
@@ -58,7 +58,9 @@ function buildMetaHtml(entry: ZoteroItemDTO): string {
     .filter((x): x is string => Boolean(x))
     .map(escapeHtml)
     .join(' · ');
-  const title = entry.title ? `<div class="cite-preview-title">${escapeHtml(entry.title)}</div>` : '';
+  const title = entry.title
+    ? `<div class="cite-preview-title">${escapeHtml(entry.title)}</div>`
+    : '';
   const abstract = entry.abstractNote
     ? `<div class="cite-preview-abstract">${escapeHtml(entry.abstractNote)}</div>`
     : '';
@@ -67,7 +69,8 @@ function buildMetaHtml(entry: ZoteroItemDTO): string {
 
 function buildShotHtml(result: CiteShotResult): string {
   if (result.status === 'ok') return `<img class="cite-shot-img" src="${result.dataUrl}" alt="" />`;
-  const note = result.status === 'no-pdf' ? t('zoteroCiteHover.noPdf') : t('zoteroCiteHover.shotFailed');
+  const note =
+    result.status === 'no-pdf' ? t('zoteroCiteHover.noPdf') : t('zoteroCiteHover.shotFailed');
   return `<div class="cite-shot-note">${escapeHtml(note)}</div>`;
 }
 
@@ -160,13 +163,20 @@ export class CitePreviewService {
   private onMouseMove(e: Monaco.editor.IEditorMouseEvent): void {
     if (!this.editor || !this.monaco || !this.widget) return;
     if (e.target.type !== this.monaco.editor.MouseTargetType.CONTENT_TEXT || !e.target.position) {
-      return this.hideWidget();
+      this.hideWidget();
+      return;
     }
     const model = this.editor.getModel();
-    if (!model) return this.hideWidget();
+    if (!model) {
+      this.hideWidget();
+      return;
+    }
     const key = findCitationKeyAt(model, e.target.position, model.getLanguageId());
     const entry = key ? lookupKey(key) : undefined;
-    if (!entry) return this.hideWidget();
+    if (!entry) {
+      this.hideWidget();
+      return;
+    }
     this.showFor(e.target.position, entry);
   }
 

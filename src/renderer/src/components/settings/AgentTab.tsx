@@ -213,13 +213,11 @@ export const AgentTab: React.FC = () => {
 
   const [approval, setApproval] = useState<ApprovalMode>('interactive');
   useEffect(() => {
-    void api.config
-      .get<ApprovalMode | undefined>(ConfigKeys.AgentApprovalMode)
-      .then((v) => {
-        if (v === 'auto_allow' || v === 'auto_deny' || v === 'interactive') {
-          setApproval(v);
-        }
-      });
+    void api.config.get<ApprovalMode | undefined>(ConfigKeys.AgentApprovalMode).then((v) => {
+      if (v === 'auto_allow' || v === 'auto_deny' || v === 'interactive') {
+        setApproval(v);
+      }
+    });
   }, []);
   const onApprovalChange = useCallback((next: ApprovalMode) => {
     setApproval(next);
@@ -445,7 +443,6 @@ export const AgentTab: React.FC = () => {
           </p>
         </>
       )}
-
     </>
   );
 };

@@ -59,9 +59,7 @@ export function buildProjectIntel(input: IntelInputs): string | undefined {
       lines.push(`- packages (${packages.length}): ${packages.slice(0, MAX_PACKAGES).join(', ')}`);
     }
     if (macros.length > 0) {
-      lines.push(
-        `- custom macros (${macros.length}): ${macros.slice(0, MAX_MACROS).join(', ')}`
-      );
+      lines.push(`- custom macros (${macros.length}): ${macros.slice(0, MAX_MACROS).join(', ')}`);
     }
     sections.push(lines.join('\n'));
   }
@@ -73,7 +71,9 @@ export function buildProjectIntel(input: IntelInputs): string | undefined {
 
   const window = extractContentWindow(input.activeFileContent, input.cursorLine);
   if (window) {
-    sections.push(`## Content window (±${CONTENT_WINDOW_LINES} lines)\n\`\`\`latex\n${window}\n\`\`\``);
+    sections.push(
+      `## Content window (±${CONTENT_WINDOW_LINES} lines)\n\`\`\`latex\n${window}\n\`\`\``
+    );
   }
 
   if (input.lastCompile) {
@@ -150,7 +150,8 @@ function extractCurrentSection(src: string, cursorLine: number): string[] {
     subparagraph: 6,
   };
   const stack: Array<{ level: number; title: string }> = [];
-  const re = /^\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\{([^}]*)\}/;
+  const re =
+    /^\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?\{([^}]*)\}/;
   for (let i = 0; i < limit; i++) {
     const m = re.exec(lines[i]);
     if (!m) continue;

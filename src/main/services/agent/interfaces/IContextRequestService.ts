@@ -9,10 +9,7 @@
  */
 
 import type { IDisposable } from '@shared/utils/lifecycle';
-import type {
-  ContextRequestParams,
-  ContextRespondParams,
-} from '../protocol/schemas';
+import type { ContextRequestParams, ContextRespondParams } from '../protocol/schemas';
 
 export interface ContextFlushResponsePayload {
   requestId: string;

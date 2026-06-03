@@ -57,13 +57,21 @@ describe('extractParagraphContext', () => {
   });
 
   it('strips leading comments', () => {
-    const src = ['% a latex comment line that should be dropped entirely here', 'real content stays in output text.'];
+    const src = [
+      '% a latex comment line that should be dropped entirely here',
+      'real content stays in output text.',
+    ];
     const ctx = extractParagraphContext(src, 2, 'latex');
     expect(ctx.text).toBe('real content stays in output text.');
   });
 
   it('falls back to ±radius lines when cursor is on a blank/short paragraph', () => {
-    const sparse = ['lorem ipsum dolor sit amet line one here', '', '', 'tail content far below the cursor position.'];
+    const sparse = [
+      'lorem ipsum dolor sit amet line one here',
+      '',
+      '',
+      'tail content far below the cursor position.',
+    ];
     const ctx = extractParagraphContext(sparse, 2, 'unknown');
     // line 2 is blank → paragraph too short → fallback widens
     expect(ctx.text.length).toBeGreaterThanOrEqual(30);

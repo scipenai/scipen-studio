@@ -34,10 +34,7 @@ export const WelcomeTips: React.FC = () => {
           >
             {t('welcome.proTipTitle')}
           </h3>
-          <p
-            className="text-xs leading-relaxed"
-            style={{ color: 'var(--color-text-secondary)' }}
-          >
+          <p className="text-xs leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
             {t('welcome.proTipDesc', { shortcut: '' })}
             <kbd
               className="mx-0.5 rounded px-1.5 py-0.5 font-mono text-[10px]"

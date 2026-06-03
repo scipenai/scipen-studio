@@ -91,11 +91,7 @@ describe('FileIndexService', () => {
     const svc = new FileIndexService();
     svc.indexProject('/proj', tree('a.tex', 'b.bib', 'c.typ', 'd.png', 'e.md'));
     await flush();
-    expect(batchStatMock.mock.calls[0][0]).toEqual([
-      '/proj/a.tex',
-      '/proj/b.bib',
-      '/proj/c.typ',
-    ]);
+    expect(batchStatMock.mock.calls[0][0]).toEqual(['/proj/a.tex', '/proj/b.bib', '/proj/c.typ']);
   });
 
   it('reindexChangedFile 跳过非可索引文件', async () => {

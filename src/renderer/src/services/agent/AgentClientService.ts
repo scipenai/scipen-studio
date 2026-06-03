@@ -296,17 +296,11 @@ class AgentClientServiceImpl {
     return this.api.memoryWrite(scope, name, content);
   }
 
-  memoryDelete(
-    scope: 'user' | 'feedback' | 'project' | 'reference',
-    name: string
-  ): Promise<any> {
+  memoryDelete(scope: 'user' | 'feedback' | 'project' | 'reference', name: string): Promise<any> {
     return this.api.memoryDelete(scope, name);
   }
 
-  memoryReveal(
-    scope?: 'user' | 'feedback' | 'project' | 'reference',
-    name?: string
-  ): Promise<any> {
+  memoryReveal(scope?: 'user' | 'feedback' | 'project' | 'reference', name?: string): Promise<any> {
     return this.api.memoryReveal(scope, name);
   }
 
@@ -374,9 +368,7 @@ class AgentClientServiceImpl {
   ): () => void {
     return this.api.onEditApplied(cb);
   }
-  onContextFlushRequest(
-    cb: (e: { requestId: string; paths?: string[] }) => void
-  ): () => void {
+  onContextFlushRequest(cb: (e: { requestId: string; paths?: string[] }) => void): () => void {
     return this.api.onContextFlushRequest(cb);
   }
 

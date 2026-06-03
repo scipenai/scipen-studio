@@ -164,11 +164,7 @@ export function useFileCreateRename({
 
       setRenamingPath(null);
 
-      const entityType = node
-        ? node.type === 'directory'
-          ? 'folder'
-          : 'file'
-        : undefined;
+      const entityType = node ? (node.type === 'directory' ? 'folder' : 'file') : undefined;
 
       const result = await getFileExplorerService().renameNode(
         oldPath,

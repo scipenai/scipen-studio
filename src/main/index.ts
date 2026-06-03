@@ -587,10 +587,7 @@ app.whenReady().then(async () => {
       ConfigKeys.ZoteroBibTexSyncFileName,
       '.scipen/zotero_library.bib'
     ),
-    translator: configManager.get<string>(
-      ConfigKeys.ZoteroBibTexSyncTranslator,
-      'BetterBibLaTeX'
-    ),
+    translator: configManager.get<string>(ConfigKeys.ZoteroBibTexSyncTranslator, 'BetterBibLaTeX'),
   };
   getBibTexSyncService().setConfig(bibTexSyncConfig);
   getBibTexSyncService().start();

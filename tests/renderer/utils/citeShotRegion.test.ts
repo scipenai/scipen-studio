@@ -9,7 +9,13 @@ describe('pickAbstractRegion', () => {
       { type: 'text', text: 'Paper Title', text_level: 1, bbox: [10, 10, 90, 20], page_idx: 0 },
       { type: 'text', text: 'Abstract', text_level: 2, bbox: [10, 30, 90, 40], page_idx: 0 },
       { type: 'text', text: 'We propose a method.', bbox: [10, 50, 90, 120], page_idx: 0 },
-      { type: 'text', text: '1 Introduction', text_level: 2, bbox: [10, 130, 90, 140], page_idx: 0 },
+      {
+        type: 'text',
+        text: '1 Introduction',
+        text_level: 2,
+        bbox: [10, 130, 90, 140],
+        page_idx: 0,
+      },
     ];
     expect(pickAbstractRegion(list)).toEqual({ pageIdx: 0, bbox: [10, 50, 90, 120] });
   });

@@ -679,10 +679,7 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
     ]),
   ],
   [IpcChannel.Agent_SkillsList, z.tuple([])],
-  [
-    IpcChannel.Agent_SkillsGet,
-    z.tuple([z.object({ name: z.string().min(1).max(128) })]),
-  ],
+  [IpcChannel.Agent_SkillsGet, z.tuple([z.object({ name: z.string().min(1).max(128) })])],
   [IpcChannel.Agent_SkillsReload, z.tuple([])],
   [
     IpcChannel.Agent_OpenMemoryViewer,

@@ -11,18 +11,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
 import { useTranslation } from '../../locales';
 import { createLogger } from '../../services/LogService';
-import type {
-  BibTexSyncConfigDTO,
-  ZoteroSettingsDTO,
-} from '../../../../../shared/types/zotero';
+import type { BibTexSyncConfigDTO, ZoteroSettingsDTO } from '../../../../../shared/types/zotero';
 import type { BibTexSyncStatusDTO } from '../../../../../shared/types/zotero-events';
-import {
-  SectionTitle,
-  SettingCard,
-  Toggle,
-  inputClassName,
-  selectClassName,
-} from './SettingsUI';
+import { SectionTitle, SettingCard, Toggle, inputClassName, selectClassName } from './SettingsUI';
 
 const logger = createLogger('BibTexSyncSection');
 
@@ -177,11 +168,7 @@ export const BibTexSyncSection: React.FC = () => {
             disabled={syncing}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] disabled:opacity-50 flex-shrink-0"
           >
-            {syncing ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <RefreshCw size={13} />
-            )}
+            {syncing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
             {t('zoteroSettings.bibtexSync.syncNow')}
           </button>
         </div>
@@ -204,7 +191,7 @@ export const BibTexSyncSection: React.FC = () => {
               border: '1px solid var(--color-border-subtle)',
             }}
           >
-{`\\addbibresource{${config.fileName}}`}
+            {`\\addbibresource{${config.fileName}}`}
           </pre>
           <div className="text-[10px] text-[var(--color-text-muted)] mt-1.5">
             {t('zoteroSettings.bibtexSync.hintDesc')}
@@ -219,9 +206,11 @@ const StatusBadge: React.FC<{ status: BibTexSyncStatusDTO }> = ({ status }) => {
   const { t } = useTranslation();
   switch (status.kind) {
     case 'idle':
-      return <span className="text-xs text-[var(--color-text-muted)]">
-        {t('zoteroSettings.bibtexSync.status.idle')}
-      </span>;
+      return (
+        <span className="text-xs text-[var(--color-text-muted)]">
+          {t('zoteroSettings.bibtexSync.status.idle')}
+        </span>
+      );
     case 'syncing':
       return (
         <span className="flex items-center gap-1.5 text-xs text-[var(--color-accent)]">
@@ -265,7 +254,10 @@ const StatusBadge: React.FC<{ status: BibTexSyncStatusDTO }> = ({ status }) => {
       );
     case 'error':
       return (
-        <span className="text-xs text-[var(--color-error)] truncate max-w-[320px]" title={status.reason}>
+        <span
+          className="text-xs text-[var(--color-error)] truncate max-w-[320px]"
+          title={status.reason}
+        >
           {t('zoteroSettings.bibtexSync.status.error')}: {status.reason}
         </span>
       );

@@ -61,9 +61,7 @@ describe('detectContext —— LaTeX', () => {
   });
 
   it('returns null when not in cite context', () => {
-    expect(
-      _internal.detectContext(modelStub('plain text '), pos(12), 'latex')
-    ).toBeNull();
+    expect(_internal.detectContext(modelStub('plain text '), pos(12), 'latex')).toBeNull();
   });
 });
 
@@ -108,9 +106,7 @@ describe('detectContext —— Typst', () => {
 });
 
 function pos(column: number) {
-  return { lineNumber: 1, column } as unknown as Parameters<
-    typeof _internal.detectContext
-  >[1];
+  return { lineNumber: 1, column } as unknown as Parameters<typeof _internal.detectContext>[1];
 }
 
 // ---- reorderBySemantic ------------------------------------------------

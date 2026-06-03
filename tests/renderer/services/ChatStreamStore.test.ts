@@ -102,9 +102,7 @@ describe('ChatStreamStore — per-thread cache', () => {
     chatStreamStore.setActiveThread('thread-a');
     const garbageTs = 'not-a-date';
     const before = Date.now();
-    chatStreamStore.replaceMessages('thread-a', [
-      { role: 'user', text: 'msg', ts: garbageTs },
-    ]);
+    chatStreamStore.replaceMessages('thread-a', [{ role: 'user', text: 'msg', ts: garbageTs }]);
     const after = Date.now();
     const ts = chatStreamStore.getMessages()[0].ts;
     expect(ts).toBeGreaterThanOrEqual(before);

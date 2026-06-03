@@ -26,10 +26,7 @@ import { useTranslation } from '../../locales';
 import { getEditorService, getUIService } from '../../services/core';
 import { useActiveTab } from '../../services/core/hooks';
 import { SyncEventType } from '../../services/core/PreviewTypes';
-import {
-  extractCitedKeys,
-  type CitedKeyOccurrence,
-} from '../../services/zotero/CitedKeyExtractor';
+import { extractCitedKeys, type CitedKeyOccurrence } from '../../services/zotero/CitedKeyExtractor';
 import {
   getZoteroBibMirror,
   type ZoteroBibMirrorState,

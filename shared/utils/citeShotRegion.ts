@@ -4,11 +4,7 @@
  *   renderer 的 CiteShotService 调用。
  */
 
-import type {
-  CiteShotRegion,
-  MinerUContentItem,
-  MinerUContentList,
-} from '../types/zotero-mineru';
+import type { CiteShotRegion, MinerUContentItem, MinerUContentList } from '../types/zotero-mineru';
 
 const ABSTRACT_HEADING = /^\s*abstract\b/i;
 

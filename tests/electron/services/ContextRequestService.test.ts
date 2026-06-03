@@ -122,7 +122,9 @@ describe('ContextRequestService', () => {
 
   it('completeFlush: ignores unknown request_id without throwing', () => {
     const { service } = makeService();
-    expect(() => service.completeFlush({ requestId: 'never-sent', flushedFiles: [] })).not.toThrow();
+    expect(() =>
+      service.completeFlush({ requestId: 'never-sent', flushedFiles: [] })
+    ).not.toThrow();
   });
 
   // ============ file_content ============

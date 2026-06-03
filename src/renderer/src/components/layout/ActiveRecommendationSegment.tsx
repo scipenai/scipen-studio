@@ -53,9 +53,16 @@ export const ActiveRecommendationSegment: React.FC = () => {
         aria-label={t('zoteroRecommend.title')}
       >
         {busy ? (
-          <Loader2 size={11} className="animate-spin" style={{ color: 'var(--color-text-muted)' }} />
+          <Loader2
+            size={11}
+            className="animate-spin"
+            style={{ color: 'var(--color-text-muted)' }}
+          />
         ) : (
-          <Sparkles size={11} style={{ color: dim ? 'var(--color-text-disabled)' : 'var(--color-accent)' }} />
+          <Sparkles
+            size={11}
+            style={{ color: dim ? 'var(--color-text-disabled)' : 'var(--color-accent)' }}
+          />
         )}
         {state.items.length > 0 && (
           <span className="text-[11px] font-medium" style={{ color: 'var(--color-text-muted)' }}>
@@ -113,7 +120,8 @@ const RecommendationBody: React.FC<PopoverProps> = ({ state, onInsert }) => {
   if (state.indexState === 'no-key') return <Hint text={t('zoteroRecommend.noKey')} />;
   if (state.indexState === 'building') return <Hint text={t('zoteroRecommend.building')} />;
   if (state.indexState === 'error') return <Hint text={t('zoteroRecommend.error')} />;
-  if (state.loading && state.items.length === 0) return <Hint text={t('zoteroRecommend.loading')} />;
+  if (state.loading && state.items.length === 0)
+    return <Hint text={t('zoteroRecommend.loading')} />;
   if (state.items.length === 0) return <Hint text={t('zoteroRecommend.empty')} />;
 
   return (
@@ -126,7 +134,10 @@ const RecommendationBody: React.FC<PopoverProps> = ({ state, onInsert }) => {
             title={t('zoteroRecommend.insertHint')}
             className="block w-full px-3 py-1.5 text-left hover:bg-[var(--color-bg-hover)]"
           >
-            <div className="truncate text-[12px] text-[var(--color-text-primary)]" title={item.title}>
+            <div
+              className="truncate text-[12px] text-[var(--color-text-primary)]"
+              title={item.title}
+            >
               {item.title}
             </div>
             {item.reason && (

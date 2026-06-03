@@ -45,7 +45,12 @@ export const MentionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('file'), path: z.string(), inline_content: z.string().optional() }),
   z.object({ kind: z.literal('folder'), path: z.string() }),
   z.object({ kind: z.literal('symbol'), path: z.string(), name: z.string(), range: RangeSchema }),
-  z.object({ kind: z.literal('selection'), path: z.string(), range: RangeSchema, text: z.string() }),
+  z.object({
+    kind: z.literal('selection'),
+    path: z.string(),
+    range: RangeSchema,
+    text: z.string(),
+  }),
   z.object({ kind: z.literal('url'), url: z.string().url(), content: z.string().optional() }),
 ]);
 export type Mention = z.infer<typeof MentionSchema>;
@@ -70,9 +75,14 @@ export type SelectionInfo = z.infer<typeof SelectionInfoSchema>;
 export const ActiveFileContextSchema = z.object({
   path: z.string(),
   language: z.string(),
-  cursor: z.object({ line: z.number().int().nonnegative(), column: z.number().int().nonnegative() }).optional(),
+  cursor: z
+    .object({ line: z.number().int().nonnegative(), column: z.number().int().nonnegative() })
+    .optional(),
   visible_range: z
-    .object({ start_line: z.number().int().nonnegative(), end_line: z.number().int().nonnegative() })
+    .object({
+      start_line: z.number().int().nonnegative(),
+      end_line: z.number().int().nonnegative(),
+    })
     .optional(),
   selection: SelectionInfoSchema.optional(),
   dirty: z.boolean().optional(),
@@ -598,7 +608,13 @@ export type ToolConfirmParams = z.infer<typeof ToolConfirmParamsSchema>;
 export const PlanFileActionSchema = z.enum(['create', 'modify', 'delete', 'rename']);
 export type PlanFileAction = z.infer<typeof PlanFileActionSchema>;
 
-export const PlanFileStatusSchema = z.enum(['pending', 'in_progress', 'done', 'rejected', 'failed']);
+export const PlanFileStatusSchema = z.enum([
+  'pending',
+  'in_progress',
+  'done',
+  'rejected',
+  'failed',
+]);
 export type PlanFileStatus = z.infer<typeof PlanFileStatusSchema>;
 
 export const PlanFileSchema = z.object({

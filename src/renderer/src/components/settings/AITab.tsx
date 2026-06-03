@@ -98,8 +98,10 @@ export const AITab: React.FC = () => {
       const chatSel = config.selectedModels.chat;
       const complSel = config.selectedModels.completion;
       const activeId: ProviderId = normalizeProviderId(
-        (chatSel?.providerId ?? complSel?.providerId ?? config.providers[0]?.id ?? 'openai') as
-          ProviderId
+        (chatSel?.providerId ??
+          complSel?.providerId ??
+          config.providers[0]?.id ??
+          'openai') as ProviderId
       );
 
       const existing = config.providers.find((p) => p.id === activeId);

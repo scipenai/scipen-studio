@@ -5,7 +5,7 @@
  */
 
 import * as path from 'path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const REFS_PATH = path.join('/proj', '.scipen', 'zotero_library.bib');
 const REFS_PATH_1 = path.join('/proj1', '.scipen', 'zotero_library.bib');
@@ -115,7 +115,9 @@ describe('BibTexSyncService', () => {
     const bus = fakeBus();
     const fs = inMemoryFS();
     const svc = new BibTexSyncService({
-      index: index as unknown as Parameters<typeof BibTexSyncService.prototype.constructor>[0]['index'],
+      index: index as unknown as Parameters<
+        typeof BibTexSyncService.prototype.constructor
+      >[0]['index'],
       bbt: bbt as unknown as Parameters<typeof BibTexSyncService.prototype.constructor>[0]['bbt'],
       bus,
       fileIO: fs.api,
@@ -125,10 +127,7 @@ describe('BibTexSyncService', () => {
   }
 
   it('subscribes to bib events and writes references.bib after debounce', async () => {
-    const { svc, bbt, bus, fs } = setup([
-      item('A', 'smith2024'),
-      item('B', 'jones2024'),
-    ]);
+    const { svc, bbt, bus, fs } = setup([item('A', 'smith2024'), item('B', 'jones2024')]);
     svc.start();
     svc.setProjectPath('/proj');
 

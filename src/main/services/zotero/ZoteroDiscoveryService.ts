@@ -15,8 +15,8 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import type { ZoteroDetectionResultDTO } from '../../../../shared/types/zotero';
 import { createLogger } from '../LoggerService';
-import { BetterBibTexClient, getBetterBibTexClient } from './BetterBibTexClient';
-import { ZoteroLocalApiClient, getZoteroLocalApiClient } from './ZoteroLocalApiClient';
+import { type BetterBibTexClient, getBetterBibTexClient } from './BetterBibTexClient';
+import { type ZoteroLocalApiClient, getZoteroLocalApiClient } from './ZoteroLocalApiClient';
 
 const logger = createLogger('ZoteroDiscoveryService');
 

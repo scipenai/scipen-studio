@@ -11,10 +11,7 @@ import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from '../../locales';
-import type {
-  ZoteroBibMirror,
-  ZoteroBibMirrorState,
-} from '../../services/zotero/ZoteroBibMirror';
+import type { ZoteroBibMirror, ZoteroBibMirrorState } from '../../services/zotero/ZoteroBibMirror';
 import type { ZoteroDiagnosticsDTO } from '../../../../../shared/types/zotero-events';
 import { createLogger } from '../../services/LogService';
 
@@ -91,10 +88,7 @@ export const ZoteroDiagnosticsPopover: React.FC<Props> = ({ state, mirror, onClo
         value={state.lastSyncedAt ? formatTime(state.lastSyncedAt) : t('zotero.diagnostics.never')}
       />
 
-      <div
-        className="mx-3 my-1 border-t"
-        style={{ borderColor: 'var(--color-border-subtle)' }}
-      />
+      <div className="mx-3 my-1 border-t" style={{ borderColor: 'var(--color-border-subtle)' }} />
 
       <SourceRow
         label={t('zotero.diagnostics.localApi')}
@@ -107,7 +101,10 @@ export const ZoteroDiagnosticsPopover: React.FC<Props> = ({ state, mirror, onClo
         error={sources?.betterBibTex.error}
       />
 
-      <div className="px-3 pt-2 mt-1 flex justify-end gap-2" style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
+      <div
+        className="px-3 pt-2 mt-1 flex justify-end gap-2"
+        style={{ borderTop: '1px solid var(--color-border-subtle)' }}
+      >
         <button
           type="button"
           onClick={onClose}

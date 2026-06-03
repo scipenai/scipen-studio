@@ -4,7 +4,17 @@
  */
 
 import { clsx } from 'clsx';
-import { BookMarked, Brain, Code, FileText, Hand, Keyboard, Palette, RefreshCw, Sparkles } from 'lucide-react';
+import {
+  BookMarked,
+  Brain,
+  Code,
+  FileText,
+  Hand,
+  Keyboard,
+  Palette,
+  RefreshCw,
+  Sparkles,
+} from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 

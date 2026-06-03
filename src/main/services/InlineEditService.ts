@@ -44,9 +44,9 @@ const MAX_SURROUNDING_CHARS = 4096;
  * forceful, and aimed at suppressing the urge to "explain the change".
  */
 const SYSTEM_PROMPT = [
-  'You are an inline code editor. Apply the user\'s instruction to the SELECTED text.',
+  "You are an inline code editor. Apply the user's instruction to the SELECTED text.",
   'Output ONLY the replacement text — no explanations, no markdown code fences, no commentary.',
-  'Preserve the surrounding code\'s indentation, style, and language conventions.',
+  "Preserve the surrounding code's indentation, style, and language conventions.",
   'If the instruction is impossible or ambiguous, return the selection unchanged.',
 ].join('\n');
 

@@ -93,8 +93,7 @@ export const zoteroApi = {
     ipcRenderer.invoke(IpcChannel.Zotero_GetDiagnostics),
 
   /** 强制触发一次 `references.bib` 同步(穿透 enabled 网关与 debounce)。 */
-  syncBibTex: (): Promise<BibTexSyncStatusDTO> =>
-    ipcRenderer.invoke(IpcChannel.Zotero_SyncBibTex),
+  syncBibTex: (): Promise<BibTexSyncStatusDTO> => ipcRenderer.invoke(IpcChannel.Zotero_SyncBibTex),
 
   /** 读当前 BibTeX 同步状态(idle / syncing / ok / conflict / error)。 */
   getBibTexSyncStatus: (): Promise<BibTexSyncStatusDTO> =>
@@ -121,9 +120,7 @@ export const zoteroApi = {
     ipcRenderer.invoke(IpcChannel.Zotero_GetMinerUStatus, itemKey),
 
   /** Read an item's MinerU-parsed markdown + parsed dir (human MD view). */
-  getParsedMarkdown: (
-    itemKey: string
-  ): Promise<{ markdown: string; parsedDir: string } | null> =>
+  getParsedMarkdown: (itemKey: string): Promise<{ markdown: string; parsedDir: string } | null> =>
     ipcRenderer.invoke(IpcChannel.Zotero_GetParsedMarkdown, itemKey),
 
   /** Read an item's MinerU content_list.json (paragraph bbox) for cite-hover shots. */

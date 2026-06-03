@@ -23,15 +23,11 @@ import { ConfigKeys } from '../../../../shared/types/config-keys';
 import { configManager } from '../ConfigManager';
 import { getZoteroEmbeddingApiKey } from '../SecureStorageService';
 import { createLogger } from '../LoggerService';
-import {
-  EmbeddingAuthError,
-  EmbeddingClient,
-  type EmbeddingClientConfig,
-} from './EmbeddingClient';
+import { EmbeddingAuthError, EmbeddingClient, type EmbeddingClientConfig } from './EmbeddingClient';
 import { EmbeddingStore, l2normalize } from './EmbeddingStore';
 import { rerankCandidates, type RerankCandidate } from './EmbeddingRerank';
-import { ZoteroEventBus, getZoteroEventBus } from './ZoteroEventBus';
-import { ZoteroIndex } from './ZoteroIndex';
+import { type ZoteroEventBus, getZoteroEventBus } from './ZoteroEventBus';
+import type { ZoteroIndex } from './ZoteroIndex';
 import { getZoteroOrchestrator } from './ZoteroOrchestrator';
 import { aiService } from '../AIService';
 import type { IAIService } from '../interfaces/IAIService';
@@ -71,7 +67,10 @@ export interface EmbeddingIndexDeps {
 
 function defaultLoadConfig(): ResolvedConfig {
   return {
-    provider: configManager.get<ZoteroEmbeddingProvider>(ConfigKeys.ZoteroEmbeddingProvider, 'zhipu'),
+    provider: configManager.get<ZoteroEmbeddingProvider>(
+      ConfigKeys.ZoteroEmbeddingProvider,
+      'zhipu'
+    ),
     apiKey: getZoteroEmbeddingApiKey(),
     enabled: configManager.get<boolean>(ConfigKeys.ZoteroActiveRecommendation, false),
   };
@@ -228,7 +227,9 @@ export class EmbeddingIndexService {
         const byKey = new Map(hits.map((h) => [h.itemKey, h.score]));
         const items = reranked
           .slice(0, RECOMMEND_TOP_K)
-          .map((r) => this.toResultItem({ itemKey: r.itemKey, score: byKey.get(r.itemKey) ?? 0 }, r.reason));
+          .map((r) =>
+            this.toResultItem({ itemKey: r.itemKey, score: byKey.get(r.itemKey) ?? 0 }, r.reason)
+          );
         logger.info('recommend result', { items: items.length, path: 'reranked' });
         return { items, paragraphHash, scores };
       }
@@ -280,10 +281,7 @@ export class EmbeddingIndexService {
     }
   }
 
-  private async applyIncremental(
-    upserts: { itemKey: string }[],
-    deletes: string[]
-  ): Promise<void> {
+  private async applyIncremental(upserts: { itemKey: string }[], deletes: string[]): Promise<void> {
     if (this.state !== 'ready' || !this.client) return;
     for (const key of deletes) this.store.remove(key);
 

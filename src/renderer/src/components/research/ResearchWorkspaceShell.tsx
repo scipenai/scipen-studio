@@ -55,9 +55,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
 
   // 动态加载(替代 lazy+Suspense,提交可靠)。hook 无条件调用 = shell 挂载即后台 warm,
   // 配合下方 idle 预加载,用户开面板时已就绪。
-  const EditorPane = useLazyModule(() =>
-    import('../editor/EditorPane').then((m) => m.EditorPane)
-  );
+  const EditorPane = useLazyModule(() => import('../editor/EditorPane').then((m) => m.EditorPane));
   const ProjectCitedReferencesPanel = useLazyModule(() =>
     import('../zotero/ProjectCitedReferencesPanel').then((m) => m.ProjectCitedReferencesPanel)
   );
@@ -155,7 +153,10 @@ export const ResearchWorkspaceShell: React.FC = () => {
   };
 
   // 各面板的 Panel 级属性(背景/边框/尺寸约束)。
-  const panelProps: Record<PanelId, { minSize: number; maxSize?: number; style?: React.CSSProperties; className: string }> = {
+  const panelProps: Record<
+    PanelId,
+    { minSize: number; maxSize?: number; style?: React.CSSProperties; className: string }
+  > = {
     chat: { minSize: 20, className: 'min-h-0 min-w-0' },
     editor: {
       minSize: 28,
@@ -166,7 +167,10 @@ export const ResearchWorkspaceShell: React.FC = () => {
       minSize: 22,
       maxSize: 60,
       className: 'min-w-0 overflow-hidden border-l',
-      style: { borderLeftColor: 'var(--color-border-subtle)', background: 'var(--color-bg-secondary)' },
+      style: {
+        borderLeftColor: 'var(--color-border-subtle)',
+        background: 'var(--color-bg-secondary)',
+      },
     },
   };
 

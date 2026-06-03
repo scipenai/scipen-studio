@@ -52,7 +52,9 @@ export const UpdateTab: React.FC = () => {
       <SectionTitle>{t('update.currentVersion')}</SectionTitle>
       <div className="px-4 py-3 mb-4 rounded-lg bg-[var(--color-bg-secondary)] text-sm">
         <span className="text-[var(--color-text-muted)]">v</span>
-        <span className="text-[var(--color-text-primary)] font-mono">{status.currentVersion || '...'}</span>
+        <span className="text-[var(--color-text-primary)] font-mono">
+          {status.currentVersion || '...'}
+        </span>
       </div>
 
       {/* Status display area */}

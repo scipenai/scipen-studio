@@ -101,10 +101,7 @@ export class BetterBibTexClient {
    *
    * `citationKeys` 为空数组时 BBT 返回空字符串(BBT 的行为)。
    */
-  async exportBibTex(
-    citationKeys: string[],
-    translator: string = 'BetterBibLaTeX'
-  ): Promise<string> {
+  async exportBibTex(citationKeys: string[], translator = 'BetterBibLaTeX'): Promise<string> {
     if (citationKeys.length === 0) return '';
     const result = await this.call<string>('item.export', [citationKeys, translator]);
     return typeof result === 'string' ? result : '';

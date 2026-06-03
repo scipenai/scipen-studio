@@ -34,8 +34,7 @@ interface ZoteroSetupWizardProps {
 const TOTAL_STEPS = 3;
 
 const ZOTERO_DOWNLOAD_URL = 'https://www.zotero.org/download/';
-const ZOTERO_LOCAL_API_DOCS_URL =
-  'https://www.zotero.org/support/kb/connector_zotero_unavailable';
+const ZOTERO_LOCAL_API_DOCS_URL = 'https://www.zotero.org/support/kb/connector_zotero_unavailable';
 const BBT_INSTALL_URL = 'https://retorque.re/zotero-better-bibtex/installation/';
 
 export const ZoteroSetupWizard: React.FC<ZoteroSetupWizardProps> = ({ controller }) => {
@@ -139,9 +138,7 @@ const WizardHeader: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">
             {t('zoteroWizard.title')}
           </h2>
-          <p className="text-xs text-[var(--color-text-muted)]">
-            {t('zoteroWizard.subtitle')}
-          </p>
+          <p className="text-xs text-[var(--color-text-muted)]">{t('zoteroWizard.subtitle')}</p>
         </div>
       </div>
       <button
@@ -419,7 +416,11 @@ const ActionButton: React.FC<{ onClick: () => void; label: string; checking: boo
     className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
     style={{ background: '#7c3aed' }}
   >
-    {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+    {checking ? (
+      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+    ) : (
+      <RefreshCw className="h-3.5 w-3.5" />
+    )}
     {label}
   </button>
 );
@@ -438,7 +439,10 @@ const WizardFooter: React.FC<{ controller: ZoteroWizardController }> = ({ contro
   const isLastStep = currentStep === TOTAL_STEPS;
 
   return (
-    <div className="mt-6 flex items-center justify-between gap-3 border-t pt-4" style={{ borderColor: 'rgba(148,163,184,0.15)' }}>
+    <div
+      className="mt-6 flex items-center justify-between gap-3 border-t pt-4"
+      style={{ borderColor: 'rgba(148,163,184,0.15)' }}
+    >
       <button
         type="button"
         onClick={controller.goBack}

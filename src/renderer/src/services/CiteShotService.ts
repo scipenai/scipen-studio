@@ -134,10 +134,7 @@ export class CiteShotService {
   }
 }
 
-function cropToDataUrl(
-  source: HTMLCanvasElement,
-  bbox: [number, number, number, number]
-): string {
+function cropToDataUrl(source: HTMLCanvasElement, bbox: [number, number, number, number]): string {
   const rect = bboxToCropRect(bbox, RENDER_SCALE, CROP_PADDING, source.width, source.height);
   const out = document.createElement('canvas');
   out.width = rect.sw;

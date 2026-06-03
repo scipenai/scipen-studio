@@ -10,7 +10,5 @@ export interface WorkspaceToolbarProps {
 }
 
 export const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = ({ children }) => {
-  return (
-    <div className="flex items-center gap-0.5">{children}</div>
-  );
+  return <div className="flex items-center gap-0.5">{children}</div>;
 };

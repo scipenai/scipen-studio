@@ -6,10 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import {
-  TrigramIndex,
-  extractTrigrams,
-} from '../../../shared/utils/trigram';
+import { TrigramIndex, extractTrigrams } from '../../../shared/utils/trigram';
 
 describe('extractTrigrams', () => {
   it('lowercases and pads tokens with leading/trailing space', () => {

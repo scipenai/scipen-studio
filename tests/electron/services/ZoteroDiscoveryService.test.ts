@@ -38,7 +38,11 @@ import { ZoteroDiscoveryService } from '../../../src/main/services/zotero/Zotero
 import type { ZoteroLocalApiClient } from '../../../src/main/services/zotero/ZoteroLocalApiClient';
 import type { BetterBibTexClient } from '../../../src/main/services/zotero/BetterBibTexClient';
 
-function makeApi(pingResult: { ok: boolean; version?: number; error?: string }): ZoteroLocalApiClient {
+function makeApi(pingResult: {
+  ok: boolean;
+  version?: number;
+  error?: string;
+}): ZoteroLocalApiClient {
   return {
     ping: vi.fn(async () => pingResult),
     getItems: vi.fn(),
@@ -47,7 +51,11 @@ function makeApi(pingResult: { ok: boolean; version?: number; error?: string }):
   } as unknown as ZoteroLocalApiClient;
 }
 
-function makeBBT(pingResult: { ok: boolean; version?: string; error?: string }): BetterBibTexClient {
+function makeBBT(pingResult: {
+  ok: boolean;
+  version?: string;
+  error?: string;
+}): BetterBibTexClient {
   return {
     ping: vi.fn(async () => pingResult),
     getCslByKey: vi.fn(),

@@ -56,8 +56,7 @@ export class ContextZoteroResponder {
           .catch((respondErr) => {
             logger.warn('fallback respondContextZotero failed', {
               requestId: req.requestId,
-              error:
-                respondErr instanceof Error ? respondErr.message : String(respondErr),
+              error: respondErr instanceof Error ? respondErr.message : String(respondErr),
             });
           });
       });

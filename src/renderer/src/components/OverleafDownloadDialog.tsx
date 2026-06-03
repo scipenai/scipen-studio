@@ -255,7 +255,10 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
               <div className="flex items-center gap-3">
                 <div
                   className="flex h-11 w-11 items-center justify-center rounded-2xl"
-                  style={{ background: 'color-mix(in srgb, var(--color-overleaf-primary) 8%, transparent)', color: 'var(--color-overleaf-primary)' }}
+                  style={{
+                    background: 'color-mix(in srgb, var(--color-overleaf-primary) 8%, transparent)',
+                    color: 'var(--color-overleaf-primary)',
+                  }}
                 >
                   <Cloud className="h-5 w-5" />
                 </div>
@@ -288,7 +291,8 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
                   className="rounded-[20px] border p-4"
                   style={{
                     background: 'color-mix(in srgb, var(--color-overleaf-primary) 6%, transparent)',
-                    borderColor: 'color-mix(in srgb, var(--color-overleaf-primary) 14%, transparent)',
+                    borderColor:
+                      'color-mix(in srgb, var(--color-overleaf-primary) 14%, transparent)',
                   }}
                 >
                   <p className="text-sm font-medium text-[var(--color-overleaf-primary)]">
@@ -425,7 +429,8 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
                     }}
                     className="flex items-center gap-2 rounded-2xl px-3 py-1.5 text-xs font-medium"
                     style={{
-                      background: 'color-mix(in srgb, var(--color-overleaf-primary) 8%, transparent)',
+                      background:
+                        'color-mix(in srgb, var(--color-overleaf-primary) 8%, transparent)',
                       color: 'var(--color-overleaf-primary)',
                     }}
                   >

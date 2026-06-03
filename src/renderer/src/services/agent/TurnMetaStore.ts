@@ -108,9 +108,7 @@ export async function saveTurnMeta(record: TurnMetaRecord): Promise<void> {
 }
 
 /** Bulk load every meta record for a thread (used during hydrate). */
-export async function loadTurnMetaForThread(
-  threadId: string
-): Promise<TurnMetaRecord[]> {
+export async function loadTurnMetaForThread(threadId: string): Promise<TurnMetaRecord[]> {
   const db = await openDb();
   return await new Promise<TurnMetaRecord[]>((resolve, reject) => {
     const tx = db.transaction(STORE, 'readonly');

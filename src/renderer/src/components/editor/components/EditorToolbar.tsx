@@ -222,16 +222,22 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 ? 'var(--color-text-disabled)'
                 : 'var(--color-accent)',
             border: `1px solid ${
-              isCompiling ? 'color-mix(in srgb, var(--color-error) 30%, transparent)' : 'color-mix(in srgb, var(--color-accent) 20%, transparent)'
+              isCompiling
+                ? 'color-mix(in srgb, var(--color-error) 30%, transparent)'
+                : 'color-mix(in srgb, var(--color-accent) 20%, transparent)'
             }`,
           }}
           onMouseEnter={(e) => {
             if (!isCompiling && !isCompileDisabled) {
-              e.currentTarget.style.background = 'color-mix(in srgb, var(--color-accent) 25%, transparent)';
-              e.currentTarget.style.boxShadow = '0 0 15px color-mix(in srgb, var(--color-accent) 20%, transparent)';
+              e.currentTarget.style.background =
+                'color-mix(in srgb, var(--color-accent) 25%, transparent)';
+              e.currentTarget.style.boxShadow =
+                '0 0 15px color-mix(in srgb, var(--color-accent) 20%, transparent)';
             } else if (isCompiling) {
-              e.currentTarget.style.background = 'color-mix(in srgb, var(--color-error) 25%, transparent)';
-              e.currentTarget.style.boxShadow = '0 0 15px color-mix(in srgb, var(--color-error) 20%, transparent)';
+              e.currentTarget.style.background =
+                'color-mix(in srgb, var(--color-error) 25%, transparent)';
+              e.currentTarget.style.boxShadow =
+                '0 0 15px color-mix(in srgb, var(--color-error) 20%, transparent)';
             }
           }}
           onMouseLeave={(e) => {

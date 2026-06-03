@@ -44,7 +44,9 @@ export class MinerUParseService {
   private lastBroadcastAt = 0;
 
   getStatus(itemKey: string): MinerUParseStatusDTO {
-    return this.statuses.get(itemKey) ?? { itemKey, state: 'idle', updatedAt: new Date().toISOString() };
+    return (
+      this.statuses.get(itemKey) ?? { itemKey, state: 'idle', updatedAt: new Date().toISOString() }
+    );
   }
 
   /** 触发解析。同 itemKey 已在进行则复用,不重复提交(省配额)。 */

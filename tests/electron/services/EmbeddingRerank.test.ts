@@ -13,7 +13,12 @@ import {
 import type { IAIService } from '../../../src/main/services/interfaces/IAIService';
 
 const CANDS: RerankCandidate[] = [
-  { itemKey: 'AAAA1111', title: 'Attention', abstract: 'transformer self-attention', cosineScore: 0.9 },
+  {
+    itemKey: 'AAAA1111',
+    title: 'Attention',
+    abstract: 'transformer self-attention',
+    cosineScore: 0.9,
+  },
   { itemKey: 'BBBB2222', title: 'Graphs', abstract: 'message passing', cosineScore: 0.7 },
 ];
 
@@ -29,7 +34,8 @@ describe('buildRerankPrompt', () => {
 
 describe('parseRerankResponse', () => {
   it('parses a clean JSON array, preserving order', () => {
-    const raw = '[{"itemKey":"BBBB2222","reason":"graph focus"},{"itemKey":"AAAA1111","reason":"attn"}]';
+    const raw =
+      '[{"itemKey":"BBBB2222","reason":"graph focus"},{"itemKey":"AAAA1111","reason":"attn"}]';
     const out = parseRerankResponse(raw, CANDS);
     expect(out).toEqual([
       { itemKey: 'BBBB2222', reason: 'graph focus' },
@@ -43,7 +49,8 @@ describe('parseRerankResponse', () => {
   });
 
   it('filters out itemKeys not in candidate set + dedups', () => {
-    const raw = '[{"itemKey":"ZZZZ9999","reason":"x"},{"itemKey":"AAAA1111","reason":"y"},{"itemKey":"AAAA1111","reason":"dup"}]';
+    const raw =
+      '[{"itemKey":"ZZZZ9999","reason":"x"},{"itemKey":"AAAA1111","reason":"y"},{"itemKey":"AAAA1111","reason":"dup"}]';
     expect(parseRerankResponse(raw, CANDS)).toEqual([{ itemKey: 'AAAA1111', reason: 'y' }]);
   });
 

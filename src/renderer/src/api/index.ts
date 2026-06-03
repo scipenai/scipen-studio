@@ -774,16 +774,14 @@ export const zotero = {
   setEmbeddingApiKey: (token: string) =>
     invoke<{ success: boolean }>(IpcChannel.Zotero_SetEmbeddingApiKey, token),
   clearEmbeddingApiKey: () => invoke<{ success: boolean }>(IpcChannel.Zotero_ClearEmbeddingApiKey),
-  detectInstallation: () =>
-    invoke<ZoteroDetectionResultDTO>(IpcChannel.Zotero_DetectInstallation),
+  detectInstallation: () => invoke<ZoteroDetectionResultDTO>(IpcChannel.Zotero_DetectInstallation),
   pingLocalApi: () => invoke<ZoteroPingResultDTO>(IpcChannel.Zotero_PingLocalApi),
   getSnapshot: (req: GetSnapshotRequestDTO = {}) =>
     invoke<GetSnapshotResultDTO>(IpcChannel.Zotero_GetSnapshot, req),
   requestRefresh: () => invoke<RefreshResultDTO>(IpcChannel.Zotero_RequestRefresh),
   getDiagnostics: () => invoke<ZoteroDiagnosticsDTO>(IpcChannel.Zotero_GetDiagnostics),
   syncBibTex: () => invoke<BibTexSyncStatusDTO>(IpcChannel.Zotero_SyncBibTex),
-  getBibTexSyncStatus: () =>
-    invoke<BibTexSyncStatusDTO>(IpcChannel.Zotero_GetBibTexSyncStatus),
+  getBibTexSyncStatus: () => invoke<BibTexSyncStatusDTO>(IpcChannel.Zotero_GetBibTexSyncStatus),
   getCslByKey: (citationKey: string) =>
     invoke<unknown | null>(IpcChannel.Zotero_GetCslByKey, citationKey),
   getItemAnnotations: (itemKey: string) =>
@@ -808,8 +806,7 @@ export const zotero = {
     on(IpcChannel.Zotero_Event, (data) => callback(data as ZoteroEventDTO)),
   onMinerUProgress: (callback: (status: MinerUParseStatusDTO) => void) =>
     on(IpcChannel.Zotero_MinerUProgress, (data) => callback(data as MinerUParseStatusDTO)),
-  getEmbeddingStatus: () =>
-    invoke<EmbeddingIndexStatusDTO>(IpcChannel.Zotero_GetEmbeddingStatus),
+  getEmbeddingStatus: () => invoke<EmbeddingIndexStatusDTO>(IpcChannel.Zotero_GetEmbeddingStatus),
   rebuildEmbeddingIndex: () =>
     invoke<{ started: boolean }>(IpcChannel.Zotero_RebuildEmbeddingIndex),
   queryRecommendation: (req: RecommendRequestDTO) =>

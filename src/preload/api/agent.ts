@@ -197,8 +197,7 @@ export const agentApi = {
   switchThread: (threadId: string): Promise<{ switched: true }> =>
     ipcRenderer.invoke(IpcChannel.Agent_SwitchThread, threadId),
 
-  listThreads: (): Promise<ThreadSummary[]> =>
-    ipcRenderer.invoke(IpcChannel.Agent_ListThreads),
+  listThreads: (): Promise<ThreadSummary[]> => ipcRenderer.invoke(IpcChannel.Agent_ListThreads),
 
   deleteThread: (threadId: string): Promise<{ deleted: boolean }> =>
     ipcRenderer.invoke(IpcChannel.Agent_DeleteThread, threadId),
@@ -271,27 +270,19 @@ export const agentApi = {
   memoryGet: (scope: MemoryScope, name: string): Promise<MemoryGetResult> =>
     ipcRenderer.invoke(IpcChannel.Agent_MemoryGet, { scope, name }),
 
-  memoryWrite: (
-    scope: MemoryScope,
-    name: string,
-    content: string
-  ): Promise<MemoryWriteResult> =>
+  memoryWrite: (scope: MemoryScope, name: string, content: string): Promise<MemoryWriteResult> =>
     ipcRenderer.invoke(IpcChannel.Agent_MemoryWrite, { scope, name, content }),
 
   memoryDelete: (scope: MemoryScope, name: string): Promise<MemoryDeleteResult> =>
     ipcRenderer.invoke(IpcChannel.Agent_MemoryDelete, { scope, name }),
 
   /** When name is undefined, returns the memory directory itself. */
-  memoryReveal: (
-    scope?: MemoryScope,
-    name?: string
-  ): Promise<MemoryRevealResult> =>
+  memoryReveal: (scope?: MemoryScope, name?: string): Promise<MemoryRevealResult> =>
     ipcRenderer.invoke(IpcChannel.Agent_MemoryReveal, { scope, name }),
 
   // ------ Skills viewer (read-only) ------
 
-  skillsList: (): Promise<SkillsListResult> =>
-    ipcRenderer.invoke(IpcChannel.Agent_SkillsList),
+  skillsList: (): Promise<SkillsListResult> => ipcRenderer.invoke(IpcChannel.Agent_SkillsList),
 
   skillsGet: (name: string): Promise<SkillsGetResult> =>
     ipcRenderer.invoke(IpcChannel.Agent_SkillsGet, { name }),

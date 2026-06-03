@@ -76,7 +76,9 @@ export const McpServersSection: React.FC = () => {
 
   const onDelete = useCallback(
     (idx: number) => {
-      if (!window.confirm(t('settingsAgent.mcp.deleteConfirm', { name: servers[idx]?.name ?? '' }))) {
+      if (
+        !window.confirm(t('settingsAgent.mcp.deleteConfirm', { name: servers[idx]?.name ?? '' }))
+      ) {
         return;
       }
       const next = servers.filter((_, i) => i !== idx);
@@ -118,9 +120,7 @@ export const McpServersSection: React.FC = () => {
             key={idx}
             server={server}
             isExpanded={expandedIndex === idx}
-            isDuplicateName={
-              servers.findIndex((s) => s.name === server.name) !== idx
-            }
+            isDuplicateName={servers.findIndex((s) => s.name === server.name) !== idx}
             onToggle={() => setExpandedIndex(expandedIndex === idx ? null : idx)}
             onChange={(patch) => updateAt(idx, patch)}
             onDelete={() => onDelete(idx)}
@@ -133,9 +133,7 @@ export const McpServersSection: React.FC = () => {
         {t('settingsAgent.mcp.add')}
       </button>
 
-      <p className="text-[11px] text-amber-400/80 mt-3">
-        {t('settingsAgent.mcp.restartHint')}
-      </p>
+      <p className="text-[11px] text-amber-400/80 mt-3">{t('settingsAgent.mcp.restartHint')}</p>
     </>
   );
 };
@@ -309,8 +307,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
               onChange={(e) => {
                 const n = Number(e.target.value);
                 onChange({
-                  init_timeout_secs:
-                    Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined,
+                  init_timeout_secs: Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined,
                 });
               }}
               placeholder="30"

@@ -65,11 +65,7 @@ export const ZoteroStatusBadge: React.FC = () => {
       </button>
 
       {open && (
-        <ZoteroDiagnosticsPopover
-          state={state}
-          mirror={mirror}
-          onClose={() => setOpen(false)}
-        />
+        <ZoteroDiagnosticsPopover state={state} mirror={mirror} onClose={() => setOpen(false)} />
       )}
     </div>
   );

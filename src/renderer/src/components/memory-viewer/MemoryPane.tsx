@@ -45,10 +45,7 @@ export const MemoryPane: React.FC = () => {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState('');
 
-  const filteredEntries = useMemo(
-    () => entries.filter((e) => e.scope === scope),
-    [entries, scope]
-  );
+  const filteredEntries = useMemo(() => entries.filter((e) => e.scope === scope), [entries, scope]);
 
   const refresh = useCallback(async () => {
     setLoading(true);

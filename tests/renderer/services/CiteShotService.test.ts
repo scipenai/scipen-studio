@@ -59,9 +59,7 @@ describe('CiteShotService', () => {
 
   it('deduplicates concurrent calls for the same key (single in-flight)', async () => {
     let rejectLoad: (e: unknown) => void = () => {};
-    mocks.loadPdf.mockImplementation(
-      () => new Promise((_res, rej) => (rejectLoad = rej))
-    );
+    mocks.loadPdf.mockImplementation(() => new Promise((_res, rej) => (rejectLoad = rej)));
     const svc = new CiteShotService();
 
     const p1 = svc.getShot('ITEM1');

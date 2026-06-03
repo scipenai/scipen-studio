@@ -72,7 +72,10 @@ export function buildRerankPrompt(
  * 解析模型输出(纯函数,导出供测试)。容错:提取首个 JSON 数组、校验每个 itemKey
  * 属于候选集、保序。任何异常返回 null(调用方降级)。
  */
-export function parseRerankResponse(raw: string, candidates: RerankCandidate[]): RerankedItem[] | null {
+export function parseRerankResponse(
+  raw: string,
+  candidates: RerankCandidate[]
+): RerankedItem[] | null {
   const start = raw.indexOf('[');
   const end = raw.lastIndexOf(']');
   if (start < 0 || end <= start) return null;

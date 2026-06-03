@@ -24,12 +24,12 @@ import type { ZoteroItemDTO } from './zotero';
  * banners and tooltips off this rather than poking sources.
  */
 export type BibStatus =
-  | 'idle'           // Zotero integration not enabled by user yet (wizard not finished)
-  | 'bootstrapping'  // First-pass cold load is running
-  | 'syncing'        // Incremental refresh in progress
-  | 'ready'          // Index is hot and quiescent
-  | 'degraded'       // BBT down or LocalApi failed — partial data
-  | 'error';         // Hard failure (Zotero misconfigured / unreachable)
+  | 'idle' // Zotero integration not enabled by user yet (wizard not finished)
+  | 'bootstrapping' // First-pass cold load is running
+  | 'syncing' // Incremental refresh in progress
+  | 'ready' // Index is hot and quiescent
+  | 'degraded' // BBT down or LocalApi failed — partial data
+  | 'error'; // Hard failure (Zotero misconfigured / unreachable)
 
 /**
  * Diagnostics payload exposed via `Zotero_GetDiagnostics`. Surfaced in
@@ -102,7 +102,13 @@ export interface GetSnapshotRequestDTO {
 
 export type ZoteroEventDTO =
   | { kind: 'bib:initial'; snapshot: BibSnapshotDTO }
-  | { kind: 'bib:patch'; upserts: ZoteroItemDTO[]; deletes: string[]; etag: string; status: BibStatus }
+  | {
+      kind: 'bib:patch';
+      upserts: ZoteroItemDTO[];
+      deletes: string[];
+      etag: string;
+      status: BibStatus;
+    }
   | { kind: 'bib:invalidated'; reason: 'focus' | 'manual' | 'error-recovery' }
   | { kind: 'bib:status'; status: BibStatus; detail?: string };
 

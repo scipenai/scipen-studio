@@ -82,26 +82,23 @@ export const ZoteroTab: React.FC = () => {
     };
   }, [enabled, autoOpenedOnce, wizard]);
 
-  const handleToggle = useCallback(
-    async (next: boolean) => {
-      setToggling(true);
-      setError(null);
-      try {
-        await api.zotero.setSettings({ integrationEnabled: next });
-        if (!next) {
-          // 关闭时让自动弹窗策略复位,下次再开重新评估。
-          setAutoOpenedOnce(false);
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setError(msg);
-        logger.warn('toggle integrationEnabled failed', err);
-      } finally {
-        setToggling(false);
+  const handleToggle = useCallback(async (next: boolean) => {
+    setToggling(true);
+    setError(null);
+    try {
+      await api.zotero.setSettings({ integrationEnabled: next });
+      if (!next) {
+        // 关闭时让自动弹窗策略复位,下次再开重新评估。
+        setAutoOpenedOnce(false);
       }
-    },
-    []
-  );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      logger.warn('toggle integrationEnabled failed', err);
+    } finally {
+      setToggling(false);
+    }
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     if (refreshing) return;
@@ -139,9 +136,7 @@ export const ZoteroTab: React.FC = () => {
           <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">
             {t('zoteroSettings.title')}
           </h2>
-          <p className="text-sm text-[var(--color-text-muted)]">
-            {t('zoteroSettings.subtitle')}
-          </p>
+          <p className="text-sm text-[var(--color-text-muted)]">{t('zoteroSettings.subtitle')}</p>
         </div>
       </div>
 

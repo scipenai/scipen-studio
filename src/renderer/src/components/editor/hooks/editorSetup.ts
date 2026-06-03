@@ -280,7 +280,7 @@ export function setupShortcuts(editor: Editor, monacoInstance: Monaco): void {
     const model = editor.getModel();
     const path = model?.uri.path;
     // Pass the basename as a label so the LLM prompt is shorter than a full path.
-    const fileLabel = path ? path.split('/').pop() ?? path : undefined;
+    const fileLabel = path ? (path.split('/').pop() ?? path) : undefined;
     inlineEditController.trigger(editor, { fileLabel });
   });
 

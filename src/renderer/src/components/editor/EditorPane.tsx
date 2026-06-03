@@ -322,8 +322,7 @@ export const EditorPane: React.FC = React.memo(() => {
         // already matches the active tab — so without this call, a review
         // produced by an `edit.propose` arriving in chat-only mode never
         // gets decorations when the user finally opens the editor.
-        const initialIdentity =
-          initialTab._id || normalizeReviewPath(editorService.activeTabPath);
+        const initialIdentity = initialTab._id || normalizeReviewPath(editorService.activeTabPath);
         restoreReviewForTab(editor, monacoInstance, initialIdentity);
       }
 

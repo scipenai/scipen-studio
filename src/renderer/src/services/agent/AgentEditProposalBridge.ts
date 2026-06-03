@@ -67,10 +67,7 @@ class AgentEditProposalBridgeImpl {
   /** Last-seen propose payload per proposal_id, kept so the renderer can
    *  retry materialization on user click when the initial pass failed
    *  (e.g. file open race during the first event). Cleared on dispatch. */
-  private readonly lastPropose = new Map<
-    string,
-    { file: string; hunks: RawHunk[] }
-  >();
+  private readonly lastPropose = new Map<string, { file: string; hunks: RawHunk[] }>();
 
   /** Idempotent — first caller wires up the listeners. */
   init(): void {
@@ -136,11 +133,7 @@ class AgentEditProposalBridgeImpl {
     await this.materialize(proposalId, payload.file, payload.hunks);
   }
 
-  private async materialize(
-    proposalId: string,
-    file: string,
-    hunks: RawHunk[]
-  ): Promise<void> {
+  private async materialize(proposalId: string, file: string, hunks: RawHunk[]): Promise<void> {
     this.lastPropose.set(proposalId, { file, hunks });
     const absoluteFile = resolveAgentPath(file);
     logger.info('materialize edit proposal', { proposalId, file, absoluteFile });
@@ -167,13 +160,19 @@ class AgentEditProposalBridgeImpl {
     const newContent = applyHunksToString(originalContent, normalizedHunks);
 
     const reviewService = getDiffReviewService();
-    const review = reviewService.createReview(absoluteFile, absoluteFile, originalContent, newContent, {
-      reviewKey: {
-        backend: 'local',
-        projectId: getProjectService().projectPath ?? '__snaca__',
-        fileId: absoluteFile,
-      },
-    });
+    const review = reviewService.createReview(
+      absoluteFile,
+      absoluteFile,
+      originalContent,
+      newContent,
+      {
+        reviewKey: {
+          backend: 'local',
+          projectId: getProjectService().projectPath ?? '__snaca__',
+          fileId: absoluteFile,
+        },
+      }
+    );
     if (!review) return;
 
     // Drop any stale review id for this proposal (re-materialize on complete).

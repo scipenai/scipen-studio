@@ -151,7 +151,10 @@ describe('ZoteroLocalApiClient', () => {
           },
         },
       ];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(payload))
+      );
 
       const client = new ZoteroLocalApiClient();
       const items = await client.getItems({ limit: 10 });
@@ -175,16 +178,14 @@ describe('ZoteroLocalApiClient', () => {
             key: 'X',
             itemType: 'journalArticle',
             title: 't',
-            creators: [
-              { lastName: 'A' },
-              { lastName: 'B' },
-              { lastName: 'C' },
-              { lastName: 'D' },
-            ],
+            creators: [{ lastName: 'A' }, { lastName: 'B' }, { lastName: 'C' }, { lastName: 'D' }],
           },
         },
       ];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(payload))
+      );
       const client = new ZoteroLocalApiClient();
       const items = await client.getItems();
       expect(items[0]?.creatorsLabel).toBe('A, B et al.');
@@ -202,17 +203,21 @@ describe('ZoteroLocalApiClient', () => {
           },
         },
       ];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(payload))
+      );
       const client = new ZoteroLocalApiClient();
       const items = await client.getItems();
       expect(items[0]?.citationKey).toBe('caraiAddendumTheoryImplicit2025');
     });
 
     it('citationKey is undefined when data lacks the BBT-injected field', async () => {
-      const payload = [
-        { data: { key: 'X', itemType: 'journalArticle', title: 't' } },
-      ];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      const payload = [{ data: { key: 'X', itemType: 'journalArticle', title: 't' } }];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(payload))
+      );
       const client = new ZoteroLocalApiClient();
       const items = await client.getItems();
       expect(items[0]?.citationKey).toBeUndefined();
@@ -230,7 +235,10 @@ describe('ZoteroLocalApiClient', () => {
           meta: { creatorSummary: 'Carai 等', parsedDate: '2025-12-16' },
         },
       ];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(payload))
+      );
       const client = new ZoteroLocalApiClient();
       const items = await client.getItems();
       expect(items[0]?.creatorsLabel).toBe('Carai 等');
@@ -248,7 +256,10 @@ describe('ZoteroLocalApiClient', () => {
           meta: { parsedDate: '2026-05-21' },
         },
       ];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(payload))
+      );
       const client = new ZoteroLocalApiClient();
       const items = await client.getItems();
       expect(items[0]?.year).toBe(2026);
@@ -261,7 +272,10 @@ describe('ZoteroLocalApiClient', () => {
         { data: { key: 'C', itemType: 'note', title: 'memo' } },
         { data: { key: 'D', itemType: 'journalArticle', title: 'Paper' } },
       ];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(payload))
+      );
       const client = new ZoteroLocalApiClient();
       const items = await client.getItems();
       expect(items.map((i) => i.itemKey)).toEqual(['D']);
@@ -276,7 +290,10 @@ describe('ZoteroLocalApiClient', () => {
           data: { key: 'E', itemType: 'report', title: 'Empty Report' },
         },
       ];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(payload))
+      );
       const client = new ZoteroLocalApiClient();
       const items = await client.getItems();
       expect(items[0]?.bib).toBeUndefined();
@@ -288,7 +305,10 @@ describe('ZoteroLocalApiClient', () => {
         { key: 'NO_DATA', bib: '<div>...</div>' }, // 缺 data
         { data: { key: 'OK', itemType: 'journalArticle', title: 't' } },
       ];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(payload))
+      );
       const client = new ZoteroLocalApiClient();
       const items = await client.getItems();
       expect(items.map((i) => i.itemKey)).toEqual(['OK']);
@@ -296,7 +316,10 @@ describe('ZoteroLocalApiClient', () => {
 
     it('skips entries without itemKey at all', async () => {
       const payload = [{ data: { itemType: 'journalArticle', title: 'no key' } }];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(payload))
+      );
       const client = new ZoteroLocalApiClient();
       const items = await client.getItems();
       expect(items).toEqual([]);
@@ -343,7 +366,10 @@ describe('ZoteroLocalApiClient', () => {
           },
         },
       ];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(payload))
+      );
       const client = new ZoteroLocalApiClient();
       const result = await client.getItemAnnotations('PARENT');
       expect(result).toEqual([
@@ -361,7 +387,10 @@ describe('ZoteroLocalApiClient', () => {
 
     it('filters out non-annotation children', async () => {
       const payload = [{ key: 'X', data: { key: 'X', itemType: 'note' } }];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(payload))
+      );
       const client = new ZoteroLocalApiClient();
       const result = await client.getItemAnnotations('PARENT');
       expect(result).toEqual([]);
@@ -378,7 +407,10 @@ describe('ZoteroLocalApiClient', () => {
           },
         },
       ];
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload)));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => jsonResponse(payload))
+      );
       const client = new ZoteroLocalApiClient();
       const result = await client.getItemAnnotations('FALLBACK');
       expect(result[0]?.parentItemKey).toBe('FALLBACK');

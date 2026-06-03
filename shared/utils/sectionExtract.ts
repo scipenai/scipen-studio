@@ -55,12 +55,12 @@ function isBlank(line: string): boolean {
 
 function isHeading(line: string, lang: DocLang): boolean {
   const re = HEADING_PATTERNS[lang];
-  return re !== null && re.test(line);
+  return re?.test(line) ?? false;
 }
 
 function isLineComment(line: string, lang: DocLang): boolean {
   const re = LINE_COMMENT[lang];
-  return re !== null && re.test(line);
+  return re?.test(line) ?? false;
 }
 
 /**
