@@ -55,6 +55,20 @@ pub enum LlmError {
     #[error("provider returned malformed response: {0}")]
     MalformedResponse(String),
 
+    /// A streamed tool_use block's concatenated `partial_json`
+    /// fragments did not parse as valid JSON. Distinct from
+    /// `MalformedResponse` so the engine can detect this specific
+    /// failure and retry the request once in non-streaming mode —
+    /// DeepSeek with long Chinese tool args can emit broken SSE deltas
+    /// while its non-streaming endpoint returns the same arguments as a
+    /// single complete string field, sidestepping the concat bug.
+    #[error("provider returned malformed response: {message}")]
+    MalformedToolArgs {
+        tool: String,
+        args_len: usize,
+        message: String,
+    },
+
     /// Provider-side error envelope (we surface code + message verbatim).
     /// Reserved for envelopes the classifier didn't recognise — known
     /// codes are mapped to the structured variants above.

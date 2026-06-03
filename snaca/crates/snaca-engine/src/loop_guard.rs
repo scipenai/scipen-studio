@@ -25,7 +25,7 @@
 
 use std::collections::HashMap;
 
-const DEFAULT_LIMIT: usize = 3;
+const DEFAULT_LIMIT: usize = 5;
 
 #[derive(Debug, Clone, Copy)]
 pub struct LoopGuardConfig {

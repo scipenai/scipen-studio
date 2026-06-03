@@ -70,9 +70,12 @@ pub struct EngineConfig {
 
     /// LoopGuard threshold — abort the turn once the model issues the
     /// same `(tool, input)` pair this many times. `None` disables the
-    /// guard. Default 3, which is conservative enough to never trip on
-    /// genuinely-progressing work but catches most stuck loops in 2–3
-    /// extra iterations rather than burning the full `max_iterations`.
+    /// guard. Default 5 — high enough to absorb the occasional
+    /// legitimate retry (re-Read after a failed Edit; same Grep across
+    /// iterations once the model gets new context), low enough that
+    /// wedged loops still die well before `max_iterations`. A previous
+    /// default of 3 tripped on benign Read-before-Edit retries when the
+    /// model used offset/limit Read first and had to retry with a full Read.
     pub loop_guard_max_repeats: Option<usize>,
 
     /// Hard byte cap on the loaded history's serialised content
@@ -159,7 +162,7 @@ impl EngineConfig {
             compact_max_retries: 3,
             compact_summary_max_tokens: 2048,
             compact_blocking: false,
-            loop_guard_max_repeats: Some(3),
+            loop_guard_max_repeats: Some(5),
             history_max_bytes: 1_500_000,
             turn_timeout_secs: None,
             concurrent_tool_limit: 5,

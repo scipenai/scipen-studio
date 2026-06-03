@@ -215,6 +215,7 @@ impl PartialBlock {
                 let input = if args.trim().is_empty() {
                     serde_json::Value::Object(Default::default())
                 } else {
+                    let args_len = args.chars().count();
                     serde_json::from_str(&args).map_err(|e| {
                         // A truncation in the middle of a streamed tool
                         // call almost always means the model hit its
@@ -230,11 +231,15 @@ impl PartialBlock {
                         } else {
                             ""
                         };
-                        LlmError::MalformedResponse(format!(
+                        let message = format!(
                             "tool '{name}' streamed invalid JSON arguments \
-                             (args_len={len} chars): {e}{hint}; raw_preview={preview}",
-                            len = args.chars().count()
-                        ))
+                             (args_len={args_len} chars): {e}{hint}; raw_preview={preview}"
+                        );
+                        LlmError::MalformedToolArgs {
+                            tool: name.clone(),
+                            args_len,
+                            message,
+                        }
                     })?
                 };
                 Ok(ContentBlock::ToolUse {
@@ -586,7 +591,7 @@ mod tests {
         });
         acc.ingest(StreamEvent::MessageStop);
         let err = acc.finalize().unwrap_err();
-        assert!(matches!(err, LlmError::MalformedResponse(_)));
+        assert!(matches!(err, LlmError::MalformedToolArgs { .. }));
     }
 
     #[test]
