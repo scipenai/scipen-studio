@@ -176,6 +176,15 @@ pub struct Engine {
     /// turn's system prompt picks it up, tells the model "don't repeat the
     /// same call", then clears it.
     loop_guard_hints: Arc<Mutex<HashMap<ThreadId, LoopGuardHint>>>,
+    /// Per-project async lock for the memory extractor. Two
+    /// `spawn_memory_extraction` tasks on the same project would
+    /// otherwise race on `MemoryStore::regenerate_index` (last writer
+    /// wins on `MEMORY.md`) and on same-name entry files. Serialises
+    /// writes per project while different projects extract in parallel.
+    /// Held across awaits, so the inner lock is a `tokio::sync::Mutex`;
+    /// the outer `std::sync::Mutex` only guards the map's entry/insert
+    /// and is released before any await.
+    extraction_locks: Arc<Mutex<HashMap<ProjectId, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 /// One-shot hint about a loop_guard trip, injected into the next turn's
@@ -247,6 +256,7 @@ impl Engine {
             surfaced_memories: Arc::new(Mutex::new(HashMap::new())),
             read_trackers: Arc::new(Mutex::new(HashMap::new())),
             loop_guard_hints: Arc::new(Mutex::new(HashMap::new())),
+            extraction_locks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -1236,7 +1246,21 @@ impl Engine {
         // extractor sees the same context the LLM did.
         let history_limit = self.config.history_limit;
         let default_confidence = self.config.extractor_default_confidence;
+        // Per-project serial lock so two concurrent extractor tasks on
+        // the same project don't trample each other's `MEMORY.md`
+        // regeneration or same-name entry writes. Map insert is fast and
+        // synchronous; the actual lock is held across awaits.
+        let project_lock = {
+            let mut map = self
+                .extraction_locks
+                .lock()
+                .expect("extraction_locks mutex poisoned");
+            map.entry(project.clone())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
         tokio::spawn(async move {
+            let _g = project_lock.lock().await;
             let rows = match state.recent_messages(&thread, history_limit).await {
                 Ok(r) => r,
                 Err(e) => {
