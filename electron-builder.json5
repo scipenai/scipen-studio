@@ -37,6 +37,12 @@
       "to": "bin",
       "filter": ["**/*"]
     },
+    // Bundled academic-research-skills (SNACA Bundled scope) — staged by `npm run copy:skills`.
+    {
+      "from": "resources/skills",
+      "to": "skills",
+      "filter": ["**/*"]
+    },
   ],
   "fileAssociations": [
     {
