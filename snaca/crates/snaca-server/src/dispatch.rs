@@ -270,6 +270,8 @@ async fn handle_message_received(
         // Empty falls back to a UUID inside the engine; admin's
         // thread-level abort still works in that case.
         message_id: Some(params.message_id.clone()),
+        // Server has no editor host, so no per-turn ephemeral context.
+        ephemeral_system: None,
     };
 
     // Route every approval gate through the originating plugin so the user

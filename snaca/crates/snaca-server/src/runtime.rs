@@ -237,6 +237,12 @@ impl Runtime {
                 .max_output_token_ceiling
                 .filter(|n| *n > 0)
                 .unwrap_or(32_768),
+            // Memory-quality knobs — server keeps the engine defaults
+            // (not yet surfaced in server config).
+            recall_confidence_floor: 0.30,
+            extractor_default_confidence: 0.6,
+            // Bounded recovery for model-emitted invalid tool-args JSON.
+            malformed_tool_args_max_retries: 2,
         };
         // The static `tools` parameter on `Engine::new` is the fallback
         // registry — used only if no factory is attached. We always attach
