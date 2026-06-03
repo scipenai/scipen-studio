@@ -10,8 +10,10 @@
 
 pub mod bash;
 pub mod edit;
+pub mod fs_util;
 pub mod glob;
 pub mod grep;
+pub mod http_client;
 pub mod ls;
 pub mod memory;
 pub mod multi_edit;
@@ -22,6 +24,8 @@ pub mod task_output;
 pub mod task_registry;
 pub mod task_stop;
 pub mod todo_write;
+pub mod web_fetch;
+pub mod web_search;
 pub mod write;
 pub mod zotero;
 
@@ -39,6 +43,8 @@ pub use task_output::TaskOutputTool;
 pub use task_registry::{TaskId, TaskRegistry, TaskSnapshot, TaskStatus};
 pub use task_stop::TaskStopTool;
 pub use todo_write::{TodoItem, TodoStatus, TodoWriteTool};
+pub use web_fetch::WebFetchTool;
+pub use web_search::WebSearchTool;
 pub use write::WriteTool;
 pub use zotero::{ZoteroAnnotationsTool, ZoteroLookupTool, ZoteroReadTool, ZoteroSearchTool};
 
@@ -103,4 +109,8 @@ fn base_tool_registry_builder() -> ToolRegistryBuilder {
         .add(ZoteroLookupTool)
         .add(ZoteroAnnotationsTool)
         .add(ZoteroReadTool)
+        // Web tools. WebSearch needs TAVILY_API_KEY (else `execute` returns a
+        // clear error, tool stays registered); WebFetch needs no key.
+        .add(WebSearchTool::default())
+        .add(WebFetchTool::new())
 }

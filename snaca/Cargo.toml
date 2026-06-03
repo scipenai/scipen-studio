@@ -77,6 +77,8 @@ chrono = { version = "0.4.44", features = ["serde"] }
 
 # HTTP
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls", "multipart", "query"] }
+html2md = "0.2"
+url = "2"
 axum = "0.8.9"
 tower = "0.5.3"
 tower-http = { version = "0.6.10", features = ["trace", "cors"] }

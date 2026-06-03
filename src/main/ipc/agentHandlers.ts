@@ -952,10 +952,16 @@ function readMcpServers(config: IConfigManager): McpServerConfig[] | undefined {
 export function buildSnacaSidecarEnv(config: IConfigManager): NodeJS.ProcessEnv {
   const resolved = resolveChatProvider(config);
   const apiKey = resolved?.apiKey || process.env.SNACA_API_KEY || '';
-  return {
+  const env: NodeJS.ProcessEnv = {
     [SNACA_API_KEY_ENV]: apiKey,
     RUST_LOG: process.env.SNACA_LOG ?? 'snaca_editor=info,info',
   };
+  // WebSearch (Tavily) reads its key from TAVILY_API_KEY; forward it when the
+  // host environment provides one so the tool works without extra config.
+  if (process.env.TAVILY_API_KEY) {
+    env.TAVILY_API_KEY = process.env.TAVILY_API_KEY;
+  }
+  return env;
 }
 
 interface ResolvedChatProvider {
