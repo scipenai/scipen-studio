@@ -1,6 +1,6 @@
 /**
  * @file DiffReviewService.ts — AI Diff Review lifecycle manager
- * @description Tracks pending review state for OpenClaw AI edits. When a remote OT
+ * @description Tracks pending review state for SNACA AI edits. When a remote OT
  *   update is identified as a bot edit, creates a review entry (with diff hunks)
  *   that EditorPane renders as inline diff decorations with Accept/Reject buttons.
  */

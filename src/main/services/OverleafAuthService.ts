@@ -51,10 +51,9 @@ function syncEmbeddedGatewayBotEnv(state: OverleafAuthState | null): void {
     return;
   }
 
-  // Studio's embedded Overleaf Gateway shares the main process. OpenClaw's
-  // overleaf_collaborative_edit connects with sessionType=bot, and SessionManager only reads
-  // auth from OVERLEAF_BOT_COOKIE / OVERLEAF_URL. Without syncing the current login here, the
-  // host survives but bot sessions fail permanently with "Missing Overleaf cookies".
+  // Bot Overleaf sessions read auth only from OVERLEAF_BOT_COOKIE / OVERLEAF_URL.
+  // Without syncing the current login into these env vars here, bot sessions fail
+  // permanently with "Missing Overleaf cookies".
   process.env.OVERLEAF_BOT_COOKIE = state.cookies;
   process.env.OVERLEAF_URL = state.serverUrl;
 }

@@ -337,9 +337,8 @@ export class SettingsService implements IDisposable {
         parsed.im = undefined;
         parsed.collaboration = undefined;
         // P4-C: builtin chat removed; SNACA is the only chat runtime so the
-        // legacy `assistant.runtime` / `assistant.openclaw` fields are dropped.
+        // legacy `assistant.runtime` field is dropped.
         if (parsed?.assistant) {
-          parsed.assistant.openclaw = undefined;
           parsed.assistant.runtime = undefined;
         }
 
