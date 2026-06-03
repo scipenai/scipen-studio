@@ -25,13 +25,14 @@ import {
 // SidebarTab changed to string to support dynamically registered view IDs
 // Built-in view IDs: 'im' | 'files' | 'settings'
 export type SidebarTab = string;
-export type RightPanelTab = 'preview';
-export type WorkspaceMode = 'chat' | 'chat-editor' | 'chat-editor-preview';
+export type RightPanelTab = 'preview' | 'paper';
+/** 主页面三大面板标识。取代旧的线性 WorkspaceMode —— 三面板各自独立显隐。 */
+export type PanelId = 'chat' | 'editor' | 'preview';
 export type LogsSurface = 'hidden' | 'drawer';
 export type ResearchLayoutFocus = 'balanced' | 'files' | 'chat' | 'preview';
 
-function normalizeRightPanelTab(_tab: string): RightPanelTab {
-  return 'preview';
+function normalizeRightPanelTab(tab: string): RightPanelTab {
+  return tab === 'paper' ? 'paper' : 'preview';
 }
 
 export interface CompilationLog {
@@ -103,10 +104,12 @@ const STORAGE_KEYS = {
   SIDEBAR_TAB: 'ui.sidebarTab',
   SIDEBAR_COLLAPSED: 'ui.sidebarCollapsed',
   RIGHT_PANEL_TAB: 'ui.rightPanelTab',
-  RIGHT_PANEL_COLLAPSED: 'ui.rightPanelCollapsed',
   SIDEBAR_WIDTH: 'ui.sidebarWidth', // Pixel width
   EDITOR_WIDTH: 'ui.editorWidth', // Percentage
-  WORKSPACE_MODE: 'ui.workspaceMode',
+  CHAT_VISIBLE: 'ui.chatVisible',
+  EDITOR_VISIBLE: 'ui.editorVisible',
+  // 旧键,仅用于一次性迁移种子(三独立面板取代后不再写入)
+  LEGACY_WORKSPACE_MODE: 'ui.workspaceMode',
   RESEARCH_LAYOUT_FOCUS: 'ui.researchLayoutFocus',
   ACTIVE_ARTIFACT_PATH: 'ui.activeArtifactPath',
   ACTIVE_ARTIFACT_ID: 'ui.activeArtifactId',
@@ -140,10 +143,6 @@ export class UIService implements IDisposable {
   private _rightPanelTab: RightPanelTab = normalizeRightPanelTab(
     this._storage.getString(STORAGE_KEYS.RIGHT_PANEL_TAB, 'preview')
   );
-  private _isRightPanelCollapsed = this._storage.getBoolean(
-    STORAGE_KEYS.RIGHT_PANEL_COLLAPSED,
-    false
-  );
 
   // Command palette
   private _isCommandPaletteOpen = false;
@@ -162,6 +161,12 @@ export class UIService implements IDisposable {
   private _remoteBuildId: string | null = null;
   private _pdfHighlight: PdfHighlight | null = null;
 
+  // Zotero 论文 PDF(右栏「论文」tab)—— 与编译产物 _pdfData 独立,互不 clobber。
+  private _zoteroPdf: { itemKey: string; pdfBytes: Uint8Array } | null = null;
+
+  // markdown 预览当前滚到的章节标题(scroll-spy)—— 注入 AI 上下文,表达阅读焦点。
+  private _currentMarkdownSection: string | null = null;
+
   // Agent state
   private _agentState: AgentState = {
     isRunning: false,
@@ -173,10 +178,13 @@ export class UIService implements IDisposable {
 
   // Preview mode state
   private _previewMode: PreviewMode = 'none';
-  private _workspaceMode = this._storage.getString(
-    STORAGE_KEYS.WORKSPACE_MODE,
-    'chat'
-  ) as WorkspaceMode;
+  // 三独立面板显隐。editorVisible 首次升级时从旧 workspaceMode 取种子
+  // (旧 'chat' 档无编辑器),之后走自己的持久化键。
+  private _chatVisible = this._storage.getBoolean(STORAGE_KEYS.CHAT_VISIBLE, true);
+  private _editorVisible = this._storage.getBoolean(
+    STORAGE_KEYS.EDITOR_VISIBLE,
+    this._storage.getString(STORAGE_KEYS.LEGACY_WORKSPACE_MODE, 'chat') !== 'chat'
+  );
   private _researchLayoutFocus = this._storage.getString(
     STORAGE_KEYS.RESEARCH_LAYOUT_FOCUS,
     'balanced'
@@ -205,9 +213,11 @@ export class UIService implements IDisposable {
   private readonly _onDidChangeRightPanelTab = new Emitter<RightPanelTab>();
   readonly onDidChangeRightPanelTab: Event<RightPanelTab> = this._onDidChangeRightPanelTab.event;
 
-  private readonly _onDidChangeRightPanelCollapsed = new Emitter<boolean>();
-  readonly onDidChangeRightPanelCollapsed: Event<boolean> =
-    this._onDidChangeRightPanelCollapsed.event;
+  private readonly _onDidChangeChatVisible = new Emitter<boolean>();
+  readonly onDidChangeChatVisible: Event<boolean> = this._onDidChangeChatVisible.event;
+
+  private readonly _onDidChangeEditorVisible = new Emitter<boolean>();
+  readonly onDidChangeEditorVisible: Event<boolean> = this._onDidChangeEditorVisible.event;
 
   private readonly _onDidChangeCommandPalette = new Emitter<boolean>();
   readonly onDidChangeCommandPalette: Event<boolean> = this._onDidChangeCommandPalette.event;
@@ -225,6 +235,13 @@ export class UIService implements IDisposable {
   }>();
   readonly onDidChangePdf: Event<{ path: string | null; data: ArrayBuffer | null }> =
     this._onDidChangePdf.event;
+
+  private readonly _onDidChangeZoteroPdf = new Emitter<{
+    itemKey: string;
+    pdfBytes: Uint8Array;
+  } | null>();
+  readonly onDidChangeZoteroPdf: Event<{ itemKey: string; pdfBytes: Uint8Array } | null> =
+    this._onDidChangeZoteroPdf.event;
 
   private readonly _onDidChangeFilePdfPreview = new Emitter<{
     filePath: string;
@@ -251,9 +268,6 @@ export class UIService implements IDisposable {
 
   private readonly _onDidChangePreviewMode = new Emitter<PreviewMode>();
   readonly onDidChangePreviewMode: Event<PreviewMode> = this._onDidChangePreviewMode.event;
-
-  private readonly _onDidChangeWorkspaceMode = new Emitter<WorkspaceMode>();
-  readonly onDidChangeWorkspaceMode: Event<WorkspaceMode> = this._onDidChangeWorkspaceMode.event;
 
   private readonly _onDidChangeResearchLayoutFocus = new Emitter<ResearchLayoutFocus>();
   readonly onDidChangeResearchLayoutFocus: Event<ResearchLayoutFocus> =
@@ -290,18 +304,19 @@ export class UIService implements IDisposable {
     this._disposables.add(this._onDidChangeSidebarTab);
     this._disposables.add(this._onDidChangeSidebarCollapsed);
     this._disposables.add(this._onDidChangeRightPanelTab);
-    this._disposables.add(this._onDidChangeRightPanelCollapsed);
+    this._disposables.add(this._onDidChangeChatVisible);
+    this._disposables.add(this._onDidChangeEditorVisible);
     this._disposables.add(this._onDidChangeCommandPalette);
     this._disposables.add(this._onDidChangeCompiling);
     this._disposables.add(this._onDidChangeCompilationResult);
     this._disposables.add(this._onDidChangePdf);
+    this._disposables.add(this._onDidChangeZoteroPdf);
     this._disposables.add(this._onDidChangeFilePdfPreview);
     this._disposables.add(this._onDidAddCompilationLog);
     this._disposables.add(this._onDidChangePdfHighlight);
     this._disposables.add(this._onDidRequestAIErrorAnalysis);
     this._disposables.add(this._onDidChangeAgentState);
     this._disposables.add(this._onDidChangePreviewMode);
-    this._disposables.add(this._onDidChangeWorkspaceMode);
     this._disposables.add(this._onDidChangeResearchLayoutFocus);
     this._disposables.add(this._onDidChangeActiveArtifactPath);
     this._disposables.add(this._onDidChangeActiveArtifactId);
@@ -433,8 +448,11 @@ export class UIService implements IDisposable {
   get rightPanelTab(): RightPanelTab {
     return this._rightPanelTab;
   }
-  get isRightPanelCollapsed(): boolean {
-    return this._isRightPanelCollapsed;
+  get chatVisible(): boolean {
+    return this._chatVisible;
+  }
+  get editorVisible(): boolean {
+    return this._editorVisible;
   }
   get isCommandPaletteOpen(): boolean {
     return this._isCommandPaletteOpen;
@@ -451,6 +469,12 @@ export class UIService implements IDisposable {
   get pdfData(): ArrayBuffer | null {
     return this._pdfData;
   }
+  get zoteroPdf(): { itemKey: string; pdfBytes: Uint8Array } | null {
+    return this._zoteroPdf;
+  }
+  get currentMarkdownSection(): string | null {
+    return this._currentMarkdownSection;
+  }
   get compilationLogs(): CompilationLog[] {
     return this._compilationLogs;
   }
@@ -462,9 +486,6 @@ export class UIService implements IDisposable {
   }
   get pdfHighlight(): PdfHighlight | null {
     return this._pdfHighlight;
-  }
-  get workspaceMode(): WorkspaceMode {
-    return this._workspaceMode;
   }
   get researchLayoutFocus(): ResearchLayoutFocus {
     return this._researchLayoutFocus;
@@ -519,23 +540,40 @@ export class UIService implements IDisposable {
     this._storage.store(STORAGE_KEYS.RIGHT_PANEL_TAB, nextTab);
     this._onDidChangeRightPanelTab.fire(nextTab);
 
-    if (this._isRightPanelCollapsed) {
-      this.setRightPanelCollapsed(false);
+    // 切 tab 即意味着想看右栏 —— 确保预览面板可见。
+    if (!this._isPreviewVisible) {
+      this.setPreviewVisible(true);
     }
   }
 
-  setRightPanelCollapsed(collapsed: boolean): void {
-    if (this._isRightPanelCollapsed === collapsed) return;
-    this._isRightPanelCollapsed = collapsed;
-    this._storage.store(STORAGE_KEYS.RIGHT_PANEL_COLLAPSED, collapsed);
-    this._onDidChangeRightPanelCollapsed.fire(collapsed);
+  // ====== 三独立面板显隐 ======
+
+  /**
+   * 关闭 target 面板是否会导致三面板全空 —— 守卫,杜绝空屏。
+   * target 传将被设为隐藏的那个面板。
+   */
+  private _wouldHideLastPanel(target: PanelId): boolean {
+    const othersVisible =
+      (target !== 'chat' && this._chatVisible) ||
+      (target !== 'editor' && this._editorVisible) ||
+      (target !== 'preview' && this._isPreviewVisible);
+    return !othersVisible;
   }
 
-  setWorkspaceMode(mode: WorkspaceMode): void {
-    if (this._workspaceMode === mode) return;
-    this._workspaceMode = mode;
-    this._storage.store(STORAGE_KEYS.WORKSPACE_MODE, mode);
-    this._onDidChangeWorkspaceMode.fire(mode);
+  setChatVisible(visible: boolean): void {
+    if (this._chatVisible === visible) return;
+    if (!visible && this._wouldHideLastPanel('chat')) return;
+    this._chatVisible = visible;
+    this._storage.store(STORAGE_KEYS.CHAT_VISIBLE, visible);
+    this._onDidChangeChatVisible.fire(visible);
+  }
+
+  setEditorVisible(visible: boolean): void {
+    if (this._editorVisible === visible) return;
+    if (!visible && this._wouldHideLastPanel('editor')) return;
+    this._editorVisible = visible;
+    this._storage.store(STORAGE_KEYS.EDITOR_VISIBLE, visible);
+    this._onDidChangeEditorVisible.fire(visible);
   }
 
   setResearchLayoutFocus(focus: ResearchLayoutFocus): void {
@@ -568,6 +606,7 @@ export class UIService implements IDisposable {
 
   setPreviewVisible(visible: boolean): void {
     if (this._isPreviewVisible === visible) return;
+    if (!visible && this._wouldHideLastPanel('preview')) return;
     this._isPreviewVisible = visible;
     this._storage.store(STORAGE_KEYS.PREVIEW_VISIBLE, visible);
     this._onDidChangePreviewVisible.fire(visible);
@@ -602,6 +641,26 @@ export class UIService implements IDisposable {
   setPdfData(data: ArrayBuffer | null): void {
     this._pdfData = data;
     this._onDidChangePdf.fire({ path: this._pdfPath, data });
+  }
+
+  setZoteroPdf(value: { itemKey: string; pdfBytes: Uint8Array } | null): void {
+    this._zoteroPdf = value;
+    this._onDidChangeZoteroPdf.fire(value);
+  }
+
+  /** scroll-spy 上报 markdown 预览当前章节,发消息时被 ChatContextBuilder 读取。 */
+  setCurrentMarkdownSection(value: string | null): void {
+    this._currentMarkdownSection = value;
+  }
+
+  /**
+   * 一步加载 Zotero 论文 PDF 并切到右栏「论文」tab。收口右栏可见性 ——
+   * immersive 布局右栏受 previewVisible 控制,这里一并确保展开。
+   */
+  loadZoteroPaper(itemKey: string, pdfBytes: Uint8Array): void {
+    this.setZoteroPdf({ itemKey, pdfBytes });
+    this.setPreviewVisible(true);
+    this.setRightPanelTab('paper');
   }
 
   /**
@@ -782,6 +841,8 @@ export class UIService implements IDisposable {
   dispose(): void {
     this._compilationLogs = [];
     this._pdfData = null;
+    this._zoteroPdf = null;
+    this._currentMarkdownSection = null;
     this._disposables.dispose();
   }
 }

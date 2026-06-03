@@ -12,7 +12,6 @@ import { getClipboardItem, setClipboardItem } from '../clipboard';
 
 interface UseFileDeletePasteOptions {
   projectPath: string | null;
-  collaborationProjectId: string | null;
   selectedNodeRef: MutableRefObject<FileNode | null>;
   projectPathRef: MutableRefObject<string | null>;
   refreshFileTreeRef: MutableRefObject<(() => Promise<void>) | null>;
@@ -22,7 +21,6 @@ interface UseFileDeletePasteOptions {
 
 export function useFileDeletePaste({
   projectPath,
-  collaborationProjectId,
   selectedNodeRef,
   projectPathRef,
   refreshFileTreeRef,
@@ -139,19 +137,10 @@ export function useFileDeletePaste({
         hasDirtyContent = checkDirtyInDir(node);
       }
 
-      let result;
-      if (collaborationProjectId && node._id) {
-        const entityType = (node.type === 'directory' ? 'folder' : 'file') as 'file' | 'folder';
-        result = await fileService.deleteNode(
-          { path: node.path, name: node.name, type: node.type, _id: node._id },
-          entityType
-        );
-      } else {
-        result = await fileService.trashNode(
-          { path: node.path, name: node.name, type: node.type },
-          { hasDirtyContent }
-        );
-      }
+      const result = await fileService.trashNode(
+        { path: node.path, name: node.name, type: node.type },
+        { hasDirtyContent }
+      );
 
       if (result.success) {
         if (node.type === 'file') {
@@ -179,7 +168,7 @@ export function useFileDeletePaste({
         });
       }
     },
-    [collaborationProjectId, editorService, uiService, refreshFileTree]
+    [editorService, uiService, refreshFileTree]
   );
 
   // ====== Paste (shared logic) ======

@@ -255,7 +255,10 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
               <div className="flex items-center gap-3">
                 <div
                   className="flex h-11 w-11 items-center justify-center rounded-2xl"
-                  style={{ background: 'rgba(64,114,162,0.08)', color: '#305f8a' }}
+                  style={{
+                    background: 'color-mix(in srgb, var(--color-overleaf-primary) 8%, transparent)',
+                    color: 'var(--color-overleaf-primary)',
+                  }}
                 >
                   <Cloud className="h-5 w-5" />
                 </div>
@@ -287,11 +290,12 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
                 <div
                   className="rounded-[20px] border p-4"
                   style={{
-                    background: 'rgba(64,114,162,0.06)',
-                    borderColor: 'rgba(64,114,162,0.14)',
+                    background: 'color-mix(in srgb, var(--color-overleaf-primary) 6%, transparent)',
+                    borderColor:
+                      'color-mix(in srgb, var(--color-overleaf-primary) 14%, transparent)',
                   }}
                 >
-                  <p className="text-sm font-medium text-[#305f8a]">
+                  <p className="text-sm font-medium text-[var(--color-overleaf-primary)]">
                     {t('welcome.remoteDialog.configRequired')}
                   </p>
                   <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
@@ -354,11 +358,11 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
                   <div
                     className="rounded-[20px] border p-3"
                     style={{
-                      background: 'rgba(180,35,24,0.08)',
-                      borderColor: 'rgba(180,35,24,0.16)',
+                      background: 'color-mix(in srgb, var(--color-error) 8%, transparent)',
+                      borderColor: 'color-mix(in srgb, var(--color-error) 16%, transparent)',
                     }}
                   >
-                    <p className="text-xs text-[#b42318]">{remoteError}</p>
+                    <p className="text-xs text-[var(--color-error)]">{remoteError}</p>
                   </div>
                 )}
 
@@ -377,7 +381,7 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
                     }}
                     disabled={!tempCookies.trim()}
                     className="flex items-center gap-2 rounded-2xl px-4 py-2 text-sm text-white transition-all disabled:cursor-not-allowed disabled:opacity-50"
-                    style={{ background: 'linear-gradient(135deg, #4072a2 0%, #315b83 100%)' }}
+                    style={{ background: 'var(--color-overleaf-gradient)' }}
                   >
                     <Cloud className="h-4 w-4" />
                     {t('welcome.remoteDialog.connect')}
@@ -388,7 +392,7 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
 
             {isConnecting && (
               <div className="flex items-center justify-center gap-3 py-12 text-[var(--color-text-primary)]">
-                <Loader2 className="h-6 w-6 animate-spin text-[#305f8a]" />
+                <Loader2 className="h-6 w-6 animate-spin text-[var(--color-overleaf-primary)]" />
                 {t('welcome.remoteDialog.connecting')}
               </div>
             )}
@@ -397,14 +401,14 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
               <div
                 className="mb-4 rounded-[20px] border p-4"
                 style={{
-                  background: 'rgba(180,35,24,0.08)',
-                  borderColor: 'rgba(180,35,24,0.16)',
+                  background: 'color-mix(in srgb, var(--color-error) 8%, transparent)',
+                  borderColor: 'color-mix(in srgb, var(--color-error) 16%, transparent)',
                 }}
               >
                 <div className="flex items-start gap-3">
-                  <X className="mt-0.5 h-5 w-5 text-[#b42318]" />
+                  <X className="mt-0.5 h-5 w-5 text-[var(--color-error)]" />
                   <div>
-                    <p className="text-sm text-[#b42318]">{remoteError}</p>
+                    <p className="text-sm text-[var(--color-error)]">{remoteError}</p>
                     {remoteError.includes('Cookie') && (
                       <p className="mt-2 text-xs text-[var(--color-text-secondary)]">
                         {t('welcome.remoteDialog.cookieExpired')}
@@ -425,8 +429,9 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
                     }}
                     className="flex items-center gap-2 rounded-2xl px-3 py-1.5 text-xs font-medium"
                     style={{
-                      background: 'rgba(64,114,162,0.08)',
-                      color: '#305f8a',
+                      background:
+                        'color-mix(in srgb, var(--color-overleaf-primary) 8%, transparent)',
+                      color: 'var(--color-overleaf-primary)',
                     }}
                   >
                     <Settings className="h-3 w-3" />
@@ -475,7 +480,7 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
                 <div className="min-h-[200px] max-h-[420px] flex-1 space-y-2 overflow-y-auto">
                   {isLoadingProjects ? (
                     <div className="flex items-center justify-center py-12">
-                      <Loader2 className="h-6 w-6 animate-spin text-[#305f8a]" />
+                      <Loader2 className="h-6 w-6 animate-spin text-[var(--color-overleaf-primary)]" />
                     </div>
                   ) : remoteProjects.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-[var(--color-text-muted)]">
@@ -491,11 +496,11 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
                         style={{
                           background:
                             selectedProject?.id === project.id
-                              ? 'rgba(64,114,162,0.08)'
+                              ? 'color-mix(in srgb, var(--color-overleaf-primary) 8%, transparent)'
                               : 'rgba(255,255,255,0.78)',
                           borderColor:
                             selectedProject?.id === project.id
-                              ? 'rgba(64,114,162,0.18)'
+                              ? 'color-mix(in srgb, var(--color-overleaf-primary) 18%, transparent)'
                               : 'rgba(148,163,184,0.16)',
                         }}
                       >
@@ -506,7 +511,7 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
                                 {project.name}
                               </h3>
                               {selectedProject?.id === project.id && (
-                                <Check className="h-4 w-4 text-[#305f8a]" />
+                                <Check className="h-4 w-4 text-[var(--color-overleaf-primary)]" />
                               )}
                             </div>
                             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-muted)]">
@@ -526,15 +531,15 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
                                   style={{
                                     backgroundColor:
                                       project.accessLevel === 'owner'
-                                        ? 'rgba(26,127,86,0.08)'
+                                        ? 'color-mix(in srgb, var(--color-success) 8%, transparent)'
                                         : project.accessLevel === 'readAndWrite'
-                                          ? 'rgba(64,114,162,0.08)'
+                                          ? 'color-mix(in srgb, var(--color-overleaf-primary) 8%, transparent)'
                                           : 'rgba(15,23,42,0.05)',
                                     color:
                                       project.accessLevel === 'owner'
-                                        ? '#1a7f56'
+                                        ? 'var(--color-success)'
                                         : project.accessLevel === 'readAndWrite'
-                                          ? '#305f8a'
+                                          ? 'var(--color-overleaf-primary)'
                                           : 'var(--color-text-muted)',
                                   }}
                                 >
@@ -582,7 +587,7 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
                     }}
                     disabled={!selectedProject || isConnecting}
                     className="flex items-center gap-2 rounded-2xl px-4 py-2 text-sm text-white transition-all disabled:cursor-not-allowed disabled:opacity-50"
-                    style={{ background: 'linear-gradient(135deg, #4072a2 0%, #315b83 100%)' }}
+                    style={{ background: 'var(--color-overleaf-gradient)' }}
                   >
                     {isConnecting ? (
                       <>

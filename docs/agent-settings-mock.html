@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="zh-CN" class="h-full">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SciPen Studio · Settings · Agent (Mock)</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+          },
+          colors: {
+            base: {
+              900: '#0e0f12',
+              800: '#15171c',
+              700: '#1c1f25',
+              600: '#262932',
+              500: '#363a45',
+              400: '#5a606e',
+              300: '#8a91a0',
+              200: '#c2c8d4',
+              100: '#e7e9ef',
+            },
+            accent: { DEFAULT: '#6c8cff', soft: '#3a4a7c' },
+            danger: { DEFAULT: '#ef4444', soft: '#3a1c1c' },
+            ok: { DEFAULT: '#22c55e' },
+            warn: { DEFAULT: '#f59e0b' },
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    body { font-feature-settings: 'cv11', 'ss01'; }
+    .seg-btn { @apply px-3 py-1.5 text-xs font-medium text-base-300 hover:text-base-100; }
+    .seg-btn.active { @apply text-base-100 bg-base-600 rounded-md; }
+    /* nicer scrollbar */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: #2b2e36; border-radius: 5px; }
+    ::-webkit-scrollbar-thumb:hover { background: #363a45; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    /* iOS-style toggle */
+    .toggle { width: 36px; height: 20px; }
+    .toggle-knob { width: 16px; height: 16px; transition: transform .15s ease; }
+    .toggle.on { background: #6c8cff; }
+    .toggle.on .toggle-knob { transform: translateX(16px); }
+  </style>
+</head>
+<body class="h-full bg-base-900 text-base-100 font-sans antialiased dark">
+
+<div class="flex h-full">
+
+  <!-- ────────── 左侧导航：Settings 顶层分类 ────────── -->
+  <aside class="w-56 shrink-0 border-r border-base-700 bg-base-800 flex flex-col">
+    <div class="px-4 h-12 flex items-center border-b border-base-700">
+      <span class="text-sm font-semibold tracking-tight">Settings</span>
+    </div>
+    <nav class="flex-1 overflow-y-auto py-2 text-sm">
+      <a class="nav-item" href="#">Editor</a>
+      <a class="nav-item" href="#">Compiler</a>
+      <a class="nav-item active" href="#">
+        <span class="flex items-center gap-2">
+          <span class="i">✦</span> Agent
+        </span>
+      </a>
+      <a class="nav-item" href="#">Appearance</a>
+      <a class="nav-item" href="#">Keybindings</a>
+      <a class="nav-item" href="#">Sync</a>
+      <a class="nav-item" href="#">About</a>
+    </nav>
+    <div class="px-4 py-3 border-t border-base-700 text-[11px] text-base-400">
+      v0.3.0 · SNACA 0.2.0
+    </div>
+  </aside>
+
+  <!-- ────────── 中间：Agent 章节小导航 ────────── -->
+  <aside class="w-52 shrink-0 border-r border-base-700 bg-base-800/60">
+    <div class="px-4 h-12 flex items-center border-b border-base-700">
+      <span class="text-xs uppercase tracking-wider text-base-300">Agent</span>
+    </div>
+    <nav class="py-2 text-sm">
+      <a href="#sec-llm"      class="sub-nav active">LLM</a>
+      <a href="#sec-behavior" class="sub-nav">Behavior</a>
+      <a href="#sec-memory"   class="sub-nav">Memory</a>
+      <a href="#sec-skills"   class="sub-nav">Skills</a>
+      <a href="#sec-mcp"      class="sub-nav">MCP Servers</a>
+      <a href="#sec-engine"   class="sub-nav">Engine <span class="text-[10px] text-base-400 ml-1">Advanced</span></a>
+      <a href="#sec-danger"   class="sub-nav text-danger">Danger Zone</a>
+    </nav>
+  </aside>
+
+  <!-- ────────── 主内容 ────────── -->
+  <main class="flex-1 overflow-y-auto">
+    <header class="sticky top-0 z-10 bg-base-900/85 backdrop-blur border-b border-base-700 h-12 flex items-center px-6 text-sm">
+      <span class="text-base-400">Settings</span>
+      <span class="mx-2 text-base-500">/</span>
+      <span class="font-medium">Agent</span>
+      <span class="ml-auto flex items-center gap-2 text-xs text-base-300">
+        <span class="inline-block w-1.5 h-1.5 rounded-full bg-ok"></span>
+        snaca-editor running · pid 4127
+        <button class="ml-3 px-2 py-1 rounded bg-base-700 hover:bg-base-600 text-base-100">Restart</button>
+      </span>
+    </header>
+
+    <div class="px-6 py-6 max-w-3xl space-y-8">
+
+      <!-- ───── LLM ───── -->
+      <section id="sec-llm">
+        <h2 class="section-title">LLM</h2>
+        <p class="section-hint">用于聊天与多文件 agent 的主模型；行内改写可选独立的小快模型。</p>
+
+        <div class="card space-y-5">
+          <!-- Provider -->
+          <div class="row">
+            <label class="row-label">Provider</label>
+            <div class="row-control">
+              <div class="seg-group">
+                <button class="seg-btn active">DeepSeek</button>
+                <button class="seg-btn">Anthropic</button>
+                <button class="seg-btn">OpenAI-compatible</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- API Key -->
+          <div class="row">
+            <label class="row-label">API Key</label>
+            <div class="row-control flex items-center gap-2">
+              <input type="password" value="sk-•••••••••••••••••••••••••a3f9"
+                     class="input flex-1 font-mono text-xs" readonly />
+              <button class="btn-ghost text-xs">显示</button>
+              <button class="btn-secondary text-xs">测试连接</button>
+              <span class="text-xs text-ok flex items-center gap-1">
+                <span class="inline-block w-1.5 h-1.5 rounded-full bg-ok"></span>已通过
+              </span>
+            </div>
+          </div>
+
+          <!-- Chat Model -->
+          <div class="row">
+            <label class="row-label">Chat Model</label>
+            <div class="row-control">
+              <select class="input">
+                <option>deepseek-reasoner (R1)</option>
+                <option selected>deepseek-chat</option>
+                <option>claude-sonnet-4-6</option>
+                <option>claude-opus-4-7</option>
+              </select>
+              <p class="hint">用于 ChatSidebar 与 Composer。推荐 reasoner 用于复杂规划。</p>
+            </div>
+          </div>
+
+          <!-- Inline Edit Model -->
+          <div class="row">
+            <label class="row-label">Inline Edit Model</label>
+            <div class="row-control">
+              <select class="input">
+                <option selected>继承 Chat Model</option>
+                <option>deepseek-chat</option>
+                <option>claude-haiku-4-5</option>
+                <option>gpt-4o-mini</option>
+              </select>
+              <p class="hint">Ctrl+K 行内改写专用，建议选小快模型以降低延迟。</p>
+            </div>
+          </div>
+
+          <!-- Advanced (collapsible) -->
+          <details class="group">
+            <summary class="cursor-pointer text-sm text-base-300 hover:text-base-100 select-none">
+              <span class="group-open:hidden">▸ 高级参数</span>
+              <span class="hidden group-open:inline">▾ 高级参数</span>
+            </summary>
+            <div class="mt-3 grid grid-cols-2 gap-4 pl-3 border-l border-base-700">
+              <div>
+                <label class="text-xs text-base-300 block mb-1">Base URL</label>
+                <input class="input text-xs" placeholder="https://api.deepseek.com" />
+              </div>
+              <div>
+                <label class="text-xs text-base-300 block mb-1">Request Timeout (s)</label>
+                <input class="input text-xs" value="120" />
+              </div>
+              <div>
+                <label class="text-xs text-base-300 block mb-1">Retry Max Attempts</label>
+                <input class="input text-xs" value="5" />
+              </div>
+              <div>
+                <label class="text-xs text-base-300 block mb-1">Retry Base Delay (ms)</label>
+                <input class="input text-xs" value="500" />
+              </div>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <!-- ───── Behavior ───── -->
+      <section id="sec-behavior">
+        <h2 class="section-title">Behavior</h2>
+        <p class="section-hint">控制 AI 何时寻求确认、如何获取你的上下文。</p>
+
+        <div class="card space-y-5">
+          <div class="row">
+            <label class="row-label">Approval Mode</label>
+            <div class="row-control">
+              <div class="seg-group">
+                <button class="seg-btn">Interactive</button>
+                <button class="seg-btn active">Auto-allow</button>
+                <button class="seg-btn">Deny</button>
+              </div>
+              <p class="hint">Interactive 每次敏感操作都弹审批卡片；Auto-allow 全部放行（推荐熟练后使用）。</p>
+            </div>
+          </div>
+
+          <div class="row">
+            <label class="row-label">Streaming</label>
+            <div class="row-control flex items-center gap-3">
+              <span class="toggle on rounded-full bg-base-500 p-0.5 cursor-pointer">
+                <span class="toggle-knob block rounded-full bg-white"></span>
+              </span>
+              <span class="text-sm text-base-200">流式输出（text / thinking / edit）</span>
+            </div>
+          </div>
+
+          <div class="row">
+            <label class="row-label">Auto-inject Context</label>
+            <div class="row-control space-y-1.5 text-sm">
+              <!-- checkboxes -->
+              <label class="check"><input type="checkbox" checked /> 当前文件路径 + 语言</label>
+              <label class="check"><input type="checkbox" checked /> 光标位置</label>
+              <label class="check"><input type="checkbox" checked /> 选区内容</label>
+              <label class="check"><input type="checkbox" checked /> 可见行范围</label>
+              <label class="check"><input type="checkbox" checked /> 已打开 tab 列表</label>
+              <label class="check"><input type="checkbox" checked /> 近 10 次编辑摘要</label>
+              <label class="check"><input type="checkbox" checked /> LSP 诊断信息</label>
+              <p class="hint">勾上越多 LLM 越"懂你"，token 用量也越高。</p>
+            </div>
+          </div>
+
+          <div class="row">
+            <label class="row-label">Composer Default</label>
+            <div class="row-control">
+              <div class="seg-group">
+                <button class="seg-btn active">Plan-first</button>
+                <button class="seg-btn">Immediate</button>
+              </div>
+              <p class="hint">Plan-first：多文件任务先列计划等你审；Immediate：直接动手。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───── Memory ───── -->
+      <section id="sec-memory">
+        <h2 class="section-title">Memory</h2>
+        <p class="section-hint">SNACA 按项目隔离的记忆。每个项目独立 memory tree；shared 跨项目共享。</p>
+
+        <div class="card space-y-5">
+          <div class="row">
+            <label class="row-label">Auto-extract</label>
+            <div class="row-control flex items-center gap-3">
+              <span class="toggle on rounded-full bg-base-500 p-0.5 cursor-pointer">
+                <span class="toggle-knob block rounded-full bg-white"></span>
+              </span>
+              <span class="text-sm text-base-200">每轮对话结束后自动抽取记忆</span>
+            </div>
+          </div>
+
+          <div class="row">
+            <label class="row-label">Extractor Model</label>
+            <div class="row-control">
+              <select class="input">
+                <option selected>继承 Chat Model</option>
+                <option>deepseek-chat</option>
+                <option>claude-haiku-4-5</option>
+              </select>
+              <p class="hint">抽取记忆是后台 LLM 调用，建议用便宜模型。</p>
+            </div>
+          </div>
+
+          <div class="row">
+            <label class="row-label">Embedder</label>
+            <div class="row-control">
+              <div class="seg-group">
+                <button class="seg-btn">none</button>
+                <button class="seg-btn">hash</button>
+                <button class="seg-btn active">fastembed</button>
+              </div>
+              <p class="hint">fastembed 用 ONNX 模型（首次下载约 90 MB）做向量召回。</p>
+            </div>
+          </div>
+
+          <div class="row">
+            <label class="row-label">Content Filter</label>
+            <div class="row-control flex items-center gap-3">
+              <span class="toggle on rounded-full bg-base-500 p-0.5 cursor-pointer">
+                <span class="toggle-knob block rounded-full bg-white"></span>
+              </span>
+              <span class="text-sm text-base-200">过滤敏感信息（电话 / 邮箱 / API key）</span>
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-base-700 flex items-center justify-between">
+            <span class="text-sm text-base-300">当前项目记忆 · <span class="text-base-100 font-medium">14 项</span></span>
+            <button class="btn-secondary text-xs">打开 Memory Viewer →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───── Skills ───── -->
+      <section id="sec-skills">
+        <h2 class="section-title">Skills</h2>
+        <p class="section-hint">触发式 markdown 指令片段，可项目级或全局共享。</p>
+
+        <div class="card">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm text-base-300">
+              <span class="text-base-100 font-medium">7</span> 项目级 ·
+              <span class="text-base-100 font-medium">3</span> 共享
+            </div>
+            <button class="btn-secondary text-xs">打开 Skills Manager →</button>
+          </div>
+
+          <ul class="divide-y divide-base-700 text-sm">
+            <li class="skill-row">
+              <div>
+                <div class="font-medium">latex-clarify</div>
+                <div class="text-xs text-base-400">把句子改简洁，去掉冗余的连接词与状语</div>
+              </div>
+              <span class="badge badge-soft">project</span>
+            </li>
+            <li class="skill-row">
+              <div>
+                <div class="font-medium">cite-fix</div>
+                <div class="text-xs text-base-400">把 \cite 错误格式自动修正为 \citep / \citet</div>
+              </div>
+              <span class="badge badge-soft">project</span>
+            </li>
+            <li class="skill-row">
+              <div>
+                <div class="font-medium">three-line-table</div>
+                <div class="text-xs text-base-400">把普通表格转换为三线表 (booktabs)</div>
+              </div>
+              <span class="badge">shared</span>
+            </li>
+            <li class="skill-row">
+              <div class="text-base-400 text-xs italic">还有 7 条 …</div>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ───── MCP Servers ───── -->
+      <section id="sec-mcp">
+        <h2 class="section-title">MCP Servers</h2>
+        <p class="section-hint">挂载第三方工具进 SNACA engine（数据库、检索、wiki 等）。</p>
+
+        <div class="card">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm text-base-300">
+              <span class="text-base-100 font-medium">3</span> 个服务器 ·
+              <span class="text-base-100 font-medium">12</span> 工具
+            </div>
+            <button class="btn-primary text-xs">+ 添加服务器</button>
+          </div>
+
+          <ul class="divide-y divide-base-700 text-sm">
+            <li class="mcp-row">
+              <div class="flex items-center gap-3">
+                <span class="status-dot bg-ok"></span>
+                <div>
+                  <div class="font-medium">filesystem</div>
+                  <div class="text-[11px] text-base-400 font-mono">stdio · npx @modelcontextprotocol/server-filesystem</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-xs text-base-300">5 工具</span>
+                <span class="toggle on rounded-full bg-base-500 p-0.5 cursor-pointer">
+                  <span class="toggle-knob block rounded-full bg-white"></span>
+                </span>
+                <button class="icon-btn">⚙</button>
+                <button class="icon-btn text-danger">×</button>
+              </div>
+            </li>
+
+            <li class="mcp-row">
+              <div class="flex items-center gap-3">
+                <span class="status-dot bg-ok"></span>
+                <div>
+                  <div class="font-medium">arxiv-search</div>
+                  <div class="text-[11px] text-base-400 font-mono">http · https://mcp.scipen.ai/arxiv</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-xs text-base-300">4 工具</span>
+                <span class="toggle on rounded-full bg-base-500 p-0.5 cursor-pointer">
+                  <span class="toggle-knob block rounded-full bg-white"></span>
+                </span>
+                <button class="icon-btn">⚙</button>
+                <button class="icon-btn text-danger">×</button>
+              </div>
+            </li>
+
+            <li class="mcp-row">
+              <div class="flex items-center gap-3">
+                <span class="status-dot bg-base-400"></span>
+                <div>
+                  <div class="font-medium text-base-300">zotero</div>
+                  <div class="text-[11px] text-base-400 font-mono">stdio · zotero-mcp --port 23119</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-xs text-base-400">disabled</span>
+                <span class="toggle rounded-full bg-base-500 p-0.5 cursor-pointer">
+                  <span class="toggle-knob block rounded-full bg-white"></span>
+                </span>
+                <button class="icon-btn">⚙</button>
+                <button class="icon-btn text-danger">×</button>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ───── Engine (Advanced) ───── -->
+      <section id="sec-engine">
+        <h2 class="section-title">Engine <span class="text-xs text-base-400 ml-2 font-normal">Advanced — 一般不需要改</span></h2>
+
+        <div class="card grid grid-cols-2 gap-x-6 gap-y-4">
+          <div>
+            <label class="text-xs text-base-300 block mb-1">Max Iterations / Turn</label>
+            <input class="input text-xs" value="10" />
+            <p class="hint">单 turn 内 LLM 调用次数上限，超过则中断。</p>
+          </div>
+          <div>
+            <label class="text-xs text-base-300 block mb-1">Loop Guard Repeats</label>
+            <input class="input text-xs" value="3" />
+            <p class="hint">同 (tool, args) 反复触发的硬上限。</p>
+          </div>
+          <div>
+            <label class="text-xs text-base-300 block mb-1">Compact Threshold (tokens)</label>
+            <input class="input text-xs" value="600000" />
+            <p class="hint">输入 token 超过此值触发历史压缩。</p>
+          </div>
+          <div>
+            <label class="text-xs text-base-300 block mb-1">Compact Keep Recent</label>
+            <input class="input text-xs" value="6" />
+            <p class="hint">压缩时保留最近若干条原文。</p>
+          </div>
+          <div>
+            <label class="text-xs text-base-300 block mb-1">History Limit</label>
+            <input class="input text-xs" value="50" />
+          </div>
+          <div>
+            <label class="text-xs text-base-300 block mb-1">Max Tokens / Response</label>
+            <input class="input text-xs" value="4096" />
+          </div>
+        </div>
+      </section>
+
+      <!-- ───── Danger Zone ───── -->
+      <section id="sec-danger">
+        <h2 class="section-title text-danger">Danger Zone</h2>
+        <div class="card border-danger/40 bg-danger/5 divide-y divide-base-700">
+          <div class="flex items-center justify-between py-3">
+            <div>
+              <div class="font-medium">清空当前项目记忆</div>
+              <div class="text-xs text-base-300">会删除 ~/.scipen-studio/.snaca/local/projects/&lt;uuid&gt;/memory/ 下所有 markdown。</div>
+            </div>
+            <button class="btn-danger text-xs">清空</button>
+          </div>
+          <div class="flex items-center justify-between py-3">
+            <div>
+              <div class="font-medium">重置 approval 决策</div>
+              <div class="text-xs text-base-300">"始终允许 / 始终拒绝" 的历史决策全部清除。</div>
+            </div>
+            <button class="btn-danger text-xs">重置</button>
+          </div>
+          <div class="flex items-center justify-between py-3">
+            <div>
+              <div class="font-medium">清空所有项目历史</div>
+              <div class="text-xs text-base-300">state.sqlite 中所有 thread / message 物理删除，记忆与 skills 保留。</div>
+            </div>
+            <button class="btn-danger text-xs">清空</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="h-24"></div>
+    </div>
+
+    <!-- 浮动保存条 -->
+    <div class="fixed bottom-6 right-6 bg-base-700 border border-base-600 rounded-lg shadow-2xl px-4 py-3 flex items-center gap-3 text-sm">
+      <span class="text-warn">●</span>
+      <span class="text-base-200">有 3 处变更未应用</span>
+      <button class="btn-ghost text-xs">放弃</button>
+      <button class="btn-primary text-xs">应用并热重载</button>
+    </div>
+
+  </main>
+</div>
+
+<!-- ────────── 通用样式（用 @apply 风格在 <style> 里也能玩，这里用 class 拼） ────────── -->
+<style>
+  .nav-item { display:block; padding: 8px 16px; color: #c2c8d4; }
+  .nav-item:hover { background: #1c1f25; color: #fff; }
+  .nav-item.active { background: #1c1f25; color: #fff; border-left: 2px solid #6c8cff; padding-left: 14px; }
+  .sub-nav { display:block; padding: 6px 16px; color: #8a91a0; border-left: 2px solid transparent; }
+  .sub-nav:hover { color: #fff; }
+  .sub-nav.active { color: #fff; border-left-color: #6c8cff; background: rgba(108,140,255,.05); }
+
+  .section-title { font-size: 16px; font-weight: 600; letter-spacing: -.01em; margin-bottom: 4px; }
+  .section-hint { font-size: 12px; color: #8a91a0; margin-bottom: 14px; }
+
+  .card {
+    background: #15171c; border: 1px solid #1c1f25; border-radius: 12px;
+    padding: 20px 22px;
+  }
+
+  .row { display: grid; grid-template-columns: 180px 1fr; gap: 16px; align-items: start; }
+  .row-label { font-size: 13px; color: #c2c8d4; padding-top: 6px; }
+  .row-control {  }
+
+  .input {
+    width: 100%;
+    background: #0e0f12; border: 1px solid #262932; color: #e7e9ef;
+    border-radius: 6px; padding: 7px 10px; font-size: 13px;
+  }
+  .input:focus { outline: none; border-color: #6c8cff; box-shadow: 0 0 0 3px rgba(108,140,255,.15); }
+  .hint { font-size: 11px; color: #5a606e; margin-top: 6px; line-height: 1.5; }
+
+  .seg-group { display: inline-flex; background: #0e0f12; padding: 3px; border-radius: 8px; border: 1px solid #262932; }
+
+  .btn-primary { background: #6c8cff; color: #fff; padding: 6px 14px; border-radius: 6px; font-weight: 500; }
+  .btn-primary:hover { background: #5f80f5; }
+  .btn-secondary { background: #262932; color: #e7e9ef; padding: 6px 14px; border-radius: 6px; }
+  .btn-secondary:hover { background: #363a45; }
+  .btn-ghost { color: #c2c8d4; padding: 6px 10px; }
+  .btn-ghost:hover { color: #fff; background: #1c1f25; border-radius: 6px; }
+  .btn-danger { background: #ef4444; color: #fff; padding: 6px 14px; border-radius: 6px; }
+  .btn-danger:hover { background: #dc2626; }
+
+  .icon-btn { width: 26px; height: 26px; display:inline-flex; align-items:center; justify-content:center; color: #8a91a0; border-radius: 4px; }
+  .icon-btn:hover { background: #262932; color: #fff; }
+
+  .check { display: flex; align-items: center; gap: 8px; color: #e7e9ef; font-size: 13px; }
+  .check input { accent-color: #6c8cff; }
+
+  .skill-row, .mcp-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 2px; }
+  .badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; background: #262932; color: #c2c8d4; }
+  .badge-soft { background: rgba(108,140,255,.12); color: #aec0ff; }
+
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+</style>
+
+</body>
+</html>

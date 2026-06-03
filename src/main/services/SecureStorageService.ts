@@ -106,6 +106,8 @@ export function secureHas(key: string): boolean {
 export const SecureStorageKeys = {
   OverleafCookies: 'overleaf.cookies',
   OverleafCsrfToken: 'overleaf.csrfToken',
+  ZoteroMinerUApiKey: 'zotero.mineruApiKey',
+  ZoteroEmbeddingApiKey: 'zotero.embeddingApiKey',
 } as const;
 
 export type SecureStorageKey = (typeof SecureStorageKeys)[keyof typeof SecureStorageKeys];
@@ -122,4 +124,28 @@ export function setOverleafCookies(cookies: string): boolean {
 
 export function deleteOverleafCookies(): void {
   secureDelete(SecureStorageKeys.OverleafCookies);
+}
+
+export function getZoteroMinerUApiKey(): string | null {
+  return secureGet(SecureStorageKeys.ZoteroMinerUApiKey);
+}
+
+export function setZoteroMinerUApiKey(token: string): boolean {
+  return secureSet(SecureStorageKeys.ZoteroMinerUApiKey, token);
+}
+
+export function deleteZoteroMinerUApiKey(): void {
+  secureDelete(SecureStorageKeys.ZoteroMinerUApiKey);
+}
+
+export function getZoteroEmbeddingApiKey(): string | null {
+  return secureGet(SecureStorageKeys.ZoteroEmbeddingApiKey);
+}
+
+export function setZoteroEmbeddingApiKey(token: string): boolean {
+  return secureSet(SecureStorageKeys.ZoteroEmbeddingApiKey, token);
+}
+
+export function deleteZoteroEmbeddingApiKey(): void {
+  secureDelete(SecureStorageKeys.ZoteroEmbeddingApiKey);
 }

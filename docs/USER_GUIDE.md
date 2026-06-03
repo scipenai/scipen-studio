@@ -1,7 +1,7 @@
 # SciPen Studio User Guide
 
-> **Version:** 0.2.0
-> **Last updated:** 2026-04-28
+> **Version:** 0.3.0-pre.1
+> **Last updated:** 2026-06-04
 
 **English** · [简体中文](USER_GUIDE.zh-CN.md)
 
@@ -27,9 +27,12 @@
 1. Download the installer for your platform (Windows / macOS / Linux) from [GitHub Releases](https://github.com/scipenai/scipen-studio/releases).
 2. Run the installer and follow the prompts.
 3. On first launch, configure AI as needed:
-   - **Chat / Agent:** connect an OpenClaw runtime under *Settings → Collaboration / IM* (the default path).
+   - **Chat / Agent:** the SNACA agent runtime ships **inside the app** — no external server to run. Open *Settings → AI* and pick a chat provider (OpenAI / Anthropic / DeepSeek / OpenAI-compatible) so the agent has an LLM to talk to.
    - **Editor inline completion:** add an OpenAI / Anthropic API key under *Settings → AI*.
-   - The two paths are independent — you can configure either, both, or neither.
+   - **Optional:** *Settings → Agent → Web search* — paste a Tavily API key if you want the agent to use the **WebSearch** tool (WebFetch works without a key).
+   - All paths are independent — you can configure any subset.
+
+> macOS users: first launch may show "App is damaged / can't be opened." This is Gatekeeper rejecting an unsigned build, not an actual problem. Either right-click the app and choose *Open* (then *Open* again in the dialog), or in Terminal run `xattr -dr com.apple.quarantine "/Applications/SciPen Studio.app"`. Windows users may see a SmartScreen warning — click *More info → Run anyway*.
 
 ### Open a project
 
@@ -99,25 +102,62 @@ Switch the default engine under *Settings → Compiler*, or override per project
 ## AI assistant
 
 > SciPen Studio splits AI into two independent paths:
-> - **Chat / agent / formula generation / text polish** → routed through the OpenClaw runtime (default)
+> - **Chat / agent / formula generation / text polish** → routed through the **built-in SNACA agent runtime** (ships inside the app — no external server)
 > - **Editor inline completion** → direct API calls (OpenAI / Anthropic, etc.)
 >
-> The two paths don't depend on each other: if you only want inline completion, you can skip OpenClaw; if you only want the agent, you don't need an API key.
+> The two paths don't depend on each other.
 
-### Capabilities
-
-#### 1. Project chat
+### 1. Project chat
 
 Ask questions in the chat panel — the assistant answers using your currently open files as context.
 - Type `@` in the input to open a file picker; any project file can be referenced as context (e.g. `@chapters/intro.tex`)
 - When a compile fails, the error log is automatically attached as context for diagnostic help
+- Pick the chat provider/model under *Settings → AI* (the same screen as inline completion). Anthropic models also get **prompt-cache hits** across turns (base prompt + project memory stay cached; only the per-turn recall block changes)
 
-#### 2. OpenClaw agent mode
+### 2. Agent tools (built-in)
 
-Once OpenClaw is connected, the assistant can call tools to read project files and propose cross-file edits. Every bot-authored change appears as a **Diff Review**:
+Once a chat model is configured, the assistant can call tools to read / edit project files and ground its answers in real data. Every bot-authored edit surfaces as a **Diff Review** card before it lands:
 - Inline green / yellow / red decorations show additions / modifications / deletions
 - A top overlay bar offers *Accept All* / *Reject All*
-- Each hunk has its own ✓ / ✗ buttons next to it
+- Each hunk has its own ✓ / ✗ buttons
+
+Built-in tools include `Read` / `Write` / `Edit` / `MultiEdit` / `Grep` / `Glob` / `LS` / `Bash` / `Skill` / memory + Zotero / `TodoWrite` / `TaskOutput` / `TaskStop` / **WebSearch / WebFetch** / **AskUserQuestion**. The high-risk ones (file mutations, shell, Bash) route through an **approval card** in chat — *Allow once*, *Always allow*, or *Deny*.
+
+### 3. AskUserQuestion (interactive multiple-choice)
+
+When the agent isn't sure what you want, it can put a card in the chat asking you to pick:
+- One card holds **1–4 questions**, each with **2–4 options** (single- or multi-select)
+- Every question has an implicit **Other** field — type a free-form answer instead
+- Click *Submit* — your selection becomes the agent's next step verbatim
+- Long-running cards are still cancellable: closing the project / aborting the turn reclaims them
+
+The card disappears as soon as you submit. The model then sees your answer as its next tool result and continues the turn.
+
+### 4. Web search and fetch
+
+The agent has two web tools out of the box:
+- **WebFetch** — fetches one page and feeds the rendered text to the model. No key needed.
+- **WebSearch** — runs a Tavily search and returns top-N results. Requires a **Tavily API key** (free tier at <https://tavily.com>). Configure under *Settings → Agent → Web search*. Without a key, WebSearch still appears in the tool list but returns a friendly "missing key" error — WebFetch keeps working.
+
+The Tavily key is held only in the agent process env at spawn time and never persists into the agent config file.
+
+### 5. Bundled academic-research Skills
+
+Four Skills ship inside the installer (under the SNACA *Bundled* scope) and work with no configuration. The content comes from [Imbad0202/academic-research-skills](https://github.com/Imbad0202/academic-research-skills) (staged at build time):
+- `academic-paper` — drafting / structuring an academic paper (intake → outline → draft → revise)
+- `academic-paper-reviewer` — single-blind peer review for a manuscript
+- `academic-pipeline` — orchestrate the whole literature → paper pipeline
+- `deep-research` — multi-source fact-checked report
+
+Tenant- or project-scoped Skills (`<workspace>/.scipen/skills/...`) override bundled ones with the same name, so you can customise behaviour without forking the app.
+
+### 6. Memory and Skills viewer
+
+The agent remembers user preferences and project facts in per-project markdown under the OS application-data directory (`~/Library/Application Support/SciPen Studio/.snaca/...` on macOS, `%APPDATA%\SciPen Studio\.snaca\...` on Windows, `~/.config/SciPen Studio/.snaca/...` on Linux). Two read-only inspectors are available from *Settings → Agent*:
+- **Memory viewer** — browse / search what's been written for the active project, see source (extractor vs user) and self-rated confidence
+- **Skills viewer** — list all Skills currently in scope (Bundled / Tenant / Project), inspect their body
+
+Low-confidence extractor entries are filtered out of automatic recall (configurable floor); they still show in the viewer.
 
 ---
 
@@ -165,12 +205,23 @@ Open the settings panel from the command palette (`Ctrl+P`, search "Open Setting
 
 | Option | Description |
 |--------|-------------|
-| Provider | OpenAI / Anthropic / OpenAI-compatible endpoint — used for **editor inline completion** |
+| Provider | OpenAI / Anthropic / DeepSeek / OpenAI-compatible endpoint |
 | API Key | Stored locally |
 | API Host | Custom endpoint, for private proxies or aggregator services |
-| Model | The completion model used for inline completion |
+| Chat model | Used by the **built-in agent** for chat / tool-use turns |
+| Completion model | Used for **editor inline completion** (`Ctrl+L`) |
 
-> The chat / agent model is *not* configured here — it lives on the OpenClaw server side. See *Settings → Collaboration / IM* for OpenClaw configuration.
+> The chat model is the only thing the agent strictly needs. The agent runtime itself ships inside the app — no separate server.
+
+### Agent
+
+| Option | Description |
+|--------|-------------|
+| Approval mode | How the agent confirms before file mutations / shell tools: *Interactive* (default; pop a card) / *Auto-allow* / *Auto-deny*. *Auto-allow* is a CI-style default — not recommended for a desktop user. |
+| Web search → Tavily API key | Required for the **WebSearch** tool; **WebFetch** works without it. Saving restarts the agent runtime so the change takes effect. Leave empty to disable WebSearch. |
+| Engine knobs (folded) | `max_iterations` / `loop_guard_max_repeats` / `concurrent_tool_limit` / `max_tokens` / `history_limit` / `compact_after_input_tokens` / cache + memory tunables. Most users never touch these; defaults are model-aware. |
+| Memory viewer | Open the secondary window listing memory entries for the active project. |
+| Skills viewer | List all Skills currently in scope (Bundled / Tenant / Project) and inspect their content. |
 
 ### Compiler
 
@@ -252,6 +303,24 @@ Customize the bindings for compile, AI invocation, command palette, and other co
 2. The WASM engine takes a few seconds to load on first run
 3. The document is too large — consider splitting it into chapters
 4. Try restarting the app
+
+### Q: macOS says "App is damaged / can't be opened"
+
+**A:** That's Gatekeeper rejecting an unsigned build (pre-1.0 releases ship unsigned). The app is fine. Either:
+- Right-click *SciPen Studio.app* → *Open* → *Open* in the confirmation dialog, or
+- Run `xattr -dr com.apple.quarantine "/Applications/SciPen Studio.app"` in Terminal.
+
+### Q: Windows shows a SmartScreen warning
+
+**A:** Same situation as Gatekeeper: pre-1.0 builds are unsigned. Click *More info* → *Run anyway*.
+
+### Q: The agent says "WebSearch unsupported / no Tavily API key"
+
+**A:** WebSearch needs a Tavily key. Get one free at <https://tavily.com>, paste it under *Settings → Agent → Web search → Tavily API key*. The agent runtime restarts automatically and WebSearch becomes available on the next turn. WebFetch (fetching a single page) works without a key.
+
+### Q: Will the agent edit my files without asking?
+
+**A:** No, by default *Approval mode* is **Interactive**: any file-mutation tool (Edit / Write / MultiEdit) and any shell command surface an approval card in chat. You decide *Allow once* / *Always allow* / *Deny*. The result of an *Always allow* decision is remembered per project. Switch to *Auto-allow* only if you're comfortable letting the agent run unsupervised.
 
 ### Q: How do I update the app?
 

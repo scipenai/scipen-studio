@@ -1,0 +1,37 @@
+[package]
+name = "snaca-tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "SNACA built-in tools (Read/Write/Edit/Bash/Grep/Glob/...)"
+
+[dependencies]
+snaca-core.workspace = true
+snaca-tools-api.workspace = true
+snaca-workspace.workspace = true
+snaca-skills.workspace = true
+# AskUserQuestion tool consumes the `QuestionGate` trait defined in
+# snaca-engine. engine→snaca-tools is only a dev-dependency, so this
+# back-edge stays a permitted dev-dependency cycle, not a real one.
+snaca-engine.workspace = true
+snaca-memory = { workspace = true, features = ["pdf"] }
+async-trait.workspace = true
+tokio = { workspace = true, features = ["fs", "process", "io-util", "time", "sync"] }
+serde.workspace = true
+serde_json.workspace = true
+walkdir.workspace = true
+globset.workspace = true
+regex.workspace = true
+dirs.workspace = true
+uuid.workspace = true
+data-encoding.workspace = true
+reqwest.workspace = true
+html2md.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "fs"] }
+tempfile = "3"

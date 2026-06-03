@@ -114,6 +114,20 @@ export enum IpcChannel {
   AI_StopGeneration = 'ai:stop-generation',
   AI_IsGenerating = 'ai:is-generating',
   AI_FetchModels = 'ai:fetch-models',
+  /**
+   * Ctrl+K inline edit — start a streaming single-shot replacement.
+   * Renderer → main invoke; returns `{ turnId }`. Deltas / completion /
+   * errors flow back as `AI_InlineEdit{Delta,Complete,Error}` events.
+   */
+  AI_InlineEditStart = 'ai:inline-edit-start',
+  /** Renderer → main: abort a turn started via `AI_InlineEditStart`. */
+  AI_InlineEditCancel = 'ai:inline-edit-cancel',
+  /** Streaming chunk for an inline edit turn. */
+  AI_InlineEditDelta = 'ai:inline-edit-delta',
+  /** Inline edit turn completed cleanly. Payload carries the sanitised full text. */
+  AI_InlineEditComplete = 'ai:inline-edit-complete',
+  /** Inline edit turn failed or was aborted. */
+  AI_InlineEditError = 'ai:inline-edit-error',
 
   // ====== Selection Assistant ======
   Selection_SetEnabled = 'selection:set-enabled',
@@ -167,83 +181,198 @@ export enum IpcChannel {
   OverleafLive_TreeChanged = 'overleaf-live:tree-changed',
   OverleafLive_Error = 'overleaf-live:error',
 
-  // ====== Studio IM ======
-  IM_Connect = 'im:connect',
-  IM_Disconnect = 'im:disconnect',
-  IM_GetSnapshot = 'im:get-snapshot',
-  IM_ListConversations = 'im:list-conversations',
-  IM_CreateConversation = 'im:create-conversation',
-  IM_GetConversationMembers = 'im:get-conversation-members',
-  IM_SendMessage = 'im:send-message',
-  IM_UploadAttachment = 'im:upload-attachment',
-  IM_SendTyping = 'im:send-typing',
-  IM_StateChanged = 'im:state-changed',
-  IM_MessagesChanged = 'im:messages-changed',
-  IM_TypingChanged = 'im:typing-changed',
-  IM_Error = 'im:error',
-  IM_GetBotUserId = 'im:get-bot-user-id',
+  // ====== Zotero Integration ======
+  /** Get all Zotero settings (non-sensitive fields + boolean flags for API key presence). */
+  Zotero_GetSettings = 'zotero:get-settings',
+  /** Set non-sensitive Zotero settings (path / localApiEnabled / embeddingProvider / activeRecommendation). */
+  Zotero_SetSettings = 'zotero:set-settings',
+  /** Write the MinerU API token to OS keychain. */
+  Zotero_SetMinerUApiKey = 'zotero:set-mineru-api-key',
+  /** Clear the stored MinerU API token. */
+  Zotero_ClearMinerUApiKey = 'zotero:clear-mineru-api-key',
+  /** Write the embedding-provider API key to OS keychain. */
+  Zotero_SetEmbeddingApiKey = 'zotero:set-embedding-api-key',
+  /** Clear the stored embedding-provider API key. */
+  Zotero_ClearEmbeddingApiKey = 'zotero:clear-embedding-api-key',
+  /** Auto-detect a local Zotero installation. Returns { found, path?, version? }. */
+  Zotero_DetectInstallation = 'zotero:detect-installation',
+  /** Ping the Zotero Local API at localhost:23119. Returns { ok, version?, error? }. */
+  Zotero_PingLocalApi = 'zotero:ping-local-api',
+  /**
+   * Look up CSL JSON for one BBT citation key. Returns `null` when BBT
+   * is not installed or the key is unknown. Used by the SNACA
+   * `zotero_lookup` reverse-RPC kind.
+   */
+  Zotero_GetCslByKey = 'zotero:get-csl-by-key',
+  /**
+   * Fetch annotations attached to one Zotero item (PDF attachment).
+   * Used by the SNACA `zotero_annotations` reverse-RPC kind.
+   */
+  Zotero_GetItemAnnotations = 'zotero:get-item-annotations',
+  /**
+   * Extract + cache one item's PDF full text (tier-1 local extraction).
+   * Used by the SNACA `zotero_read` reverse-RPC kind.
+   */
+  Zotero_GetFullText = 'zotero:get-fulltext',
+  /**
+   * Load one item's PDF attachment as raw bytes for in-app rendering
+   * (Ctrl+Click a \cite → inline PDF panel). Throws NO_PDF_ATTACHMENT
+   * when the item has no PDF.
+   */
+  Zotero_LoadPdf = 'zotero:load-pdf',
+  /** Start a MinerU precise-parse for one item (fire-and-forget; progress
+   * streams via Zotero_MinerUProgress event). */
+  Zotero_ParseWithMinerU = 'zotero:parse-with-mineru',
+  /** Read the current MinerU parse status for one item. */
+  Zotero_GetMinerUStatus = 'zotero:get-mineru-status',
+  /** Read an item's MinerU-parsed markdown + parsed dir (human MD view). */
+  Zotero_GetParsedMarkdown = 'zotero:get-parsed-markdown',
+  /** Read an item's MinerU content_list.json (paragraph bbox + page_idx) for
+   * cite-hover screenshot region selection. Returns null when not parsed. */
+  Zotero_GetContentList = 'zotero:get-content-list',
+  /** Broadcast: MinerU parse progress (MinerUParseStatusDTO). */
+  Zotero_MinerUProgress = 'zotero:mineru-progress',
+  /** Read embedding index status (M3 active recommendation; state/progress/modelId). */
+  Zotero_GetEmbeddingStatus = 'zotero:get-embedding-status',
+  /** Force a full embedding index rebuild (fire-and-forget; progress via event). */
+  Zotero_RebuildEmbeddingIndex = 'zotero:rebuild-embedding-index',
+  /** Query active citation recommendations for the current paragraph (embed+cosine+rerank). */
+  Zotero_QueryRecommendation = 'zotero:query-recommendation',
+  /** Broadcast: embedding index status changed (EmbeddingIndexStatusDTO). */
+  Zotero_EmbeddingProgress = 'zotero:embedding-progress',
+  /** Broadcast: any Zotero setting changed; payload is the same shape as GetSettings. */
+  Zotero_SettingsChanged = 'zotero:settings-changed',
+  /**
+   * Pull a snapshot (or delta) from the main-canonical bib index. With no
+   * `since` cursor, returns a full rehydrate; with a stale cursor, may
+   * return `reset: true` if the in-memory delta log no longer covers it.
+   */
+  Zotero_GetSnapshot = 'zotero:get-snapshot',
+  /** Trigger a manual refresh from Zotero sources; idempotent and debounced. */
+  Zotero_RequestRefresh = 'zotero:request-refresh',
+  /** Read current diagnostics (source health, item count, etag, status). */
+  Zotero_GetDiagnostics = 'zotero:get-diagnostics',
+  /**
+   * Broadcast channel for bib:* events (initial / patch / invalidated /
+   * status). Payload is `ZoteroEventDTO`, a discriminated union.
+   */
+  Zotero_Event = 'zotero:event',
+  /** Force a `references.bib` sync (ignores enabled gate and debounce). */
+  Zotero_SyncBibTex = 'zotero:sync-bibtex',
+  /** Read current BibTeX sync status (idle / syncing / ok / conflict / error). */
+  Zotero_GetBibTexSyncStatus = 'zotero:get-bibtex-sync-status',
+
+  // ====== Studio IM ====== (removed in P3 cleanup)
 
   // ====== Collaboration Owner ======
   CollaborationOwner_SetActive = 'collaboration-owner:set-active',
   CollaborationOwner_Clear = 'collaboration-owner:clear',
 
-  // ====== Studio OT ======
-  OT_Configure = 'ot:configure',
-  OT_SetBotUserId = 'ot:set-bot-user-id',
-  OT_Disconnect = 'ot:disconnect',
-  OT_OpenLocalProject = 'ot:open-local-project',
-  OT_ListProjects = 'ot:list-projects',
-  OT_UpdateProject = 'ot:update-project',
-  OT_GetProjectSnapshot = 'ot:get-project-snapshot',
-  OT_GetProjectFile = 'ot:get-project-file',
-  OT_JoinFile = 'ot:join-file',
-  OT_SubmitFileOp = 'ot:submit-file-op',
-  OT_ApplyBotEdit = 'ot:apply-bot-edit',
-  OT_CreateFile = 'ot:create-file',
-  OT_CreateFolder = 'ot:create-folder',
-  OT_RenameFile = 'ot:rename-file',
-  OT_RenameFolder = 'ot:rename-folder',
-  OT_DeleteFile = 'ot:delete-file',
-  OT_DeleteFolder = 'ot:delete-folder',
-  OT_StateChanged = 'ot:state-changed',
-  OT_ConnectionChanged = 'ot:connection-changed',
-  OT_RemoteUpdate = 'ot:remote-update',
-  OT_FileEvent = 'ot:file-event',
-  OT_Error = 'ot:error',
+  // ====== Studio OT ====== (removed in P3 cleanup)
 
-  // ====== Project Binding (Cloud Collaboration) ======
-  ProjectBinding_Import = 'project-binding:import',
-  ProjectBinding_Unbind = 'project-binding:unbind',
-  ProjectBinding_GetByPath = 'project-binding:get-by-path',
-  ProjectBinding_GetByProjectId = 'project-binding:get-by-project-id',
-  ProjectBinding_Resolve = 'project-binding:resolve',
-  ProjectBinding_EnsureBootstrap = 'project-binding:ensure-bootstrap',
-  ProjectBinding_SetEnabled = 'project-binding:set-enabled',
-  ProjectBinding_StatusChanged = 'project-binding:status-changed',
-  ExternalChange_Detected = 'external-change:detected',
-  ExternalChange_Resolve = 'external-change:resolve',
-  ExternalChange_AutoResolved = 'external-change:auto-resolved',
-  ProjectBinding_Rebuild = 'project-binding:rebuild',
-  ProjectBinding_Rebind = 'project-binding:rebind',
-  ProjectBinding_ExportSnapshot = 'project-binding:export-snapshot',
+  // ====== Project Binding (Cloud Collaboration) ====== (removed in P3 cleanup)
 
-  // ====== Project Conversation Scope ======
-  ProjectConversation_Resolve = 'project-conversation:resolve',
-  ProjectConversation_List = 'project-conversation:list',
-  ProjectConversation_Create = 'project-conversation:create',
-  ProjectConversation_SetDefault = 'project-conversation:set-default',
-  /** Event channel for conversation-binding change notifications. */
-  ProjectConversation_BindingChanged = 'project-conversation:binding-changed',
+  // ====== Project Conversation Scope ====== (removed in P3 cleanup)
+
+  // ====== Agent (SNACA editor-protocol bridge) ======
+  Agent_GetSidecarState = 'agent:get-sidecar-state',
+  Agent_GetSessionState = 'agent:get-session-state',
+  Agent_StartProject = 'agent:start-project',
+  Agent_NewThread = 'agent:new-thread',
+  Agent_SwitchThread = 'agent:switch-thread',
+  Agent_ListThreads = 'agent:list-threads',
+  Agent_DeleteThread = 'agent:delete-thread',
+  Agent_RenameThread = 'agent:rename-thread',
+  Agent_GetMessages = 'agent:get-messages',
+  Agent_SendChat = 'agent:send-chat',
+  Agent_StartComposer = 'agent:start-composer',
+  Agent_ConfirmPlan = 'agent:confirm-plan',
+  Agent_CancelTurn = 'agent:cancel-turn',
+  Agent_ConfirmEdit = 'agent:confirm-edit',
+  Agent_ConfirmTool = 'agent:confirm-tool',
+  // Memory viewer
+  Agent_MemoryList = 'agent:memory-list',
+  Agent_MemoryGet = 'agent:memory-get',
+  Agent_MemoryWrite = 'agent:memory-write',
+  Agent_MemoryDelete = 'agent:memory-delete',
+  Agent_MemoryReveal = 'agent:memory-reveal',
+  // Skills viewer
+  Agent_SkillsList = 'agent:skills-list',
+  Agent_SkillsGet = 'agent:skills-get',
+  Agent_SkillsReload = 'agent:skills-reload',
+  // Memory / skills viewer secondary window
+  Agent_OpenMemoryViewer = 'agent:open-memory-viewer',
+  /**
+   * Renderer-decided resolution of an `edit.propose` event. Main reads the
+   * file, validates `base_hash`, applies the (possibly partial) hunks, and
+   * forwards `editConfirm` to SNACA. Differs from `Agent_ConfirmEdit` which
+   * is a thin passthrough — this one is the host-applies workflow.
+   */
+  Agent_ResolveEditProposal = 'agent:resolve-edit-proposal',
+  /**
+   * Renderer's reply to a `Agent_ContextFlushRequest` event (invoke).
+   * Carries `{ requestId, flushedFiles }` so the main-side
+   * `ContextRequestService` can resolve the pending reverse-RPC promise that
+   * blocks SNACA's `context.request { kind: 'flush_unsaved' }`.
+   */
+  Agent_ContextFlushResponse = 'agent:context-flush-response',
+  /** Streaming events pushed from main to renderer. */
+  Agent_SidecarStateChanged = 'agent:sidecar-state-changed',
+  Agent_TurnDelta = 'agent:turn-delta',
+  Agent_EditPropose = 'agent:edit-propose',
+  Agent_EditProposeDelta = 'agent:edit-propose-delta',
+  Agent_EditProposeComplete = 'agent:edit-propose-complete',
+  Agent_PlanUpdate = 'agent:plan-update',
+  Agent_ToolApprovalRequest = 'agent:tool-approval-request',
+  Agent_UsageUpdate = 'agent:usage-update',
+  Agent_MemoryUpdated = 'agent:memory-updated',
+  Agent_Error = 'agent:error',
+  Agent_Log = 'agent:log',
+  /**
+   * Fires after host_applies-mode `Agent_ResolveEditProposal` succeeds with
+   * `accept`. Payload carries the post-edit `{ file, content, applied_hash }`
+   * so the renderer can sync the Monaco model + EditorService state without
+   * round-tripping through fs watcher.
+   */
+  Agent_EditApplied = 'agent:edit-applied',
+  /**
+   * Reverse-RPC from main to renderer: SNACA asked for fresh context (e.g.
+   * `flush_unsaved` before a `Read` tool call). Renderer must do the work
+   * (save dirty tabs) and reply via `Agent_ContextFlushResponse`. If the
+   * renderer fails to respond within the timeout, main auto-replies
+   * `{ ok: false }` to SNACA so the LLM doesn't hang.
+   */
+  Agent_ContextFlushRequest = 'agent:context-flush-request',
+  /**
+   * Reverse-RPC from main to renderer for Zotero-backed context requests.
+   * Carries `{ requestId, kind: 'zotero_search' | 'zotero_lookup' |
+   * 'zotero_annotations', payload }`. Renderer replies via
+   * `Agent_ContextZoteroResponse`. Mirrors the `Agent_ContextFlush*` pair —
+   * see ContextRequestService for the parking + timeout mechanics.
+   */
+  Agent_ContextZoteroRequest = 'agent:context-zotero-request',
+  /**
+   * Renderer's reply to an `Agent_ContextZoteroRequest` event (invoke).
+   * Carries `{ requestId, ok, data?, error? }` so the main-side
+   * ContextRequestService can resolve the pending reverse-RPC promise.
+   */
+  Agent_ContextZoteroResponse = 'agent:context-zotero-response',
+  /**
+   * Main → renderer: SNACA's AskUserQuestion tool wants the user to pick.
+   * Carries `{ requestId, questions }`; renderer shows a multiple-choice
+   * card in chat and replies via `Agent_UserQuestionResponse`. Same
+   * parking + (long) timeout mechanics as the Zotero pair — see
+   * ContextRequestService.handleQuestion.
+   */
+  Agent_UserQuestionRequest = 'agent:user-question-request',
+  /**
+   * Renderer's reply to an `Agent_UserQuestionRequest` (invoke), sent
+   * when the user submits the card. Carries `{ requestId, ok, answers?,
+   * error? }`.
+   */
+  Agent_UserQuestionResponse = 'agent:user-question-response',
 
   // ====== Chat ======
-  Chat_SendMessage = 'chat:send-message',
-  Chat_Stream = 'chat:stream',
-  Chat_Cancel = 'chat:cancel',
-  Chat_GetSessions = 'chat:get-sessions',
-  Chat_GetMessages = 'chat:get-messages',
-  Chat_DeleteSession = 'chat:delete-session',
-  Chat_RenameSession = 'chat:rename-session',
-  Chat_CreateSession = 'chat:create-session',
 
   // ====== Window Management ======
   Window_New = 'new-window',

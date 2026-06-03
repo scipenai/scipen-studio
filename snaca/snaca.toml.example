@@ -1,0 +1,184 @@
+# Sample SNACA server configuration.
+#
+# Copy to `snaca.toml` and edit. Run with:
+#   cargo run -p snaca-server -- --config snaca.toml
+
+[server]
+# Listener for the admin/health HTTP surface (currently exposes /healthz).
+http_listen = "127.0.0.1:8080"
+
+# Where SNACA stores per-tenant project workspaces, memory, and
+# `state.sqlite`. Relative paths resolve against this file's directory.
+data_root = "./data"
+
+[tenant]
+# Single-tenant for M1. M2 will derive tenant_id from the IM payload
+# (e.g. Lark `tenant_key`).
+id = "default"
+
+[llm]
+# Only `deepseek` is wired up in M1.
+provider = "deepseek"
+
+# `${VAR}` placeholders are expanded from the environment at startup.
+# Missing variables cause a hard failure — you'll know immediately.
+api_key = "${DEEPSEEK_API_KEY}"
+
+# DeepSeek default model. Set to `deepseek-reasoner` to use R1 (reasoning).
+model = "deepseek-chat"
+
+# Override only if you're using a proxy or a self-hosted compatible endpoint.
+# base_url = "https://api.deepseek.com"
+
+# Max idle gap between SSE chunks (and total wait for a non-streaming
+# body), in seconds. Default 120. Applied as `read_timeout`, not a total
+# request budget — thinking models legitimately stream reasoning_content
+# for many minutes; capping total lifetime would cut them off mid-run.
+# timeout_secs = 120
+
+# Retry policy for transient LLM errors. The wrapper retries
+# RateLimited / ServerTransient / Transport / Timeout /
+# StreamInterrupted; AuthExpired and ContextOverflow surface
+# immediately so credential rotation / compaction can run. Streaming
+# calls retry only the *connect* phase — mid-stream aborts pass
+# through unchanged.
+#
+# retry_max_attempts = 5        # total tries incl. the first call. 1 = disabled
+# retry_base_delay_ms = 500     # first sleep, doubles per attempt with jitter
+# retry_max_delay_secs = 30     # cap on each sleep (also caps Retry-After)
+# retry_jitter_ratio = 0.5      # 0.0 = deterministic, 0.5 = ±50% jitter
+
+[engine]
+# Max LLM round trips per turn (each round may include tool calls). Default 10.
+# Coarse total-step cap — set high enough that legitimate long tasks never
+# trip it; rely on loop_guard_max_repeats below for pathological loops.
+# max_iterations = 10
+
+# Abort the turn once the model issues the same (tool, input) pair this
+# many times in a row. Default 3. Set to 0 to disable (escape hatch for
+# self-similar tool chains the operator has explicitly accepted).
+# loop_guard_max_repeats = 3
+
+# Wall-clock cap on one turn in seconds. Default unset = no timeout
+# (extended-thinking models and long tool chains can legitimately
+# take minutes). Set on untrusted multi-tenant deployments to bound
+# damage from runaway turns. Surfaces as EngineError::TurnTimeout when
+# tripped. Admin API and IM recall events use the same cancellation
+# path; this is the system-imposed flavour.
+# turn_timeout_secs = 300
+
+# Max read-only tools that can run in parallel within one batch
+# (e.g. several Reads issued by a single assistant message). Write
+# tools always run serially. Default 5. Set to 1 to disable
+# concurrency entirely — useful when chasing down a tool-ordering
+# bug or auditing fixture timestamps. Higher values trade more
+# parallelism for more pressure on the DB pool and any shared MCP
+# subprocess; 5–10 is the practical sweet spot.
+# concurrent_tool_limit = 5
+
+# Cap on response tokens per round. Default 4096.
+# max_tokens = 4096
+
+# Number of recent messages loaded into the prompt. Default 50.
+# history_limit = 50
+
+# Compaction folds older history into a single rolling summary so the
+# context window doesn't grow unbounded across turns.
+#
+# Threshold: trigger compaction once a single LLM round trip's *input*
+# tokens hit this value. Unset / 0 disables auto-compaction. Pick ~75%
+# of the model's context window minus tool schemas.
+# compact_after_input_tokens = 12000
+#
+# Keep this many of the most recent messages verbatim. Default 6.
+# Below 2 the loop loses the user message it's currently answering.
+# compact_keep_recent = 6
+#
+# Keep this many of the *oldest* messages verbatim across compactions —
+# protects initial task framing (system / first user goal / first
+# assistant plan / first tool result) from getting folded away.
+# Default 4. Set to 0 to fall back to "summary at the head" behaviour.
+# protect_first_n = 4
+#
+# When the LLM returns ContextOverflow, the engine compacts then
+# retries the same turn, halving `compact_keep_recent` each round.
+# `compact_max_retries` caps that loop. Default 3.
+# compact_max_retries = 3
+
+# Override the built-in system prompt. Leave commented to use the default.
+# system_prompt = """
+# You are SNACA. Answer concisely.
+# """
+
+# Post-turn memory extractor. Default ON — after each successful turn,
+# SNACA fires a short LLM call to mine `user`/`feedback` memory entries
+# from the transcript and persist them under `<data_root>/.../memory/`.
+# This is what makes the memory tree grow across conversations. Set to
+# `false` to opt out (e.g. for cost-sensitive short Q&A deployments).
+# memory_extractor = true
+#
+# Override the model used for extraction. Defaults to `llm.model` above.
+# Use a cheaper/faster model here when the main turn runs on a premium model.
+# memory_extractor_model = "deepseek-chat"
+#
+# Disable the default sensitive-info filter that wraps the extractor.
+# Off (filter active) is the safe default; flip this on only if PII
+# rejection happens elsewhere in your pipeline.
+# memory_extractor_no_filter = false
+
+[logging]
+# Tracing filter (same grammar as RUST_LOG). RUST_LOG, if set in the
+# environment, takes precedence. Common recipes:
+#   filter = "info,snaca_llm=debug"             # transport-error diagnostics
+#   filter = "info,snaca_engine=debug"          # turn / tool routing
+#   filter = "info,reqwest=debug,hyper=debug"   # HTTP/H2 wire issues
+# Leave commented for the built-in default
+# (`snaca_server=info,snaca_engine=info,snaca_channel_host=info,info`).
+# filter = "info,snaca_llm=debug"
+
+# One [[plugins]] block per IM channel. Each is started as a subprocess.
+[[plugins]]
+name = "mock"
+# Path to a binary that speaks the SNACA channel-protocol on stdio. The
+# in-tree `snaca-cli mock-plugin` works as a debug fixture.
+command = "./target/debug/snaca-cli"
+args = ["mock-plugin"]
+
+# Per-plugin environment variables. Useful for OpenClaw host's
+# OPENCLAW_PACKAGE / Lark credentials, etc.
+# [plugins.env]
+# LARK_APP_ID = "..."
+# LARK_APP_SECRET = "..."
+# Lark plugin's WS-silence watchdog threshold (seconds). Default 21600
+# (6 h). This guards against the rare "SDK's WebSocket future never
+# returns despite the TCP being dead" case; it is **not** a heartbeat
+# probe — Lark's ping/pong control frames are handled internally by
+# openlark and don't reach the channel this watchdog observes, so the
+# threshold needs to be much longer than the actual heartbeat cadence.
+# Set to 0 to disable entirely; any positive value re-enables.
+# LARK_WS_WATCHDOG_SILENCE_SECS = "0"
+
+# --- OpenClaw / Lark via snaca-plugin-openclaw-host -----------------------
+#
+# The sidecar at /home/hongxuan/snaca-plugin-openclaw-host (separate repo)
+# loads any OpenClaw channel npm package without modification and bridges
+# it to SNACA's stdio plugin protocol. To enable:
+#   1. cd /home/hongxuan/snaca-plugin-openclaw-host
+#   2. npm install
+#   3. npm install @larksuite/openclaw-lark   # or any other OpenClaw channel
+#   4. npm run build
+#   5. uncomment the block below and update the absolute path
+#
+# See ../docs/openclaw-compatibility.md for the runtime field matrix and
+# known footguns.
+#
+# [[plugins]]
+# name = "openclaw-lark"
+# command = "node"
+# args = ["/home/hongxuan/snaca-plugin-openclaw-host/dist/index.js"]
+# [plugins.env]
+# OPENCLAW_PACKAGE = "@larksuite/openclaw-lark"
+# SNACA_DATA_DIR = "/var/lib/snaca/openclaw"
+# LARK_APP_ID = "${LARK_APP_ID}"
+# LARK_APP_SECRET = "${LARK_APP_SECRET}"
+# LARK_ENCRYPT_KEY = "${LARK_ENCRYPT_KEY}"

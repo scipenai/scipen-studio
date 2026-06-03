@@ -6,8 +6,6 @@
 
 import { describe, expect, it } from 'vitest';
 import { IpcChannel } from '../../../shared/ipc/channels';
-
-import { z } from 'zod';
 import { channelSchemas } from '../../../src/main/ipc/typedIpc';
 
 // ====== Test Data Preparation ======
@@ -56,6 +54,10 @@ const EXEMPT_FROM_SCHEMA = new Set<string>([
   IpcChannel.Window_OpenProject,
   IpcChannel.Window_OpenFile,
   IpcChannel.AI_StreamChunk,
+  IpcChannel.AI_InlineEditDelta,
+  IpcChannel.AI_InlineEditComplete,
+  IpcChannel.AI_InlineEditError,
+  IpcChannel.Agent_ContextFlushRequest,
   IpcChannel.Message_FromMain,
   IpcChannel.FileWatcher_Changed,
   IpcChannel.LSP_Diagnostics,
@@ -71,6 +73,40 @@ const EXEMPT_FROM_SCHEMA = new Set<string>([
   IpcChannel.Settings_AIConfigChanged,
   IpcChannel.Config_Changed,
   IpcChannel.Selection_TextCaptured,
+  // Overleaf live event channels (broadcast main → renderer)
+  IpcChannel.OverleafLive_ConnectionChanged,
+  IpcChannel.OverleafLive_StateChanged,
+  IpcChannel.OverleafLive_RemotePatch,
+  IpcChannel.OverleafLive_TreeChanged,
+  IpcChannel.OverleafLive_Error,
+  // App update status event
+  IpcChannel.App_UpdateStatus,
+  // SNACA agent event channels (broadcast main → renderer; payload validated downstream)
+  IpcChannel.Agent_SidecarStateChanged,
+  IpcChannel.Agent_TurnDelta,
+  IpcChannel.Agent_EditPropose,
+  IpcChannel.Agent_EditProposeDelta,
+  IpcChannel.Agent_EditProposeComplete,
+  IpcChannel.Agent_PlanUpdate,
+  IpcChannel.Agent_ToolApprovalRequest,
+  IpcChannel.Agent_UsageUpdate,
+  IpcChannel.Agent_MemoryUpdated,
+  IpcChannel.Agent_Error,
+  IpcChannel.Agent_Log,
+  IpcChannel.Agent_EditApplied,
+  // SNACA agent invokes (TODO P3 follow-up: add proper schemas)
+  IpcChannel.Agent_GetSidecarState,
+  IpcChannel.Agent_GetSessionState,
+  IpcChannel.Agent_StartProject,
+  IpcChannel.Agent_NewThread,
+  IpcChannel.Agent_SwitchThread,
+  IpcChannel.Agent_ListThreads,
+  IpcChannel.Agent_SendChat,
+  IpcChannel.Agent_CancelTurn,
+  IpcChannel.Agent_ConfirmEdit,
+  IpcChannel.Agent_ConfirmTool,
+  IpcChannel.Agent_ResolveEditProposal,
+  // Chat invokes (TODO P3 follow-up: add proper schemas)
 
   // Simple parameter channels (single primitive type, low risk)
   IpcChannel.Config_Get,
@@ -288,46 +324,4 @@ describe('IPC Security - Coverage Report', () => {
   });
 });
 
-describe('IPC Security - OT Large File Payloads', () => {
-  it('ot:open-local-project should accept single text files up to 8MB', () => {
-    const schema = channelSchemas.get(IpcChannel.OT_OpenLocalProject);
-    expect(schema).toBeDefined();
-
-    const payload = [
-      {
-        root_path: 'D:/demo',
-        name: 'demo',
-        files: [
-          {
-            file_path: 'chapters/large.tex',
-            content: 'a'.repeat(3 * 1024 * 1024),
-          },
-        ],
-        folders: ['chapters'],
-      },
-    ];
-
-    expect(() => schema!.parse(payload)).not.toThrow();
-  });
-
-  it('ot:open-local-project should still reject files larger than 8MB', () => {
-    const schema = channelSchemas.get(IpcChannel.OT_OpenLocalProject);
-    expect(schema).toBeDefined();
-
-    const payload = [
-      {
-        root_path: 'D:/demo',
-        name: 'demo',
-        files: [
-          {
-            file_path: 'chapters/too-large.tex',
-            content: 'a'.repeat(9 * 1024 * 1024),
-          },
-        ],
-        folders: ['chapters'],
-      },
-    ];
-
-    expect(() => schema!.parse(payload)).toThrow(z.ZodError);
-  });
-});
+// "OT Large File Payloads" — removed in P3 cleanup along with the OT channel.

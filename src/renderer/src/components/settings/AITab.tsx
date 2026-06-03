@@ -1,135 +1,195 @@
 /**
- * @file AITab.tsx - AI Completion Settings Tab
- * @description Configures AI provider, API key, base URL and model for inline completion
+ * @file AITab.tsx - AI Agent Settings Tab
+ * @description Single section. The user picks a protocol family (OpenAI-
+ *   compatible or Anthropic-compatible) and points it at whichever base
+ *   URL their provider exposes — SNACA and Ctrl+K both use the same
+ *   credentials. Brand-level provider names (DeepSeek, SiliconFlow, …)
+ *   are intentionally not enumerated here: every modern gateway speaks
+ *   one of these two protocols.
  */
 
 import { Loader2 } from 'lucide-react';
 import type React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
 import type { AIProviderDTO, SelectedModels } from '../../api';
 import { useTranslation } from '../../locales';
 import { getSettingsService } from '../../services/core/ServiceRegistry';
 import type { ProviderId } from '../../types/provider';
-import { SectionTitle, SettingItem, Toggle, inputClassName } from './SettingsUI';
+import { SectionTitle, SettingItem, inputClassName } from './SettingsUI';
 
-const PROVIDER_OPTIONS: { id: ProviderId; label: string; defaultHost: string }[] = [
-  { id: 'openai', label: 'OpenAI', defaultHost: 'https://api.openai.com/v1' },
-  { id: 'anthropic', label: 'Anthropic', defaultHost: 'https://api.anthropic.com' },
-  { id: 'deepseek', label: 'DeepSeek', defaultHost: 'https://api.deepseek.com/v1' },
+type ModelSelection = NonNullable<SelectedModels['chat']>;
+
+interface ProviderOption {
+  /** ProviderId stored in settings. */
+  id: ProviderId;
+  /** Label shown in the dropdown. */
+  label: string;
+  /** Placeholder used as a UX hint when the host field is empty. */
+  defaultHost: string;
+  /** Two short examples of common upstream endpoints under this protocol. */
+  hostExamples: string[];
+}
+
+// Only two entries — the protocol family is what matters; the base URL
+// is where the user encodes which actual vendor they're hitting.
+const PROVIDER_OPTIONS: ProviderOption[] = [
   {
-    id: 'dashscope',
-    label: '通义千问',
-    defaultHost: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    id: 'openai',
+    label: 'OpenAI 兼容',
+    defaultHost: 'https://api.openai.com/v1',
+    // Studio AIService auto-appends `/v1` if missing, so both bare host and
+    // `/v1` form work — show both to make the convention obvious.
+    hostExamples: ['https://api.openai.com/v1', 'https://api.deepseek.com'],
   },
-  { id: 'siliconflow', label: 'SiliconFlow', defaultHost: 'https://api.siliconflow.cn/v1' },
-  { id: 'ollama', label: 'Ollama', defaultHost: 'http://localhost:11434/v1' },
-  { id: 'custom', label: '自定义 (OpenAI 兼容)', defaultHost: '' },
+  {
+    id: 'anthropic',
+    label: 'Anthropic 兼容',
+    defaultHost: 'https://api.anthropic.com',
+    hostExamples: ['https://api.anthropic.com', 'https://api.deepseek.com/anthropic'],
+  },
 ];
 
 const selectClassName =
   'w-full px-3 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]';
+
+function makeProvider(id: ProviderId): AIProviderDTO {
+  const opt = PROVIDER_OPTIONS.find((o) => o.id === id);
+  return {
+    id,
+    name: opt?.label ?? id,
+    apiKey: '',
+    apiHost: opt?.defaultHost ?? '',
+    defaultApiHost: opt?.defaultHost ?? '',
+    enabled: true,
+    models: [],
+  };
+}
+
+/**
+ * Map any historical Studio ProviderId (deepseek/dashscope/siliconflow/…)
+ * to the new two-protocol scheme. Anthropic stays Anthropic; everything
+ * else lands on `openai` (the OpenAI-compatible protocol family). Users
+ * disambiguate by editing the base URL.
+ */
+function normalizeProviderId(id: ProviderId): ProviderId {
+  return id === 'anthropic' ? 'anthropic' : 'openai';
+}
 
 export const AITab: React.FC = () => {
   const { t } = useTranslation();
   const settingsService = getSettingsService();
 
   const [provider, setProvider] = useState<AIProviderDTO | null>(null);
-  const [selectedModels, setSelectedModels] = useState<SelectedModels | null>(null);
-  const [modelInput, setModelInput] = useState('');
+  const [chatModel, setChatModel] = useState('');
+  const [completionModel, setCompletionModel] = useState('');
+
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [enabled, setEnabled] = useState(true);
 
-  // Load configuration.
+  // Initial load. Picks a provider in this order: chat selection → completion
+  // selection → first existing → openai default. Models inputs default to
+  // whatever the user already selected; completion left blank means "same as
+  // chat" downstream.
   useEffect(() => {
     (async () => {
       const config = await settingsService.getAIConfig();
-      const models = config.selectedModels;
-      setSelectedModels(models);
 
-      // Pick the first provider with an apiKey, else the first provider, else a default empty provider.
-      const active = config.providers.find((p) => p.enabled && p.apiKey) ||
-        config.providers[0] || {
-          id: 'openai' as ProviderId,
-          name: 'OpenAI',
-          apiKey: '',
-          apiHost: 'https://api.openai.com/v1',
-          defaultApiHost: 'https://api.openai.com/v1',
-          enabled: true,
-          models: [],
-        };
-      setProvider(active);
-      setEnabled(active.enabled);
+      const chatSel = config.selectedModels.chat;
+      const complSel = config.selectedModels.completion;
+      const activeId: ProviderId = normalizeProviderId(
+        (chatSel?.providerId ??
+          complSel?.providerId ??
+          config.providers[0]?.id ??
+          'openai') as ProviderId
+      );
 
-      const completionModel = models.completion?.modelId || active.models?.[0]?.id || '';
-      setModelInput(completionModel);
+      const existing = config.providers.find((p) => p.id === activeId);
+      setProvider(existing ?? makeProvider(activeId));
+      setChatModel(chatSel?.modelId ?? '');
+      setCompletionModel(complSel?.modelId ?? '');
     })();
   }, [settingsService]);
 
-  // Persist configuration.
-  const save = useCallback(
-    async (updates: {
-      providerId?: ProviderId;
-      apiKey?: string;
-      apiHost?: string;
-      model?: string;
-      isEnabled?: boolean;
+  // Persist whenever any field updates. Writes a single provider entry plus
+  // chat/completion selections that share the providerId.
+  const persist = useCallback(
+    async (next: {
+      provider?: AIProviderDTO;
+      chatModel?: string;
+      completionModel?: string;
     }) => {
-      if (!provider) return;
+      const p = next.provider ?? provider;
+      if (!p) return;
+      const chat = next.chatModel ?? chatModel;
+      const compl = next.completionModel ?? completionModel;
 
-      const updatedProvider: AIProviderDTO = {
-        ...provider,
-        id: updates.providerId ?? provider.id,
-        name:
-          PROVIDER_OPTIONS.find((o) => o.id === (updates.providerId ?? provider.id))?.label ??
-          provider.name,
-        apiKey: updates.apiKey ?? provider.apiKey,
-        apiHost: updates.apiHost ?? provider.apiHost,
-        enabled: updates.isEnabled ?? enabled,
-      };
+      // Completion model is optional. When blank, fall back to the chat
+      // model so AIService.createCompletionModel() still has something to
+      // hit.
+      const effectiveCompletion = compl || chat;
 
-      // When switching providers, reset the host to the new provider's default.
-      if (updates.providerId && updates.providerId !== provider.id) {
-        const option = PROVIDER_OPTIONS.find((o) => o.id === updates.providerId);
-        if (option) {
-          updatedProvider.apiHost = option.defaultHost;
-          updatedProvider.defaultApiHost = option.defaultHost;
-        }
-      }
+      const chatSelection: ModelSelection | null = chat
+        ? { providerId: p.id, modelId: chat }
+        : null;
+      const completionSelection: ModelSelection | null = effectiveCompletion
+        ? { providerId: p.id, modelId: effectiveCompletion }
+        : null;
 
-      setProvider(updatedProvider);
-
-      const modelId = updates.model ?? modelInput;
-      const newSelectedModels: SelectedModels = {
-        ...(selectedModels ?? {
-          chat: null,
-          completion: null,
+      const dto: { providers: AIProviderDTO[]; selectedModels: SelectedModels } = {
+        providers: [p],
+        selectedModels: {
+          chat: chatSelection,
+          completion: completionSelection,
           vision: null,
           tts: null,
           stt: null,
-        }),
-        completion: {
-          providerId: updatedProvider.id,
-          modelId,
         },
       };
-      setSelectedModels(newSelectedModels);
-
-      await settingsService.setAIConfig({
-        providers: [updatedProvider],
-        selectedModels: newSelectedModels,
-      });
+      await settingsService.setAIConfig(dto);
     },
-    [provider, selectedModels, modelInput, enabled, settingsService]
+    [provider, chatModel, completionModel, settingsService]
   );
 
-  const handleProviderChange = useCallback(
+  // ----- per-input handlers -----
+
+  const updateProvider = useCallback(
+    (patch: Partial<AIProviderDTO>) => {
+      if (!provider) return;
+      const merged: AIProviderDTO = { ...provider, ...patch };
+      setProvider(merged);
+      void persist({ provider: merged });
+    },
+    [provider, persist]
+  );
+
+  const changeProvider = useCallback(
     (id: ProviderId) => {
       setTestResult(null);
-      save({ providerId: id });
+      const next = makeProvider(id);
+      // Preserve the prior key when it makes sense — users often paste the
+      // same key for `custom` providers regardless of the dropdown choice.
+      if (provider?.apiKey) next.apiKey = provider.apiKey;
+      setProvider(next);
+      void persist({ provider: next });
     },
-    [save]
+    [provider, persist]
+  );
+
+  const commitChatModel = useCallback(
+    (value: string) => {
+      setChatModel(value);
+      void persist({ chatModel: value });
+    },
+    [persist]
+  );
+
+  const commitCompletionModel = useCallback(
+    (value: string) => {
+      setCompletionModel(value);
+      void persist({ completionModel: value });
+    },
+    [persist]
   );
 
   const handleTestConnection = useCallback(async () => {
@@ -149,32 +209,34 @@ export const AITab: React.FC = () => {
     }
   }, [t]);
 
+  // Placeholder host shown in the input — surface the protocol's two
+  // canonical examples (e.g. OpenAI's own host vs DeepSeek's OpenAI gateway)
+  // so the user knows what kind of URL is expected.
+  const hostPlaceholder = useMemo(() => {
+    if (!provider) return 'https://...';
+    const opt = PROVIDER_OPTIONS.find((o) => o.id === provider.id);
+    return opt ? `e.g. ${opt.hostExamples.join('  /  ')}` : 'https://...';
+  }, [provider]);
+
   if (!provider) {
     return (
       <div className="text-sm text-[var(--color-text-muted)] py-4">
-        {t('aiSettings.completionProvider')}...
+        {t('aiSettings.chatProvider')}...
       </div>
     );
   }
 
   return (
     <>
-      <SectionTitle>{t('aiSettings.completionProvider')}</SectionTitle>
-
-      <Toggle
-        label={t('aiSettings.enableCompletion')}
-        desc={t('aiSettings.enableCompletionDesc')}
-        checked={enabled}
-        onChange={(v) => {
-          setEnabled(v);
-          save({ isEnabled: v });
-        }}
-      />
+      <SectionTitle>{t('aiSettings.chatProvider')}</SectionTitle>
+      <p className="text-xs text-[var(--color-text-muted)] mb-3 -mt-1">
+        {t('aiSettings.chatProviderDesc')}
+      </p>
 
       <SettingItem label={t('aiSettings.provider')} description={t('aiSettings.providerDesc')}>
         <select
           value={provider.id}
-          onChange={(e) => handleProviderChange(e.target.value as ProviderId)}
+          onChange={(e) => changeProvider(e.target.value as ProviderId)}
           className={selectClassName}
         >
           {PROVIDER_OPTIONS.map((opt) => (
@@ -189,7 +251,7 @@ export const AITab: React.FC = () => {
         <input
           type="password"
           value={provider.apiKey}
-          onChange={(e) => save({ apiKey: e.target.value })}
+          onChange={(e) => updateProvider({ apiKey: e.target.value })}
           placeholder="sk-..."
           className={inputClassName}
         />
@@ -199,10 +261,19 @@ export const AITab: React.FC = () => {
         <input
           type="text"
           value={provider.apiHost}
-          onChange={(e) => save({ apiHost: e.target.value })}
-          placeholder={
-            PROVIDER_OPTIONS.find((o) => o.id === provider.id)?.defaultHost || 'https://...'
-          }
+          onChange={(e) => updateProvider({ apiHost: e.target.value })}
+          placeholder={hostPlaceholder}
+          className={inputClassName}
+        />
+      </SettingItem>
+
+      <SettingItem label={t('aiSettings.chatModel')} description={t('aiSettings.chatModelDesc')}>
+        <input
+          type="text"
+          value={chatModel}
+          onChange={(e) => setChatModel(e.target.value)}
+          onBlur={() => commitChatModel(chatModel)}
+          placeholder="deepseek-chat"
           className={inputClassName}
         />
       </SettingItem>
@@ -210,12 +281,10 @@ export const AITab: React.FC = () => {
       <SettingItem label={t('aiSettings.model')} description={t('aiSettings.modelDesc')}>
         <input
           type="text"
-          value={modelInput}
-          onChange={(e) => {
-            setModelInput(e.target.value);
-          }}
-          onBlur={() => save({ model: modelInput })}
-          placeholder="gpt-4o-mini"
+          value={completionModel}
+          onChange={(e) => setCompletionModel(e.target.value)}
+          onBlur={() => commitCompletionModel(completionModel)}
+          placeholder={chatModel || 'gpt-4o-mini'}
           className={inputClassName}
         />
       </SettingItem>

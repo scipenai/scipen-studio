@@ -20,13 +20,11 @@ import {
 } from '../utils/overleaf-sync';
 
 interface UseFileCreateRenameOptions {
-  collaborationProjectId: string | null;
   refreshFileTree: (reason?: 'manual' | 'focus' | 'auto') => Promise<void>;
   setRenamingPath: (path: string | null) => void;
 }
 
 export function useFileCreateRename({
-  collaborationProjectId,
   refreshFileTree,
   setRenamingPath,
 }: UseFileCreateRenameOptions) {
@@ -71,16 +69,11 @@ export function useFileCreateRename({
 
       try {
         const fileService = getFileExplorerService();
-        let createdEntityId: string | undefined;
 
         if (createType === 'file') {
           const result = await fileService.createFile(creatingIn.path, name);
           if (!result.success) throw new Error(result.error);
-          createdEntityId = result.entityId;
           uiService.addCompilationLog({ type: 'success', message: `Created file: ${name}` });
-          if (collaborationProjectId) {
-            getProjectRuntimeContext().update({ fileId: result.entityId || '' });
-          }
         } else {
           const result = await fileService.createFolder(creatingIn.path, name);
           if (!result.success) throw new Error(result.error);
@@ -108,15 +101,13 @@ export function useFileCreateRename({
             content: '',
             isDirty: false,
             language,
-            _id: collaborationProjectId ? createdEntityId : undefined,
-            projectId: collaborationProjectId || undefined,
           });
         }
       } catch (error) {
         uiService.addCompilationLog({ type: 'error', message: `Create failed: ${error}` });
       }
     },
-    [fileTree, collaborationProjectId, editorService, uiService, refreshFileTree]
+    [fileTree, editorService, uiService, refreshFileTree]
   );
 
   // ====== Rename ======
@@ -173,12 +164,7 @@ export function useFileCreateRename({
 
       setRenamingPath(null);
 
-      const entityType =
-        node && collaborationProjectId
-          ? node.type === 'directory'
-            ? 'folder'
-            : 'file'
-          : undefined;
+      const entityType = node ? (node.type === 'directory' ? 'folder' : 'file') : undefined;
 
       const result = await getFileExplorerService().renameNode(
         oldPath,
@@ -260,7 +246,7 @@ export function useFileCreateRename({
 
       refreshFileTree();
     },
-    [fileTree, collaborationProjectId, uiService, setRenamingPath, refreshFileTree]
+    [fileTree, uiService, setRenamingPath, refreshFileTree]
   );
 
   return {

@@ -10,7 +10,6 @@ import { api } from '../api';
 import { useTranslation } from '../locales';
 import {
   getEditorService,
-  getOTService,
   getProjectService,
   getUIService,
   useFileConflict,
@@ -45,23 +44,7 @@ export const FileConflictModal: React.FC = () => {
           if (result?.currentMtime) {
             editorService.updateFileMtime(path, result.currentMtime);
           }
-          const tab = editorService.getTab(path);
-          let otSynced = true;
-          if (tab?._id) {
-            const otProjectId = tab.projectId || getOTService().getProjectId();
-            if (otProjectId) {
-              otSynced = await getOTService().syncSavedContent(
-                otProjectId,
-                tab._id,
-                saveInfo.content
-              );
-            }
-          }
-          if (otSynced) {
-            editorService.completeSave(path, saveInfo.version);
-          } else {
-            editorService.finalizeSaveKeepingDirty(path);
-          }
+          editorService.completeSave(path, saveInfo.version);
           // After an overwrite save, sync to Overleaf
           triggerOverleafSyncAfterSave({
             filePath: path,
@@ -69,12 +52,6 @@ export const FileConflictModal: React.FC = () => {
             fileName: path.split(/[\\/]/).pop() || '',
             addLog: (type, message) => getUIService().addCompilationLog({ type, message }),
           });
-          if (!otSynced) {
-            getUIService().addCompilationLog({
-              type: 'warning',
-              message: t('syncTeX.savedOtPending', { name: path.split(/[\\/]/).pop() || path }),
-            });
-          }
         }
       } else if (action === 'close') {
         editorService.closeTab(path);

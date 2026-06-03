@@ -127,6 +127,36 @@ export function registerLSPProviders(monacoInstance: Monaco): void {
     });
   }
 
+  // Typst Completion Provider (tinymist) —— 单挂 typst,不挂 latex/markdown:
+  // - latex:texlab 的 \cite{} completion 与 BibTexSyncService 同步入 .bib 的 Zotero
+  //   entry 会重复出现(单 entry 两份);texlab 的 \ref{} 也已被 InlineCompletionService
+  //   的 LaTeX 索引覆盖。这里再挂会出现三份,故不挂。
+  // - markdown:marksman 暂未启用,挂了也是空。
+  // - typst:tinymist 提供 <label> 引用(@fig-1/@tbl-x/@sec-)与内置函数补全。
+  //   与 CiteCompletionProvider 双源并存,triggerCharacters 共享 '@';Monaco 多
+  //   provider 是合并不抢,各自 filterText 自动分流:
+  //     打 @fig- → tinymist 命中 label,Zotero cite 因 filterText 不匹配被 Monaco
+  //                  fuzzy filter 过滤掉
+  //     打 @liu → Zotero cite 命中文献,tinymist 通常无 label 匹配返空
+  //   '@' 列入 trigger 是 typst 引用语法刚需;'#'/'.'/'('/','/' ' 是 typst function
+  //   call / method / argument list 的通用触发集。
+  monacoInstance.languages.registerCompletionItemProvider('typst', {
+    triggerCharacters: ['@', '#', '.', ',', '(', ' '],
+    provideCompletionItems: async (model: monaco.editor.ITextModel, position: monaco.Position) => {
+      if (!LSPService.isRunning()) return { suggestions: [] };
+      const filePath = normalizeModelPath(model.uri.path);
+      if (!isLSPSupportedFile(filePath)) return { suggestions: [] };
+
+      try {
+        const items = await LSPService.getCompletions(filePath, position);
+        return { suggestions: items };
+      } catch (error) {
+        console.error('[LSP] Typst completion error:', error);
+        return { suggestions: [] };
+      }
+    },
+  });
+
   console.info('[LSPProviderRegistry] LSP providers registered for:', languages.join(', '));
 }
 

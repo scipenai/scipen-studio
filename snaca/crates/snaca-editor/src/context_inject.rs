@@ -1,0 +1,255 @@
+//! `ChatContext` → XML-ish system-prompt prefix.
+//!
+//! Renders the host-supplied [`ChatContext`] into a compact XML block that
+//! `handle_chat_send` appends to the per-turn system prompt (via
+//! `TurnRequest::ephemeral_system`). It rides the system prompt, not thread
+//! history, so volatile editor state never persists across turns.
+
+use snaca_editor_protocol::types::context::{ChatContext, Mention, ProjectType};
+
+/// Render the context, returning `None` when there is nothing to inject
+/// (an empty `ChatContext` produces only the `<context></context>`
+/// wrapper). Callers pass the `Some` value straight into
+/// `TurnRequest::ephemeral_system`.
+pub fn render_xml_opt(ctx: &ChatContext) -> Option<String> {
+    let xml = render_xml(ctx);
+    // Empty context = wrapper only (two lines). Anything richer carries
+    // at least one child element line.
+    if xml.lines().count() <= 2 {
+        None
+    } else {
+        Some(xml)
+    }
+}
+
+pub fn render_xml(ctx: &ChatContext) -> String {
+    let mut out = String::with_capacity(256);
+    out.push_str("<context>\n");
+
+    if let Some(p) = &ctx.project {
+        let ty = match p.project_type {
+            ProjectType::Latex => "latex",
+            ProjectType::Typst => "typst",
+            ProjectType::Mixed => "mixed",
+        };
+        out.push_str(&format!(
+            "  <project type=\"{}\" main=\"{}\" engine=\"{}\"/>\n",
+            ty,
+            p.main_file.as_deref().unwrap_or(""),
+            p.engine.as_deref().unwrap_or(""),
+        ));
+    }
+
+    if let Some(af) = &ctx.active_file {
+        let cursor = af
+            .cursor
+            .map(|c| format!(" cursor=\"{}:{}\"", c.line, c.column))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "  <active_file path=\"{}\" language=\"{}\"{}>\n",
+            af.path, af.language, cursor
+        ));
+        if let Some(sel) = &af.selection {
+            out.push_str(&format!(
+                "    <selection range=\"{}:{}-{}:{}\">{}</selection>\n",
+                sel.range.start.line,
+                sel.range.start.column,
+                sel.range.end.line,
+                sel.range.end.column,
+                escape_xml(&sel.text),
+            ));
+        }
+        out.push_str("  </active_file>\n");
+    }
+
+    if let Some(tabs) = &ctx.open_tabs {
+        out.push_str("  <open_tabs>\n");
+        for t in tabs {
+            let dirty = if t.dirty { " dirty=\"true\"" } else { "" };
+            out.push_str(&format!("    <tab path=\"{}\"{}/>\n", t.path, dirty));
+        }
+        out.push_str("  </open_tabs>\n");
+    }
+
+    if let Some(mentions) = &ctx.mentions {
+        if !mentions.is_empty() {
+            out.push_str("  <mentions>\n");
+            for m in mentions {
+                render_mention(&mut out, m);
+            }
+            out.push_str("  </mentions>\n");
+        }
+    }
+
+    if let Some(intel) = &ctx.project_intel {
+        if !intel.is_empty() {
+            out.push_str("  <project_intel>\n");
+            out.push_str(&escape_xml(intel));
+            if !intel.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str("  </project_intel>\n");
+        }
+    }
+
+    if let Some(key) = &ctx.active_zotero_item {
+        out.push_str(&format!("  <active_paper zotero_item=\"{}\"/>\n", escape_xml(key)));
+    }
+
+    if let Some(section) = &ctx.markdown_section {
+        out.push_str(&format!("  <reading_section>{}</reading_section>\n", escape_xml(section)));
+    }
+
+    out.push_str("</context>\n");
+    out
+}
+
+fn render_mention(out: &mut String, m: &Mention) {
+    match m {
+        Mention::File { path, .. } => {
+            out.push_str(&format!("    <file path=\"{}\"/>\n", path));
+        }
+        Mention::Folder { path } => {
+            out.push_str(&format!("    <folder path=\"{}\"/>\n", path));
+        }
+        Mention::Symbol { path, name, .. } => {
+            out.push_str(&format!(
+                "    <symbol path=\"{}\" name=\"{}\"/>\n",
+                path, name
+            ));
+        }
+        Mention::Selection { path, .. } => {
+            out.push_str(&format!("    <selection path=\"{}\"/>\n", path));
+        }
+        Mention::Url { url, .. } => {
+            out.push_str(&format!("    <url href=\"{}\"/>\n", url));
+        }
+    }
+}
+
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use snaca_editor_protocol::types::context::{
+        ActiveFileContext, CursorPosition, OpenTab, ProjectMeta,
+    };
+
+    #[test]
+    fn renders_minimal() {
+        let ctx = ChatContext::default();
+        let s = render_xml(&ctx);
+        assert!(s.starts_with("<context>"));
+        assert!(s.ends_with("</context>\n"));
+    }
+
+    #[test]
+    fn renders_active_file_with_cursor() {
+        let ctx = ChatContext {
+            active_file: Some(ActiveFileContext {
+                path: "/p/a.tex".into(),
+                language: "latex".into(),
+                cursor: Some(CursorPosition {
+                    line: 5,
+                    column: 10,
+                }),
+                visible_range: None,
+                selection: None,
+                dirty: None,
+            }),
+            ..Default::default()
+        };
+        let s = render_xml(&ctx);
+        assert!(s.contains("path=\"/p/a.tex\""));
+        assert!(s.contains("cursor=\"5:10\""));
+    }
+
+    #[test]
+    fn renders_project_and_tabs() {
+        let ctx = ChatContext {
+            project: Some(ProjectMeta {
+                project_type: ProjectType::Latex,
+                main_file: Some("main.tex".into()),
+                engine: Some("xelatex".into()),
+            }),
+            open_tabs: Some(vec![
+                OpenTab {
+                    path: "/p/main.tex".into(),
+                    dirty: false,
+                },
+                OpenTab {
+                    path: "/p/a.tex".into(),
+                    dirty: true,
+                },
+            ]),
+            ..Default::default()
+        };
+        let s = render_xml(&ctx);
+        assert!(s.contains("<project type=\"latex\""));
+        assert!(s.contains("main=\"main.tex\""));
+        assert!(s.contains("dirty=\"true\""));
+    }
+
+    #[test]
+    fn escapes_selection_text() {
+        use snaca_editor_protocol::types::context::SelectionInfo;
+        use snaca_editor_protocol::types::range::{Position, Range};
+        let ctx = ChatContext {
+            active_file: Some(ActiveFileContext {
+                path: "/p/a.tex".into(),
+                language: "latex".into(),
+                cursor: None,
+                visible_range: None,
+                selection: Some(SelectionInfo {
+                    range: Range::new(Position::new(0, 0), Position::new(0, 5)),
+                    text: "a < b & c".into(),
+                }),
+                dirty: None,
+            }),
+            ..Default::default()
+        };
+        let s = render_xml(&ctx);
+        assert!(s.contains("a &lt; b &amp; c"));
+    }
+
+    #[test]
+    fn renders_project_intel_block() {
+        let ctx = ChatContext {
+            project_intel: Some("# Document\n\\documentclass{article}".into()),
+            ..Default::default()
+        };
+        let s = render_xml(&ctx);
+        assert!(s.contains("<project_intel>"));
+        assert!(s.contains("\\documentclass{article}"));
+        assert!(s.contains("</project_intel>"));
+    }
+
+    #[test]
+    fn omits_project_intel_when_empty() {
+        let ctx = ChatContext {
+            project_intel: Some(String::new()),
+            ..Default::default()
+        };
+        let s = render_xml(&ctx);
+        assert!(!s.contains("project_intel"));
+    }
+
+    #[test]
+    fn renders_active_paper_and_reading_section() {
+        let ctx = ChatContext {
+            active_zotero_item: Some("8FXYZ123".into()),
+            markdown_section: Some("3.2 Experimental Setup".into()),
+            ..Default::default()
+        };
+        let s = render_xml(&ctx);
+        assert!(s.contains("zotero_item=\"8FXYZ123\""));
+        assert!(s.contains("<reading_section>3.2 Experimental Setup</reading_section>"));
+        // 有内容时不再是空壳。
+        assert!(render_xml_opt(&ctx).is_some());
+    }
+}

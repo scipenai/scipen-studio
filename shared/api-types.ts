@@ -18,9 +18,6 @@ export * from './ipc/compile-contract';
 export * from './ipc/lsp-contract';
 export * from './ipc/ai-contract';
 export * from './ipc/overleaf-contract';
-export * from './ipc/im-contract';
-export * from './ipc/ot-contract';
-export * from './ipc/project-contract';
 export * from './ipc/app-contract';
 
 // ====== Import sub-contracts for composition ======
@@ -30,10 +27,39 @@ import type { IPCCompileContract } from './ipc/compile-contract';
 import type { IPCLspContract } from './ipc/lsp-contract';
 import type { IPCAiContract } from './ipc/ai-contract';
 import type { IPCOverleafContract } from './ipc/overleaf-contract';
-import type { IPCImContract } from './ipc/im-contract';
-import type { IPCOtContract } from './ipc/ot-contract';
-import type { IPCProjectContract } from './ipc/project-contract';
 import type { IPCAppContract } from './ipc/app-contract';
+import type { IPCZoteroContract } from './ipc/zotero-contract';
+
+// ====== Collaboration Owner (window-scoped backend marker) ======
+
+/** Renderer-side claim payload for `CollaborationOwner_SetActive`. */
+export interface CollaborationOwnerClaimDTO {
+  backend: 'scipen-ot' | 'overleaf';
+  projectId?: string | null;
+  rootPath?: string | null;
+  fileId?: string | null;
+}
+
+/** Main-side reply DTO returned by `CollaborationOwner_SetActive`. */
+export interface CollaborationOwnerDTO {
+  backend: 'scipen-ot' | 'overleaf' | 'local';
+  windowId: number;
+  projectId: string | null;
+  rootPath: string | null;
+  fileId: string | null;
+  claimedAt: number;
+}
+
+interface IPCCollaborationOwnerContract {
+  'collaboration-owner:set-active': {
+    args: [owner: CollaborationOwnerClaimDTO];
+    result: CollaborationOwnerDTO;
+  };
+  'collaboration-owner:clear': {
+    args: [params: { backend: 'scipen-ot' | 'overleaf' }];
+    result: void;
+  };
+}
 
 // ====== Composed IPC API Contract ======
 
@@ -47,17 +73,16 @@ export interface IPCApiContract
     IPCLspContract,
     IPCAiContract,
     IPCOverleafContract,
-    IPCImContract,
-    IPCOtContract,
-    IPCProjectContract,
-    IPCAppContract {}
+    IPCAppContract,
+    IPCZoteroContract,
+    IPCCollaborationOwnerContract {}
 
 // ====== Event Contract (cross-domain, stays here) ======
 
 import type { LSPDiagnostic } from './ipc/lsp-contract';
-import type { ProjectConversationBindingChangedEvent } from './ipc/im-contract';
-import type { ChatStreamEvent } from './types/chat';
 import type { AIConfigDTO } from './ipc/types';
+import type { ZoteroSettingsDTO } from './types/zotero';
+import type { ZoteroEventDTO } from './types/zotero-events';
 
 /** IPC event channel types (send/on pattern) */
 export interface IPCEventContract {
@@ -87,14 +112,15 @@ export interface IPCEventContract {
     content?: string;
     error?: string;
   };
-  /** Unified Chat stream event */
-  [IpcChannel.Chat_Stream]: ChatStreamEvent;
   [IpcChannel.Window_OpenProject]: string;
   [IpcChannel.Window_OpenFile]: string;
   [IpcChannel.Message_FromMain]: string;
   [IpcChannel.Settings_AIConfigChanged]: AIConfigDTO;
-  [IpcChannel.ProjectConversation_BindingChanged]: ProjectConversationBindingChangedEvent;
   [IpcChannel.App_UpdateStatus]: import('./ipc/app-contract').UpdateStatus;
+  [IpcChannel.Zotero_SettingsChanged]: ZoteroSettingsDTO;
+  [IpcChannel.Zotero_Event]: ZoteroEventDTO;
+  [IpcChannel.Zotero_MinerUProgress]: import('./types/zotero-mineru').MinerUParseStatusDTO;
+  [IpcChannel.Zotero_EmbeddingProgress]: import('./types/zotero-embedding').EmbeddingIndexStatusDTO;
 }
 
 // ====== Type Utilities ======

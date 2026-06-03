@@ -48,6 +48,18 @@ jobs:
     needs: quality
     runs-on: ${{ matrix.os }}
 
+    # 演进记录:
+    # 这里曾经设 `continue-on-error: ${{ matrix.os != 'ubuntu-latest' }}` 作为
+    # 边界声明,治表的是 vitest+node 跑 main-process 测试时,在 Windows / macOS
+    # runner 上 `require('electron')` 偶发失败的症状(electron 包 postinstall
+    # 写 `path.txt` 这一步网络失败 → import 阶段抛 "Electron failed to install
+    # correctly")。
+    # 现已治根:`tests/renderer/setup.ts` 加全局 `vi.mock('electron', ...)`,
+    # 测试链路不再触达真 electron 包的 `getElectronPath` 检查。所有 OS 的
+    # test job 恢复硬性要求,移除 continue-on-error。
+    # 真大治根(把 main-process 服务依赖注入化、彻底消除 `import 'electron'`
+    # 在测试链路传播)仍是独立项目;当前 setup mock 是它的最小可行子集。
+
     strategy:
       fail-fast: false
       matrix:

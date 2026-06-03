@@ -5,12 +5,12 @@
 
 import { clsx } from 'clsx';
 import {
+  BookMarked,
+  Brain,
   Code,
   FileText,
-  GitBranch,
   Hand,
   Keyboard,
-  MessageSquare,
   Palette,
   RefreshCw,
   Sparkles,
@@ -23,14 +23,14 @@ import type { TranslationKey } from '../locales';
 import { getStorageService } from '../services/StorageService';
 import {
   AITab,
-  CollaborationTab,
+  AgentTab,
   CompilerTab,
   EditorTab,
-  IMTab,
   SelectionTab,
   ShortcutsTab,
   UITab,
   UpdateTab,
+  ZoteroTab,
 } from './settings';
 
 type SettingsTab =
@@ -39,9 +39,9 @@ type SettingsTab =
   | 'selection'
   | 'ui'
   | 'shortcuts'
-  | 'im'
-  | 'collaboration'
   | 'ai'
+  | 'agent'
+  | 'zotero'
   | 'update';
 const SETTINGS_PANEL_TAB_KEY = 'ui.settingsPanelTab';
 
@@ -52,22 +52,16 @@ const tabs: {
   summaryKey: TranslationKey;
 }[] = [
   {
-    id: 'im',
-    labelKey: 'settings.tabs.im',
-    icon: <MessageSquare size={14} />,
-    summaryKey: 'settingsPanel.summaries.im',
-  },
-  {
-    id: 'collaboration',
-    labelKey: 'settings.tabs.collaboration',
-    icon: <GitBranch size={14} />,
-    summaryKey: 'settingsPanel.summaries.collaboration',
-  },
-  {
     id: 'ai',
     labelKey: 'settings.tabs.ai',
     icon: <Sparkles size={14} />,
     summaryKey: 'settingsPanel.summaries.ai',
+  },
+  {
+    id: 'agent',
+    labelKey: 'settings.tabs.agent',
+    icon: <Brain size={14} />,
+    summaryKey: 'settingsPanel.summaries.agent',
   },
   {
     id: 'compiler',
@@ -100,6 +94,12 @@ const tabs: {
     summaryKey: 'settingsPanel.summaries.selection',
   },
   {
+    id: 'zotero',
+    labelKey: 'settings.tabs.zotero',
+    icon: <BookMarked size={14} />,
+    summaryKey: 'settingsPanel.summaries.zotero',
+  },
+  {
     id: 'update',
     labelKey: 'settings.tabs.update',
     icon: <RefreshCw size={14} />,
@@ -119,12 +119,12 @@ const TabContent: React.FC<{ activeTab: SettingsTab }> = ({ activeTab }) => {
       return <UITab />;
     case 'shortcuts':
       return <ShortcutsTab />;
-    case 'im':
-      return <IMTab />;
-    case 'collaboration':
-      return <CollaborationTab />;
     case 'ai':
       return <AITab />;
+    case 'agent':
+      return <AgentTab />;
+    case 'zotero':
+      return <ZoteroTab />;
     case 'update':
       return <UpdateTab />;
     default:
@@ -134,10 +134,11 @@ const TabContent: React.FC<{ activeTab: SettingsTab }> = ({ activeTab }) => {
 
 export const SettingsPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
-    const storedTab = getStorageService().getString(SETTINGS_PANEL_TAB_KEY, 'im') as SettingsTab;
-    return tabs.some((tab) => tab.id === storedTab) ? storedTab : 'im';
+    const storedTab = getStorageService().getString(SETTINGS_PANEL_TAB_KEY, 'ai') as SettingsTab;
+    return tabs.some((tab) => tab.id === storedTab) ? storedTab : 'ai';
   });
   const { t } = useTranslation();
+
   const activeMeta = useMemo(
     () => tabs.find((tab) => tab.id === activeTab) ?? tabs[0],
     [activeTab]
@@ -197,7 +198,7 @@ export const SettingsPanel: React.FC = () => {
         </div>
       </div>
 
-      <div className="min-w-0 flex-1 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <div
           className="border-b px-5 py-4"
           style={{
@@ -214,7 +215,7 @@ export const SettingsPanel: React.FC = () => {
         </div>
 
         <div
-          className="h-full overflow-y-auto px-5 py-4"
+          className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
           style={{ background: 'var(--color-bg-secondary)' }}
         >
           <TabContent activeTab={activeTab} />

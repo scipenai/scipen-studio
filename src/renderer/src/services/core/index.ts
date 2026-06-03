@@ -27,13 +27,6 @@ export type {
 } from './UIService';
 
 export { SettingsService, defaultSettings } from './SettingsService';
-export { ConversationScopeService } from './ConversationScopeService';
-export {
-  OTService,
-  getOTService,
-  buildFileTreeFromSnapshot,
-  toRelativeProjectPath,
-} from './OTService';
 export { OverleafLiveService, getOverleafLiveService } from './OverleafLiveService';
 
 export { MarkdownRenderService } from './MarkdownRenderService';
@@ -63,7 +56,6 @@ export {
   getProjectService,
   getUIService,
   getSettingsService,
-  getConversationScopeService,
   getCommandService,
   getKeybindingService,
   getMarkdownRenderService,

@@ -6,7 +6,6 @@
     "src/preload/index.ts",
     "src/main/workers/*.worker.ts",
     "src/main/lsp-process/index.ts",
-    "src/main/database/index.ts",
     "src/renderer/src/locales/index.ts",
     "shared/index.ts"
   ],
@@ -21,12 +20,6 @@
     "src/renderer/src/vite-env.d.ts",
     "src/main/workers/**/*.ts",
     "src/main/lsp-process/**/*.ts"
-  ],
-  "ignoreDependencies": [
-    "@typescript-eslint/eslint-plugin",
-    "@typescript-eslint/parser",
-    "eslint-plugin-react-hooks",
-    "eslint-plugin-react-refresh"
   ],
   "ignoreBinaries": [
     "taskkill",

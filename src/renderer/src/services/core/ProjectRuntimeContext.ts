@@ -23,8 +23,6 @@ export interface ProjectRuntimeState {
   fileId: string;
   /** Local root path of the current project */
   rootPath: string;
-  /** IM bot user id (used to distinguish user vs bot messages) */
-  botUserId: string;
   /** Overleaf remote project id */
   overleafProjectId: string;
   /** Local relative path → Overleaf docId map */
@@ -38,7 +36,6 @@ const EMPTY_STATE: Readonly<ProjectRuntimeState> = Object.freeze({
   projectId: '',
   fileId: '',
   rootPath: '',
-  botUserId: '',
   overleafProjectId: '',
   overleafDocMap: Object.freeze({}) as Record<string, string>,
   overleafServerUrl: '',
@@ -76,10 +73,6 @@ export class ProjectRuntimeContext implements IDisposable {
 
   get rootPath(): string {
     return this._state.rootPath;
-  }
-
-  get botUserId(): string {
-    return this._state.botUserId;
   }
 
   get overleafProjectId(): string {

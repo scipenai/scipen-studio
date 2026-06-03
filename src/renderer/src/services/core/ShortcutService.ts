@@ -17,7 +17,8 @@ export type ShortcutAction =
   | 'commandPalette'
   | 'chatWithSelection'
   | 'togglePreview'
-  | 'newWindow';
+  | 'newWindow'
+  | 'inlineEdit';
 
 export interface ShortcutBinding {
   action: ShortcutAction;
@@ -305,6 +306,7 @@ export class ShortcutService extends Disposable {
       ['chatWithSelection', shortcuts.chatWithSelection],
       ['togglePreview', shortcuts.togglePreview],
       ['newWindow', shortcuts.newWindow],
+      ['inlineEdit', shortcuts.inlineEdit],
     ];
 
     for (const [action, shortcutStr] of entries) {

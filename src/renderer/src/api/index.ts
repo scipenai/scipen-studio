@@ -38,19 +38,6 @@ import type {
   OverleafConfig,
   TypstCompileOptions,
   TypstCompileResult,
-  IMConnectionStateDTO,
-  IMErrorDTO,
-  IMMessagesChangedDTO,
-  IMSnapshot,
-  IMTypingDTO,
-  StudioIMConnectParams,
-  StudioIMConversationDTO,
-  StudioIMCreateConversationParams,
-  StudioIMListConversationsParams,
-  StudioIMMessageDTO,
-  StudioIMSendMessageParams,
-  StudioIMUploadAttachmentParams,
-  StudioIMUploadAttachmentResult,
   OverleafLiveConfigureParams,
   OverleafLiveConnectionStateDTO,
   OverleafLiveDocStateDTO,
@@ -65,39 +52,21 @@ import type {
   OverleafLiveStateChangedDTO,
   OverleafLiveSubmitPatchesParams,
   OverleafLiveTreeChangedDTO,
-  EnsureBindingFromBootstrapParams,
-  EnsureBindingFromBootstrapResult,
-  ExportSnapshotParams,
-  ExportSnapshotResult,
   OverleafLiveUploadFileParams,
-  ProjectConversationBindingDTO,
-  ProjectConversationCreateParams,
-  ProjectConversationListParams,
-  ProjectConversationResolveParams,
-  ProjectConversationSetDefaultParams,
-  ProjectConversationBindingChangedEvent,
-  ProjectBindingDTO,
-  ResolveBindingResult,
-  OTConnectionStateDTO,
-  OTErrorDTO,
-  OTFileEventDTO,
-  OTApplyBotEditParams,
-  OTRemoteUpdateDTO,
-  OTStateChangedDTO,
-  CollaborationOwnerClaimDTO,
-  CollaborationOwnerDTO,
-  StudioOTConfigureParams,
-  StudioOTCreateFileParams,
-  StudioOTCreateFolderParams,
-  StudioOTJoinFileParams,
-  StudioOTProjectFileDTO,
-  StudioOTProjectFolderDTO,
-  StudioOTProjectSnapshotDTO,
-  StudioOTRenameFileParams,
-  StudioOTRenameFolderParams,
-  StudioOTSubmitFileOpParams,
-  StudioOTSubmitFileOpResult,
 } from '../../../../shared/api-types';
+
+/** Window-scoped collaboration ownership marker (replaces removed im-contract DTOs). */
+export interface CollaborationOwnerClaimDTO {
+  backend: 'scipen-ot' | 'overleaf';
+  projectId: string;
+  rootPath: string | null;
+  fileId: string | null;
+}
+
+export interface CollaborationOwnerDTO extends CollaborationOwnerClaimDTO {
+  windowId: number;
+  claimedAt: number;
+}
 
 export type {
   AIConfig,
@@ -122,31 +91,9 @@ import type {
   SyncTeXForwardResult,
 } from '../../../../shared/ipc/types';
 
-import type {
-  ChatGetMessagesParams,
-  ChatMessage,
-  ChatMessagesResult,
-  ChatOperationResult,
-  ChatRenameSessionParams,
-  ChatSendMessageParams,
-  ChatSendMessageResult,
-  ChatSession,
-  ChatSessionsResult,
-  ChatStreamEvent,
-  SendMessageOptions,
-} from '../../../../shared/types/chat';
-
-export type {
-  ChatMessage,
-  ChatSession,
-  ChatStreamEvent,
-  SendMessageOptions,
-  ChatSendMessageParams,
-  ChatSendMessageResult,
-  ChatOperationResult,
-  ChatMessagesResult,
-  ChatSessionsResult,
-};
+// Legacy `shared/types/chat` types (ChatMessage / ChatSession / ChatStreamEvent
+// / SendMessageOptions) belonged to the deleted builtin chat path; SNACA owns
+// its own message shapes via `services/agent/ChatStreamStore`.
 
 export type { LaTeXCompileResult, SyncTeXForwardResult, SyncTeXBackwardResult, OverleafProjectDTO };
 
@@ -320,98 +267,6 @@ export const file = {
 
 // ==================== Project API ====================
 
-export const im = {
-  connect: (config: StudioIMConnectParams) => invoke<IMSnapshot>(IpcChannel.IM_Connect, config),
-  disconnect: () => invoke<void>(IpcChannel.IM_Disconnect),
-  getSnapshot: () => invoke<IMSnapshot>(IpcChannel.IM_GetSnapshot),
-  listConversations: (params: StudioIMListConversationsParams) =>
-    invoke<StudioIMConversationDTO[]>(IpcChannel.IM_ListConversations, params),
-  createConversation: (params: StudioIMCreateConversationParams) =>
-    invoke<StudioIMConversationDTO>(IpcChannel.IM_CreateConversation, params),
-  getConversationMembers: (baseUrl: string, token: string, conversationId: string) =>
-    invoke<Array<{ user_id: string; username: string; display_name: string; role: string }>>(
-      IpcChannel.IM_GetConversationMembers,
-      baseUrl,
-      token,
-      conversationId
-    ),
-  sendMessage: (params: StudioIMSendMessageParams) =>
-    invoke<StudioIMMessageDTO>(IpcChannel.IM_SendMessage, params),
-  uploadAttachment: (params: StudioIMUploadAttachmentParams) =>
-    invoke<StudioIMUploadAttachmentResult>(IpcChannel.IM_UploadAttachment, params),
-  sendTyping: (conversationId: string) => invoke<void>(IpcChannel.IM_SendTyping, conversationId),
-  getBotUserId: (baseUrl: string, token: string) =>
-    invoke<string>(IpcChannel.IM_GetBotUserId, baseUrl, token),
-  onStateChanged: (listener: (payload: IMConnectionStateDTO) => void) =>
-    on(IpcChannel.IM_StateChanged, listener as (...args: unknown[]) => void),
-  onMessagesChanged: (listener: (payload: IMMessagesChangedDTO) => void) =>
-    on(IpcChannel.IM_MessagesChanged, listener as (...args: unknown[]) => void),
-  onTypingChanged: (listener: (payload: IMTypingDTO) => void) =>
-    on(IpcChannel.IM_TypingChanged, listener as (...args: unknown[]) => void),
-  onError: (listener: (payload: IMErrorDTO) => void) =>
-    on(IpcChannel.IM_Error, listener as (...args: unknown[]) => void),
-};
-
-export const ot = {
-  configure: (config: StudioOTConfigureParams) =>
-    invoke<OTConnectionStateDTO>(IpcChannel.OT_Configure, config),
-  setBotUserId: (userId: string) => invoke<void>(IpcChannel.OT_SetBotUserId, userId),
-  disconnect: () => invoke<void>(IpcChannel.OT_Disconnect),
-  openLocalProject: (params: {
-    root_path: string;
-    name?: string;
-    files: Array<{ file_path: string; content: string }>;
-    folders?: string[];
-    workspace?: string;
-  }) => invoke<StudioOTProjectSnapshotDTO>(IpcChannel.OT_OpenLocalProject, params),
-  getProjectSnapshot: (projectId: string) =>
-    invoke<StudioOTProjectSnapshotDTO>(IpcChannel.OT_GetProjectSnapshot, projectId),
-  getProjectFile: (projectId: string, fileId: string) =>
-    invoke<StudioOTProjectFileDTO>(IpcChannel.OT_GetProjectFile, projectId, fileId),
-  joinFile: (params: StudioOTJoinFileParams) =>
-    invoke<StudioOTProjectFileDTO>(IpcChannel.OT_JoinFile, params),
-  submitFileOp: (params: StudioOTSubmitFileOpParams) =>
-    invoke<StudioOTSubmitFileOpResult>(IpcChannel.OT_SubmitFileOp, params),
-  applyBotEdit: (params: OTApplyBotEditParams) =>
-    invoke<import('../../../../shared/api-types').CollaborativeApplyOutcomeDTO>(
-      IpcChannel.OT_ApplyBotEdit,
-      params
-    ),
-  createFile: (params: StudioOTCreateFileParams) =>
-    invoke<StudioOTProjectFileDTO>(IpcChannel.OT_CreateFile, params),
-  createFolder: (params: StudioOTCreateFolderParams) =>
-    invoke<StudioOTProjectFolderDTO>(IpcChannel.OT_CreateFolder, params),
-  renameFile: (params: StudioOTRenameFileParams) =>
-    invoke<StudioOTProjectFileDTO>(IpcChannel.OT_RenameFile, params),
-  renameFolder: (params: StudioOTRenameFolderParams) =>
-    invoke<StudioOTProjectFolderDTO>(IpcChannel.OT_RenameFolder, params),
-  deleteFile: (projectId: string, fileId: string) =>
-    invoke<{ success: boolean }>(IpcChannel.OT_DeleteFile, projectId, fileId),
-  deleteFolder: (projectId: string, folderId: string) =>
-    invoke<{ success: boolean }>(IpcChannel.OT_DeleteFolder, projectId, folderId),
-  listProjects: (workspace?: string) =>
-    invoke<import('../../../../shared/api-types').StudioOTProjectSummaryDTO[]>(
-      IpcChannel.OT_ListProjects,
-      workspace ?? null
-    ),
-  updateProject: (projectId: string, updates: { name?: string; workspace?: string }) =>
-    invoke<import('../../../../shared/api-types').IPCResult<typeof IpcChannel.OT_UpdateProject>>(
-      IpcChannel.OT_UpdateProject,
-      projectId,
-      updates
-    ),
-  onStateChanged: (listener: (payload: OTStateChangedDTO) => void) =>
-    on(IpcChannel.OT_StateChanged, listener as (...args: unknown[]) => void),
-  onConnectionChanged: (listener: (payload: OTConnectionStateDTO) => void) =>
-    on(IpcChannel.OT_ConnectionChanged, listener as (...args: unknown[]) => void),
-  onRemoteUpdate: (listener: (payload: OTRemoteUpdateDTO) => void) =>
-    on(IpcChannel.OT_RemoteUpdate, listener as (...args: unknown[]) => void),
-  onFileEvent: (listener: (payload: OTFileEventDTO) => void) =>
-    on(IpcChannel.OT_FileEvent, listener as (...args: unknown[]) => void),
-  onError: (listener: (payload: OTErrorDTO) => void) =>
-    on(IpcChannel.OT_Error, listener as (...args: unknown[]) => void),
-};
-
 export const project = {
   open: () => invoke<{ projectPath: string; fileTree: unknown } | null>(IpcChannel.Project_Open),
   openByPath: (path: string) =>
@@ -420,19 +275,6 @@ export const project = {
     invoke<Array<{ path: string; name: string; lastOpened: number; isRemote?: boolean }>>(
       IpcChannel.Project_GetRecent
     ),
-};
-
-export const projectConversation = {
-  resolve: (params: ProjectConversationResolveParams) =>
-    invoke<ProjectConversationBindingDTO | null>(IpcChannel.ProjectConversation_Resolve, params),
-  list: (params: ProjectConversationListParams) =>
-    invoke<ProjectConversationBindingDTO[]>(IpcChannel.ProjectConversation_List, params),
-  create: (params: ProjectConversationCreateParams) =>
-    invoke<ProjectConversationBindingDTO>(IpcChannel.ProjectConversation_Create, params),
-  setDefault: (params: ProjectConversationSetDefaultParams) =>
-    invoke<{ success: boolean }>(IpcChannel.ProjectConversation_SetDefault, params),
-  onBindingChanged: (listener: (payload: ProjectConversationBindingChangedEvent) => void) =>
-    on(IpcChannel.ProjectConversation_BindingChanged, listener as (...args: unknown[]) => void),
 };
 
 export const collaborationOwner = {
@@ -772,46 +614,6 @@ export const overleafLive = {
     on(IpcChannel.OverleafLive_Error, listener as (...args: unknown[]) => void),
 };
 
-export const projectBinding = {
-  getByPath: (localRootPath: string) =>
-    invoke<ProjectBindingDTO | null>(IpcChannel.ProjectBinding_GetByPath, localRootPath),
-  getByProjectId: (projectId: string) =>
-    invoke<ProjectBindingDTO | null>(IpcChannel.ProjectBinding_GetByProjectId, projectId),
-  resolve: (localRootPath: string) =>
-    invoke<ResolveBindingResult>(IpcChannel.ProjectBinding_Resolve, localRootPath),
-  ensureBindingFromBootstrap: (params: EnsureBindingFromBootstrapParams) =>
-    invoke<EnsureBindingFromBootstrapResult>(IpcChannel.ProjectBinding_EnsureBootstrap, params),
-  setEnabled: (projectId: string, enabled: boolean) =>
-    invoke<{ success: boolean }>(IpcChannel.ProjectBinding_SetEnabled, projectId, enabled),
-  exportSnapshot: (params: ExportSnapshotParams) =>
-    invoke<ExportSnapshotResult>(IpcChannel.ProjectBinding_ExportSnapshot, params),
-};
-
-// ==================== Chat API ====================
-
-export const chat = {
-  sendMessage: (params: ChatSendMessageParams) =>
-    invoke<ChatSendMessageResult>(IpcChannel.Chat_SendMessage, params),
-
-  cancel: (sessionId: string) => invoke<ChatOperationResult>(IpcChannel.Chat_Cancel, sessionId),
-
-  getSessions: () => invoke<ChatSessionsResult>(IpcChannel.Chat_GetSessions),
-
-  getMessages: (params: ChatGetMessagesParams) =>
-    invoke<ChatMessagesResult>(IpcChannel.Chat_GetMessages, params),
-
-  deleteSession: (sessionId: string) =>
-    invoke<ChatOperationResult>(IpcChannel.Chat_DeleteSession, sessionId),
-
-  renameSession: (params: ChatRenameSessionParams) =>
-    invoke<ChatOperationResult>(IpcChannel.Chat_RenameSession, params),
-
-  createSession: () => invoke<ChatSession>(IpcChannel.Chat_CreateSession),
-
-  onStream: (callback: (event: ChatStreamEvent) => void) =>
-    on(IpcChannel.Chat_Stream, (data) => callback(data as ChatStreamEvent)),
-};
-
 // ==================== Window API ====================
 
 export const win = {
@@ -934,12 +736,89 @@ export const selection = {
     on(IpcChannel.Selection_TextCaptured, (data) => callback(data as SelectionCaptureDTO)),
 };
 
+// ==================== Zotero API ====================
+
+import type {
+  ZoteroAnnotationDTO,
+  ZoteroDetectionResultDTO,
+  ZoteroFullTextResultDTO,
+  ZoteroPingResultDTO,
+  ZoteroSettingsDTO,
+  ZoteroSettingsPatchDTO,
+} from '../../../../shared/types/zotero';
+import type {
+  MinerUContentList,
+  MinerUParseStatusDTO,
+} from '../../../../shared/types/zotero-mineru';
+import type {
+  BibTexSyncStatusDTO,
+  GetSnapshotRequestDTO,
+  GetSnapshotResultDTO,
+  RefreshResultDTO,
+  ZoteroDiagnosticsDTO,
+  ZoteroEventDTO,
+} from '../../../../shared/types/zotero-events';
+import type {
+  EmbeddingIndexStatusDTO,
+  RecommendRequestDTO,
+  ZoteroEmbeddingResultDTO,
+} from '../../../../shared/types/zotero-embedding';
+
+export const zotero = {
+  getSettings: () => invoke<ZoteroSettingsDTO>(IpcChannel.Zotero_GetSettings),
+  setSettings: (patch: ZoteroSettingsPatchDTO) =>
+    invoke<{ success: boolean }>(IpcChannel.Zotero_SetSettings, patch),
+  setMinerUApiKey: (token: string) =>
+    invoke<{ success: boolean }>(IpcChannel.Zotero_SetMinerUApiKey, token),
+  clearMinerUApiKey: () => invoke<{ success: boolean }>(IpcChannel.Zotero_ClearMinerUApiKey),
+  setEmbeddingApiKey: (token: string) =>
+    invoke<{ success: boolean }>(IpcChannel.Zotero_SetEmbeddingApiKey, token),
+  clearEmbeddingApiKey: () => invoke<{ success: boolean }>(IpcChannel.Zotero_ClearEmbeddingApiKey),
+  detectInstallation: () => invoke<ZoteroDetectionResultDTO>(IpcChannel.Zotero_DetectInstallation),
+  pingLocalApi: () => invoke<ZoteroPingResultDTO>(IpcChannel.Zotero_PingLocalApi),
+  getSnapshot: (req: GetSnapshotRequestDTO = {}) =>
+    invoke<GetSnapshotResultDTO>(IpcChannel.Zotero_GetSnapshot, req),
+  requestRefresh: () => invoke<RefreshResultDTO>(IpcChannel.Zotero_RequestRefresh),
+  getDiagnostics: () => invoke<ZoteroDiagnosticsDTO>(IpcChannel.Zotero_GetDiagnostics),
+  syncBibTex: () => invoke<BibTexSyncStatusDTO>(IpcChannel.Zotero_SyncBibTex),
+  getBibTexSyncStatus: () => invoke<BibTexSyncStatusDTO>(IpcChannel.Zotero_GetBibTexSyncStatus),
+  getCslByKey: (citationKey: string) =>
+    invoke<unknown | null>(IpcChannel.Zotero_GetCslByKey, citationKey),
+  getItemAnnotations: (itemKey: string) =>
+    invoke<ZoteroAnnotationDTO[]>(IpcChannel.Zotero_GetItemAnnotations, itemKey),
+  getFullText: (itemKey: string) =>
+    invoke<ZoteroFullTextResultDTO>(IpcChannel.Zotero_GetFullText, itemKey),
+  loadPdf: (itemKey: string) => invoke<ArrayBuffer>(IpcChannel.Zotero_LoadPdf, itemKey),
+  parseWithMinerU: (itemKey: string) =>
+    invoke<{ started: boolean }>(IpcChannel.Zotero_ParseWithMinerU, itemKey),
+  getMinerUStatus: (itemKey: string) =>
+    invoke<MinerUParseStatusDTO>(IpcChannel.Zotero_GetMinerUStatus, itemKey),
+  getParsedMarkdown: (itemKey: string) =>
+    invoke<{ markdown: string; parsedDir: string } | null>(
+      IpcChannel.Zotero_GetParsedMarkdown,
+      itemKey
+    ),
+  getContentList: (itemKey: string) =>
+    invoke<MinerUContentList | null>(IpcChannel.Zotero_GetContentList, itemKey),
+  onSettingsChanged: (callback: (settings: ZoteroSettingsDTO) => void) =>
+    on(IpcChannel.Zotero_SettingsChanged, (data) => callback(data as ZoteroSettingsDTO)),
+  onEvent: (callback: (event: ZoteroEventDTO) => void) =>
+    on(IpcChannel.Zotero_Event, (data) => callback(data as ZoteroEventDTO)),
+  onMinerUProgress: (callback: (status: MinerUParseStatusDTO) => void) =>
+    on(IpcChannel.Zotero_MinerUProgress, (data) => callback(data as MinerUParseStatusDTO)),
+  getEmbeddingStatus: () => invoke<EmbeddingIndexStatusDTO>(IpcChannel.Zotero_GetEmbeddingStatus),
+  rebuildEmbeddingIndex: () =>
+    invoke<{ started: boolean }>(IpcChannel.Zotero_RebuildEmbeddingIndex),
+  queryRecommendation: (req: RecommendRequestDTO) =>
+    invoke<ZoteroEmbeddingResultDTO>(IpcChannel.Zotero_QueryRecommendation, req),
+  onEmbeddingProgress: (callback: (status: EmbeddingIndexStatusDTO) => void) =>
+    on(IpcChannel.Zotero_EmbeddingProgress, (data) => callback(data as EmbeddingIndexStatusDTO)),
+};
+
 // ==================== Unified exports ====================
 
 export const api = {
   file,
-  im,
-  ot,
   overleafLive,
   project,
   compile,
@@ -947,10 +826,7 @@ export const api = {
   ai,
   lsp,
   overleaf,
-  projectBinding,
-  projectConversation,
   collaborationOwner,
-  chat,
   win,
   app,
   dialog,
@@ -959,6 +835,7 @@ export const api = {
   log,
   fileWatcher,
   selection,
+  zotero,
 };
 
 export default api;

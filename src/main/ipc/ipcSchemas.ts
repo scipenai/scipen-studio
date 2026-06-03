@@ -5,40 +5,43 @@
  * Framework code (registerTypedHandler, etc.) lives in typedIpc.ts.
  */
 
+import path from 'node:path';
 import { z } from 'zod';
 import { IpcChannel } from '../../../shared/ipc/channels';
 
 // ==================== Schema Helpers ====================
 
 /**
- * Path validation helper - checks for path traversal and sensitive paths
+ * Path validation helper at the IPC perimeter.
  *
- * Security policy:
- * 1. Prohibit path traversal attacks (..)
- * 2. Prohibit access to system sensitive directories (/etc, /proc, Windows, Program Files, etc.)
- * 3. Prohibit access to user AppData directory (protect privacy data)
- * 4. Exception: Allow access to application's own data directory (scipen-studio)
+ * Hard rules (any violation rejected at the boundary, never reaches fs):
+ * 1. Must be absolute. Relative paths have no anchor at the IPC layer —
+ *    Node's fs would silently resolve them against process.cwd(), which
+ *    in a packaged Electron app is the install directory. Callers passing
+ *    agent-supplied data MUST absolutize against the workspace root first
+ *    (see SNACA `resolve_within` / `AgentEditProposalBridge.resolveAbsolute`).
+ * 2. No path traversal (`..`).
+ * 3. No sensitive system directories (/etc, Windows, Program Files, AppData...).
+ *    Exception: the app's own data directory is whitelisted.
  */
 const safePathSchema = z.string().refine(
   (pathStr) => {
+    if (!path.isAbsolute(pathStr)) {
+      return false;
+    }
+
     const normalized = pathStr.replace(/\\/g, '/').toLowerCase();
 
-    // ========== 1. Prohibit path traversal ==========
     if (/\.\.[/\\]/.test(normalized)) {
       return false;
     }
 
-    // ========== 2. Whitelist: Application's own data directory ==========
-    // Path format: C:/Users/xxx/AppData/Roaming/scipen-studio/...
-    //              C:/Users/xxx/AppData/Local/scipen-studio/...
-    //              C:/Users/xxx/AppData/Local/Temp/scipen-... (temporary files)
     const appDataWhitelist =
       /^[a-z]:\/users\/[^/]+\/appdata\/(roaming|local)\/(scipen-studio|temp\/scipen)/i;
     if (appDataWhitelist.test(normalized)) {
-      return true; // Allow access to application's own data directory
+      return true;
     }
 
-    // ========== 3. Sensitive path blocking ==========
     const sensitivePatterns = [
       /^\/?etc\//i,
       /^\/?proc\//i,
@@ -49,7 +52,7 @@ const safePathSchema = z.string().refine(
 
     return !sensitivePatterns.some((pattern) => pattern.test(normalized));
   },
-  { message: 'Path contains potentially dangerous patterns' }
+  { message: 'Path must be absolute and outside sensitive system directories' }
 );
 
 /**
@@ -59,8 +62,6 @@ const safePathSchema = z.string().refine(
 const safeStringSchema = (maxLength: number = 1024 * 1024) =>
   z.string().max(maxLength, { message: `String exceeds maximum length of ${maxLength}` });
 
-const otProjectFileContentSchema = safeStringSchema(8 * 1024 * 1024);
-
 /**
  * 🔒 Safe ID schema (for database IDs, project IDs, etc.)
  */
@@ -69,45 +70,6 @@ const safeIdSchema = z
   .min(1, { message: 'ID cannot be empty' })
   .max(256, { message: 'ID too long' })
   .regex(/^[a-zA-Z0-9_-]+$/, { message: 'ID contains invalid characters' });
-
-const imCollaborationContextSchema = z.object({
-  provider: z.enum(['im-local', 'scipen-ot', 'overleaf']).optional(),
-  mode: z.enum(['im-local', 'ot-project']).optional(),
-  project_id: safeIdSchema.optional(),
-  doc_id: safeIdSchema.optional(),
-  file_id: safeIdSchema.optional(),
-  file_path: safeStringSchema(4000).nullish(),
-  root_path: safeStringSchema(4000).nullish(),
-  project_name: safeStringSchema(500).nullish(),
-  workspace_id: z.string().max(100).nullish(),
-  scope_type: z.enum(['global', 'project']).nullish(),
-  can_collaborate: z.boolean().nullish(),
-  capabilities: z
-    .object({
-      propose_edit: z.boolean(),
-      collaborative_tree: z.boolean(),
-      collaborative_read: z.boolean(),
-      collaborative_edit: z.boolean(),
-    })
-    .optional(),
-  file_tree: z.array(z.string().max(1000)).max(2000).optional(),
-  active_file_content: z.string().max(50000).optional(),
-});
-const imMessageMetadataSchema = z.object({
-  collaboration: imCollaborationContextSchema.nullish(),
-  streaming: z.boolean().optional(),
-  proposals: z
-    .array(
-      z.object({
-        file_path: z.string().max(4000),
-        old_string: z.string().max(200000),
-        new_string: z.string().max(200000),
-        description: z.string().max(2000).optional(),
-      })
-    )
-    .max(200)
-    .optional(),
-});
 
 /**
  * 🔒 Safe URL schema (for server URLs)
@@ -127,12 +89,7 @@ const safeUrlSchema = z
     { message: 'URL must use http or https protocol' }
   );
 
-const projectConversationScopeSchema = z.enum(['global', 'project']);
 const collaborationBackendSchema = z.enum(['scipen-ot', 'overleaf']);
-const imConfigForProjectConversationSchema = z.object({
-  baseUrl: safeUrlSchema,
-  token: z.string().max(512),
-});
 
 // ==================== Channel Schema Registry ====================
 
@@ -613,6 +570,128 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.AI_IsGenerating, z.tuple([])],
   [IpcChannel.AI_TestConnection, z.tuple([])],
 
+  // Ctrl+K Inline Edit. Selection capped at 100KB to mirror chat message size.
+  [
+    IpcChannel.AI_InlineEditStart,
+    z.tuple([
+      z.object({
+        instruction: safeStringSchema(2000),
+        selectedText: safeStringSchema(100_000),
+        language: z.string().max(64),
+        fileLabel: z.string().max(1024).optional(),
+        surroundingContext: safeStringSchema(20_000).optional(),
+      }),
+    ]),
+  ],
+  [IpcChannel.AI_InlineEditCancel, z.tuple([z.string().min(1).max(128)])],
+
+  // SNACA flush_unsaved reverse-RPC reply (renderer → main).
+  [
+    IpcChannel.Agent_ContextFlushResponse,
+    z.tuple([
+      z.object({
+        requestId: z.string().min(1).max(128),
+        flushedFiles: z.array(z.string().max(4096)).max(512),
+      }),
+    ]),
+  ],
+  // SNACA zotero_* reverse-RPC reply (renderer → main).
+  [
+    IpcChannel.Agent_ContextZoteroResponse,
+    z.tuple([
+      z.object({
+        requestId: z.string().min(1).max(128),
+        ok: z.boolean(),
+        data: z.unknown().optional(),
+        error: z.string().max(2048).optional(),
+      }),
+    ]),
+  ],
+
+  // ==================== Memory / Skills viewer (P6-C) ====================
+  // The renderer-facing IPC takes only a payload object; session_id is
+  // joined in main from the live AgentSessionState. Schemas here mirror
+  // those in agentHandlers.ts as a defense-in-depth check.
+  [
+    IpcChannel.Agent_MemoryList,
+    z.tuple([
+      z
+        .object({
+          scope: z.enum(['user', 'feedback', 'project', 'reference']).optional(),
+        })
+        .optional(),
+    ]),
+  ],
+  [
+    IpcChannel.Agent_MemoryGet,
+    z.tuple([
+      z.object({
+        scope: z.enum(['user', 'feedback', 'project', 'reference']),
+        name: z
+          .string()
+          .min(1)
+          .max(64)
+          .regex(/^[a-z0-9_-]+$/),
+      }),
+    ]),
+  ],
+  [
+    IpcChannel.Agent_MemoryWrite,
+    z.tuple([
+      z.object({
+        scope: z.enum(['user', 'feedback', 'project', 'reference']),
+        name: z
+          .string()
+          .min(1)
+          .max(64)
+          .regex(/^[a-z0-9_-]+$/),
+        content: z.string().max(100_000),
+      }),
+    ]),
+  ],
+  [
+    IpcChannel.Agent_MemoryDelete,
+    z.tuple([
+      z.object({
+        scope: z.enum(['user', 'feedback', 'project', 'reference']),
+        name: z
+          .string()
+          .min(1)
+          .max(64)
+          .regex(/^[a-z0-9_-]+$/),
+      }),
+    ]),
+  ],
+  [
+    IpcChannel.Agent_MemoryReveal,
+    z.tuple([
+      z
+        .object({
+          scope: z.enum(['user', 'feedback', 'project', 'reference']).optional(),
+          name: z
+            .string()
+            .min(1)
+            .max(64)
+            .regex(/^[a-z0-9_-]+$/)
+            .optional(),
+        })
+        .optional(),
+    ]),
+  ],
+  [IpcChannel.Agent_SkillsList, z.tuple([])],
+  [IpcChannel.Agent_SkillsGet, z.tuple([z.object({ name: z.string().min(1).max(128) })])],
+  [IpcChannel.Agent_SkillsReload, z.tuple([])],
+  [
+    IpcChannel.Agent_OpenMemoryViewer,
+    z.tuple([
+      z
+        .object({
+          initialTab: z.enum(['memory', 'skills']).optional(),
+        })
+        .optional(),
+    ]),
+  ],
+
   // ==================== Config (P0 fix) ====================
   // 🔒 Config_Get/Set - can read/write arbitrary configuration
   [IpcChannel.Config_Get, z.tuple([z.string().max(256)])],
@@ -629,76 +708,7 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
     ]),
   ],
 
-  // ==================== Studio IM / OT ====================
-  [
-    IpcChannel.IM_Connect,
-    z.tuple([
-      z.object({
-        baseUrl: safeUrlSchema,
-        token: z.string().max(512),
-        conversationId: safeIdSchema,
-      }),
-    ]),
-  ],
-  [IpcChannel.IM_Disconnect, z.tuple([])],
-  [IpcChannel.IM_GetSnapshot, z.tuple([])],
-  [
-    IpcChannel.IM_ListConversations,
-    z.tuple([
-      z.object({
-        baseUrl: safeUrlSchema,
-        token: z.string().max(512),
-      }),
-    ]),
-  ],
-  [
-    IpcChannel.IM_CreateConversation,
-    z.tuple([
-      z.object({
-        baseUrl: safeUrlSchema,
-        token: z.string().max(512),
-        type: z.enum(['direct', 'group']),
-        memberIds: z.array(safeIdSchema).min(1).max(100),
-        title: safeStringSchema(200).optional(),
-      }),
-    ]),
-  ],
-  [
-    IpcChannel.IM_GetConversationMembers,
-    z.tuple([safeUrlSchema, z.string().max(512), safeIdSchema]),
-  ],
-  [IpcChannel.IM_GetBotUserId, z.tuple([safeUrlSchema, z.string().max(512)])],
-  [
-    IpcChannel.IM_SendMessage,
-    z.tuple([
-      z.object({
-        conversationId: safeIdSchema,
-        // 2MB upper bound: a single message can carry the user's text plus any
-        // @-attached file contents inlined as <attachments><file>...</file></attachments>.
-        // AtMentionResolver caps total attachment bytes at 1MB; extra headroom
-        // here covers wrapper tags, surrounding prose, and UTF-8 expansion.
-        content: safeStringSchema(2 * 1024 * 1024),
-        contentType: z.enum(['text', 'image', 'file']).optional(),
-        quotedMessageId: safeIdSchema.optional(),
-        fileUrl: safeUrlSchema.optional(),
-        fileName: safeStringSchema(500).optional(),
-        fileSize: z.number().int().nonnegative().optional(),
-        thumbnailUrl: safeUrlSchema.optional(),
-        metadata: imMessageMetadataSchema.optional(),
-      }),
-    ]),
-  ],
-  [
-    IpcChannel.IM_UploadAttachment,
-    z.tuple([
-      z.object({
-        name: safeStringSchema(500),
-        mimeType: safeStringSchema(200),
-        data: z.instanceof(Uint8Array),
-      }),
-    ]),
-  ],
-  [IpcChannel.IM_SendTyping, z.tuple([safeIdSchema])],
+  // ==================== Collaboration Owner ====================
   [
     IpcChannel.CollaborationOwner_SetActive,
     z.tuple([
@@ -715,160 +725,6 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
     z.tuple([
       z.object({
         backend: collaborationBackendSchema,
-      }),
-    ]),
-  ],
-  [
-    IpcChannel.OT_Configure,
-    z.tuple([
-      z.object({
-        baseUrl: safeUrlSchema,
-        token: z.string().max(512),
-      }),
-    ]),
-  ],
-  [IpcChannel.OT_SetBotUserId, z.tuple([z.string().max(128)])],
-  [IpcChannel.OT_Disconnect, z.tuple([])],
-  [
-    IpcChannel.OT_OpenLocalProject,
-    z.tuple([
-      z.object({
-        root_path: safePathSchema,
-        name: safeStringSchema(200).optional(),
-        files: z
-          .array(
-            z.object({ file_path: safeStringSchema(1000), content: otProjectFileContentSchema })
-          )
-          .max(5000),
-        folders: z.array(safeStringSchema(1000)).max(5000).optional(),
-        workspace: z.string().max(50).optional(),
-      }),
-    ]),
-  ],
-  [IpcChannel.OT_GetProjectSnapshot, z.tuple([safeIdSchema])],
-  [IpcChannel.OT_GetProjectFile, z.tuple([safeIdSchema, safeIdSchema])],
-  [IpcChannel.OT_JoinFile, z.tuple([z.object({ projectId: safeIdSchema, fileId: safeIdSchema })])],
-  [
-    IpcChannel.OT_SubmitFileOp,
-    z.tuple([
-      z.object({
-        projectId: safeIdSchema,
-        fileId: safeIdSchema,
-        version: z.number().int().nonnegative(),
-        ops: z
-          .array(
-            z.object({
-              retain: z.number().int().nonnegative().optional(),
-              insert: safeStringSchema(200000).optional(),
-              delete: z.number().int().nonnegative().optional(),
-            })
-          )
-          .max(1000),
-      }),
-    ]),
-  ],
-  [
-    IpcChannel.OT_ApplyBotEdit,
-    z.tuple([
-      z.object({
-        projectId: safeIdSchema,
-        fileId: safeIdSchema,
-        newContent: safeStringSchema(8 * 1024 * 1024),
-        originalContent: safeStringSchema(8 * 1024 * 1024).optional(),
-        pollTimeoutMs: z.number().int().positive().max(60000).optional(),
-        pollIntervalMs: z.number().int().positive().max(5000).optional(),
-      }),
-    ]),
-  ],
-  [
-    IpcChannel.OT_CreateFile,
-    z.tuple([
-      z.object({
-        projectId: safeIdSchema,
-        file_path: safeStringSchema(1000),
-        content: safeStringSchema(2 * 1024 * 1024).optional(),
-      }),
-    ]),
-  ],
-  [
-    IpcChannel.OT_CreateFolder,
-    z.tuple([z.object({ projectId: safeIdSchema, folder_path: safeStringSchema(1000) })]),
-  ],
-  [
-    IpcChannel.OT_RenameFile,
-    z.tuple([
-      z.object({
-        projectId: safeIdSchema,
-        fileId: safeIdSchema,
-        file_path: safeStringSchema(1000),
-      }),
-    ]),
-  ],
-  [
-    IpcChannel.OT_RenameFolder,
-    z.tuple([
-      z.object({
-        projectId: safeIdSchema,
-        folderId: safeIdSchema,
-        folder_path: safeStringSchema(1000),
-      }),
-    ]),
-  ],
-  [IpcChannel.OT_DeleteFile, z.tuple([safeIdSchema, safeIdSchema])],
-  [IpcChannel.OT_DeleteFolder, z.tuple([safeIdSchema, safeIdSchema])],
-  [IpcChannel.OT_ListProjects, z.tuple([z.string().max(100).nullable()])],
-  [
-    IpcChannel.OT_UpdateProject,
-    z.tuple([
-      safeIdSchema,
-      z.object({ name: z.string().max(200).optional(), workspace: z.string().max(50).optional() }),
-    ]),
-  ],
-  [
-    IpcChannel.ProjectConversation_Resolve,
-    z.tuple([
-      z.object({
-        runtime: z.literal('openclaw'),
-        scopeType: projectConversationScopeSchema,
-        projectId: safeIdSchema.nullish(),
-        localRootPath: safePathSchema.nullish(),
-        workspaceId: z.string().max(100).nullish(),
-        title: z.string().max(200).nullish(),
-        createIfMissing: z.boolean().optional(),
-        imConfig: imConfigForProjectConversationSchema,
-      }),
-    ]),
-  ],
-  [
-    IpcChannel.ProjectConversation_List,
-    z.tuple([
-      z.object({
-        runtime: z.literal('openclaw'),
-        scopeType: projectConversationScopeSchema,
-        projectId: safeIdSchema.nullish(),
-        localRootPath: safePathSchema.nullish(),
-      }),
-    ]),
-  ],
-  [
-    IpcChannel.ProjectConversation_Create,
-    z.tuple([
-      z.object({
-        runtime: z.literal('openclaw'),
-        scopeType: projectConversationScopeSchema,
-        projectId: safeIdSchema.nullish(),
-        localRootPath: safePathSchema.nullish(),
-        workspaceId: z.string().max(100).nullish(),
-        title: z.string().max(200).nullish(),
-        imConfig: imConfigForProjectConversationSchema,
-      }),
-    ]),
-  ],
-  [
-    IpcChannel.ProjectConversation_SetDefault,
-    z.tuple([
-      z.object({
-        bindingId: safeIdSchema,
       }),
     ]),
   ],
@@ -1039,73 +895,78 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.Typst_Available, z.tuple([])],
   [IpcChannel.Compile_GetStatus, z.tuple([])],
 
-  // ==================== Project Binding ====================
+  // ==================== Zotero Integration ====================
+  // 只读 / 无参通道
+  [IpcChannel.Zotero_GetSettings, z.tuple([])],
+  [IpcChannel.Zotero_DetectInstallation, z.tuple([])],
+  [IpcChannel.Zotero_PingLocalApi, z.tuple([])],
+  [IpcChannel.Zotero_ClearMinerUApiKey, z.tuple([])],
+  [IpcChannel.Zotero_ClearEmbeddingApiKey, z.tuple([])],
+  [IpcChannel.Zotero_RequestRefresh, z.tuple([])],
+  [IpcChannel.Zotero_GetDiagnostics, z.tuple([])],
+  [IpcChannel.Zotero_SyncBibTex, z.tuple([])],
+  [IpcChannel.Zotero_GetBibTexSyncStatus, z.tuple([])],
+  [IpcChannel.Zotero_GetCslByKey, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_GetItemAnnotations, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_GetFullText, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_LoadPdf, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_ParseWithMinerU, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_GetMinerUStatus, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_GetParsedMarkdown, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_GetContentList, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_GetEmbeddingStatus, z.tuple([])],
+  [IpcChannel.Zotero_RebuildEmbeddingIndex, z.tuple([])],
   [
-    IpcChannel.ProjectBinding_Import,
+    IpcChannel.Zotero_QueryRecommendation,
     z.tuple([
-      z.object({
-        localRootPath: safePathSchema,
-        projectName: safeStringSchema().optional(),
-        customIgnorePatterns: z.array(safeStringSchema()).optional(),
-      }),
+      z
+        .object({
+          paragraph: z.string(),
+          lang: z.enum(['latex', 'markdown', 'typst', 'unknown']),
+          filePath: z.string(),
+        })
+        .strict(),
     ]),
   ],
-  [IpcChannel.ProjectBinding_Unbind, z.tuple([safeIdSchema])],
-  [IpcChannel.ProjectBinding_GetByPath, z.tuple([safePathSchema])],
-  [IpcChannel.ProjectBinding_GetByProjectId, z.tuple([safeIdSchema])],
-  [IpcChannel.ProjectBinding_Resolve, z.tuple([safePathSchema])],
+  // 部分更新 settings:strict 模式只接受白名单字段,未知字段被 IPC 边界拒绝
+  // 而非静默持久化。integrationEnabled 是 D 方案主开关,必须在白名单内。
   [
-    IpcChannel.ProjectBinding_EnsureBootstrap,
+    IpcChannel.Zotero_SetSettings,
     z.tuple([
-      z.object({
-        localRootPath: safePathSchema,
-        remoteProjectId: safeIdSchema,
-        projectName: safeStringSchema().optional(),
-        backend: z.enum(['scipen-ot', 'overleaf']).optional(),
-      }),
+      z
+        .object({
+          integrationEnabled: z.boolean().optional(),
+          path: z.string().optional(),
+          localApiEnabled: z.boolean().optional(),
+          embeddingProvider: z.enum(['zhipu', 'aliyun', 'openai']).optional(),
+          activeRecommendation: z.boolean().optional(),
+          bibTexSync: z
+            .object({
+              enabled: z.boolean(),
+              fileName: z.string().min(1),
+              translator: z.string().min(1),
+            })
+            .strict()
+            .optional(),
+        })
+        .strict(),
     ]),
   ],
-  [IpcChannel.ProjectBinding_SetEnabled, z.tuple([safeIdSchema, z.boolean()])],
+  // API token 各 provider 没有长度契约,只要求非空字符串。真正的有效性校验在
+  // 首次实际调用时由 provider 判定。
+  [IpcChannel.Zotero_SetMinerUApiKey, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_SetEmbeddingApiKey, z.tuple([z.string().min(1)])],
+  // bib index 快照拉取:since 是上次落地的 etag,缺省表示"给我全量"。
   [
-    IpcChannel.ExternalChange_Resolve,
+    IpcChannel.Zotero_GetSnapshot,
     z.tuple([
-      z.object({
-        batchId: safeStringSchema(),
-        projectRootPath: safePathSchema,
-        resolutions: z.array(
-          z.object({
-            relativePath: safeStringSchema(),
-            choice: z.enum(['keep_cloud', 'skip']),
-          })
-        ),
-      }),
+      z
+        .object({
+          since: z.string().optional(),
+        })
+        .strict(),
     ]),
   ],
-  [
-    IpcChannel.ProjectBinding_Rebuild,
-    z.tuple([
-      z.object({
-        localRootPath: safePathSchema,
-      }),
-    ]),
-  ],
-  [
-    IpcChannel.ProjectBinding_Rebind,
-    z.tuple([
-      z.object({
-        localRootPath: safePathSchema,
-        remoteProjectId: safeIdSchema,
-        backend: z.enum(['scipen-ot', 'overleaf']).optional(),
-      }),
-    ]),
-  ],
-  [
-    IpcChannel.ProjectBinding_ExportSnapshot,
-    z.tuple([
-      z.object({
-        remoteProjectId: safeIdSchema,
-        exportPath: safePathSchema,
-      }),
-    ]),
-  ],
+
+  // ==================== Project Binding ==================== (removed in P3 cleanup)
 ]);

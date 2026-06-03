@@ -8,7 +8,6 @@ import type { Event, IDisposable } from '../../../../../shared/utils';
 import type { LatestPendingReviewSource, PendingReview } from './DiffReviewService';
 import type { ProjectRuntimeState } from './ProjectRuntimeContext';
 import {
-  getConversationScopeService,
   getEditorService,
   getProjectRuntimeContext,
   getProjectService,
@@ -218,13 +217,16 @@ export function useRightPanelTab() {
   return useServiceEvent(service.onDidChangeRightPanelTab, () => service.rightPanelTab);
 }
 
-/** Returns right panel collapsed state. */
-export function useIsRightPanelCollapsed() {
+/** Returns chat panel visibility (主页面三独立面板之一). */
+export function useChatVisible() {
   const service = getUIService();
-  return useServiceEvent(
-    service.onDidChangeRightPanelCollapsed,
-    () => service.isRightPanelCollapsed
-  );
+  return useServiceEvent(service.onDidChangeChatVisible, () => service.chatVisible);
+}
+
+/** Returns editor panel visibility (主页面三独立面板之一). */
+export function useEditorVisible() {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangeEditorVisible, () => service.editorVisible);
 }
 
 /** Returns command palette open state. */
@@ -249,6 +251,18 @@ export function useCompilationResult() {
 export function usePdfData() {
   const service = getUIService();
   return useServiceEvent(service.onDidChangePdf, () => service.pdfData);
+}
+
+/** Returns the current Zotero paper PDF bytes (right-panel "paper" tab), or null. */
+export function useZoteroPdf(): Uint8Array | null {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangeZoteroPdf, () => service.zoteroPdf?.pdfBytes ?? null);
+}
+
+/** Returns the current Zotero paper itemKey (right-panel "paper" tab), or null. */
+export function useZoteroPaperItemKey(): string | null {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangeZoteroPdf, () => service.zoteroPdf?.itemKey ?? null);
 }
 
 /** Returns file-scoped PDF preview state. */
@@ -283,12 +297,6 @@ export function usePreviewMode() {
   return useServiceEvent(service.onDidChangePreviewMode, () => service.previewMode);
 }
 
-/** Returns current research workspace mode. */
-export function useWorkspaceMode() {
-  const service = getUIService();
-  return useServiceEvent(service.onDidChangeWorkspaceMode, () => service.workspaceMode);
-}
-
 /** Returns current research layout focus. */
 export function useResearchLayoutFocus() {
   const service = getUIService();
@@ -299,30 +307,6 @@ export function useResearchLayoutFocus() {
 export function useActiveArtifactPath() {
   const service = getUIService();
   return useServiceEvent(service.onDidChangeActiveArtifactPath, () => service.activeArtifactPath);
-}
-
-/** Returns current project/global conversation scope. */
-export function useConversationScope() {
-  const service = getConversationScopeService();
-  return useServiceEvent(service.onDidChangeScope, () => service.scope);
-}
-
-/** Returns current active project/global conversation binding. */
-export function useActiveProjectConversation() {
-  const service = getConversationScopeService();
-  return useServiceEvent(service.onDidChangeActiveBinding, () => service.activeBinding);
-}
-
-/** Returns current active IM conversation id resolved from scope bindings. */
-export function useActiveConversationId() {
-  const service = getConversationScopeService();
-  return useServiceEvent(service.onDidChangeActiveBinding, () => service.activeConversationId);
-}
-
-/** Returns the latest conversation scope resolution error, if any. */
-export function useConversationScopeError() {
-  const service = getConversationScopeService();
-  return useServiceEvent(service.onDidChangeLastError, () => service.lastError);
 }
 
 /** Returns current artifact id. */
@@ -431,10 +415,4 @@ export function useCompilationLogs() {
 export function useProjectRuntime(): Readonly<ProjectRuntimeState> {
   const ctx = getProjectRuntimeContext();
   return useServiceEvent(ctx.onDidChange, () => ctx.state);
-}
-
-/** Returns IM bot user id. */
-export function useRuntimeBotUserId(): string {
-  const ctx = getProjectRuntimeContext();
-  return useServiceEvent(ctx.onDidChange, () => ctx.botUserId);
 }

@@ -15,22 +15,26 @@ const logger = createLogger('ServiceRegistry');
 import { createAIService } from './AIService';
 import { createConfigManager } from './ConfigManager';
 import { createFileSystemService } from './FileSystemService';
+import { createInlineEditService } from './InlineEditService';
 import { getLSPProcessClient } from './LSPProcessClient';
 import { LaTeXCompiler } from './LaTeXCompiler';
 import { SelectionService } from './SelectionService';
 import { createSyncTeXService } from './SyncTeXService';
-import { StudioIMService } from './StudioIMService';
-import { StudioOTService } from './StudioOTService';
 import { StudioOverleafLiveService } from './StudioOverleafLiveService';
-import { ProjectBindingService } from './ProjectBindingService';
-import { ProjectConversationService } from './ProjectConversationService';
-import { ReplicaWritebackService } from './ReplicaWritebackService';
-import { ExternalChangeDetector } from './ExternalChangeDetector';
-import { OfflineOpsStore } from './OfflineOpsStore';
-import { OfflineOpsManager } from './OfflineOpsManager';
+import { createSnacaSidecarService } from './agent/SnacaSidecarService';
+import { createEditorProtocolClient } from './agent/EditorProtocolClient';
+import { createAgentEditApplyService } from './agent/AgentEditApplyService';
+import {
+  createContextRequestService,
+  defaultGetRendererWebContents,
+} from './agent/ContextRequestService';
+import { buildSnacaSidecarEnv } from '../ipc/agentHandlers';
+import type { ISnacaSidecarService } from './agent/interfaces/ISnacaSidecarService';
+import type { IEditorProtocolClient } from './agent/interfaces/IEditorProtocolClient';
+import path from 'path';
+import { app, BrowserWindow } from 'electron';
 
 import { TraceService } from './TraceService';
-import { ChatOrchestrator } from './chat';
 import type { IConfigManager } from './interfaces';
 import type {
   IAIService,
@@ -38,7 +42,6 @@ import type {
   ISelectionService,
   ISyncTeXService,
 } from './interfaces';
-import type { IChatOrchestrator } from './interfaces/IChatOrchestrator';
 
 // ====== Worker Client Imports ======
 
@@ -75,43 +78,52 @@ export function registerServices(): void {
   // ====== AI Services ======
 
   container.registerSingleton<IAIService>(ServiceNames.AI, () => createAIService());
-  // Chat orchestrator for conversation mode
-  container.registerSingleton<IChatOrchestrator>(
-    ServiceNames.CHAT_ORCHESTRATOR,
-    () =>
-      new ChatOrchestrator(
-        container.get<IAIService>(ServiceNames.AI),
-        container.get<IFileSystemService>(ServiceNames.FILE_SYSTEM)
-      )
+  container.registerLazy(ServiceNames.INLINE_EDIT, () =>
+    createInlineEditService({
+      aiService: container.get<IAIService>(ServiceNames.AI),
+    })
   );
+  // Conversational chat is owned by the SNACA sidecar (registered below);
+  // there is no in-process orchestrator on the main side anymore.
   container.registerSingleton<ISelectionService>(
     ServiceNames.SELECTION,
     () => new SelectionService()
   );
-  container.registerSingleton(ServiceNames.STUDIO_IM, () => new StudioIMService());
-  container.registerSingleton(ServiceNames.STUDIO_OT, () => new StudioOTService());
   container.registerSingleton(
     ServiceNames.STUDIO_OVERLEAF_LIVE,
     () => new StudioOverleafLiveService()
   );
-  container.registerSingleton(ServiceNames.PROJECT_BINDING, () => new ProjectBindingService());
-  container.registerSingleton(
-    ServiceNames.PROJECT_CONVERSATION,
-    () => new ProjectConversationService()
+
+  // ====== Agent (SNACA sidecar + editor-protocol client) ======
+
+  container.registerLazy(ServiceNames.AGENT_SIDECAR, () =>
+    createSnacaSidecarService({
+      binaryPath: resolveSnacaEditorBinaryPath(),
+      // Resolve env each spawn so Settings changes (api key / base url)
+      // flow through after `sidecar.restart()`. `snaca.toml` only carries
+      // the env variable NAME — never the key itself.
+      env: () => buildSnacaSidecarEnv(container.get<IConfigManager>(ServiceNames.CONFIG)),
+      autoRestart: true,
+    })
   );
-  container.registerSingleton(ServiceNames.REPLICA_WRITEBACK, () => new ReplicaWritebackService());
-  container.registerSingleton(
-    ServiceNames.EXTERNAL_CHANGE_DETECTOR,
-    () => new ExternalChangeDetector()
+  container.registerLazy(ServiceNames.AGENT_PROTOCOL_CLIENT, () =>
+    createEditorProtocolClient({
+      sidecar: container.get<ISnacaSidecarService>(ServiceNames.AGENT_SIDECAR),
+    })
   );
-  container.registerSingleton(ServiceNames.OFFLINE_OPS_STORE, () => new OfflineOpsStore());
-  container.registerSingleton(
-    ServiceNames.OFFLINE_OPS_MANAGER,
-    () =>
-      new OfflineOpsManager(
-        container.get<StudioOTService>(ServiceNames.STUDIO_OT),
-        container.get<OfflineOpsStore>(ServiceNames.OFFLINE_OPS_STORE)
-      )
+
+  container.registerLazy(ServiceNames.AGENT_EDIT_APPLY, () =>
+    createAgentEditApplyService({
+      client: container.get<IEditorProtocolClient>(ServiceNames.AGENT_PROTOCOL_CLIENT),
+      fileSystem: container.get<IFileSystemService>(ServiceNames.FILE_SYSTEM),
+    })
+  );
+
+  container.registerLazy(ServiceNames.AGENT_CONTEXT_REQUEST, () =>
+    createContextRequestService({
+      getRendererWebContents: defaultGetRendererWebContents(BrowserWindow),
+      fileSystem: container.get<IFileSystemService>(ServiceNames.FILE_SYSTEM),
+    })
   );
 
   // ====== LSP Services ======
@@ -125,6 +137,27 @@ export function registerServices(): void {
     '[ServiceRegistry] Services registered:',
     container.getRegisteredServices().join(', ')
   );
+}
+
+/**
+ * Resolve the snaca-editor binary path.
+ *
+ * - In dev: `<repo>/snaca/target/debug/snaca-editor[.exe]` — the in-tree
+ *   Rust workspace, built with `cargo build --bin snaca-editor`.
+ * - Packaged: `resources/bin/snaca-editor[.exe]` (see electron-builder
+ *   `extraResources`).
+ *
+ * Override via `SNACA_EDITOR_PATH` env if the developer wants a custom build.
+ */
+function resolveSnacaEditorBinaryPath(): string {
+  if (process.env.SNACA_EDITOR_PATH) {
+    return process.env.SNACA_EDITOR_PATH;
+  }
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'bin', `snaca-editor${ext}`);
+  }
+  return path.join(app.getAppPath(), 'snaca', 'target', 'debug', `snaca-editor${ext}`);
 }
 
 // ====== Service Lifecycle ======
@@ -239,42 +272,6 @@ export function getSelectionServiceFromContainer(): ISelectionService {
   return getServiceContainer().get<ISelectionService>(ServiceNames.SELECTION);
 }
 
-export function getChatOrchestrator(): IChatOrchestrator {
-  return getServiceContainer().get<IChatOrchestrator>(ServiceNames.CHAT_ORCHESTRATOR);
-}
-
-export function getStudioIMService(): StudioIMService {
-  return getServiceContainer().get<StudioIMService>(ServiceNames.STUDIO_IM);
-}
-
 export function getStudioOverleafLiveService(): StudioOverleafLiveService {
   return getServiceContainer().get<StudioOverleafLiveService>(ServiceNames.STUDIO_OVERLEAF_LIVE);
-}
-
-export function getStudioOTService(): StudioOTService {
-  return getServiceContainer().get<StudioOTService>(ServiceNames.STUDIO_OT);
-}
-
-export function getProjectBindingService(): ProjectBindingService {
-  return getServiceContainer().get<ProjectBindingService>(ServiceNames.PROJECT_BINDING);
-}
-
-export function getProjectConversationService(): ProjectConversationService {
-  return getServiceContainer().get<ProjectConversationService>(ServiceNames.PROJECT_CONVERSATION);
-}
-
-export function getReplicaWritebackService(): ReplicaWritebackService {
-  return getServiceContainer().get<ReplicaWritebackService>(ServiceNames.REPLICA_WRITEBACK);
-}
-
-export function getExternalChangeDetector(): ExternalChangeDetector {
-  return getServiceContainer().get<ExternalChangeDetector>(ServiceNames.EXTERNAL_CHANGE_DETECTOR);
-}
-
-export function getOfflineOpsStore(): OfflineOpsStore {
-  return getServiceContainer().get<OfflineOpsStore>(ServiceNames.OFFLINE_OPS_STORE);
-}
-
-export function getOfflineOpsManager(): OfflineOpsManager {
-  return getServiceContainer().get<OfflineOpsManager>(ServiceNames.OFFLINE_OPS_MANAGER);
 }

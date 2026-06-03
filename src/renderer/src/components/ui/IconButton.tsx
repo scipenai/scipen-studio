@@ -8,12 +8,15 @@ import type React from 'react';
 import { forwardRef } from 'react';
 
 export interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  /** Button variant */
+  /** Button variant — 通用图标按钮(走 size + active/idle ternary) */
   variant?: 'default' | 'ghost' | 'solid' | 'destructive';
   /** Button size */
   size?: 'sm' | 'md' | 'lg';
   /** Active state */
   active?: boolean;
+  /** Active 视觉强度:'accent'(默认,品牌色高亮)或 'subtle'(仅 bg-hover + 主文本,
+   *  用于「高亮收敛」场景,如主页面三面板 toggle —— 避免多个同时点亮造成 accent 泛滥)。 */
+  activeTone?: 'accent' | 'subtle';
   /** Loading state */
   loading?: boolean;
   /** Tooltip text */
@@ -30,6 +33,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       variant = 'default',
       size = 'md',
       active,
+      activeTone = 'accent',
       loading,
       disabled,
       children,
@@ -78,6 +82,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       destructive: 'text-[var(--color-error)] bg-[var(--color-error-muted)]',
     };
 
+    const shapeStyles = clsx('rounded-lg', sizeStyles[size], iconSizes[size]);
+
     return (
       <button
         ref={ref}
@@ -85,13 +91,16 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         disabled={disabled || loading}
         title={tooltip}
         className={clsx(
-          'relative inline-flex items-center justify-center rounded-lg',
+          'relative inline-flex items-center justify-center',
           'transition-all duration-200',
           'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2',
           'disabled:pointer-events-none disabled:opacity-50',
-          sizeStyles[size],
-          iconSizes[size],
-          active ? activeStyles[variant] : variantStyles[variant],
+          shapeStyles,
+          active
+            ? activeTone === 'subtle'
+              ? 'text-[var(--color-text-primary)] bg-[var(--color-bg-hover)]'
+              : activeStyles[variant]
+            : variantStyles[variant],
           loading && 'cursor-wait',
           className
         )}

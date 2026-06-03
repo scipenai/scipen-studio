@@ -232,6 +232,11 @@ export class InlineCompletionService implements IDisposable {
     completionManager.clearCache();
   }
 
+  /** 清空项目索引(标签/引用)—— 切换项目时调用,避免旧项目数据串味。 */
+  resetIndex(): void {
+    completionManager.getIndexer().clear();
+  }
+
   // ====== Partial Acceptance Feature ======
 
   getNextWordFromSuggestion(): string | null {
@@ -255,10 +260,6 @@ export class InlineCompletionService implements IDisposable {
   }
 
   // ====== Index Management ======
-
-  async indexProjectFiles(projectPath: string): Promise<void> {
-    await completionManager.getIndexer().indexProject(projectPath);
-  }
 
   /**
    * Update single file index (with debounce)
@@ -653,10 +654,6 @@ export function resetPartialAccept(): void {
 
 export function getSuggestionSource(): string | null {
   return service.suggestionSource;
-}
-
-export async function indexProjectFiles(projectPath: string): Promise<void> {
-  return service.indexProjectFiles(projectPath);
 }
 
 export function updateFileIndex(filePath: string, content: string): void {

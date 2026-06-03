@@ -10,6 +10,7 @@ import { dialog } from 'electron';
 import fs from 'fs-extra';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import { addAllowedDirectory, clearAllowedDirectories } from '../services/LocalFileProtocol';
+import { getBibTexSyncService } from '../services/zotero/BibTexSyncService';
 import { createTypedHandlers } from './typedIpc';
 import {
   type FileHandlersDeps,
@@ -54,6 +55,7 @@ export function registerFileTreeHandlers(deps: FileHandlersDeps): void {
           PathSecurityService.setProjectPath(effectivePath);
           clearAllowedDirectories();
           addAllowedDirectory(effectivePath);
+          getBibTexSyncService().setProjectPath(effectivePath);
 
           return { projectPath: effectivePath, fileTree };
         } catch (error) {
@@ -95,6 +97,7 @@ export function registerFileTreeHandlers(deps: FileHandlersDeps): void {
           PathSecurityService.setProjectPath(projectPath);
           clearAllowedDirectories();
           addAllowedDirectory(projectPath);
+          getBibTexSyncService().setProjectPath(projectPath);
 
           return { projectPath, fileTree };
         } catch (error) {

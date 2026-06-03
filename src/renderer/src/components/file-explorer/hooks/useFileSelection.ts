@@ -1,25 +1,20 @@
 /**
  * @file useFileSelection.ts - File selection and lazy-loading hook
- * @description Handles opening files in the editor (local, remote, OT) and on-demand directory resolution.
+ * @description Handles opening files in the editor and on-demand directory resolution.
  */
 
 import { useCallback } from 'react';
 import type { FileNode } from '../../../types';
 import { api } from '../../../api';
-import { getEditorService, getOTService, getUIService } from '../../../services/core';
+import { getEditorService, getUIService } from '../../../services/core';
 import { updateFileIndex } from '../../../services/InlineCompletionService';
 
 interface UseFileSelectionOptions {
   projectPath: string | null;
-  collaborationProjectId: string | null;
   setSelectedNode: (node: FileNode | null) => void;
 }
 
-export function useFileSelection({
-  projectPath,
-  collaborationProjectId,
-  setSelectedNode,
-}: UseFileSelectionOptions) {
+export function useFileSelection({ projectPath, setSelectedNode }: UseFileSelectionOptions) {
   const editorService = getEditorService();
   const uiService = getUIService();
 
@@ -41,7 +36,7 @@ export function useFileSelection({
         if (existingTab) {
           editorService.setActiveTab(normalizedPath);
           uiService.setResearchLayoutFocus('balanced');
-          uiService.setWorkspaceMode('chat-editor');
+          uiService.setEditorVisible(true);
           return;
         }
 
@@ -53,35 +48,21 @@ export function useFileSelection({
         });
 
         try {
-          let content: string | null = '';
-          let docId = node._id;
-
-          if (collaborationProjectId && node._id) {
-            const file = await getOTService().getProjectFile(collaborationProjectId, node._id);
-            content = file.content;
-            docId = file.id;
-            node.projectId = collaborationProjectId;
-          } else {
-            if (api.file.read) {
-              console.info('[FileExplorer] Reading local file:', normalizedPath);
-              const result = await api.file.read(normalizedPath);
-              content = result.content;
-              console.info('[FileExplorer] File content read success:', {
-                path: normalizedPath,
-                contentLength: content?.length || 0,
-                mtime: result.mtime,
-              });
-
-              editorService.updateFileMtime(normalizedPath, result.mtime);
-            } else {
-              console.error('[FileExplorer] api.file.read not available');
-              throw new Error('Electron API not available, ensure running in Electron environment');
-            }
+          if (!api.file.read) {
+            throw new Error('Electron API not available, ensure running in Electron environment');
           }
-
+          console.info('[FileExplorer] Reading local file:', normalizedPath);
+          const result = await api.file.read(normalizedPath);
+          const content = result.content;
           if (content === null) {
-            throw new Error(`Remote file content is unavailable: ${normalizedPath}`);
+            throw new Error(`File content is unavailable: ${normalizedPath}`);
           }
+          console.info('[FileExplorer] File content read success:', {
+            path: normalizedPath,
+            contentLength: content.length,
+            mtime: result.mtime,
+          });
+          editorService.updateFileMtime(normalizedPath, result.mtime);
 
           const ext = node.name.split('.').pop()?.toLowerCase();
           let language = 'plaintext';
@@ -109,12 +90,12 @@ export function useFileSelection({
             content,
             isDirty: false,
             language,
-            _id: docId,
-            projectId: collaborationProjectId || node.projectId,
+            _id: node._id,
+            projectId: node.projectId,
           });
 
           uiService.setResearchLayoutFocus('balanced');
-          uiService.setWorkspaceMode('chat-editor');
+          uiService.setEditorVisible(true);
         } catch (error) {
           console.error('[FileExplorer] Failed to read file:', error);
           uiService.addCompilationLog({
@@ -124,7 +105,7 @@ export function useFileSelection({
         }
       }
     },
-    [collaborationProjectId, editorService, uiService, setSelectedNode]
+    [editorService, uiService, setSelectedNode]
   );
 
   const handleResolveChildren = useCallback(

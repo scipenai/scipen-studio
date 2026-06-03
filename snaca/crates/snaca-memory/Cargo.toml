@@ -1,0 +1,60 @@
+[package]
+name = "snaca-memory"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "SNACA memory: file-tree memory + bulk import + retrieval (M3)"
+
+[dependencies]
+snaca-core.workspace = true
+snaca-state.workspace = true
+snaca-workspace.workspace = true
+snaca-llm.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+blake3.workspace = true
+chrono.workspace = true
+
+[features]
+# Real production embedder. Brings in `fastembed` + `ort` + ONNX models;
+# downloaded lazily on first use. Tests use `HashEmbedder` from the
+# default build, so most CI runs never pay for this.
+default = []
+fastembed = ["dep:fastembed"]
+# PDF extraction. Brings in the `pdf-extract` crate, which has its own
+# transitive deps for fonts/encodings — opt-in.
+pdf = ["dep:pdf-extract"]
+# ZIP bundle import — walk an archive of mixed text/markdown/code (and
+# PDF when that feature is also on). DOCX/XLSX/PPTX members inside the
+# archive are deliberately skipped: snaca-memory delegates Office
+# formats to the `office-extract` skill via an out-of-process script
+# (see `data-lark/example-skills/office-extract/`).
+bundle = ["dep:zip"]
+
+[dependencies.fastembed]
+version = "5"
+optional = true
+default-features = false
+features = ["hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"]
+
+[dependencies.zip]
+version = "8"
+optional = true
+default-features = false
+# `deflate` covers the OOXML / generic-bundle case; skip the others to
+# minimise the binary size impact when this feature is on.
+features = ["deflate"]
+
+[dependencies.pdf-extract]
+version = "0.10"
+optional = true
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "fs"] }

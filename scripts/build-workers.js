@@ -39,7 +39,7 @@ const workers = [
     entry: resolve(rootDir, 'src/main/workers/file.worker.ts'),
     // Externalize native modules that can't be bundled
     outfile: resolve(workersOutDir, 'file.worker.cjs'),
-    external: ['@parcel/watcher', 'chokidar', 'fsevents']
+    external: ['@parcel/watcher', 'fsevents']
   },
   {
     entry: resolve(rootDir, 'src/main/workers/logParser.worker.ts'),
@@ -56,7 +56,7 @@ const utilityProcesses = [
     // UtilityProcess requires .cjs format for Electron module system compatibility
     outfile: resolve(lspProcessOutDir, 'index.cjs'),
     // Externalize Electron modules and native dependencies that may be imported dynamically
-    external: ['electron', 'better-sqlite3']
+    external: ['electron']
   }
 ];
 

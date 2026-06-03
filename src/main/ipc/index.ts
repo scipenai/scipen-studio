@@ -6,23 +6,24 @@
 
 export { registerFileHandlers, type FileHandlersDeps } from './fileHandlers';
 export { registerAIHandlers, type AIHandlersDeps } from './aiHandlers';
+export {
+  registerInlineEditHandlers,
+  type InlineEditHandlersDeps,
+} from './inlineEditHandlers';
 export { registerCompileHandlers, type CompileHandlersDeps } from './compileHandlers';
 export { registerWindowHandlers, type WindowHandlersDeps } from './windowHandlers';
-export { registerChatHandlers, type ChatHandlersDeps } from './chatHandlers';
 export { registerLSPHandlers, type LSPHandlersDeps } from './lspHandlers';
 export { registerConfigHandlers } from './configHandlers';
 export { registerDialogHandlers } from './dialogHandlers';
 export { registerSettingsHandlers } from './settingsHandlers';
 export { registerSelectionHandlers, type SelectionHandlersDeps } from './selectionHandlers';
-export { registerIMHandlers } from './imHandlers';
 export { registerOverleafHandlers, type OverleafHandlersDeps } from './overleafHandlers';
 
 export { registerCollaborationOwnerHandlers } from './collaborationOwnerHandlers';
-export { registerOTHandlers } from './otHandlers';
 export { registerOverleafLiveHandlers } from './overleafLiveHandlers';
-export { registerProjectBindingHandlers } from './projectBindingHandlers';
-export { registerProjectConversationHandlers } from './projectConversationHandlers';
 export { registerUpdateHandlers, type UpdateHandlersDeps } from './updateHandlers';
+export { registerAgentHandlers, type AgentHandlersDeps } from './agentHandlers';
+export { registerZoteroHandlers } from './zoteroHandlers';
 
 // ====== Type-Safe IPC Utilities ======
 export {

@@ -1,0 +1,30 @@
+[package]
+name = "snaca-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "SNACA MCP client wrapper (stub in M1, implements stdio/SSE/Streamable HTTP in M2/M3)"
+
+[dependencies]
+snaca-core.workspace = true
+snaca-tools-api.workspace = true
+snaca-workspace.workspace = true
+async-trait.workspace = true
+tokio = { workspace = true, features = ["process", "macros", "rt", "rt-multi-thread", "time"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+rmcp.workspace = true
+dirs.workspace = true
+reqwest = { workspace = true }
+http = "1.4"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+tracing-subscriber = { workspace = true }
+which = "8"
+tempfile = "3"
