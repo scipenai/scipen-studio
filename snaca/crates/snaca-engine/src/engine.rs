@@ -700,6 +700,26 @@ impl Engine {
                 };
                 total_usage.add(&resp.usage);
 
+                // Skip persisting an empty assistant response. A turn with no
+                // text/thinking/tool_use blocks would poison every later turn —
+                // DeepSeek/OpenAI reject an assistant message with neither
+                // `content` nor `tool_calls`. End the turn cleanly instead.
+                if resp.message.content.is_empty() {
+                    warn!(
+                        thread_id = thread_id.as_str(),
+                        iterations,
+                        "LLM returned no content blocks; ending turn without persisting empty assistant message"
+                    );
+                    let outbound_files = drain_outbound(&outbound_slot);
+                    return Ok(TurnOutcome {
+                        session_id,
+                        assistant_text: String::new(),
+                        iterations,
+                        usage: total_usage,
+                        outbound_files,
+                    });
+                }
+
                 // Persist assistant message.
                 let assistant_msg = self
                     .state

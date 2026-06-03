@@ -126,6 +126,13 @@ fn push_message(msg: &Message, out: &mut Vec<WireMessage>) -> LlmResult<()> {
                     _ => {}
                 }
             }
+            // Drop an assistant turn that yielded nothing — DeepSeek rejects an
+            // assistant message with neither `content` nor `tool_calls`. The
+            // engine no longer persists empty responses, but stale rows from
+            // before that fix can still appear in history. Matches Anthropic.
+            if text.is_empty() && reasoning.is_empty() && tool_calls.is_empty() {
+                return Ok(());
+            }
             out.push(WireMessage {
                 role: "assistant".into(),
                 content: if text.is_empty() { None } else { Some(text) },
@@ -297,6 +304,18 @@ mod tests {
             description: format!("description of {name}"),
             input_schema: json!({"type": "object"}),
         }
+    }
+
+    #[test]
+    fn empty_assistant_message_is_skipped() {
+        // Stale empty assistant rows (from before the engine-side guard) must
+        // not be forwarded — DeepSeek rejects an assistant message with neither
+        // content nor tool_calls on every subsequent turn.
+        let req = MessageRequest::new("deepseek-chat")
+            .with_messages(vec![Message::new(Role::Assistant, vec![]), assistant_text("ok")]);
+        let wire = build_chat_request(&req, false).unwrap();
+        assert_eq!(wire.messages.len(), 1);
+        assert_eq!(wire.messages[0].content.as_deref(), Some("ok"));
     }
 
     #[test]
