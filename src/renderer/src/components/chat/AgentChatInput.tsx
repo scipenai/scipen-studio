@@ -343,21 +343,21 @@ export function AgentChatInput({
           onKeyUp={syncCaret}
           onClick={syncCaret}
           aria-label={t('chat.inputAriaLabel')}
-          placeholder={placeholder ?? (disabled ? '初始化中…' : '问点什么 (Enter 发送, Shift+Enter 换行, @ 引用文件)')}
+          placeholder={placeholder ?? (disabled ? t('chat.initializing') : t('chat.inputPlaceholder'))}
           disabled={disabled}
           rows={1}
           onKeyDown={handleKeyDown}
-          className="w-full resize-none bg-transparent px-3 py-2.5 pr-12 text-[length:var(--chat-font-size)] leading-[1.55] text-[var(--color-text-primary)] caret-[var(--color-accent)] outline-none placeholder:text-[var(--color-text-muted)] disabled:cursor-not-allowed"
+          className="w-full resize-none bg-transparent px-3 py-2.5 pr-12 chat-msg-text leading-[1.55] text-[var(--color-text-primary)] caret-[var(--color-accent)] outline-none placeholder:text-[var(--color-text-muted)] disabled:cursor-not-allowed"
         />
         <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1">
           {busy && onCancel ? (
             <button
               type="button"
               onClick={onCancel}
-              title="取消"
+              title={t('chat.cancel')}
               className="rounded-lg bg-[var(--color-bg-secondary)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-primary)] hover:text-[var(--color-text-primary)]"
             >
-              停止
+              {t('chat.stop')}
             </button>
           ) : (
             <button
@@ -366,7 +366,7 @@ export function AgentChatInput({
               disabled={!value.trim() || disabled}
               className="rounded-lg bg-[var(--color-accent)] px-2 py-1 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
-              发送
+              {t('chat.send')}
             </button>
           )}
         </div>

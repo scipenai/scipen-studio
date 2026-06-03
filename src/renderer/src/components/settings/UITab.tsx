@@ -10,13 +10,9 @@ import { getSettingsService } from '../../services/core/ServiceRegistry';
 import { useSettings } from '../../services/core/hooks';
 import { SectionTitle, SettingItem, selectClassName } from './SettingsUI';
 
-/** 聊天字号离散档(px)。值写入 ui.chatFontSize,驱动 --chat-font-size。 */
-const CHAT_FONT_OPTIONS = [
-  { size: 13, labelKey: 'settings.chatFontSmall' },
-  { size: 14, labelKey: 'settings.chatFontStandard' },
-  { size: 16, labelKey: 'settings.chatFontLarge' },
-  { size: 18, labelKey: 'settings.chatFontXLarge' },
-] as const;
+/** 聊天字号范围(px)。值写入 ui.chatFontSize,驱动 --chat-font-size。 */
+const CHAT_FONT_MIN = 12;
+const CHAT_FONT_MAX = 20;
 
 export const UITab: React.FC = () => {
   const settings = useSettings();
@@ -64,24 +60,20 @@ export const UITab: React.FC = () => {
       </SettingItem>
 
       <SettingItem label={t('settings.chatFontSize')}>
-        <div className="flex gap-1.5">
-          {CHAT_FONT_OPTIONS.map((opt) => {
-            const active = settings.ui.chatFontSize === opt.size;
-            return (
-              <button
-                key={opt.size}
-                type="button"
-                onClick={() => settingsService.updateUI({ chatFontSize: opt.size })}
-                className={`flex-1 rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                  active
-                    ? 'border-[var(--color-accent)] bg-[var(--color-accent-muted)] text-[var(--color-accent)]'
-                    : 'border-[var(--color-border)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
-                }`}
-              >
-                {t(opt.labelKey)}
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-3">
+          <input
+            type="range"
+            min={CHAT_FONT_MIN}
+            max={CHAT_FONT_MAX}
+            step={1}
+            value={settings.ui.chatFontSize}
+            onChange={(e) => settingsService.updateUI({ chatFontSize: Number(e.target.value) })}
+            aria-label={t('settings.chatFontSize')}
+            className="flex-1 cursor-pointer accent-[var(--color-accent)]"
+          />
+          <span className="w-12 text-right text-sm tabular-nums text-[var(--color-text-secondary)]">
+            {settings.ui.chatFontSize}px
+          </span>
         </div>
       </SettingItem>
     </>

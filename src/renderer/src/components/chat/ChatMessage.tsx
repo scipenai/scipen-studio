@@ -94,7 +94,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
 
   if (message.role === 'user') {
     return (
-      <div className="mb-3 flex gap-2 text-[length:var(--chat-font-size)] leading-[1.6]">
+      <div className="mb-3 flex gap-2 chat-msg-text leading-[1.6]">
         <span aria-hidden="true" className="select-none font-semibold text-[var(--color-accent)]">
           ›
         </span>
@@ -127,7 +127,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
       )}
       {completedTurn && <ProposalsList proposals={completedTurn.proposals} />}
       {renderLegacyTail && (
-        <div className="text-[length:var(--chat-font-size)] leading-[1.6]">
+        <div className="chat-msg-text leading-[1.6]">
           <MarkdownContent content={message.text} />
         </div>
       )}
@@ -171,7 +171,7 @@ function Timeline({
           if (suppressText) return null;
           const streaming = isLast && pending;
           return (
-            <div key={`tx-${i}`} className="text-[length:var(--chat-font-size)] leading-[1.6]">
+            <div key={`tx-${i}`} className="chat-msg-text leading-[1.6]">
               {streaming ? (
                 // 流式期间渲纯文本,避免每个 token 重解析整段 markdown 引发重排抖动;
                 // turn 完成后一次性切到 markdown 渲染(对齐 Reasonix Message 模式)。

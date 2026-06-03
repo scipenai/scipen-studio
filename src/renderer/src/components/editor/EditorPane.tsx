@@ -425,11 +425,6 @@ export const EditorPane: React.FC = React.memo(() => {
           <p className="mt-2 text-xs leading-6 text-[var(--color-text-disabled)]">
             {t('editor.selectFileHint')}
           </p>
-          <div className="mt-4 space-y-1 text-[11px] text-slate-400">
-            <div>{t('editor.shortcutOpenClaw')}</div>
-            <div>{t('editor.shortcutSearchFile')}</div>
-            <div>{t('editor.shortcutAIGenerate')}</div>
-          </div>
         </div>
       </div>
     );

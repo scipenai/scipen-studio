@@ -1063,6 +1063,12 @@ body {
   margin-bottom: 0;
 }
 
+/* 聊天纯文本(用户消息/流式文本/输入框)字号 —— 与 .chat-markdown 同源,
+   靠真 CSS 变量缩放(Tailwind 任意值类 text-[length:var] 在本项目不生效)。 */
+.chat-msg-text {
+  font-size: var(--chat-font-size, 14px);
+}
+
 .chat-markdown {
   font-size: var(--chat-font-size, 14px);
   line-height: 1.75;

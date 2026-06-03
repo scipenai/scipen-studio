@@ -779,7 +779,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                 className="flex items-center gap-1.5 rounded-xl bg-[linear-gradient(135deg,#0ea5e9_0%,#2563eb_100%)] px-3.5 py-2 text-xs font-semibold text-white shadow-[0_12px_24px_rgba(37,99,235,0.24)] transition-transform hover:-translate-y-[1px] hover:shadow-[0_16px_28px_rgba(37,99,235,0.28)]"
               >
                 <Sparkles size={12} />
-                <span>{t('pdfPreview.askClaw')}</span>
+                <span>{t('pdfPreview.askAgent')}</span>
               </button>
             </div>
           </div>

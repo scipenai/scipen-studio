@@ -30,7 +30,7 @@ import React, {
   useSyncExternalStore,
 } from 'react';
 import { useEvent } from '../../hooks';
-import { useTranslation } from '../../locales';
+import { t as translate, useTranslation } from '../../locales';
 import { agentClient, type ThreadSummary } from '../../services/agent/AgentClientService';
 import { buildChatContext } from '../../services/agent/ChatContextBuilder';
 import { buildMentions } from '../../services/AtMentionResolver';
@@ -315,16 +315,16 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
   const placeholder = useMemo(() => {
     switch (startup.kind) {
       case 'idle':
-        return '请先打开一个项目';
+        return t('chat.startupIdle');
       case 'starting':
-        return '初始化中…';
+        return t('chat.initializing');
       case 'error':
-        return `启动失败：${startup.message}`;
+        return t('chat.startupError', { message: startup.message });
       case 'ready':
       default:
         return undefined;
     }
-  }, [startup]);
+  }, [startup, t]);
 
   const threadTitle = activeThread?.title || t('thread.newConversation');
   const isEmpty = messages.length === 0 && !currentTurn;
@@ -544,11 +544,15 @@ function extractErrorMessage(err: unknown): string {
  */
 function formatErrorPrompt(req: AskAIAboutErrorRequest): string {
   const where =
-    req.file && req.line != null
-      ? `${req.file}:${req.line}`
-      : req.file ?? '';
-  const head = where
-    ? `${req.compilerType} 编译报错 (${where}):`
-    : `${req.compilerType} 编译报错:`;
-  return `${head}\n\n${req.errorMessage.trim()}\n\n帮我看看怎么修。`;
+    req.file && req.line != null ? `${req.file}:${req.line}` : req.file ?? '';
+  const intro = translate('chat.compileErrorIntro', {
+    compiler: req.compilerType,
+    where: where ? ` (${where})` : '',
+  });
+  // 把被点击的那条错误的具体内容也带上,不只一行 title —— Agent 另从 ChatContext
+  // 拿到完整 diagnostics,这里负责锚定用户实际点的错误。
+  const detail = req.errorContent?.trim()
+    ? `${req.errorMessage.trim()}\n\n${req.errorContent.trim()}`
+    : req.errorMessage.trim();
+  return `${intro}\n\n${detail}\n\n${translate('chat.compileErrorAsk')}`;
 }
