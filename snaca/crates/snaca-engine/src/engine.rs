@@ -685,6 +685,13 @@ impl Engine {
             // error is the right move (something else is wrong).
             let mut prompt_too_long_attempts: u8 = 0;
             let max_compact_retries = self.config.compact_max_retries;
+            // Bounded recovery for `LlmError::MalformedToolArgs`: when the
+            // model itself emits broken JSON (not just an SSE-concat bug
+            // the non-streaming retry already fixes), persist a synthetic
+            // User message naming the parse error and re-enter the loop so
+            // the model sees *why* its response was rejected.
+            let mut malformed_args_attempts: u8 = 0;
+            let max_malformed_args_retries = self.config.malformed_tool_args_max_retries;
 
             loop {
                 if iterations >= self.config.max_iterations {
@@ -745,6 +752,52 @@ impl Engine {
                              compaction with tighter tail and retrying turn"
                         );
                         self.maybe_compact_thread(&thread_id, 0, Some(shrunk))
+                            .await?;
+                        continue;
+                    }
+                    Err(EngineError::Llm(LlmError::MalformedToolArgs {
+                        tool,
+                        args_len,
+                        message,
+                    })) if malformed_args_attempts < max_malformed_args_retries => {
+                        // Model emitted invalid JSON in a tool_use args block
+                        // AND the non-streaming retry already failed. Persist a
+                        // User-role feedback message naming the parse error and
+                        // re-enter the loop so the model can self-correct. We do
+                        // NOT persist any partial assistant content from the
+                        // failed turn — an assistant message with no valid
+                        // tool_use to pair a later tool_result would poison
+                        // providers that enforce the pairing.
+                        malformed_args_attempts += 1;
+                        warn!(
+                            thread_id = thread_id.as_str(),
+                            tool = %tool,
+                            args_len,
+                            attempt = malformed_args_attempts,
+                            max = max_malformed_args_retries,
+                            "model emitted invalid JSON tool args; persisting \
+                             feedback and retrying turn"
+                        );
+                        let feedback = format!(
+                            "Your previous response attempted to call tool `{tool}` \
+                             but the JSON arguments could not be parsed.\n\n\
+                             Parser error: {message}\n\n\
+                             The most common cause is an unescaped `\"` inside a \
+                             JSON string value. Please retry the same tool call, \
+                             making sure every `\"` that appears INSIDE a JSON \
+                             string is escaped as `\\\"`. Chinese curly quotes \
+                             (`\u{201C}` and `\u{201D}`) do NOT need escaping. \
+                             Newlines inside string values must be `\\n`, not \
+                             literal line breaks. Backslashes must be `\\\\`."
+                        );
+                        self.state
+                            .append_message(&NewMessage {
+                                thread_id: thread_id.clone(),
+                                session_id,
+                                role: Role::User,
+                                content: vec![ContentBlock::text(feedback)],
+                                turn_id: None,
+                            })
                             .await?;
                         continue;
                     }

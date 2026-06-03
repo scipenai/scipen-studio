@@ -454,6 +454,191 @@ async fn malformed_streamed_tool_args_falls_back_to_non_streaming() {
     assert!(txt.contains("recovered"), "tool result missing: {txt}");
 }
 
+/// Mock where DeepSeek emits invalid JSON in *both* streaming AND
+/// non-streaming for the same call; then iteration 2 (after the engine
+/// persists a User feedback message) finally returns clean text.
+struct BothPathsMalformedThenRecovers {
+    stream_calls: std::sync::atomic::AtomicUsize,
+    non_stream_calls: std::sync::atomic::AtomicUsize,
+}
+
+impl BothPathsMalformedThenRecovers {
+    fn new() -> Self {
+        Self {
+            stream_calls: std::sync::atomic::AtomicUsize::new(0),
+            non_stream_calls: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+}
+
+#[async_trait]
+impl LlmClient for BothPathsMalformedThenRecovers {
+    fn provider_name(&self) -> &'static str {
+        "both-broken-mock"
+    }
+    fn model(&self) -> &str {
+        "both-broken-mock"
+    }
+    fn capabilities(&self) -> ProviderCaps {
+        ProviderCaps {
+            tool_use: true,
+            streaming: true,
+            ..Default::default()
+        }
+    }
+
+    async fn create_message(&self, _req: MessageRequest) -> LlmResult<MessageResponse> {
+        // The engine wraps any non-streaming-retry failure back into
+        // MalformedToolArgs, so returning MalformedResponse here exercises
+        // the path where DeepSeek's non-streaming endpoint *also* returns
+        // broken JSON.
+        self.non_stream_calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Err(LlmError::MalformedResponse(
+            "tool_call.arguments is not valid JSON: expected `,` or `}` at line 1 column 783"
+                .into(),
+        ))
+    }
+
+    async fn create_message_stream(
+        &self,
+        _req: MessageRequest,
+    ) -> LlmResult<BoxStream<'static, LlmResult<StreamEvent>>> {
+        let n = self
+            .stream_calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let events = if n == 0 {
+            vec![
+                StreamEvent::MessageStart {
+                    message_id: "m".into(),
+                    model: None,
+                },
+                StreamEvent::ContentBlockStart {
+                    index: 0,
+                    block: ContentBlockStart::ToolUse {
+                        id: "tu_bad".into(),
+                        name: "Echo".into(),
+                    },
+                },
+                StreamEvent::ContentBlockDelta {
+                    index: 0,
+                    delta: ContentDelta::ToolInputJson {
+                        partial_json: r#"{"text": "broken json without closing quote }"#.into(),
+                    },
+                },
+                StreamEvent::ContentBlockStop { index: 0 },
+                StreamEvent::MessageDelta {
+                    stop_reason: Some(StopReason::ToolUse),
+                    usage: None,
+                },
+                StreamEvent::MessageStop,
+            ]
+        } else {
+            text_stream("recovered")
+        };
+        Ok(Box::pin(stream::iter(events.into_iter().map(Ok))))
+    }
+}
+
+#[tokio::test]
+async fn malformed_args_recovers_via_user_feedback_then_continues() {
+    let llm = Arc::new(BothPathsMalformedThenRecovers::new());
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = WorkspaceLayout::new(tmp.path()).unwrap();
+    let db = Database::open_in_memory().await.unwrap();
+    let engine = Engine::new(
+        llm.clone(),
+        registry_with_echo(),
+        db.clone(),
+        layout,
+        EngineConfig::default_for("both-broken-mock"),
+    );
+
+    let outcome = engine
+        .handle_turn(TurnRequest {
+            tenant_id: TenantId::new("t"),
+            project_id: ProjectId::from_raw("p"),
+            thread_id: ThreadId::new("c_malformed_recovery"),
+            user_text: "go".into(),
+            message_id: None,
+            ephemeral_system: None,
+        })
+        .await
+        .expect("turn should recover via feedback-and-retry");
+
+    assert_eq!(outcome.assistant_text, "recovered");
+    assert_eq!(
+        llm.stream_calls
+            .load(std::sync::atomic::Ordering::Relaxed),
+        2,
+        "iter 1 fails malformed, iter 2 produces terminal text"
+    );
+    assert_eq!(
+        llm.non_stream_calls
+            .load(std::sync::atomic::Ordering::Relaxed),
+        1,
+        "non-streaming retry runs exactly once (and also fails)"
+    );
+
+    // A User-role feedback message describing the parse error must be
+    // persisted between iter 1 and iter 2.
+    let msgs = db
+        .recent_messages(&ThreadId::new("c_malformed_recovery"), 20)
+        .await
+        .unwrap();
+    let feedback_msg = msgs
+        .iter()
+        .filter(|m| matches!(m.role, Role::User))
+        .find_map(|m| {
+            m.content.iter().find_map(|b| match b {
+                ContentBlock::Text { text } if text.contains("Echo") && text.contains("JSON") => {
+                    Some(text.clone())
+                }
+                _ => None,
+            })
+        })
+        .expect("synthetic feedback message must be persisted to history");
+    assert!(
+        feedback_msg.contains("escaped as `\\\"`"),
+        "feedback must name the escaping rule, got: {feedback_msg}"
+    );
+}
+
+#[tokio::test]
+async fn malformed_args_recovery_disabled_surfaces_error() {
+    let llm = Arc::new(BothPathsMalformedThenRecovers::new());
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = WorkspaceLayout::new(tmp.path()).unwrap();
+    let db = Database::open_in_memory().await.unwrap();
+    let mut cfg = EngineConfig::default_for("both-broken-mock");
+    cfg.malformed_tool_args_max_retries = 0;
+    let engine = Engine::new(llm.clone(), registry_with_echo(), db, layout, cfg);
+
+    let err = engine
+        .handle_turn(TurnRequest {
+            tenant_id: TenantId::new("t"),
+            project_id: ProjectId::from_raw("p"),
+            thread_id: ThreadId::new("c_no_recovery"),
+            user_text: "go".into(),
+            message_id: None,
+            ephemeral_system: None,
+        })
+        .await
+        .expect_err("recovery disabled — error must surface to caller");
+
+    let s = format!("{err}");
+    assert!(
+        s.contains("Echo") && s.contains("invalid JSON"),
+        "expected MalformedToolArgs surface, got: {s}"
+    );
+    // No second iteration should have run.
+    assert_eq!(
+        llm.stream_calls
+            .load(std::sync::atomic::Ordering::Relaxed),
+        1,
+    );
+}
+
 #[tokio::test]
 async fn mid_stream_error_aborts_turn() {
     let llm = Arc::new(StreamingMockLlm::new());

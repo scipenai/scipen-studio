@@ -49,6 +49,18 @@ pub struct EngineConfig {
     /// more history gets folded into the summary. Default 3.
     pub compact_max_retries: u8,
 
+    /// Per-turn cap on transparent recovery from
+    /// `LlmError::MalformedToolArgs` — the model emitting a tool_use
+    /// block whose `arguments` field isn't valid JSON (most often an
+    /// unescaped `"` inside a long Chinese payload). The non-streaming
+    /// retry inside `call_llm_and_prerun` only fixes SSE-concat bugs;
+    /// when the model itself emits broken JSON, both endpoints land on
+    /// the same malformed string. On each strike the engine persists a
+    /// synthetic User message describing the parse error and re-runs the
+    /// turn so the model can self-correct. 0 disables (surface
+    /// immediately). Default 2.
+    pub malformed_tool_args_max_retries: u8,
+
     /// Hard cap on the summariser's output tokens. The summary is fed
     /// back as a synthetic preamble on every subsequent turn until the
     /// thread compacts again, so a fat summary just trades old-message
@@ -173,6 +185,7 @@ impl EngineConfig {
             compact_keep_recent: 6,
             protect_first_n: 4,
             compact_max_retries: 3,
+            malformed_tool_args_max_retries: 2,
             compact_summary_max_tokens: 2048,
             compact_blocking: false,
             loop_guard_max_repeats: Some(5),
