@@ -13,6 +13,8 @@
 import { Brain } from 'lucide-react';
 import type React from 'react';
 import { useState } from 'react';
+// Direct import (not the hooks barrel) to keep this secondary-window root light.
+import { useThemeSync } from '../../hooks/useThemeSync';
 import { useTranslation } from '../../locales';
 import { MemoryPane } from './MemoryPane';
 import { SkillsPane } from './SkillsPane';
@@ -24,6 +26,10 @@ function parseInitialTab(): 'memory' | 'skills' {
 
 export const MemoryViewerApp: React.FC = () => {
   const { t } = useTranslation();
+  // Apply the persisted theme on this secondary window too — the main App
+  // mounts this hook, but the `#/memory-viewer` branch bypasses it, so the
+  // theme classes (which drive the --color-* CSS vars) would never land.
+  useThemeSync();
   const [activeTab, setActiveTab] = useState<'memory' | 'skills'>(parseInitialTab);
 
   return (
