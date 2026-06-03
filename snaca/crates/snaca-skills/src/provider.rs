@@ -21,6 +21,7 @@ use async_trait::async_trait;
 use snaca_core::{ProjectId, TenantId};
 use snaca_workspace::WorkspaceLayout;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -61,6 +62,7 @@ impl SkillProvider for StaticSkillProvider {
 /// override tenant-scope files of the same name (per `SkillScope::rank`).
 pub struct LayoutSkillProvider {
     layout: WorkspaceLayout,
+    bundled_dir: Option<PathBuf>,
     ttl: Duration,
     cache: Mutex<HashMap<(TenantId, ProjectId), CacheEntry>>,
 }
@@ -81,9 +83,16 @@ impl LayoutSkillProvider {
     pub fn with_ttl(layout: WorkspaceLayout, ttl: Duration) -> Self {
         Self {
             layout,
+            bundled_dir: None,
             ttl,
             cache: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Set the read-only bundled-skills dir (lowest-priority Bundled scope).
+    pub fn with_bundled_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.bundled_dir = dir;
+        self
     }
 
     /// Build a provider that re-scans on every call. Convenient for tests
@@ -101,7 +110,12 @@ impl LayoutSkillProvider {
 
     async fn load(&self, tenant: &TenantId, project: &ProjectId) -> SkillRegistry {
         let mut b = SkillRegistryBuilder::default();
-        // tenant scope first (lower priority), project scope on top.
+        // bundled (lowest) → tenant → project (highest).
+        if let Some(dir) = &self.bundled_dir {
+            if let Err(e) = b.add_from_dir(dir, SkillScope::Bundled) {
+                tracing::warn!(error = %e, dir = %dir.display(), "bundled skill load failed");
+            }
+        }
         let tenant_dir = self.layout.tenant_skills_dir(tenant);
         if let Err(e) = b.add_from_dir(&tenant_dir, SkillScope::Tenant) {
             tracing::warn!(error = %e, dir = %tenant_dir.display(), "tenant skill load failed");
@@ -237,6 +251,31 @@ mod tests {
         let review = registry.get("review").unwrap();
         assert!(review.body.contains("project body"));
         assert_eq!(review.scope, SkillScope::Project);
+    }
+
+    #[tokio::test]
+    async fn bundled_scope_loads_and_tenant_overrides() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundled = dir.path().join("bundled");
+        let data = dir.path().join("data");
+        let layout = WorkspaceLayout::new(&data).unwrap();
+        let t = TenantId::new("t");
+        let p = ProjectId::from_raw("p");
+        write_skill(&bundled, "writer.md", &skill_md("writer", "bundled writer"));
+        write_skill(&bundled, "reviewer.md", &skill_md("reviewer", "bundled reviewer"));
+        write_skill(
+            &layout.tenant_skills_dir(&t),
+            "writer.md",
+            &skill_md("writer", "tenant writer"),
+        );
+
+        let provider = LayoutSkillProvider::without_cache(layout).with_bundled_dir(Some(bundled));
+        let reg = provider.skills_for(&t, &p).await;
+        assert_eq!(reg.len(), 2);
+        assert_eq!(reg.get("reviewer").unwrap().scope, SkillScope::Bundled);
+        let writer = reg.get("writer").unwrap();
+        assert_eq!(writer.scope, SkillScope::Tenant, "tenant overrides bundled");
+        assert!(writer.body.contains("tenant writer"));
     }
 
     #[tokio::test]

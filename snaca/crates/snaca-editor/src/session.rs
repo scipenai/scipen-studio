@@ -39,6 +39,8 @@ pub struct Session {
     /// `Option` so a session can exist before Phase B wires `handle_chat_send`
     /// to use it (P1 chat path bypasses Engine entirely).
     pub engine: Option<Arc<Engine>>,
+    /// Read-only bundled-skills dir (from `SnacaConfig`); lowest-priority scope.
+    pub bundled_skills_dir: Option<PathBuf>,
 }
 
 impl Session {
@@ -53,6 +55,7 @@ impl Session {
         project_type: ProjectType,
         db: Database,
         engine: Option<Arc<Engine>>,
+        bundled_skills_dir: Option<PathBuf>,
     ) -> Self {
         Self {
             session_id,
@@ -67,6 +70,7 @@ impl Session {
             created_at: Utc::now(),
             db,
             engine,
+            bundled_skills_dir,
         }
     }
 

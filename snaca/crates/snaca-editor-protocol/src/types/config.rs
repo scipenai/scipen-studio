@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SnacaConfig {
@@ -17,6 +18,9 @@ pub struct SnacaConfig {
     pub mcp_servers: Option<Vec<McpServerConfig>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logging: Option<LoggingConfig>,
+    /// Read-only skills shipped with the app (Bundled scope, lowest priority).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundled_skills_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -158,6 +162,7 @@ mod tests {
             approval_mode: ApprovalMode::Interactive,
             mcp_servers: None,
             logging: None,
+            bundled_skills_dir: None,
         }
     }
 

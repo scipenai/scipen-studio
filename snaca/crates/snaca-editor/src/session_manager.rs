@@ -189,6 +189,7 @@ impl SessionManager {
             project_type,
             db,
             engine,
+            snaca_config.bundled_skills_dir.clone(),
         );
         session.active_thread_id = Some(active_thread_id.clone());
 
@@ -403,19 +404,22 @@ impl SessionManager {
         Ok(session.memory_dir())
     }
 
-    /// `(project_skills_dir, tenant_skills_dir)` for `skills.*` handlers.
-    /// Both paths may be absent on disk — handlers must tolerate missing
-    /// directories.
+    /// `(project, tenant, bundled)` skills dirs for `skills.*` handlers.
+    /// All may be absent on disk — handlers must tolerate missing dirs.
     pub async fn skills_dirs_for(
         &self,
         session_id: &str,
-    ) -> Result<(PathBuf, PathBuf), ProtocolError> {
+    ) -> Result<(PathBuf, PathBuf, Option<PathBuf>), ProtocolError> {
         let inner = self.inner.lock().await;
         let session = inner
             .sessions
             .get(session_id)
             .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
-        Ok((session.project_skills_dir(), session.tenant_skills_dir()))
+        Ok((
+            session.project_skills_dir(),
+            session.tenant_skills_dir(),
+            session.bundled_skills_dir.clone(),
+        ))
     }
 
     /// Composer plan-phase needs to share the session's per-project DB
@@ -831,8 +835,10 @@ fn build_session_engine(
     // Skill provider — re-scans tenant + project skill dirs on demand
     // with a 5s TTL cache (LayoutSkillProvider default), so a freshly
     // edited .md is picked up by the next turn without a session restart.
-    let skill_provider: std::sync::Arc<dyn snaca_skills::SkillProvider> =
-        std::sync::Arc::new(snaca_skills::LayoutSkillProvider::new(layout.clone()));
+    let skill_provider: std::sync::Arc<dyn snaca_skills::SkillProvider> = std::sync::Arc::new(
+        snaca_skills::LayoutSkillProvider::new(layout.clone())
+            .with_bundled_dir(snaca_config.bundled_skills_dir.clone()),
+    );
 
     // Memory wiring — Studio relies on the in-turn `MemoryWriteTool` for
     // memory persistence. The post-turn auto-extractor is therefore opt-in

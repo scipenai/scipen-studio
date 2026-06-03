@@ -24,11 +24,17 @@ async fn build_registry_async(
     sessions: &SessionManager,
     session_id: &str,
 ) -> Result<SkillRegistry, ProtocolError> {
-    let (project_dir, tenant_dir) = sessions.skills_dirs_for(session_id).await?;
+    let (project_dir, tenant_dir, bundled_dir) = sessions.skills_dirs_for(session_id).await?;
     let mut builder = SkillRegistryBuilder::default();
-    // Tenant scanned before project so directory-form / overrides land
-    // in the expected priority order; `insert_with_priority` also
-    // resolves the rest based on scope rank.
+    // Bundled (lowest) scanned first; tenant/project override by scope rank.
+    if let Some(dir) = &bundled_dir {
+        if let Err(e) = builder.add_from_dir(dir, SkillScope::Bundled) {
+            return Err(ProtocolError::new(
+                ErrorCode::InternalError,
+                format!("load bundled skills failed: {e}"),
+            ));
+        }
+    }
     if let Err(e) = builder.add_from_dir(&tenant_dir, SkillScope::Tenant) {
         return Err(ProtocolError::new(
             ErrorCode::InternalError,
