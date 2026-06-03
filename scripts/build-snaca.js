@@ -61,27 +61,76 @@ if (!existsSync(snacaDir)) {
 // 总是跑 cargo build:cargo 自身的增量编译会在源码未变时秒级返回,
 // 且它是唯一真正检查源码树的环节。脚本层用 mtime 猜测是否跳过会漏掉
 // 源码变更(曾比较 staged 与 cargo 产物两个副本,改了 Rust 却发旧 binary)。
-log(`running cargo build --release -p snaca-editor`);
-const result = spawnSync('cargo', ['build', '--release', '-p', 'snaca-editor'], {
-  cwd: snacaDir,
-  stdio: 'inherit',
-  shell: isWin, // resolve cargo via PATH on Windows
-});
-if (result.status !== 0) {
-  err(`cargo build failed (exit ${result.status ?? 'null'})`);
-  process.exit(result.status ?? 1);
+//
+// macOS 双架构合并:electron-builder 同时打 x64 + arm64 两个 dmg,
+// 但 `extraResources` 把同一份 snaca-editor 复制进两个包。host 单架构
+// 编出来 → 另一架构 dmg 启动报 "bad CPU type"。所以 mac 上编两个
+// target 后用 `lipo` 合成 universal2 胖二进制,两个 dmg 共用一份即可。
+if (isMac) {
+  buildMacUniversal();
+} else {
+  runCargoBuild();
+  if (!existsSync(cargoOutput)) {
+    err(`cargo output not found: ${cargoOutput}`);
+    process.exit(1);
+  }
+  if (!existsSync(stagedBinDir)) {
+    mkdirSync(stagedBinDir, { recursive: true });
+  }
+  copyFileSync(cargoOutput, stagedBinary);
+  log(`staged → ${stagedBinary}`);
 }
 
-if (!existsSync(cargoOutput)) {
-  err(`cargo output not found: ${cargoOutput}`);
-  process.exit(1);
+function runCargoBuild(extraArgs = []) {
+  const args = ['build', '--release', '-p', 'snaca-editor', ...extraArgs];
+  log(`running cargo ${args.join(' ')}`);
+  const r = spawnSync('cargo', args, {
+    cwd: snacaDir,
+    stdio: 'inherit',
+    shell: isWin, // resolve cargo via PATH on Windows
+  });
+  if (r.status !== 0) {
+    err(`cargo build failed (exit ${r.status ?? 'null'})`);
+    process.exit(r.status ?? 1);
+  }
 }
 
-if (!existsSync(stagedBinDir)) {
-  mkdirSync(stagedBinDir, { recursive: true });
+function ensureRustTarget(target) {
+  log(`ensuring rustup target ${target}`);
+  const r = spawnSync('rustup', ['target', 'add', target], { stdio: 'inherit' });
+  if (r.status !== 0) {
+    err(`rustup target add ${target} failed (exit ${r.status ?? 'null'})`);
+    process.exit(r.status ?? 1);
+  }
 }
-copyFileSync(cargoOutput, stagedBinary);
-log(`staged → ${stagedBinary}`);
+
+function buildMacUniversal() {
+  const targets = ['x86_64-apple-darwin', 'aarch64-apple-darwin'];
+  for (const t of targets) ensureRustTarget(t);
+  for (const t of targets) runCargoBuild(['--target', t]);
+  const x64Bin = resolve(snacaDir, 'target', targets[0], 'release', binaryName);
+  const armBin = resolve(snacaDir, 'target', targets[1], 'release', binaryName);
+  for (const p of [x64Bin, armBin]) {
+    if (!existsSync(p)) {
+      err(`cargo output not found: ${p}`);
+      process.exit(1);
+    }
+  }
+  if (!existsSync(stagedBinDir)) {
+    mkdirSync(stagedBinDir, { recursive: true });
+  }
+  log(`lipo -create → universal2`);
+  const r = spawnSync(
+    'lipo',
+    ['-create', '-output', stagedBinary, x64Bin, armBin],
+    { stdio: 'inherit' }
+  );
+  if (r.status !== 0) {
+    err(`lipo failed (exit ${r.status ?? 'null'})`);
+    process.exit(r.status ?? 1);
+  }
+  log(`staged universal2 → ${stagedBinary}`);
+}
 
 // ----- Optional: deploy into the installed app's resources/bin -----
 if (process.argv.includes('--install')) {
