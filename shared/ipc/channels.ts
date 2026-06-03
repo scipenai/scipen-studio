@@ -357,6 +357,20 @@ export enum IpcChannel {
    * ContextRequestService can resolve the pending reverse-RPC promise.
    */
   Agent_ContextZoteroResponse = 'agent:context-zotero-response',
+  /**
+   * Main → renderer: SNACA's AskUserQuestion tool wants the user to pick.
+   * Carries `{ requestId, questions }`; renderer shows a multiple-choice
+   * card in chat and replies via `Agent_UserQuestionResponse`. Same
+   * parking + (long) timeout mechanics as the Zotero pair — see
+   * ContextRequestService.handleQuestion.
+   */
+  Agent_UserQuestionRequest = 'agent:user-question-request',
+  /**
+   * Renderer's reply to an `Agent_UserQuestionRequest` (invoke), sent
+   * when the user submits the card. Carries `{ requestId, ok, answers?,
+   * error? }`.
+   */
+  Agent_UserQuestionResponse = 'agent:user-question-response',
 
   // ====== Chat ======
 

@@ -109,6 +109,50 @@ export interface AgentContextZoteroResponsePayload {
   error?: string;
 }
 
+/** One option on an AskUserQuestion card (wire shape). */
+export interface AgentUserQuestionOption {
+  id: string;
+  label: string;
+  description?: string;
+  preview?: string;
+}
+
+/** One question on an AskUserQuestion card (wire shape). */
+export interface AgentUserQuestionSpec {
+  id: string;
+  question: string;
+  header?: string;
+  options: AgentUserQuestionOption[];
+  multi_select: boolean;
+  allow_other: boolean;
+}
+
+/** Main → renderer via `Agent_UserQuestionRequest`. */
+export interface AgentUserQuestionRequestPayload {
+  requestId: string;
+  questions: AgentUserQuestionSpec[];
+}
+
+/** One question's answer the user submitted. */
+export interface AgentUserQuestionAnswer {
+  question_id: string;
+  selected_option_ids: string[];
+  other_text?: string;
+  notes?: string;
+}
+
+/** Renderer's reply via `Agent_UserQuestionResponse`. */
+export interface AgentUserQuestionResponsePayload {
+  requestId: string;
+  ok: boolean;
+  answers?: {
+    answers: AgentUserQuestionAnswer[];
+    user_id: string;
+    decided_at: string;
+  };
+  error?: string;
+}
+
 export interface AgentConfirmToolParams {
   toolCallId: string;
   decision: 'allow' | 'deny' | 'allow_always' | 'deny_always';
@@ -207,6 +251,14 @@ export const agentApi = {
    */
   respondContextZotero: (payload: AgentContextZoteroResponsePayload): Promise<{ ok: true }> =>
     ipcRenderer.invoke(IpcChannel.Agent_ContextZoteroResponse, payload),
+
+  /** SNACA's AskUserQuestion wants the user to pick — render a card. */
+  onUserQuestionRequest: createSafeListener<AgentUserQuestionRequestPayload>(
+    IpcChannel.Agent_UserQuestionRequest
+  ),
+  /** Reply with the user's selection once they submit the card. */
+  respondUserQuestion: (payload: AgentUserQuestionResponsePayload): Promise<{ ok: true }> =>
+    ipcRenderer.invoke(IpcChannel.Agent_UserQuestionResponse, payload),
 
   // ------ Memory viewer ------
 

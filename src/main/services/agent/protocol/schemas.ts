@@ -658,6 +658,31 @@ export const ContextRequestPayloadSchema = z.discriminatedUnion('kind', [
     kind: z.literal('zotero_read'),
     params: z.object({ key: z.string().min(1) }),
   }),
+  // ----- AskUserQuestion (interactive multiple-choice card) -----
+  // SNACA asks the user to pick; host renders a card in chat and parks
+  // the reply until the user submits (or the long question timeout).
+  z.object({
+    kind: z.literal('ask_user_question'),
+    params: z.object({
+      questions: z.array(
+        z.object({
+          id: z.string(),
+          question: z.string(),
+          header: z.string().optional(),
+          options: z.array(
+            z.object({
+              id: z.string(),
+              label: z.string(),
+              description: z.string().optional(),
+              preview: z.string().optional(),
+            })
+          ),
+          multi_select: z.boolean(),
+          allow_other: z.boolean(),
+        })
+      ),
+    }),
+  }),
 ]);
 export type ContextRequestPayload = z.infer<typeof ContextRequestPayloadSchema>;
 
@@ -732,6 +757,21 @@ export const ContextPayloadSchema = z.discriminatedUnion('kind', [
     truncated: z.boolean(),
     tier: z.enum(['local', 'none', 'mineru']),
     quality: z.enum(['good', 'poor']).optional(),
+  }),
+  z.object({
+    kind: z.literal('ask_user_question'),
+    answers: z.object({
+      answers: z.array(
+        z.object({
+          question_id: z.string(),
+          selected_option_ids: z.array(z.string()).default([]),
+          other_text: z.string().optional(),
+          notes: z.string().optional(),
+        })
+      ),
+      user_id: z.string(),
+      decided_at: z.string(),
+    }),
   }),
 ]);
 export type ContextPayload = z.infer<typeof ContextPayloadSchema>;

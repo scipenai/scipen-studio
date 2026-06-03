@@ -34,6 +34,19 @@ export interface ContextZoteroResponsePayload {
   error?: string;
 }
 
+/**
+ * Renderer's reply to an `Agent_UserQuestionRequest`. `answers` carries
+ * the user's selection per question (wire-shaped `QuestionAnswers`); the
+ * service wraps it in the `ask_user_question` `ContextPayload` variant.
+ */
+export interface ContextQuestionResponsePayload {
+  requestId: string;
+  ok: boolean;
+  /** Wire `QuestionAnswers`: `{ answers, user_id, decided_at }`. */
+  answers?: unknown;
+  error?: string;
+}
+
 export interface IContextRequestService extends IDisposable {
   /**
    * Reverse-RPC dispatcher. Wire this to
@@ -54,4 +67,11 @@ export interface IContextRequestService extends IDisposable {
    * `handle()` is awaiting for one of the three `zotero_*` kinds.
    */
   completeZotero(payload: ContextZoteroResponsePayload): void;
+
+  /**
+   * Called by the IPC layer when the renderer replies to an
+   * `Agent_UserQuestionRequest` (the user submitted the question card).
+   * Resolves the pending promise `handle()` awaits for `ask_user_question`.
+   */
+  completeQuestion(payload: ContextQuestionResponsePayload): void;
 }

@@ -153,6 +153,15 @@ const contextZoteroResponseSchema = z.object({
   error: z.string().max(2048).optional(),
 });
 
+const contextQuestionResponseSchema = z.object({
+  requestId: z.string().min(1).max(128),
+  ok: z.boolean(),
+  // Wire `QuestionAnswers` shape; ContextRequestService.shapeQuestionPayload
+  // normalizes it (fills defaults) before it reaches SNACA.
+  answers: z.unknown().optional(),
+  error: z.string().max(2048).optional(),
+});
+
 // Renderer-side (camelCase) shapes for tool/edit confirm; the wire
 // schemas in protocol/schemas.ts are snake_case and only used right
 // before forwarding to the SNACA client.
@@ -704,6 +713,19 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
         'contextZoteroResponse payload'
       );
       contextRequest.completeZotero(payload);
+      return { ok: true };
+    }
+  );
+
+  ipcMain.handle(
+    IpcChannel.Agent_UserQuestionResponse,
+    (_e, rawPayload: unknown): { ok: true } => {
+      const payload = parseOrThrow(
+        contextQuestionResponseSchema,
+        rawPayload,
+        'contextQuestionResponse payload'
+      );
+      contextRequest.completeQuestion(payload);
       return { ok: true };
     }
   );

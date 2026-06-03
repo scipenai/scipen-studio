@@ -31,6 +31,7 @@ import type {
 } from './protocol/schemas';
 import type {
   ContextFlushResponsePayload,
+  ContextQuestionResponsePayload,
   ContextZoteroResponsePayload,
   IContextRequestService,
 } from './interfaces/IContextRequestService';
@@ -45,6 +46,13 @@ const FLUSH_TIMEOUT_MS = 5_000;
  * indefinitely.
  */
 const ZOTERO_TIMEOUT_MS = 5_000;
+/**
+ * AskUserQuestion waits on a *human*, so the cap is far longer than the
+ * fast-lookup kinds. Kept just under SNACA's `QUESTION_TIMEOUT` (600s)
+ * so the host cleans its pending entry around the same time SNACA gives
+ * up. Turn cancellation (window close / abort) reclaims it sooner.
+ */
+const QUESTION_TIMEOUT_MS = 600_000;
 
 export interface ContextRequestServiceDeps {
   /**
@@ -67,9 +75,16 @@ interface PendingZotero {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface PendingQuestion {
+  resolve: (payload: ContextQuestionResponsePayload) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 export class ContextRequestService implements IContextRequestService {
   private readonly pending = new Map<string, PendingFlush>();
   private readonly pendingZotero = new Map<string, PendingZotero>();
+  private readonly pendingQuestion = new Map<string, PendingQuestion>();
   private disposed = false;
 
   constructor(private readonly deps: ContextRequestServiceDeps) {}
@@ -88,6 +103,8 @@ export class ContextRequestService implements IContextRequestService {
       case 'zotero_annotations':
       case 'zotero_read':
         return this.handleZotero(req);
+      case 'ask_user_question':
+        return this.handleQuestion(req);
     }
   }
 
@@ -117,6 +134,19 @@ export class ContextRequestService implements IContextRequestService {
     entry.resolve(payload);
   }
 
+  completeQuestion(payload: ContextQuestionResponsePayload): void {
+    const entry = this.pendingQuestion.get(payload.requestId);
+    if (!entry) {
+      logger.warn('completeQuestion for unknown / expired requestId', {
+        requestId: payload.requestId,
+      });
+      return;
+    }
+    this.pendingQuestion.delete(payload.requestId);
+    clearTimeout(entry.timer);
+    entry.resolve(payload);
+  }
+
   dispose(): void {
     this.disposed = true;
     for (const [, entry] of this.pending) {
@@ -129,6 +159,11 @@ export class ContextRequestService implements IContextRequestService {
       entry.reject(new Error('ContextRequestService disposed'));
     }
     this.pendingZotero.clear();
+    for (const [, entry] of this.pendingQuestion) {
+      clearTimeout(entry.timer);
+      entry.reject(new Error('ContextRequestService disposed'));
+    }
+    this.pendingQuestion.clear();
   }
 
   // ============ Handlers ============
@@ -275,6 +310,73 @@ export class ContextRequestService implements IContextRequestService {
     };
   }
 
+  /**
+   * AskUserQuestion: render the multiple-choice card in chat and park
+   * the request until the user submits. Same machinery as `handleZotero`
+   * but with the long `QUESTION_TIMEOUT_MS` (a human, not a fast lookup)
+   * and the `Agent_UserQuestion{Request,Response}` channels.
+   */
+  private async handleQuestion(
+    req: Extract<ContextRequestParams, { kind: 'ask_user_question' }>
+  ): Promise<ContextRespondParams> {
+    const targets = this.deps.getRendererWebContents();
+    if (targets.length === 0) {
+      return {
+        request_id: req.request_id,
+        ok: false,
+        error: 'no renderer attached to ask the user a question',
+      };
+    }
+
+    const reply = await new Promise<ContextQuestionResponsePayload>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.pendingQuestion.delete(req.request_id)) {
+          reject(new Error(`ask_user_question timeout after ${QUESTION_TIMEOUT_MS}ms`));
+        }
+      }, QUESTION_TIMEOUT_MS);
+      this.pendingQuestion.set(req.request_id, { resolve, reject, timer });
+
+      for (const wc of targets) {
+        try {
+          wc.send(IpcChannel.Agent_UserQuestionRequest, {
+            requestId: req.request_id,
+            questions: req.params.questions,
+          });
+        } catch (err) {
+          logger.warn('failed to send question request to renderer', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }).catch((err) => {
+      logger.warn('ask_user_question failed', { error: (err as Error).message });
+      return null;
+    });
+
+    if (reply === null) {
+      return {
+        request_id: req.request_id,
+        ok: false,
+        error: this.disposed
+          ? 'host disposed during question'
+          : 'no answer (timeout or renderer closed)',
+      };
+    }
+    if (!reply.ok) {
+      return {
+        request_id: req.request_id,
+        ok: false,
+        error: reply.error ?? 'renderer rejected question',
+      };
+    }
+
+    return {
+      request_id: req.request_id,
+      ok: true,
+      payload: shapeQuestionPayload(reply.answers),
+    };
+  }
+
   private async handleFileContent(
     req: Extract<ContextRequestParams, { kind: 'file_content' }>
   ): Promise<ContextRespondParams> {
@@ -347,6 +449,36 @@ function shapeZoteroPayload(
       };
     }
   }
+}
+
+/**
+ * Coerce the renderer's submitted answers into the `ask_user_question`
+ * `ContextPayload`. Renderer is trusted (same user/machine); we only
+ * fill defaults so SNACA never sees `undefined` where it expects a
+ * string/array.
+ */
+function shapeQuestionPayload(data: unknown): ContextPayload {
+  const obj = (data ?? {}) as Record<string, unknown>;
+  const rawAnswers = Array.isArray(obj.answers) ? obj.answers : [];
+  const answers = rawAnswers.map((a) => {
+    const ans = (a ?? {}) as Record<string, unknown>;
+    return {
+      question_id: typeof ans.question_id === 'string' ? ans.question_id : '',
+      selected_option_ids: Array.isArray(ans.selected_option_ids)
+        ? (ans.selected_option_ids.filter((s) => typeof s === 'string') as string[])
+        : [],
+      other_text: typeof ans.other_text === 'string' ? ans.other_text : undefined,
+      notes: typeof ans.notes === 'string' ? ans.notes : undefined,
+    };
+  });
+  return {
+    kind: 'ask_user_question',
+    answers: {
+      answers,
+      user_id: typeof obj.user_id === 'string' ? obj.user_id : 'studio-user',
+      decided_at: typeof obj.decided_at === 'string' ? obj.decided_at : new Date().toISOString(),
+    },
+  };
 }
 
 export function createContextRequestService(

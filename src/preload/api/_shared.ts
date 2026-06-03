@@ -185,6 +185,7 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Agent_ResolveEditProposal,
   IpcChannel.Agent_ContextFlushResponse,
   IpcChannel.Agent_ContextZoteroResponse,
+  IpcChannel.Agent_UserQuestionResponse,
 
   // ====== Zotero Integration ======
   IpcChannel.Zotero_GetSettings,
@@ -271,6 +272,7 @@ export const ALLOWED_EVENT_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Agent_EditApplied,
   IpcChannel.Agent_ContextFlushRequest,
   IpcChannel.Agent_ContextZoteroRequest,
+  IpcChannel.Agent_UserQuestionRequest,
   IpcChannel.Zotero_SettingsChanged,
   IpcChannel.Zotero_Event,
   IpcChannel.Zotero_MinerUProgress,
