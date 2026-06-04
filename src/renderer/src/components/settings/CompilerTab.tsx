@@ -12,7 +12,7 @@ import {
   SectionTitle,
   SettingCard,
   SettingItem,
-  inputClassName,
+  inputMonoClassName,
   selectClassName,
 } from './SettingsUI';
 
@@ -60,7 +60,7 @@ export const CompilerTab: React.FC = () => {
             settingsService.updateCompiler({ texliveEndpoint: e.target.value.trim() })
           }
           placeholder="https://latex.arxtect.cn/latex6/arxtect_version_20251120/"
-          className={inputClassName}
+          className={inputMonoClassName}
         />
       </SettingItem>
 

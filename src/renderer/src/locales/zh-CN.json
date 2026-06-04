@@ -130,7 +130,7 @@
       "ui": "界面",
       "shortcuts": "快捷键",
       "ai": "AI Agent",
-      "agent": "Agent 数据",
+      "agent": "Agent",
       "zotero": "Zotero",
       "update": "更新"
     }
@@ -167,16 +167,16 @@
   "aiSettings": {
     "chatProvider": "AI Agent",
     "chatProviderDesc": "用于 SNACA Agent 的对话、工具调用、Diff 审阅,以及 Ctrl+K 内联补全",
-    "chatModel": "Agent 模型",
+    "chatModel": "主 Agent 模型",
     "chatModelDesc": "建议选择推理较强的模型，如 deepseek-chat、claude-sonnet-4 等",
-    "provider": "服务提供商",
+    "provider": "模型服务",
     "providerDesc": "选择 AI 使用的模型提供商",
     "apiKey": "API Key",
     "apiKeyDesc": "提供商的 API 密钥",
     "baseUrl": "Base URL",
     "baseUrlDesc": "API 接口地址，留空使用默认值",
-    "model": "补全模型",
-    "modelDesc": "用于 Ctrl+K 内联补全的模型 ID（建议低延迟模型，如 gpt-4o-mini）；留空时沿用 Agent 模型",
+    "model": "行内补全模型",
+    "modelDesc": "用于 Ctrl+K 内联补全的模型 ID（建议低延迟模型，如 gpt-4o-mini）；留空时沿用主 Agent 模型",
     "testConnection": "测试连接",
     "testSuccess": "连接成功",
     "testFailed": "连接失败"
@@ -403,6 +403,11 @@
     "cancel": "取消",
     "startupIdle": "请先打开一个项目",
     "startupError": "启动失败：{{message}}",
+    "needsConfig": {
+      "title": "还没配置 AI 模型",
+      "desc": "在设置里填入模型服务的 API Key 和模型名称即可开始对话，填好后这里会自动连接。",
+      "openSettings": "打开设置"
+    },
     "compileErrorIntro": "{{compiler}} 编译报错{{where}}：",
     "compileErrorAsk": "帮我看看怎么修。",
     "inputAriaLabel": "聊天输入框"
@@ -754,7 +759,7 @@
     "usageHint": "本对话累计 token / 估算成本"
   },
   "settingsAgent": {
-    "viewer": "Agent 数据查看",
+    "viewer": "记忆与技能",
     "viewerDesc": "查看 Agent 自动沉淀到本项目的记忆与可用 Skills。这些数据驱动 AI 的长期上下文与能力扩展。",
     "memoryLabel": "Memory",
     "memoryDesc": "项目级的长期记忆,包含用户偏好、项目约定、外部引用与反馈纠错。",
@@ -925,14 +930,14 @@
     "title": "Zotero 集成",
     "subtitle": "启用后,主进程长驻索引 Zotero 文库,编辑器中可 @cite 任意条目",
     "basicSettings": "基础设置",
-    "enableIntegration": "启用 Zotero 集成",
+    "enableIntegration": "连接 Zotero 文献库",
     "enableIntegrationDesc": "首次启用会打开引导向导,完成后主进程开始索引文库",
     "notEnabledTitle": "尚未启用",
     "notEnabledDesc": "Zotero 集成依赖本地 Zotero + Local API。3 步配置完毕即可在编辑器中 @cite 任意文献。",
     "startWizard": "立即引导设置",
     "indexStatus": "索引状态",
     "statusLabel": "状态",
-    "itemCount": "条目数",
+    "itemCount": "已索引文献",
     "lastSyncedAt": "上次同步",
     "never": "从未",
     "sources": "数据源",

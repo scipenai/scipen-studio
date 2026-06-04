@@ -21,7 +21,7 @@ import { ConfigKeys } from '../../../../../shared/types/config-keys';
 import { useTranslation } from '../../locales';
 import { agentClient } from '../../services/agent/AgentClientService';
 import { McpServersSection } from './McpServersSection';
-import { SectionTitle, SettingItem, inputClassName } from './SettingsUI';
+import { SectionTitle, SettingItem, inputClassName, inputMonoClassName } from './SettingsUI';
 
 type ApprovalMode = 'interactive' | 'auto_allow' | 'auto_deny';
 
@@ -355,7 +355,7 @@ export const AgentTab: React.FC = () => {
           value={webSearchKey}
           onChange={(e) => onWebSearchKeyChange(e.target.value)}
           placeholder={t('settingsAgent.webSearch.apiKeyPlaceholder')}
-          className={inputClassName}
+          className={inputMonoClassName}
           autoComplete="off"
           spellCheck={false}
         />
@@ -434,7 +434,7 @@ export const AgentTab: React.FC = () => {
               value={engine.memory_extractor_model ?? ''}
               placeholder="deepseek-chat"
               onChange={(e) => updateString('memory_extractor_model', e.target.value)}
-              className={inputClassName}
+              className={inputMonoClassName}
             />
           </SettingItem>
 

@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import { ConfigKeys } from '../../../shared/types/config-keys';
 import type { AIProviderDTO, ModelSelection } from '../../../shared/ipc/types';
+import { AGENT_NOT_CONFIGURED_MARKER } from '../../../shared/ipc/types';
 import type { IEditorProtocolClient } from '../services/agent/interfaces/IEditorProtocolClient';
 import type {
   ISnacaSidecarService,
@@ -263,6 +264,13 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
     if (initPromise) return initPromise;
 
     initPromise = (async () => {
+      // 「未配置 LLM」是预期初始态,不是错误 —— 在启动 sidecar 之前就拦下,
+      // 避免白启子进程、也不让日志里留一条注定失败的 401。renderer 据这个
+      // 标记渲染引导卡(而非红色报错)。失败后 `initIfNeeded` 的 finally 会
+      // 清掉 initPromise,用户填完 key 触发的重试可重新走完整 init。
+      if (!isChatConfigured(config)) {
+        throw new Error(AGENT_NOT_CONFIGURED_MARKER);
+      }
       if (sidecar.state.kind !== 'running') {
         await sidecar.start();
       }
@@ -1022,6 +1030,21 @@ function resolveChatProvider(config: IConfigManager): ResolvedChatProvider | nul
     baseUrl: provider.apiHost?.trim() || undefined,
     apiKey: provider.apiKey ?? '',
   };
+}
+
+/**
+ * 单一真相源:判定聊天 agent 是否已具备可用的 LLM 配置。
+ *
+ * 就绪 = 选了 provider + model(`resolveChatProvider` 非空)且拿得到 API key。
+ * key 来源与 `buildSnacaSidecarEnv` 完全一致:设置里的 key 优先,
+ * `process.env.SNACA_API_KEY` 是仅供开发者的兜底 —— 把 env 也算进来,
+ * 才不会误伤「只设了环境变量、没填设置」的开发场景(renderer 看不到 env,
+ * 所以这个判定必须留在主进程,不能搬去前端)。
+ */
+function isChatConfigured(config: IConfigManager): boolean {
+  const resolved = resolveChatProvider(config);
+  if (!resolved) return false;
+  return Boolean(resolved.apiKey?.trim() || process.env.SNACA_API_KEY?.trim());
 }
 
 /**

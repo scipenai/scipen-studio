@@ -16,7 +16,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
 import { ConfigKeys } from '../../../../../shared/types/config-keys';
 import { useTranslation } from '../../locales';
-import { SectionTitle, SettingItem, inputClassName } from './SettingsUI';
+import { SectionTitle, SettingItem, inputClassName, inputMonoClassName } from './SettingsUI';
 
 type Transport = 'stdio' | 'http';
 
@@ -196,7 +196,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
               value={server.name}
               onChange={(e) => onChange({ name: e.target.value.toLowerCase() })}
               placeholder="my-server"
-              className={inputClassName}
+              className={inputMonoClassName}
             />
             {!nameValid && (
               <div className="mt-1 text-[11px] text-red-400">
@@ -232,7 +232,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
                   value={server.command ?? ''}
                   onChange={(e) => onChange({ command: e.target.value })}
                   placeholder="npx"
-                  className={inputClassName}
+                  className={inputMonoClassName}
                 />
               </SettingItem>
 
@@ -252,7 +252,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
                     })
                   }
                   placeholder="-y @modelcontextprotocol/server-filesystem /tmp"
-                  className={inputClassName}
+                  className={inputMonoClassName}
                 />
               </SettingItem>
 
@@ -275,7 +275,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
                   }}
                   rows={3}
                   placeholder="KEY=value"
-                  className={`${inputClassName} h-auto py-2 font-mono text-xs`}
+                  className={`${inputMonoClassName} h-auto py-2 text-xs`}
                 />
               </SettingItem>
             </>
@@ -291,7 +291,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
                 value={server.url ?? ''}
                 onChange={(e) => onChange({ url: e.target.value })}
                 placeholder="https://example.com/mcp"
-                className={inputClassName}
+                className={inputMonoClassName}
               />
             </SettingItem>
           )}

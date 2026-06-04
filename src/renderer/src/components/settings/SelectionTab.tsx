@@ -14,7 +14,7 @@ import {
   SettingCard,
   SettingItem,
   Toggle,
-  inputClassName,
+  inputMonoClassName,
   selectClassName,
 } from './SettingsUI';
 
@@ -169,7 +169,7 @@ export const SelectionTab: React.FC = () => {
             <Keyboard className="w-4 h-4 text-[var(--color-text-muted)]" />
             <input
               type="text"
-              className={inputClassName}
+              className={inputMonoClassName}
               value={config.shortcutKey}
               onChange={(e) => setConfig((prev) => ({ ...prev, shortcutKey: e.target.value }))}
               onBlur={() => handleShortcutChange(config.shortcutKey)}

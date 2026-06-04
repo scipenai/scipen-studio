@@ -13,7 +13,13 @@ import { useTranslation } from '../../locales';
 import { createLogger } from '../../services/LogService';
 import type { BibTexSyncConfigDTO, ZoteroSettingsDTO } from '../../../../../shared/types/zotero';
 import type { BibTexSyncStatusDTO } from '../../../../../shared/types/zotero-events';
-import { SectionTitle, SettingCard, Toggle, inputClassName, selectClassName } from './SettingsUI';
+import {
+  SectionTitle,
+  SettingCard,
+  Toggle,
+  inputMonoClassName,
+  selectClassName,
+} from './SettingsUI';
 
 const logger = createLogger('BibTexSyncSection');
 
@@ -120,7 +126,7 @@ export const BibTexSyncSection: React.FC = () => {
             </label>
             <input
               type="text"
-              className={inputClassName}
+              className={inputMonoClassName}
               value={config.fileName}
               onChange={(e) => setConfig({ ...config, fileName: e.target.value })}
               onBlur={() =>

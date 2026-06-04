@@ -16,7 +16,7 @@ import type { AIProviderDTO, SelectedModels } from '../../api';
 import { useTranslation } from '../../locales';
 import { getSettingsService } from '../../services/core/ServiceRegistry';
 import type { ProviderId } from '../../types/provider';
-import { SectionTitle, SettingItem, inputClassName } from './SettingsUI';
+import { SectionTitle, SettingItem, inputMonoClassName, selectClassName } from './SettingsUI';
 
 type ModelSelection = NonNullable<SelectedModels['chat']>;
 
@@ -49,9 +49,6 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     hostExamples: ['https://api.anthropic.com', 'https://api.deepseek.com/anthropic'],
   },
 ];
-
-const selectClassName =
-  'w-full px-3 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]';
 
 function makeProvider(id: ProviderId): AIProviderDTO {
   const opt = PROVIDER_OPTIONS.find((o) => o.id === id);
@@ -253,7 +250,7 @@ export const AITab: React.FC = () => {
           value={provider.apiKey}
           onChange={(e) => updateProvider({ apiKey: e.target.value })}
           placeholder="sk-..."
-          className={inputClassName}
+          className={inputMonoClassName}
         />
       </SettingItem>
 
@@ -263,7 +260,7 @@ export const AITab: React.FC = () => {
           value={provider.apiHost}
           onChange={(e) => updateProvider({ apiHost: e.target.value })}
           placeholder={hostPlaceholder}
-          className={inputClassName}
+          className={inputMonoClassName}
         />
       </SettingItem>
 
@@ -274,7 +271,7 @@ export const AITab: React.FC = () => {
           onChange={(e) => setChatModel(e.target.value)}
           onBlur={() => commitChatModel(chatModel)}
           placeholder="deepseek-chat"
-          className={inputClassName}
+          className={inputMonoClassName}
         />
       </SettingItem>
 
@@ -285,7 +282,7 @@ export const AITab: React.FC = () => {
           onChange={(e) => setCompletionModel(e.target.value)}
           onBlur={() => commitCompletionModel(completionModel)}
           placeholder={chatModel || 'gpt-4o-mini'}
-          className={inputClassName}
+          className={inputMonoClassName}
         />
       </SettingItem>
 

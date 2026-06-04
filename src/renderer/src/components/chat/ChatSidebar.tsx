@@ -36,8 +36,9 @@ import { agentClient, type ThreadSummary } from '../../services/agent/AgentClien
 import { buildChatContext } from '../../services/agent/ChatContextBuilder';
 import { buildMentions } from '../../services/AtMentionResolver';
 import { chatStreamStore } from '../../services/agent/ChatStreamStore';
-import { getUIService } from '../../services/core/ServiceRegistry';
+import { getSettingsService, getUIService } from '../../services/core/ServiceRegistry';
 import { useSettings } from '../../services/core/hooks';
+import { AGENT_NOT_CONFIGURED_MARKER } from '../../../../../shared/ipc/types';
 import type { AskAIAboutErrorRequest } from '../../services/core/UIService';
 import { AgentChatInput, type SendIntent } from './AgentChatInput';
 import { ChatMessage } from './ChatMessage';
@@ -54,6 +55,9 @@ type StartupState =
   | { kind: 'idle' }
   | { kind: 'starting' }
   | { kind: 'ready'; sessionId: string }
+  // 「未配置 LLM」是预期初始态,与下面的运行时 error 显式区分:前者渲染引导卡
+  // (去设置填 key),后者才是红色报错。判定由主进程负责(见 AGENT_NOT_CONFIGURED_MARKER)。
+  | { kind: 'needs-config' }
   | { kind: 'error'; message: string };
 
 /**
@@ -68,6 +72,14 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
   const { t } = useTranslation();
   const chatFontSize = useSettings((s) => s.ui.chatFontSize);
   const [startup, setStartup] = useState<StartupState>({ kind: 'idle' });
+  // 让一次性挂载的 AI-config 监听器能读到最新 startup 态(避免把 startup 塞进它的
+  // 依赖、反复重订阅)。
+  const startupRef = useRef<StartupState>(startup);
+  startupRef.current = startup;
+  // 自动重试触发器:置位即让 start effect 重跑(配合 startedFor 守卫复位)。
+  const [retryNonce, setRetryNonce] = useState(0);
+  // 自动重试的待发定时器:逐字符输入 key 会触发一串配置变更,只保留最后一次。
+  const retryTimerRef = useRef<number | null>(null);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
@@ -156,9 +168,38 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         }
       })
       .catch((err) => {
-        setStartup({ kind: 'error', message: extractErrorMessage(err) });
+        const message = extractErrorMessage(err);
+        // includes(非全等):Electron 会给跨进程 Error.message 加
+        // "Error invoking remote method '…':" 前缀,标记被夹在中间。
+        if (message.includes(AGENT_NOT_CONFIGURED_MARKER)) {
+          setStartup({ kind: 'needs-config' });
+        } else {
+          setStartup({ kind: 'error', message });
+        }
       });
-  }, [workspaceRoot, displayName]);
+  }, [workspaceRoot, displayName, retryNonce]);
+
+  // 填完 API key 自动恢复:AI 配置变更时,若当前正卡在「未配置」,清掉本项目的
+  // start 守卫并 bump retryNonce 让上面的 start effect 重跑。延迟 500ms(防抖,仅留
+  // 最后一次)让主进程那条 debounce(300ms)的 sidecar 重启先落定,避免重试撞上
+  // sidecar 重启中途 —— 主进程拥有 sidecar 生命周期,我们在它稳定后再发起。
+  useEffect(() => {
+    const settings = getSettingsService();
+    const disposable = settings.onDidChangeAIProviders(() => {
+      if (startupRef.current.kind !== 'needs-config' || !workspaceRoot) return;
+      if (retryTimerRef.current !== null) window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = window.setTimeout(() => {
+        retryTimerRef.current = null;
+        if (startupRef.current.kind !== 'needs-config') return;
+        startedFor.current = null;
+        setRetryNonce((n) => n + 1);
+      }, 500);
+    });
+    return () => {
+      if (retryTimerRef.current !== null) window.clearTimeout(retryTimerRef.current);
+      disposable.dispose();
+    };
+  }, [workspaceRoot]);
 
   // ---- thread RPC helpers ----
 
@@ -397,7 +438,11 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         </div>
       )}
 
-      {isEmpty ? (
+      {startup.kind === 'needs-config' ? (
+        <div className="flex-1 overflow-y-auto">
+          <NeedsConfigCard onOpenSettings={() => uiService.setSidebarTab('settings')} />
+        </div>
+      ) : isEmpty ? (
         <div className="flex-1 overflow-y-auto">
           <EmptyState
             composerSlot={composer}
@@ -466,6 +511,13 @@ function StartupBadge({ state }: { state: StartupState }): React.ReactElement {
           已连接
         </span>
       );
+    case 'needs-config':
+      return (
+        <span className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-text-muted)]" />
+          待配置
+        </span>
+      );
     case 'error':
       return (
         <span
@@ -477,6 +529,39 @@ function StartupBadge({ state }: { state: StartupState }): React.ReactElement {
         </span>
       );
   }
+}
+
+/**
+ * 「未配置 LLM」引导卡 —— 取代首次进入时的红色启动报错。语气为安静引导而非错误,
+ * 主操作是「打开设置」(走 UIService,与命令面板同一条开设置面板的路径)。填完
+ * key 后由 ChatSidebar 的 AI-config 监听器自动重试,用户无需手动重连。
+ */
+function NeedsConfigCard({
+  onOpenSettings,
+}: {
+  onOpenSettings: () => void;
+}): React.ReactElement {
+  const { t } = useTranslation();
+  return (
+    <div className="flex min-h-full flex-col items-center justify-center gap-4 px-6 py-6 text-center">
+      <div className="flex flex-col items-center gap-2 text-[var(--color-text-muted)]">
+        <div className="text-[24px]">✦</div>
+        <div className="text-[13px] font-medium text-[var(--color-text-secondary)]">
+          {t('chat.needsConfig.title')}
+        </div>
+        <div className="max-w-[260px] text-[11px] leading-relaxed">
+          {t('chat.needsConfig.desc')}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onOpenSettings}
+        className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-4 py-2 text-[12px] font-medium text-[var(--color-text-primary)] transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
+      >
+        {t('chat.needsConfig.openSettings')}
+      </button>
+    </div>
+  );
 }
 
 function EmptyState({

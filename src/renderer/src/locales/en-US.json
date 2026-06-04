@@ -130,7 +130,7 @@
       "ui": "UI",
       "shortcuts": "Shortcuts",
       "ai": "AI Agent",
-      "agent": "Agent Data",
+      "agent": "Agent",
       "zotero": "Zotero",
       "update": "Update"
     }
@@ -167,16 +167,16 @@
   "aiSettings": {
     "chatProvider": "AI Agent",
     "chatProviderDesc": "Used by the SNACA Agent for chat, tool calls, Diff review, and Ctrl+K inline completion",
-    "chatModel": "Agent Model",
+    "chatModel": "Primary Agent Model",
     "chatModelDesc": "Pick a stronger reasoning model, e.g. deepseek-chat, claude-sonnet-4",
-    "provider": "Provider",
+    "provider": "Model Service",
     "providerDesc": "Select the model provider for AI",
     "apiKey": "API Key",
     "apiKeyDesc": "API key for the provider",
     "baseUrl": "Base URL",
     "baseUrlDesc": "API endpoint URL, leave empty for default",
-    "model": "Completion Model",
-    "modelDesc": "Model ID for Ctrl+K inline completion (low-latency models recommended, e.g. gpt-4o-mini); leave blank to reuse the Agent model",
+    "model": "Inline Completion Model",
+    "modelDesc": "Model ID for Ctrl+K inline completion (low-latency models recommended, e.g. gpt-4o-mini); leave blank to reuse the Primary Agent Model",
     "testConnection": "Test Connection",
     "testSuccess": "Connection successful",
     "testFailed": "Connection failed"
@@ -403,6 +403,11 @@
     "cancel": "Cancel",
     "startupIdle": "Open a project first",
     "startupError": "Startup failed: {{message}}",
+    "needsConfig": {
+      "title": "No AI model configured yet",
+      "desc": "Add your model service API key and model name in Settings to start chatting — this panel reconnects automatically once you're done.",
+      "openSettings": "Open Settings"
+    },
     "compileErrorIntro": "{{compiler}} build error{{where}}:",
     "compileErrorAsk": "Help me figure out how to fix it.",
     "inputAriaLabel": "Chat message input"
@@ -754,7 +759,7 @@
     "usageHint": "Cumulative tokens / estimated cost for this conversation"
   },
   "settingsAgent": {
-    "viewer": "Agent data viewer",
+    "viewer": "Memory & Skills",
     "viewerDesc": "Inspect Agent memory and the skills currently loaded for this project. Both feed the AI's long-term context and capabilities.",
     "memoryLabel": "Memory",
     "memoryDesc": "Project-scoped long-term memory: user prefs, project conventions, references, and feedback corrections.",
@@ -925,14 +930,14 @@
     "title": "Zotero integration",
     "subtitle": "Enables a long-running main-process index of your Zotero library; @cite from the editor",
     "basicSettings": "Basic",
-    "enableIntegration": "Enable Zotero integration",
+    "enableIntegration": "Connect Zotero library",
     "enableIntegrationDesc": "First enable opens the setup wizard; the main process then indexes your library",
     "notEnabledTitle": "Not enabled",
     "notEnabledDesc": "Zotero integration relies on a local Zotero install + Local API. Three quick steps and you can @cite any reference from the editor.",
     "startWizard": "Open setup wizard",
     "indexStatus": "Index status",
     "statusLabel": "Status",
-    "itemCount": "Items",
+    "itemCount": "Indexed references",
     "lastSyncedAt": "Last synced",
     "never": "Never",
     "sources": "Data sources",

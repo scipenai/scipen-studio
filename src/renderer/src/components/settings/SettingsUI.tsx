@@ -179,6 +179,13 @@ export const inputClassName = `
 `;
 
 /**
+ * Monospace input variant — for identifiers the user reads/compares
+ * char-by-char (API keys, base URLs, model IDs, file paths, shell
+ * commands). Tabular glyphs make typos and trailing spaces visible.
+ */
+export const inputMonoClassName = `${inputClassName} font-mono`;
+
+/**
  * Select field style class (for className)
  */
 export const selectClassName = `
