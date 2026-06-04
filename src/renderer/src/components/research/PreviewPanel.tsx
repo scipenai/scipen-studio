@@ -42,23 +42,22 @@ function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.Re
   );
 
   const setTab = (tab: 'preview' | 'paper') => getUIService().setRightPanelTab(tab);
-  // 紧凑文字 tab:活动 = 主文本色 + 2px accent 下划线;非活动 = muted。
-  // 取代原 rounded-full 三重 accent 药丸(高亮收敛)。
+  // iOS 分段控件:凹陷 track(bg-void)上浮起白色 active 药丸(bg-primary + 轻阴影),
+  // 非活动透明 muted。取代旧的 2px 下划线 / accent 描边。
   const tabBtn = (tab: 'preview' | 'paper', label: string) => {
     const active = rightPanelTab === tab;
     return (
       <button
         type="button"
         onClick={() => setTab(tab)}
-        className="relative px-2.5 py-1 text-[13px] transition-colors"
+        className="rounded-md px-3 py-1 text-[13px] font-medium transition-colors"
         style={{
+          background: active ? 'var(--color-bg-primary)' : 'transparent',
           color: active ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+          boxShadow: active ? 'var(--shadow-xs)' : 'none',
         }}
       >
         {label}
-        {active && (
-          <span className="absolute inset-x-1.5 -bottom-px h-0.5 rounded-sm bg-[var(--color-accent)]" />
-        )}
       </button>
     );
   };
@@ -69,11 +68,13 @@ function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.Re
       style={{ background: 'var(--color-bg-secondary)' }}
     >
       <div
-        className="flex items-center gap-1 border-b px-3 py-2"
+        className="flex items-center border-b px-4 py-2"
         style={{ borderBottomColor: 'var(--color-border-subtle)' }}
       >
-        {tabBtn('preview', previewTitle)}
-        {tabBtn('paper', t('mainLayout.paperTab'))}
+        <div className="inline-flex items-center gap-0.5 rounded-lg bg-[var(--color-bg-void)] p-0.5">
+          {tabBtn('preview', previewTitle)}
+          {tabBtn('paper', t('mainLayout.paperTab'))}
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         <PanelErrorBoundary panelName={previewTitle}>

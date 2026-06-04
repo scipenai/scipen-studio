@@ -51,32 +51,28 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
   return (
     <div
-      className="flex items-center"
+      className="flex items-center gap-1 px-2 py-1.5"
       style={{
-        background: 'var(--color-bg-primary)',
+        background: 'var(--color-bg-void)',
         borderBottom: '1px solid var(--color-border-subtle)',
       }}
     >
-      <div className="flex-1 flex overflow-x-auto">
+      <div className="flex-1 flex gap-1 overflow-x-auto">
         {openTabs.map((tab) => {
           const isActive = tab.path === activeTabPath;
           return (
+            // 现代 tab:active = 浮起白色药丸(bg-primary + 轻阴影),非活动透明 muted;
+            // 凹陷 tab 行(bg-void)托底,与右栏分段控件同一套语言。去掉旧 violet 渐变指示条。
             <div
               key={tab.path}
               onClick={() => onTabClick(tab.path)}
-              className="group relative flex items-center gap-2 px-4 py-2.5 text-sm transition-all cursor-pointer"
+              className="group flex items-center gap-2 rounded-md px-3 py-1 text-sm transition-colors cursor-pointer"
               style={{
-                background: isActive ? 'var(--color-bg-secondary)' : 'transparent',
+                background: isActive ? 'var(--color-bg-primary)' : 'transparent',
                 color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
-                borderRight: '1px solid var(--color-border-subtle)',
+                boxShadow: isActive ? 'var(--shadow-xs)' : 'none',
               }}
             >
-              {isActive && (
-                <div
-                  className="absolute top-0 left-0 right-0 h-[2px]"
-                  style={{ background: 'var(--gradient-accent)' }}
-                />
-              )}
               {tab.isDirty && (
                 <div
                   className="w-2 h-2 rounded-full"
@@ -207,15 +203,12 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           onClick={onCompile}
           disabled={isCompileDisabled}
           className={clsx(
-            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ml-1',
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ml-1',
             isCompileDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
           )}
           style={{
-            background: isCompiling
-              ? 'color-mix(in srgb, var(--color-error) 15%, transparent)'
-              : isCompileDisabled
-                ? 'var(--color-bg-tertiary)'
-                : 'var(--color-accent-muted)',
+            // ghost/outline:默认透明,仅蓝字蓝图标 + 一道淡描边 —— 不与文件 tab 抢视觉
+            background: 'transparent',
             color: isCompiling
               ? 'var(--color-error)'
               : isCompileDisabled
@@ -224,27 +217,20 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             border: `1px solid ${
               isCompiling
                 ? 'color-mix(in srgb, var(--color-error) 30%, transparent)'
-                : 'color-mix(in srgb, var(--color-accent) 20%, transparent)'
+                : isCompileDisabled
+                  ? 'var(--color-border-subtle)'
+                  : 'color-mix(in srgb, var(--color-accent) 22%, transparent)'
             }`,
           }}
           onMouseEnter={(e) => {
-            if (!isCompiling && !isCompileDisabled) {
-              e.currentTarget.style.background =
-                'color-mix(in srgb, var(--color-accent) 25%, transparent)';
-              e.currentTarget.style.boxShadow =
-                '0 0 15px color-mix(in srgb, var(--color-accent) 20%, transparent)';
-            } else if (isCompiling) {
-              e.currentTarget.style.background =
-                'color-mix(in srgb, var(--color-error) 25%, transparent)';
-              e.currentTarget.style.boxShadow =
-                '0 0 15px color-mix(in srgb, var(--color-error) 20%, transparent)';
-            }
+            if (isCompileDisabled) return;
+            // 仅一层极淡填充作 hover 反馈,去掉原先的发光(glow)以减重
+            e.currentTarget.style.background = isCompiling
+              ? 'color-mix(in srgb, var(--color-error) 12%, transparent)'
+              : 'var(--color-accent-muted)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = isCompiling
-              ? 'color-mix(in srgb, var(--color-error) 15%, transparent)'
-              : 'var(--color-accent-muted)';
-            e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.background = 'transparent';
           }}
           title={isCompiling ? t('editorToolbar.stopCompile') : t('editorToolbar.compile')}
         >

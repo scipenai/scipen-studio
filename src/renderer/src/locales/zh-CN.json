@@ -660,8 +660,6 @@
     "pdfPreviewTab": "PDF 预览"
   },
   "markdownPreview": {
-    "copied": "已复制",
-    "copyCode": "复制代码",
     "documentLabel": "Markdown 文档"
   },
   "thread": {
@@ -684,7 +682,6 @@
     "noTurns": "尚无对话内容"
   },
   "markdownRender": {
-    "scrollHint": "可左右滚动查看完整代码",
     "copyCode": "复制代码"
   },
   "layout": {},

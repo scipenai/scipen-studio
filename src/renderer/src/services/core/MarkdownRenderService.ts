@@ -293,17 +293,12 @@ export class MarkdownRenderService {
                   type: 'element',
                   tagName: 'span',
                   properties: { className: ['markdown-code-block__language'] },
-                  children: [{ type: 'text', value: resolvedLanguage.toUpperCase() || 'TEXT' }],
-                },
-                {
-                  type: 'element',
-                  tagName: 'span',
-                  properties: { className: ['markdown-code-block__hint'] },
-                  children: [{ type: 'text', value: t('markdownRender.scrollHint') }],
+                  children: [{ type: 'text', value: resolvedLanguage.toLowerCase() || 'text' }],
                 },
               ],
             },
             {
+              // 纯图标复制按钮(图标走 CSS mask,sanitize 安全);文案改为 aria/title。
               type: 'element',
               tagName: 'button',
               properties: {
@@ -311,8 +306,10 @@ export class MarkdownRenderService {
                 className: ['markdown-code-block__copy'],
                 'data-copy-code': encodeURIComponent(code),
                 'data-copied': 'false',
+                'aria-label': t('markdownRender.copyCode'),
+                title: t('markdownRender.copyCode'),
               },
-              children: [{ type: 'text', value: t('markdownRender.copyCode') }],
+              children: [],
             },
           ],
         },

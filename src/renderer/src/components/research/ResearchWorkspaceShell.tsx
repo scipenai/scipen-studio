@@ -152,26 +152,12 @@ export const ResearchWorkspaceShell: React.FC = () => {
     }
   };
 
-  // 各面板的 Panel 级属性(背景/边框/尺寸约束)。
-  const panelProps: Record<
-    PanelId,
-    { minSize: number; maxSize?: number; style?: React.CSSProperties; className: string }
-  > = {
+  // 各面板的 Panel 级尺寸约束。背景/边框/圆角统一移到下方内层卡片 div
+  // (浮动卡片布局:三面板观感一致,各自悬浮于 canvas 上)。
+  const panelProps: Record<PanelId, { minSize: number; maxSize?: number; className: string }> = {
     chat: { minSize: 20, className: 'min-h-0 min-w-0' },
-    editor: {
-      minSize: 28,
-      className: 'min-w-0 overflow-hidden',
-      style: { background: 'var(--color-bg-primary)' },
-    },
-    preview: {
-      minSize: 22,
-      maxSize: 60,
-      className: 'min-w-0 overflow-hidden border-l',
-      style: {
-        borderLeftColor: 'var(--color-border-subtle)',
-        background: 'var(--color-bg-secondary)',
-      },
-    },
+    editor: { minSize: 28, className: 'min-w-0' },
+    preview: { minSize: 22, maxSize: 60, className: 'min-w-0' },
   };
 
   return (
@@ -242,30 +228,35 @@ export const ResearchWorkspaceShell: React.FC = () => {
         </div>
       </WorkspaceDrawer>
 
-      <PanelGroup direction="horizontal" autoSaveId="research-workspace-v6" className="h-full">
-        {visiblePanels.flatMap((panel, index) => {
-          const cfg = panelProps[panel];
-          const nodes: React.ReactNode[] = [];
-          // 分隔条只出现在两个可见面板之间(声明式 → 与面板增删天然一致)。
-          if (index > 0) nodes.push(<WorkspaceResizeHandle key={`handle-${panel}`} />);
-          nodes.push(
-            // key 用面板身份 → 切换其它面板时本面板实例原地保留,不重挂载。
-            <Panel
-              key={panel}
-              id={`research-${panel}`}
-              order={PANEL_ORDER[panel]}
-              defaultSize={PANEL_DEFAULT_SIZE[panel]}
-              minSize={cfg.minSize}
-              maxSize={cfg.maxSize}
-              className={cfg.className}
-              style={cfg.style}
-            >
-              <div className="panel-focus-edge h-full">{renderPanelBody(panel)}</div>
-            </Panel>
-          );
-          return nodes;
-        })}
-      </PanelGroup>
+      {/* p-3 = 卡片与 canvas 边缘的外间隙(配合分隔条的 w-3 内间隙,四周一致 ~12px) */}
+      <div className="h-full p-3">
+        <PanelGroup direction="horizontal" autoSaveId="research-workspace-v6" className="h-full">
+          {visiblePanels.flatMap((panel, index) => {
+            const cfg = panelProps[panel];
+            const nodes: React.ReactNode[] = [];
+            // 分隔条只出现在两个可见面板之间(声明式 → 与面板增删天然一致)。
+            if (index > 0) nodes.push(<WorkspaceResizeHandle key={`handle-${panel}`} />);
+            nodes.push(
+              // key 用面板身份 → 切换其它面板时本面板实例原地保留,不重挂载。
+              <Panel
+                key={panel}
+                id={`research-${panel}`}
+                order={PANEL_ORDER[panel]}
+                defaultSize={PANEL_DEFAULT_SIZE[panel]}
+                minSize={cfg.minSize}
+                maxSize={cfg.maxSize}
+                className={cfg.className}
+              >
+                {/* 浮动卡片:圆角 + 细边 + 轻阴影,悬浮于 canvas 之上 */}
+                <div className="panel-focus-edge h-full overflow-hidden rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] shadow-[var(--shadow-sm)]">
+                  {renderPanelBody(panel)}
+                </div>
+              </Panel>
+            );
+            return nodes;
+          })}
+        </PanelGroup>
+      </div>
     </WorkspaceShell>
   );
 };

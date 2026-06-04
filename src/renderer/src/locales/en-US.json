@@ -660,8 +660,6 @@
     "pdfPreviewTab": "PDF Preview"
   },
   "markdownPreview": {
-    "copied": "Copied",
-    "copyCode": "Copy code",
     "documentLabel": "Markdown Document"
   },
   "thread": {
@@ -684,7 +682,6 @@
     "noTurns": "No turns yet"
   },
   "markdownRender": {
-    "scrollHint": "Scroll horizontally to see full code",
     "copyCode": "Copy code"
   },
   "layout": {},

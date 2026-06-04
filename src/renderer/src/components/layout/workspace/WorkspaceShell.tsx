@@ -1,7 +1,10 @@
 /**
  * @file WorkspaceShell.tsx - 工作台外壳容器
- * @description 承担 ResearchWorkspaceShell 的"外壳 + 主卡片"视觉职责,
- *              提供 header slot 与 body 区(自动 flex-1 + relative + overflow-hidden)
+ * @description 承担 ResearchWorkspaceShell 的"画布(canvas)+ header"职责。
+ *   现代 AI 工具观感:外壳本身是 canvas(bg-void),三面板各自作为浮动卡片
+ *   悬浮其上(卡片样式由 ResearchWorkspaceShell 在 Panel 内层施加),此处不再
+ *   是一张包裹全部的大卡片。提供 header slot 与 body 区(flex-1 + relative,
+ *   relative 供 WorkspaceDrawer 绝对定位叠加)。
  */
 
 import { clsx } from 'clsx';
@@ -18,17 +21,14 @@ export interface WorkspaceShellProps {
 
 export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({ header, children, className }) => {
   return (
-    <div className={clsx('h-full overflow-hidden p-2 bg-[var(--color-bg-void)]', className)}>
-      <div
-        className={clsx(
-          'flex h-full flex-col overflow-hidden rounded-[20px] border shadow-[var(--shadow-lg)]',
-          'border-[var(--color-border-subtle)]',
-          'bg-[color-mix(in_srgb,var(--color-bg-primary)_94%,transparent)]'
-        )}
-      >
-        {header}
-        <div className="relative flex-1 min-h-0 overflow-hidden">{children}</div>
-      </div>
+    <div
+      className={clsx(
+        'flex h-full flex-col overflow-hidden bg-[var(--color-bg-void)]',
+        className
+      )}
+    >
+      {header}
+      <div className="relative flex-1 min-h-0 overflow-hidden">{children}</div>
     </div>
   );
 };

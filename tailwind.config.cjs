@@ -95,6 +95,12 @@ module.exports = {
         sans: ['Inter', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
       },
+      // 仅新增 Tailwind 默认 scale 没有的 2xs(10px),映射到 --text-2xs。
+      // 其余字号梯度以 CSS 变量形式存在(--text-*/--leading-*),供后续迁移
+      // 用 arbitrary 引用,刻意不覆盖默认 text-sm/lg 等,以免改动现有视觉。
+      fontSize: {
+        '2xs': 'var(--text-2xs)',
+      },
       keyframes: {
         "accordion-down": {
           from: { height: 0 },

@@ -468,7 +468,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
             ))}
             {currentTurn && <ChatMessage message={null} turn={currentTurn} />}
           </div>
-          <div className="pb-3">{composer}</div>
+          <div className="px-4 pb-3">{composer}</div>
         </>
       )}
 

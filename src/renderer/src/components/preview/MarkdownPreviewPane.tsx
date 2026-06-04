@@ -163,10 +163,9 @@ export const MarkdownPreviewPane: React.FC = memo(() => {
         const encoded = copyButton.getAttribute('data-copy-code') || '';
         if (encoded) {
           await navigator.clipboard.writeText(decodeURIComponent(encoded));
-          copyButton.textContent = t('markdownPreview.copied');
+          // 图标按钮:只切 data-copied,图标(copy↔check)由 CSS mask 切换。
           copyButton.setAttribute('data-copied', 'true');
           window.setTimeout(() => {
-            copyButton.textContent = t('markdownPreview.copyCode');
             copyButton.setAttribute('data-copied', 'false');
           }, 1400);
         }
@@ -219,7 +218,7 @@ export const MarkdownPreviewPane: React.FC = memo(() => {
         el = el.parentElement;
       }
     },
-    [openLocalFile, t]
+    [openLocalFile]
   );
 
   if (!content) {

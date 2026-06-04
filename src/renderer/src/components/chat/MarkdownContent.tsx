@@ -232,9 +232,9 @@ const MarkdownCodeBlock = memo<MarkdownCodeBlockProps>(
               onClick={() => {
                 void handleCopy();
               }}
-            >
-              {copied ? t('markdownContent.copied') : t('markdownContent.copyCode')}
-            </button>
+              title={copied ? t('markdownContent.copied') : t('markdownContent.copyCode')}
+              aria-label={copied ? t('markdownContent.copied') : t('markdownContent.copyCode')}
+            />
           </div>
         ) : null}
         <div
@@ -258,31 +258,37 @@ MarkdownCodeBlock.displayName = 'MarkdownCodeBlock';
 
 const STATIC_MARKDOWN_COMPONENTS: Partial<Components> = {
   pre: ({ children }) => <>{children}</>,
-  ul: ({ children }) => <ul className="list-disc list-inside space-y-1 my-2">{children}</ul>,
-  ol: ({ children }) => <ol className="list-decimal list-inside space-y-1 my-2">{children}</ol>,
-  li: ({ children }) => <li className="my-1 text-[var(--color-text-secondary)]">{children}</li>,
+  ul: ({ children }) => (
+    <ul className="my-4 list-disc list-outside space-y-2 pl-5 marker:text-[var(--color-text-muted)]">
+      {children}
+    </ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="my-4 list-decimal list-outside space-y-2 pl-5 marker:text-[var(--color-text-muted)]">
+      {children}
+    </ol>
+  ),
+  li: ({ children }) => (
+    <li className="leading-[1.7] text-[var(--color-text-primary)] marker:text-[var(--color-text-muted)]">
+      {children}
+    </li>
+  ),
   p: ({ children }) => (
-    <p className="my-2 leading-relaxed text-[var(--color-text-secondary)]">{children}</p>
+    <p className="mb-4 leading-[1.7] text-[var(--color-text-primary)]">{children}</p>
   ),
   h1: ({ children }) => (
-    <h1 className="text-[15px] font-bold mt-3 mb-1.5 text-[var(--color-text-primary)]">
-      {children}
-    </h1>
+    <h1 className="mt-6 mb-3 text-lg font-bold text-[var(--color-text-primary)]">{children}</h1>
   ),
   h2: ({ children }) => (
-    <h2 className="text-[15px] font-bold mt-2.5 mb-1.5 text-[var(--color-text-primary)]">
-      {children}
-    </h2>
+    <h2 className="mt-6 mb-3 text-base font-bold text-[var(--color-text-primary)]">{children}</h2>
   ),
   h3: ({ children }) => (
-    <h3 className="text-[15px] font-semibold mt-2 mb-1 text-[var(--color-text-primary)]">
+    <h3 className="mt-5 mb-2 text-base font-semibold text-[var(--color-text-primary)]">
       {children}
     </h3>
   ),
   h4: ({ children }) => (
-    <h4 className="text-[14px] font-semibold mt-2 mb-1 text-[var(--color-text-primary)]">
-      {children}
-    </h4>
+    <h4 className="mt-4 mb-2 text-sm font-semibold text-[var(--color-text-primary)]">{children}</h4>
   ),
   blockquote: ({ children }) => (
     <blockquote className="border-l-4 border-[var(--color-accent)] pl-4 my-2 italic text-[var(--color-text-secondary)]">
@@ -383,7 +389,7 @@ export const MarkdownContent = memo<MarkdownContentProps>(({ content, className 
 
   return (
     <div
-      className={`prose prose-slate dark:prose-invert prose-sm max-w-none break-words markdown-content ${className || ''}`}
+      className={`prose prose-slate dark:prose-invert prose-sm max-w-none break-words markdown-content [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${className || ''}`}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}

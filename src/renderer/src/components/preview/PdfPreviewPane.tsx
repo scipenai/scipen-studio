@@ -1002,7 +1002,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     return (
       <div className="h-full flex flex-col bg-[var(--color-bg-secondary)]">
         <div
-          className="flex min-h-[54px] items-center justify-between border-b px-3 py-2.5"
+          className="flex min-h-[54px] items-center justify-between border-b px-4 py-2.5"
           style={{
             borderBottomColor: 'var(--color-border-subtle)',
             background: 'color-mix(in srgb, var(--color-bg-elevated) 92%, transparent)',
