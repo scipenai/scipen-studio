@@ -16,7 +16,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
 import { ConfigKeys } from '../../../../../shared/types/config-keys';
 import { useTranslation } from '../../locales';
-import { SectionTitle, SettingItem, inputClassName, inputMonoClassName } from './SettingsUI';
+import {
+  EmptyState,
+  SectionTitle,
+  SettingItem,
+  inputClassName,
+  inputMonoClassName,
+} from './SettingsUI';
 
 type Transport = 'stdio' | 'http';
 
@@ -110,11 +116,7 @@ export const McpServersSection: React.FC = () => {
       </p>
 
       <div className="space-y-2 mb-3">
-        {servers.length === 0 && (
-          <div className="text-xs text-[var(--color-text-muted)] py-2">
-            {t('settingsAgent.mcp.empty')}
-          </div>
-        )}
+        {servers.length === 0 && <EmptyState>{t('settingsAgent.mcp.empty')}</EmptyState>}
         {servers.map((server, idx) => (
           <ServerRow
             key={idx}

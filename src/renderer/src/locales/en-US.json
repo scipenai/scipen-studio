@@ -171,8 +171,8 @@
     "versionRestored": "Restored Overleaf version: {{fileName}}"
   },
   "aiSettings": {
-    "chatProvider": "AI Agent",
-    "chatProviderDesc": "Used by the SNACA Agent for chat, tool calls, Diff review, and Ctrl+K inline completion",
+    "sectionConnection": "Connection",
+    "sectionModelRouting": "Model Routing",
     "chatModel": "Primary Agent Model",
     "chatModelDesc": "Pick a stronger reasoning model, e.g. deepseek-chat, claude-sonnet-4",
     "provider": "Model Service",
@@ -762,8 +762,9 @@
     "usageHint": "Cumulative tokens / estimated cost for this conversation"
   },
   "settingsAgent": {
-    "viewer": "Memory & Skills",
-    "viewerDesc": "Inspect Agent memory and the skills currently loaded for this project. Both feed the AI's long-term context and capabilities.",
+    "sectionCoreBehavior": "Core Behavior",
+    "sectionMemoryTools": "Memory & Tools",
+    "sectionIntegrations": "Integrations",
     "memoryLabel": "Memory",
     "memoryDesc": "Project-scoped long-term memory: user prefs, project conventions, references, and feedback corrections.",
     "openMemory": "Open Memory Viewer",
@@ -794,8 +795,6 @@
       "restartHint": "⚠ MCP config changes restart the sidecar; the active session resumes automatically."
     },
     "approval": {
-      "title": "Approval mode",
-      "desc": "Controls how SNACA asks before file mutations / shell tools run.",
       "mode": "Mode",
       "modeDesc": "Takes effect on the next turn — no session restart needed.",
       "interactive": "Interactive (recommended)",
@@ -803,8 +802,6 @@
       "autoDeny": "Auto-deny all"
     },
     "webSearch": {
-      "title": "Web search",
-      "desc": "The built-in WebSearch tool uses Tavily and needs an API key to query the web; WebFetch (page fetching) needs no key.",
       "apiKey": "Tavily API key",
       "apiKeyDesc": "Saving restarts the Agent runtime so it takes effect. Leave empty to disable WebSearch (WebFetch still works).",
       "apiKeyPlaceholder": "tvly-..."
@@ -814,6 +811,11 @@
       "expand": "Expand",
       "collapse": "Collapse",
       "desc": "Override SNACA engine defaults. Leave blank to keep the model-aware default. Changes restart the sidecar.",
+      "groupExecution": "Execution",
+      "groupContext": "Context & compaction",
+      "groupTokens": "Token limits",
+      "groupMcp": "MCP tuning",
+      "groupSwitches": "Switches & memory",
       "maxIterations": "max_iterations",
       "maxIterationsDesc": "Max LLM iterations per turn — prevents runaway loops.",
       "loopGuard": "loop_guard_max_repeats",
@@ -939,7 +941,6 @@
     "notEnabledDesc": "Zotero integration relies on a local Zotero install + Local API. Three quick steps and you can @cite any reference from the editor.",
     "startWizard": "Open setup wizard",
     "indexStatus": "Index status",
-    "statusLabel": "Status",
     "itemCount": "Indexed references",
     "lastSyncedAt": "Last synced",
     "never": "Never",

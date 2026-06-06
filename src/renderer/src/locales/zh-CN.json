@@ -171,8 +171,8 @@
     "versionRestored": "已恢复 Overleaf 版本：{{fileName}}"
   },
   "aiSettings": {
-    "chatProvider": "AI Agent",
-    "chatProviderDesc": "用于 SNACA Agent 的对话、工具调用、Diff 审阅,以及 Ctrl+K 内联补全",
+    "sectionConnection": "基础连接",
+    "sectionModelRouting": "模型路由",
     "chatModel": "主 Agent 模型",
     "chatModelDesc": "建议选择推理较强的模型，如 deepseek-chat、claude-sonnet-4 等",
     "provider": "模型服务",
@@ -762,8 +762,9 @@
     "usageHint": "本对话累计 token / 估算成本"
   },
   "settingsAgent": {
-    "viewer": "记忆与技能",
-    "viewerDesc": "查看 Agent 自动沉淀到本项目的记忆与可用 Skills。这些数据驱动 AI 的长期上下文与能力扩展。",
+    "sectionCoreBehavior": "核心行为",
+    "sectionMemoryTools": "记忆与工具",
+    "sectionIntegrations": "外部集成",
     "memoryLabel": "Memory",
     "memoryDesc": "项目级的长期记忆,包含用户偏好、项目约定、外部引用与反馈纠错。",
     "openMemory": "打开 Memory Viewer",
@@ -794,8 +795,6 @@
       "restartHint": "⚠ MCP 配置改动会触发 sidecar 重启;当前会话自动续接。"
     },
     "approval": {
-      "title": "审批模式",
-      "desc": "控制 SNACA 在执行文件改动/Bash 工具前如何请求确认。",
       "mode": "模式",
       "modeDesc": "下一个 turn 即生效,无需重启会话。",
       "interactive": "交互式 (推荐)",
@@ -803,8 +802,6 @@
       "autoDeny": "全部自动拒绝"
     },
     "webSearch": {
-      "title": "联网搜索",
-      "desc": "内置 WebSearch 工具使用 Tavily,需填入 API Key 后方可联网检索;WebFetch(抓取网页)无需 Key。",
       "apiKey": "Tavily API Key",
       "apiKeyDesc": "保存后自动重启 Agent 运行时使其生效。留空则关闭 WebSearch(WebFetch 仍可用)。",
       "apiKeyPlaceholder": "tvly-..."
@@ -814,6 +811,11 @@
       "expand": "展开",
       "collapse": "收起",
       "desc": "覆盖 SNACA 引擎的默认参数。留空使用模型相关的默认值。修改后会重启 sidecar。",
+      "groupExecution": "执行",
+      "groupContext": "上下文与压缩",
+      "groupTokens": "Token 上限",
+      "groupMcp": "MCP 调优",
+      "groupSwitches": "开关与记忆",
       "maxIterations": "max_iterations",
       "maxIterationsDesc": "单 turn 最大 LLM 迭代次数,防失控循环。",
       "loopGuard": "loop_guard_max_repeats",
@@ -939,7 +941,6 @@
     "notEnabledDesc": "Zotero 集成依赖本地 Zotero + Local API。3 步配置完毕即可在编辑器中 @cite 任意文献。",
     "startWizard": "立即引导设置",
     "indexStatus": "索引状态",
-    "statusLabel": "状态",
     "itemCount": "已索引文献",
     "lastSyncedAt": "上次同步",
     "never": "从未",

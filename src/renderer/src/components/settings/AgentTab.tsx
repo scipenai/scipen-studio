@@ -15,13 +15,22 @@
 
 import { BookOpen, Brain, ChevronDown, ChevronRight } from 'lucide-react';
 import type React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
 import { ConfigKeys } from '../../../../../shared/types/config-keys';
 import { useTranslation } from '../../locales';
 import { agentClient } from '../../services/agent/AgentClientService';
 import { McpServersSection } from './McpServersSection';
-import { SectionTitle, SettingItem, inputClassName, inputMonoClassName } from './SettingsUI';
+import {
+  FormField,
+  FormRow,
+  FormSection,
+  SectionTitle,
+  SettingItem,
+  inputClassName,
+  inputMonoClassName,
+  secondaryButtonClass,
+} from './SettingsUI';
 
 type ApprovalMode = 'interactive' | 'auto_allow' | 'auto_deny';
 
@@ -192,6 +201,37 @@ const BOOL_FIELDS: Array<{
   },
 ];
 
+/** 引擎数字字段的语义分组(折叠区内分块,降低认知负荷)。仅靠 key 引用
+ *  NUMBER_FIELDS,不改动字段定义本身。 */
+const ENGINE_GROUPS: Array<{ titleKey: string; keys: NumberKey[] }> = [
+  {
+    titleKey: 'settingsAgent.engine.groupExecution',
+    keys: ['max_iterations', 'loop_guard_max_repeats', 'concurrent_tool_limit', 'turn_timeout_secs'],
+  },
+  {
+    titleKey: 'settingsAgent.engine.groupContext',
+    keys: [
+      'history_limit',
+      'history_max_bytes',
+      'compact_after_input_tokens',
+      'compact_summary_max_tokens',
+      'collapse_tool_results_threshold',
+    ],
+  },
+  {
+    titleKey: 'settingsAgent.engine.groupTokens',
+    keys: ['max_tokens', 'max_output_token_ceiling', 'max_output_token_escalation_attempts'],
+  },
+  {
+    titleKey: 'settingsAgent.engine.groupMcp',
+    keys: ['mcp_idle_ttl_secs', 'mcp_reaper_period_secs'],
+  },
+];
+
+const NUMBER_FIELD_MAP: Record<NumberKey, (typeof NUMBER_FIELDS)[number]> = Object.fromEntries(
+  NUMBER_FIELDS.map((f) => [f.key, f])
+) as Record<NumberKey, (typeof NUMBER_FIELDS)[number]>;
+
 const selectClassName =
   'h-9 px-3 py-1.5 text-sm rounded-lg border border-[var(--color-border)] ' +
   'bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] ' +
@@ -288,120 +328,112 @@ export const AgentTab: React.FC = () => {
     },
     [engine, persistEngine]
   );
-  const buttonClass =
-    'inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded border ' +
-    'border-[var(--color-border)] bg-[var(--color-bg-secondary)] ' +
-    'text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]';
-
   return (
-    <>
-      {/* ---------- Memory / Skills viewer launchers ---------- */}
-      <SectionTitle>{t('settingsAgent.viewer')}</SectionTitle>
-      <p className="text-xs text-[var(--color-text-muted)] mb-3 -mt-1">
-        {t('settingsAgent.viewerDesc')}
-      </p>
-
-      <SettingItem
-        label={t('settingsAgent.memoryLabel')}
-        description={t('settingsAgent.memoryDesc')}
-      >
-        <button type="button" onClick={openMemory} className={buttonClass}>
-          <Brain size={14} />
-          {t('settingsAgent.openMemory')}
-        </button>
-      </SettingItem>
-
-      <SettingItem
-        label={t('settingsAgent.skillsLabel')}
-        description={t('settingsAgent.skillsDesc')}
-      >
-        <button type="button" onClick={openSkills} className={buttonClass}>
-          <BookOpen size={14} />
-          {t('settingsAgent.openSkills')}
-        </button>
-      </SettingItem>
-
-      {/* ---------- Approval mode ---------- */}
-      <SectionTitle>{t('settingsAgent.approval.title')}</SectionTitle>
-      <p className="text-xs text-[var(--color-text-muted)] mb-3 -mt-1">
-        {t('settingsAgent.approval.desc')}
-      </p>
-      <SettingItem
-        label={t('settingsAgent.approval.mode')}
-        description={t('settingsAgent.approval.modeDesc')}
-      >
-        <select
-          value={approval}
-          onChange={(e) => onApprovalChange(e.target.value as ApprovalMode)}
-          className={selectClassName}
+    <div>
+      {/* ---------- 核心行为:审批模式 ---------- */}
+      <FormSection title={t('settingsAgent.sectionCoreBehavior')} first>
+        <FormRow
+          title={t('settingsAgent.approval.mode')}
+          description={t('settingsAgent.approval.modeDesc')}
         >
-          <option value="interactive">{t('settingsAgent.approval.interactive')}</option>
-          <option value="auto_allow">{t('settingsAgent.approval.autoAllow')}</option>
-          <option value="auto_deny">{t('settingsAgent.approval.autoDeny')}</option>
-        </select>
-      </SettingItem>
+          <select
+            value={approval}
+            onChange={(e) => onApprovalChange(e.target.value as ApprovalMode)}
+            className={selectClassName}
+          >
+            <option value="interactive">{t('settingsAgent.approval.interactive')}</option>
+            <option value="auto_allow">{t('settingsAgent.approval.autoAllow')}</option>
+            <option value="auto_deny">{t('settingsAgent.approval.autoDeny')}</option>
+          </select>
+        </FormRow>
+      </FormSection>
 
-      {/* ---------- Web search (Tavily) ---------- */}
-      <SectionTitle>{t('settingsAgent.webSearch.title')}</SectionTitle>
-      <p className="text-xs text-[var(--color-text-muted)] mb-3 -mt-1">
-        {t('settingsAgent.webSearch.desc')}
-      </p>
-      <SettingItem
-        label={t('settingsAgent.webSearch.apiKey')}
-        description={t('settingsAgent.webSearch.apiKeyDesc')}
-      >
-        <input
-          type="password"
-          value={webSearchKey}
-          onChange={(e) => onWebSearchKeyChange(e.target.value)}
-          placeholder={t('settingsAgent.webSearch.apiKeyPlaceholder')}
-          className={inputMonoClassName}
-          autoComplete="off"
-          spellCheck={false}
-        />
-      </SettingItem>
+      {/* ---------- 记忆与工具:Memory / Skills 查看器 ---------- */}
+      <FormSection title={t('settingsAgent.sectionMemoryTools')}>
+        <FormRow
+          title={t('settingsAgent.memoryLabel')}
+          description={t('settingsAgent.memoryDesc')}
+        >
+          <button type="button" onClick={openMemory} className={secondaryButtonClass}>
+            <Brain size={14} />
+            {t('settingsAgent.openMemory')}
+          </button>
+        </FormRow>
+        <FormRow
+          title={t('settingsAgent.skillsLabel')}
+          description={t('settingsAgent.skillsDesc')}
+        >
+          <button type="button" onClick={openSkills} className={secondaryButtonClass}>
+            <BookOpen size={14} />
+            {t('settingsAgent.openSkills')}
+          </button>
+        </FormRow>
+      </FormSection>
 
-      {/* ---------- MCP Servers ---------- */}
-      <McpServersSection />
+      {/* ---------- 外部集成:Tavily + MCP ---------- */}
+      <FormSection title={t('settingsAgent.sectionIntegrations')}>
+        <FormField
+          title={t('settingsAgent.webSearch.apiKey')}
+          description={t('settingsAgent.webSearch.apiKeyDesc')}
+        >
+          <input
+            type="password"
+            value={webSearchKey}
+            onChange={(e) => onWebSearchKeyChange(e.target.value)}
+            placeholder={t('settingsAgent.webSearch.apiKeyPlaceholder')}
+            className={inputMonoClassName}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </FormField>
+        <McpServersSection />
+      </FormSection>
 
-      {/* ---------- Engine advanced ---------- */}
-      <SectionTitle>{t('settingsAgent.engine.title')}</SectionTitle>
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="-mt-1 mb-2 inline-flex items-center gap-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-      >
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        {t(expanded ? 'settingsAgent.engine.collapse' : 'settingsAgent.engine.expand')}
-      </button>
+      {/* ---------- 高级引擎(折叠) ---------- */}
+      <FormSection title={t('settingsAgent.engine.title')}>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mb-2 inline-flex items-center gap-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+        >
+          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          {t(expanded ? 'settingsAgent.engine.collapse' : 'settingsAgent.engine.expand')}
+        </button>
 
-      {expanded && (
-        <>
+        {expanded && (
+          <>
           <p className="text-xs text-[var(--color-text-muted)] mb-3">
             {t('settingsAgent.engine.desc')}
           </p>
 
-          {NUMBER_FIELDS.map((field) => {
-            const value = engine[field.key];
-            const allowZero = field.allowZero ?? false;
-            return (
-              <SettingItem
-                key={field.key}
-                label={t(field.labelKey as never)}
-                description={t(field.descKey as never)}
-              >
-                <input
-                  type="number"
-                  min={allowZero ? 0 : 1}
-                  value={typeof value === 'number' ? value : ''}
-                  placeholder={field.placeholder}
-                  onChange={(e) => updateNumber(field.key, e.target.value, allowZero)}
-                  className={inputClassName}
-                />
-              </SettingItem>
-            );
-          })}
+          {ENGINE_GROUPS.map((grp) => (
+            <Fragment key={grp.titleKey}>
+              <SectionTitle>{t(grp.titleKey as never)}</SectionTitle>
+              {grp.keys.map((k) => {
+                const field = NUMBER_FIELD_MAP[k];
+                const value = engine[field.key];
+                const allowZero = field.allowZero ?? false;
+                return (
+                  <SettingItem
+                    key={field.key}
+                    label={t(field.labelKey as never)}
+                    description={t(field.descKey as never)}
+                  >
+                    <input
+                      type="number"
+                      min={allowZero ? 0 : 1}
+                      value={typeof value === 'number' ? value : ''}
+                      placeholder={field.placeholder}
+                      onChange={(e) => updateNumber(field.key, e.target.value, allowZero)}
+                      className={inputClassName}
+                    />
+                  </SettingItem>
+                );
+              })}
+            </Fragment>
+          ))}
 
+          <SectionTitle>{t('settingsAgent.engine.groupSwitches' as never)}</SectionTitle>
           {BOOL_FIELDS.map((field) => {
             // Unset persisted value → show the engine default so the UI
             // reflects what's actually happening. Any user interaction
@@ -443,6 +475,7 @@ export const AgentTab: React.FC = () => {
           </p>
         </>
       )}
-    </>
+      </FormSection>
+    </div>
   );
 };

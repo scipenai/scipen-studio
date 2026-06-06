@@ -24,7 +24,8 @@ import type { ZoteroDiagnosticsDTO } from '../../../../../shared/types/zotero-ev
 import { ZoteroSetupWizard } from '../onboarding/ZoteroSetupWizard';
 import { BibTexSyncSection } from './BibTexSyncSection';
 import { EmbeddingRecommendationSection } from './EmbeddingRecommendationSection';
-import { SectionTitle, SettingCard, Toggle } from './SettingsUI';
+import { Toggle } from '../ui';
+import { FormRow, FormSection, SettingCard } from './SettingsUI';
 
 const logger = createLogger('ZoteroTab');
 
@@ -127,7 +128,7 @@ export const ZoteroTab: React.FC = () => {
   }, [redetecting]);
 
   return (
-    <div className="space-y-6">
+    <div>
       <div className="flex items-center gap-3 mb-6">
         <div className="p-2 rounded-lg bg-[var(--color-accent-muted)]">
           <BookMarked className="w-5 h-5 text-[var(--color-accent)]" />
@@ -141,22 +142,24 @@ export const ZoteroTab: React.FC = () => {
       </div>
 
       {error && (
-        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+        <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
           {error}
         </div>
       )}
 
-      <SectionTitle>{t('zoteroSettings.basicSettings')}</SectionTitle>
-
-      <SettingCard>
-        <Toggle
-          label={t('zoteroSettings.enableIntegration')}
-          desc={t('zoteroSettings.enableIntegrationDesc')}
-          checked={enabled}
-          onChange={(next) => void handleToggle(next)}
-          disabled={toggling}
-        />
-      </SettingCard>
+      <FormSection title={t('zoteroSettings.basicSettings')} first>
+        <FormRow
+          title={t('zoteroSettings.enableIntegration')}
+          description={t('zoteroSettings.enableIntegrationDesc')}
+        >
+          <Toggle
+            size="sm"
+            checked={enabled}
+            onChange={(next) => void handleToggle(next)}
+            disabled={toggling}
+          />
+        </FormRow>
+      </FormSection>
 
       {!enabled ? (
         <NotEnabledGuide onStart={() => wizard.open()} />
@@ -218,88 +221,82 @@ const EnabledPanel: React.FC<EnabledPanelProps> = ({
   const { t } = useTranslation();
   return (
     <>
-      <SectionTitle>{t('zoteroSettings.indexStatus')}</SectionTitle>
-
-      <SettingCard>
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-[var(--color-text-muted)]">
-            {t('zoteroSettings.statusLabel')}
-          </span>
-          <span className="flex items-center gap-2 text-sm font-medium">
+      <FormSection title={t('zoteroSettings.indexStatus')}>
+        <div className="flex items-center justify-between rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] p-4">
+          <div className="flex items-center gap-2">
             <span
-              className="inline-block w-2 h-2 rounded-full"
+              className="inline-block h-2 w-2 rounded-full"
               style={{ background: BIB_STATUS_COLOR[state.status] }}
             />
-            {t(`zotero.status.${state.status}` as const)}
-          </span>
-        </div>
-      </SettingCard>
-
-      <SettingCard>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <div className="text-xs text-[var(--color-text-muted)] mb-1">
-              {t('zoteroSettings.itemCount')}
+            <span className="text-sm font-medium text-[var(--color-text-primary)]">
+              {t(`zotero.status.${state.status}` as const)}
+            </span>
+          </div>
+          <div className="flex items-center gap-8">
+            <div className="text-right">
+              <div className="text-xs text-[var(--color-text-muted)]">
+                {t('zoteroSettings.itemCount')}
+              </div>
+              <div className="font-mono text-base font-semibold text-[var(--color-text-primary)]">
+                {state.itemCount}
+              </div>
             </div>
-            <div className="text-lg font-mono font-semibold text-[var(--color-text-primary)]">
-              {state.itemCount}
+            <div className="text-right">
+              <div className="text-xs text-[var(--color-text-muted)]">
+                {t('zoteroSettings.lastSyncedAt')}
+              </div>
+              <div className="font-mono text-sm text-[var(--color-text-secondary)]">
+                {state.lastSyncedAt
+                  ? new Date(state.lastSyncedAt).toLocaleString()
+                  : t('zoteroSettings.never')}
+              </div>
             </div>
           </div>
-          <div>
-            <div className="text-xs text-[var(--color-text-muted)] mb-1">
-              {t('zoteroSettings.lastSyncedAt')}
-            </div>
-            <div className="text-sm font-mono text-[var(--color-text-secondary)]">
-              {state.lastSyncedAt
-                ? new Date(state.lastSyncedAt).toLocaleString()
-                : t('zoteroSettings.never')}
-            </div>
+        </div>
+      </FormSection>
+
+      <FormSection title={t('zoteroSettings.sources')}>
+        <SettingCard>
+          <SourceRow
+            label={t('zoteroSettings.localApi')}
+            ok={diagnostics?.sources.localApi.ok ?? null}
+            error={diagnostics?.sources.localApi.error}
+          />
+          <div className="my-2 border-t border-[var(--color-border-subtle)]" />
+          <SourceRow
+            label={t('zoteroSettings.betterBibTex')}
+            ok={diagnostics?.sources.betterBibTex.ok ?? null}
+            error={diagnostics?.sources.betterBibTex.error}
+          />
+        </SettingCard>
+      </FormSection>
+
+      <FormSection title={t('zoteroSettings.actions')}>
+        <SettingCard>
+          <div className="space-y-2">
+            <ActionRow
+              label={t('zoteroSettings.refreshNow')}
+              desc={t('zoteroSettings.refreshNowDesc')}
+              busy={refreshing}
+              icon={<RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />}
+              onClick={onRefresh}
+            />
+            <ActionRow
+              label={t('zoteroSettings.reopenWizard')}
+              desc={t('zoteroSettings.reopenWizardDesc')}
+              icon={<Sparkles size={13} />}
+              onClick={onReopenWizard}
+            />
+            <ActionRow
+              label={t('zoteroSettings.redetect')}
+              desc={t('zoteroSettings.redetectDesc')}
+              busy={redetecting}
+              icon={<BookMarked size={13} />}
+              onClick={onRedetect}
+            />
           </div>
-        </div>
-      </SettingCard>
-
-      <SectionTitle>{t('zoteroSettings.sources')}</SectionTitle>
-
-      <SettingCard>
-        <SourceRow
-          label={t('zoteroSettings.localApi')}
-          ok={diagnostics?.sources.localApi.ok ?? null}
-          error={diagnostics?.sources.localApi.error}
-        />
-        <div className="my-2 border-t border-[var(--color-border-subtle)]" />
-        <SourceRow
-          label={t('zoteroSettings.betterBibTex')}
-          ok={diagnostics?.sources.betterBibTex.ok ?? null}
-          error={diagnostics?.sources.betterBibTex.error}
-        />
-      </SettingCard>
-
-      <SectionTitle>{t('zoteroSettings.actions')}</SectionTitle>
-
-      <SettingCard>
-        <div className="space-y-2">
-          <ActionRow
-            label={t('zoteroSettings.refreshNow')}
-            desc={t('zoteroSettings.refreshNowDesc')}
-            busy={refreshing}
-            icon={<RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />}
-            onClick={onRefresh}
-          />
-          <ActionRow
-            label={t('zoteroSettings.reopenWizard')}
-            desc={t('zoteroSettings.reopenWizardDesc')}
-            icon={<Sparkles size={13} />}
-            onClick={onReopenWizard}
-          />
-          <ActionRow
-            label={t('zoteroSettings.redetect')}
-            desc={t('zoteroSettings.redetectDesc')}
-            busy={redetecting}
-            icon={<BookMarked size={13} />}
-            onClick={onRedetect}
-          />
-        </div>
-      </SettingCard>
+        </SettingCard>
+      </FormSection>
 
       <BibTexSyncSection />
 

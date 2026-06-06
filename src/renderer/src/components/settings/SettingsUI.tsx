@@ -10,7 +10,7 @@ import { Toggle as UIToggle } from '../ui';
  * Settings section title
  */
 export const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <h3 className="text-xs font-semibold uppercase tracking-wider mt-6 mb-3 first:mt-0 text-[var(--color-text-muted)]">
+  <h3 className="mt-8 mb-4 border-b border-[var(--color-border-subtle)] pb-2 text-sm font-semibold text-[var(--color-text-primary)] first:mt-0">
     {children}
   </h3>
 );
@@ -196,3 +196,74 @@ export const selectClassName = `
   disabled:cursor-not-allowed disabled:opacity-50
   transition-colors duration-200 cursor-pointer
 `;
+
+// ============================================================================
+// 现代表单设计系统 —— 用于已重构的设置页(AI 服务 / Agent 行为 / Zotero)。
+// 结构/间距遵循统一规范;颜色一律映射到 --color-* token,深浅主题通用
+// (不写死 slate/white,否则默认深色主题下会瞎掉)。
+// ============================================================================
+
+/** 分区标题:底部细线分隔。首个分区传 `first` 去掉上间距。 */
+export const FormSection: React.FC<{
+  title: string;
+  first?: boolean;
+  children: React.ReactNode;
+}> = ({ title, first, children }) => (
+  <section className={first ? '' : 'mt-8'}>
+    <h3 className="mb-4 border-b border-[var(--color-border-subtle)] pb-2 text-sm font-semibold text-[var(--color-text-primary)]">
+      {title}
+    </h3>
+    {children}
+  </section>
+);
+
+/** 左右行:标题/描述在左,控件(Toggle / 按钮 / 短下拉)在右。 */
+export const FormRow: React.FC<{
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}> = ({ title, description, children }) => (
+  <div className="flex items-center justify-between py-3">
+    <div className="flex flex-col pr-4">
+      <span className="text-sm font-medium text-[var(--color-text-primary)]">{title}</span>
+      {description && (
+        <span className="mt-1 text-xs text-[var(--color-text-muted)]">{description}</span>
+      )}
+    </div>
+    <div className="flex-shrink-0">{children}</div>
+  </div>
+);
+
+/** 堆叠行:长输入(API Key / URL / 模型 ID)标题描述在上、输入在下。 */
+export const FormField: React.FC<{
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}> = ({ title, description, children }) => (
+  <div className="flex flex-col py-3">
+    <span className="text-sm font-medium text-[var(--color-text-primary)]">{title}</span>
+    {description && (
+      <span className="mb-2 mt-1 text-xs text-[var(--color-text-muted)]">{description}</span>
+    )}
+    {children}
+  </div>
+);
+
+/** 空状态虚线框(如未配置 MCP server)。 */
+export const EmptyState: React.FC<{ children: React.ReactNode; className?: string }> = ({
+  children,
+  className,
+}) => (
+  <div
+    className={`mt-2 rounded-lg border-2 border-dashed border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 text-center text-sm text-[var(--color-text-muted)] ${className || ''}`}
+  >
+    {children}
+  </div>
+);
+
+/** 次级按钮(白底描边轻阴影 → token 化)。 */
+export const secondaryButtonClass =
+  'inline-flex items-center justify-center gap-1.5 rounded-md border ' +
+  'border-[var(--color-border)] bg-[var(--color-bg-elevated)] shadow-[var(--shadow-sm)] ' +
+  'px-3 py-1.5 text-sm font-medium text-[var(--color-text-primary)] ' +
+  'hover:bg-[var(--color-bg-hover)] disabled:opacity-50 transition-colors';
