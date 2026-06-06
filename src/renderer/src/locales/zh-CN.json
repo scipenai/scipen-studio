@@ -129,10 +129,16 @@
       "selection": "划词助手",
       "ui": "界面",
       "shortcuts": "快捷键",
-      "ai": "AI Agent",
-      "agent": "Agent",
+      "ai": "AI 服务",
+      "agent": "Agent 行为",
       "zotero": "Zotero",
       "update": "更新"
+    },
+    "groups": {
+      "aiEngine": "AI",
+      "basics": "偏好",
+      "workflow": "工作区",
+      "system": "系统"
     }
   },
   "update": {
@@ -453,7 +459,7 @@
       "ui": "主题、界面密度与侧栏相关的表现设置。",
       "shortcuts": "常用命令的快捷键映射与操作习惯。",
       "selection": "划词助手与快捷键触发方式。",
-      "ai": "AI Agent 与内联补全的提供商、密钥与模型配置。",
+      "ai": "AI 服务与内联补全的提供商、密钥与模型配置。",
       "agent": "查看 Agent 自动沉淀的记忆与可用的 Skills。",
       "zotero": "启用 Zotero 文献集成,在编辑器中 @cite 任意条目。",
       "update": "检查并安装应用更新。"

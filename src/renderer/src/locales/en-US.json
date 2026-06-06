@@ -129,10 +129,16 @@
       "selection": "Selection",
       "ui": "UI",
       "shortcuts": "Shortcuts",
-      "ai": "AI Agent",
-      "agent": "Agent",
+      "ai": "AI Services",
+      "agent": "Agent Behaviors",
       "zotero": "Zotero",
       "update": "Update"
+    },
+    "groups": {
+      "aiEngine": "AI",
+      "basics": "Preferences",
+      "workflow": "Workspace",
+      "system": "System"
     }
   },
   "update": {
@@ -453,7 +459,7 @@
       "ui": "Adjust theme, interface density, and sidebar presentation.",
       "shortcuts": "Customize command shortcuts and interaction habits.",
       "selection": "Configure selection assistant and shortcut trigger mode.",
-      "ai": "Configure provider, API key, and models for the AI Agent and inline completion.",
+      "ai": "Configure provider, API key, and models for AI Services and inline completion.",
       "agent": "Browse Agent memory and the skills available to this project.",
       "zotero": "Enable Zotero integration to @cite any reference from the editor.",
       "update": "Check for and install application updates."
