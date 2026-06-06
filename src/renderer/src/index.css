@@ -167,6 +167,8 @@
     --color-bg-tertiary: var(--scipen-surface-muted);
     --color-bg-elevated: var(--scipen-surface-strong);
     --color-bg-hover: var(--scipen-surface-muted);
+    /* 选中/活跃 surface:比 hover 再亮一档,用于 subtle 活跃态(如三面板 toggle),与 hover 区分开 */
+    --color-bg-active: #52525b;
 
     /* 边框 */
     --color-border-subtle: var(--scipen-border-soft);
@@ -338,6 +340,8 @@
     --color-bg-tertiary: var(--scipen-surface-muted);
     --color-bg-elevated: var(--scipen-surface-strong);
     --color-bg-hover: #f1f5f9;
+    /* 浅色:选中/活跃 surface 比 hover(slate-100)深一档(slate-200),活跃面板可辨认 */
+    --color-bg-active: #e2e8f0;
 
     --color-border-subtle: var(--scipen-border-soft);
     --color-border: var(--scipen-border);

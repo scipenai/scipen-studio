@@ -98,7 +98,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
           shapeStyles,
           active
             ? activeTone === 'subtle'
-              ? 'text-[var(--color-text-primary)] bg-[var(--color-bg-hover)]'
+              ? 'text-[var(--color-text-primary)] bg-[var(--color-bg-active)]'
               : activeStyles[variant]
             : variantStyles[variant],
           loading && 'cursor-wait',
