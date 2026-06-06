@@ -46,8 +46,10 @@ import {
   useZoteroPdf,
 } from '../../services/core/hooks';
 import { DOMScheduler, SchedulePriority } from '../../utils/DOMScheduler';
+import type { PdfHighlight } from '../../services/core';
 import { useTranslation } from '../../locales';
 import { CompileLogPanel } from './CompileLogPanel';
+import { usePulseHighlight } from './usePdfMotion';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
@@ -95,13 +97,41 @@ const PDFPage = memo<{
   pdfDoc: pdfjsLib.PDFDocumentProxy;
   scale: number;
   isVisible: boolean;
+  highlight?: PdfHighlight | null;
   onRendered?: () => void;
   onPageClick?: (pageNum: number, x: number, y: number) => void;
-}>(({ pageNum, pdfDoc, scale, isVisible, onRendered, onPageClick }) => {
+}>(({ pageNum, pdfDoc, scale, isVisible, highlight, onRendered, onPageClick }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const pulseRef = useRef<HTMLDivElement>(null);
   const [isRendered, setIsRendered] = useState(false);
   const renderingRef = useRef(false);
   const renderTaskRef = useRef<{ cancel(): void } | null>(null);
+
+  // SyncTeX 落点脉冲:锁存非空 highlight 快照并自增 token 触发一次动画。
+  // 上层在 ~500ms 后把 highlight 置 null(清导航态)不会打断已锁存的这次脉冲——彻底解耦。
+  const pulseTokenRef = useRef(0);
+  const [pulse, setPulse] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    token: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!highlight) return;
+    pulseTokenRef.current += 1;
+    setPulse({
+      x: highlight.x,
+      y: highlight.y,
+      width: highlight.width,
+      height: highlight.height,
+      token: pulseTokenRef.current,
+    });
+  }, [highlight]);
+
+  usePulseHighlight(pageRef, pulseRef, pulse?.token ?? 0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -176,6 +206,7 @@ const PDFPage = memo<{
 
   return (
     <div
+      ref={pageRef}
       className="bg-white shadow-2xl relative flex-shrink-0"
       style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}
     >
@@ -189,6 +220,25 @@ const PDFPage = memo<{
         <div className="absolute inset-0 flex items-center justify-center bg-white">
           <div className="w-6 h-6 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
         </div>
+      )}
+      {/* SyncTeX 落点脉冲层:可见性/缩放完全交给 GSAP(autoAlpha),style 不声明 opacity/visibility/transform,
+          以免上层 re-render 覆盖动画;pointer-events-none 双保险,永不挡反向同步点击。 */}
+      {pulse && (
+        <div
+          ref={pulseRef}
+          aria-hidden
+          className="pointer-events-none absolute rounded-[3px]"
+          style={{
+            left: pulse.x * scale,
+            top: pulse.y * scale,
+            width: Math.max(pulse.width * scale, 24),
+            height: Math.max(pulse.height * scale, 14),
+            border: '2px solid var(--color-accent)',
+            background: 'color-mix(in srgb, var(--color-accent) 12%, transparent)',
+            boxShadow:
+              '0 0 0 4px color-mix(in srgb, var(--color-accent) 26%, transparent), 0 0 20px 2px color-mix(in srgb, var(--color-accent) 50%, transparent)',
+          }}
+        />
       )}
     </div>
   );
@@ -671,6 +721,9 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   // zotero 论文 PDF 无 .synctex → 禁用反向同步点击(传 undefined 即关闭),
   // 避免 backward 在无 synctexPath 时报错。
   const pageClickHandler = source === 'zotero' ? undefined : handlePageClick;
+
+  // SyncTeX 落点高亮仅编译产物有(zotero 论文无 synctex);只给命中页下发,其余传 null。
+  const activeHighlight = source === 'zotero' ? null : pdfHighlight;
 
   const pageNumbers = useMemo(
     () => Array.from({ length: totalPages }, (_, i) => i + 1),
@@ -1169,6 +1222,11 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                         pdfDoc={pdfDoc}
                         scale={scale}
                         isVisible={true}
+                        highlight={
+                          activeHighlight && activeHighlight.page === pageNum
+                            ? activeHighlight
+                            : null
+                        }
                         onPageClick={pageClickHandler}
                       />
                     ) : (
@@ -1191,6 +1249,11 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                   pdfDoc={pdfDoc}
                   scale={scale}
                   isVisible={true}
+                  highlight={
+                    activeHighlight && activeHighlight.page === currentPage
+                      ? activeHighlight
+                      : null
+                  }
                   onPageClick={handlePageClick}
                 />
               </div>

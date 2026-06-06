@@ -57,6 +57,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.1",
     "@ai-sdk/openai": "^3.0.1",
+    "@gsap/react": "~2.1.2",
     "@monaco-editor/react": "^4.7.0",
     "@parcel/watcher": "^2.5.4",
     "@scipen/im-adapter-electron-main": "^0.1.0",
@@ -78,6 +79,7 @@
     "framer-motion": "^12.23.24",
     "fs-extra": "^11.3.3",
     "github-slugger": "^2.0.0",
+    "gsap": "~3.15.0",
     "katex": "^0.16.25",
     "lru-cache": "^11.0.2",
     "lucide-react": "^0.555.0",
