@@ -35,6 +35,7 @@ import { t as translate, useTranslation } from '../../locales';
 import { agentClient, type ThreadSummary } from '../../services/agent/AgentClientService';
 import { buildChatContext } from '../../services/agent/ChatContextBuilder';
 import { buildMentions } from '../../services/AtMentionResolver';
+import { api } from '../../api';
 import { chatStreamStore } from '../../services/agent/ChatStreamStore';
 import { getSettingsService, getUIService } from '../../services/core/ServiceRegistry';
 import { useSettings } from '../../services/core/hooks';
@@ -68,6 +69,19 @@ type StartupState =
  */
 const startedProjects = new Map<string, { sessionId: string; threads: ThreadSummary[] }>();
 
+/** 从用户首条消息派生兜底标题(LLM 不可用/失败时用):取首行、剥引用/附件标记/markdown、截断。 */
+function deriveTitleFromText(text: string): string {
+  const firstLine =
+    text
+      .replace(/^\s*>+\s?/gm, '')
+      .replace(/\[attached:[^\]]*\]/gi, '')
+      .replace(/[`*#_~]+/g, '')
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? '';
+  return firstLine.length > 24 ? `${firstLine.slice(0, 24)}…` : firstLine;
+}
+
 function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): React.ReactElement {
   const { t } = useTranslation();
   const chatFontSize = useSettings((s) => s.ui.chatFontSize);
@@ -81,6 +95,9 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
   // 自动重试的待发定时器:逐字符输入 key 会触发一串配置变更,只保留最后一次。
   const retryTimerRef = useRef<number | null>(null);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  // 给 handleSend 提供最新 threads 快照,避免把 threads 列进其 deps 造成频繁重建。
+  const threadsRef = useRef<ThreadSummary[]>(threads);
+  threadsRef.current = threads;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [seedValue, setSeedValue] = useState<string | undefined>(undefined);
@@ -250,8 +267,38 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
 
   const busy = currentTurn?.pending === true;
 
+  // 新会话首条消息后,用补全模型生成会话主题;失败/未配置则回退首句截取。
+  // 仅在会话尚无标题时触发,手动改过名的会话不被覆盖。
+  const autoGenerateTitle = useCallback(
+    async (threadId: string, userText: string) => {
+      let title = deriveTitleFromText(userText);
+      try {
+        const res = await api.ai.generateTitle(userText);
+        if (res.success && res.content?.trim()) {
+          title = res.content.trim().slice(0, 24);
+        }
+      } catch {
+        // 保留兜底标题
+      }
+      if (!title) return;
+      setThreads((prev) => prev.map((th) => (th.thread_id === threadId ? { ...th, title } : th)));
+      try {
+        await agentClient.renameThread(threadId, title);
+        void refreshThreads();
+      } catch {
+        // 落库失败不影响本地展示
+      }
+    },
+    [refreshThreads]
+  );
+
   const handleSend = useCallback(
     async (text: string, intent: SendIntent) => {
+      // 在写入本轮消息前判定:这是否是某个尚无标题会话的第一条消息。
+      const titleThreadId = chatStreamStore.getActiveThreadId();
+      const isFirstMessage = chatStreamStore.getMessages().length === 0;
+      const existingThread = threadsRef.current.find((th) => th.thread_id === titleThreadId);
+      const needsTitle = Boolean(isFirstMessage && titleThreadId && !existingThread?.title);
       try {
         const context = buildChatContext();
         // Resolve `@path` tokens into structured `Mention[]` so the LLM
@@ -271,11 +318,12 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
           chatStreamStore.beginUserTurn(turnId, payload);
         }
         void refreshThreads();
+        if (needsTitle && titleThreadId) void autoGenerateTitle(titleThreadId, text);
       } catch (err) {
         setStartup({ kind: 'error', message: extractErrorMessage(err) });
       }
     },
-    [refreshThreads, workspaceRoot]
+    [refreshThreads, workspaceRoot, autoGenerateTitle]
   );
 
   const handleCancel = useCallback(async () => {
@@ -472,7 +520,6 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
               ))}
               {currentTurn && <ChatMessage message={null} turn={currentTurn} />}
             </div>
-          </div>
           </div>
           <div className="pb-3">{composer}</div>
         </>

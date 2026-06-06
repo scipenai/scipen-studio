@@ -353,6 +353,8 @@ export const ai = {
   updateConfig: (config: AIConfig) => invoke<void>(IpcChannel.AI_UpdateConfig, config),
   isConfigured: () => invoke<boolean>(IpcChannel.AI_IsConfigured),
   completion: (context: string) => invoke<AIResult>(IpcChannel.AI_Completion, context),
+  generateTitle: (userMessage: string) =>
+    invoke<AIResult>(IpcChannel.AI_GenerateTitle, userMessage),
   chatStream: (messages: AIMessage[]) => invoke<AIResult>(IpcChannel.AI_ChatStream, messages),
   testConnection: () => invoke<{ success: boolean; message: string }>(IpcChannel.AI_TestConnection),
   stopGeneration: () => invoke<void>(IpcChannel.AI_StopGeneration),

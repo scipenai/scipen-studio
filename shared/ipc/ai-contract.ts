@@ -59,6 +59,10 @@ export interface IPCAiContract {
     args: [context: string];
     result: AIResult;
   };
+  [IpcChannel.AI_GenerateTitle]: {
+    args: [userMessage: string];
+    result: AIResult;
+  };
   [IpcChannel.AI_ChatStream]: {
     args: [messages: AIChatMessage[]];
     result: { success: boolean; error?: string };

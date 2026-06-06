@@ -327,6 +327,7 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
     ]),
   ],
   [IpcChannel.AI_Completion, z.tuple([safeStringSchema(50000)])],
+  [IpcChannel.AI_GenerateTitle, z.tuple([safeStringSchema(50000)])],
 
   // ==================== Overleaf Operations ====================
   [

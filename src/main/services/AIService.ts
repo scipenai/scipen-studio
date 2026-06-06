@@ -32,6 +32,14 @@ Requirements:
 4. Keep the content academically rigorous
 5. Return only the continuation, not the original context`;
 
+// 会话标题生成:输出极简主题短语,不要标点/引号/前缀,语言跟随用户消息。
+const TITLE_SYSTEM_PROMPT = `You generate a short, descriptive title for a conversation based on the user's first message.
+Rules:
+- Output ONLY the title text — no quotes, no punctuation at the end, no prefix, no explanation.
+- Keep it concise: at most 6 words, or about 16 Chinese characters.
+- Use the same language as the user's message.
+- Capture the core topic/intent, not a generic label.`;
+
 const CHAT_SYSTEM_PROMPT = `You are SciPen AI, a professional scientific writing assistant specializing in LaTeX, Typst, and academic writing.
 
 Capabilities:
@@ -177,6 +185,35 @@ export class AIService implements IAIService {
       return text;
     } catch (error) {
       console.error('[AIService] Completion failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 用补全模型(低延迟、与行内补全共用配置)把用户首条消息压成一个简洁会话标题。
+   * 复用 createCompletionModel(),但换成标题专用 system prompt(而非"续写"语义)。
+   */
+  async generateTitle(userMessage: string): Promise<string> {
+    try {
+      const model = this.createCompletionModel();
+
+      const { text } = await generateText({
+        model,
+        system: TITLE_SYSTEM_PROMPT,
+        prompt: userMessage.trim().slice(0, 2000),
+        maxOutputTokens: 32,
+        temperature: 0.3,
+      });
+
+      // 清洗:取首行、去包裹引号与首尾空白、限长,交给渲染层做最终回退判断。
+      return text
+        .split('\n')[0]
+        .trim()
+        .replace(/^["'“”‘’「」『』]+|["'“”‘’「」『』]+$/g, '')
+        .trim()
+        .slice(0, 24);
+    } catch (error) {
+      logger.warn('[AIService] generateTitle failed, falling back to first-line title:', error);
       throw error;
     }
   }

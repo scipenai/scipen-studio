@@ -111,6 +111,7 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.AI_UpdateConfig,
   IpcChannel.AI_IsConfigured,
   IpcChannel.AI_Completion,
+  IpcChannel.AI_GenerateTitle,
   IpcChannel.AI_ChatStream,
   IpcChannel.AI_TestConnection,
   IpcChannel.AI_StopGeneration,

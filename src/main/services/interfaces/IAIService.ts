@@ -69,6 +69,12 @@ export interface IAIService extends Partial<IDisposable> {
   getCompletion(context: string): Promise<string>;
 
   /**
+   * Generates a concise conversation title from the user's first message,
+   * using the completion model. Returns a short plain-text title.
+   */
+  generateTitle(userMessage: string): Promise<string>;
+
+  /**
    * Runs a non-streaming chat completion (used internally by ChatOrchestrator).
    */
   chat(messages: AIMessage[]): Promise<string>;

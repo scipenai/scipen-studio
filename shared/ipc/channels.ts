@@ -108,6 +108,7 @@ export enum IpcChannel {
   AI_UpdateConfig = 'ai:update-config',
   AI_IsConfigured = 'ai:is-configured',
   AI_Completion = 'ai:completion',
+  AI_GenerateTitle = 'ai:generate-title',
   AI_ChatStream = 'ai:chat-stream',
   AI_StreamChunk = 'ai:stream-chunk',
   AI_TestConnection = 'ai:test-connection',
