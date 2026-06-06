@@ -1,9 +1,11 @@
 /**
- * @file syntax.worker.ts - Syntax Check Worker
- * @description Performs syntax diagnostics in Web Worker thread to avoid blocking main thread
+ * @file syntax.worker.ts - Syntax check worker
+ * @description Runs syntax diagnostics in a Web Worker. Diagnostics are emitted
+ *              as i18n keys plus arguments (not pre-translated strings) so the
+ *              main thread renders them in the user's current locale. The
+ *              worker has no i18next context.
  */
 
-// Simplified logging - no output in production
 const log = {
   error: (...args: unknown[]) => console.error('[SyntaxWorker]', ...args),
 };
@@ -22,7 +24,10 @@ interface DiagnosticsResponse {
 
 interface SyntaxMarker {
   severity: 'error' | 'warning' | 'info' | 'hint';
-  message: string;
+  /** i18n key — resolved on the main thread (see `useDiagnostics`). */
+  messageKey: string;
+  /** Optional interpolation args for the i18n key. */
+  messageArgs?: Record<string, string>;
   startLineNumber: number;
   startColumn: number;
   endLineNumber: number;
@@ -35,9 +40,6 @@ interface EnvMatch {
   col: number;
 }
 
-/**
- * Extract environment matches from a line
- */
 function extractEnvMatches(
   line: string,
   lineIndex: number,
@@ -47,7 +49,6 @@ function extractEnvMatches(
   const matches: EnvMatch[] = [];
   let match: RegExpExecArray | null;
 
-  // Reset regex
   globalPattern.lastIndex = 0;
 
   while ((match = globalPattern.exec(line)) !== null) {
@@ -64,24 +65,17 @@ function extractEnvMatches(
   return matches;
 }
 
-/**
- * Create environment marker
- */
 function createEnvMarker(
   env: EnvMatch,
   type: 'begin' | 'end',
   severity: 'error' | 'warning'
 ): SyntaxMarker {
-  const envName = env.name;
-  const message =
-    type === 'begin' ? `未找到匹配的 \\end{${envName}}` : `未找到匹配的 \\begin{${envName}}`;
-
-  // Calculate extra length for command prefix
   const extraLen = type === 'begin' ? 8 : 6; // "\\begin{" or "\\end{"
-
   return {
     severity,
-    message,
+    messageKey:
+      type === 'begin' ? 'editor.syntax.unmatchedEnd' : 'editor.syntax.unmatchedBegin',
+    messageArgs: { name: env.name },
     startLineNumber: env.line + 1,
     startColumn: env.col + 1,
     endLineNumber: env.line + 1,
@@ -89,9 +83,6 @@ function createEnvMarker(
   };
 }
 
-/**
- * Run syntax diagnostics
- */
 function runDiagnostics(content: string): SyntaxMarker[] {
   const markers: SyntaxMarker[] = [];
   const lines = content.split('\n');
@@ -106,26 +97,23 @@ function runDiagnostics(content: string): SyntaxMarker[] {
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const line = lines[lineIndex];
 
-    // Collect \begin environments
     const begins = extractEnvMatches(line, lineIndex, BEGIN_PATTERN, BEGIN_EXTRACT);
     beginEnvs.push(...begins);
 
-    // Process \end environments: try to match or record as unmatched
     const ends = extractEnvMatches(line, lineIndex, END_PATTERN, END_EXTRACT);
     for (const end of ends) {
       const matchIdx = beginEnvs.findIndex((b) => b.name === end.name);
       if (matchIdx >= 0) {
-        beginEnvs.splice(matchIdx, 1); // Matched, remove
+        beginEnvs.splice(matchIdx, 1);
       } else {
-        unmatchedEnds.push(end); // Unmatched \end
+        unmatchedEnds.push(end);
       }
     }
 
-    // Check for unclosed \cite commands
     if (line.includes('\\cite{') && !line.includes('}')) {
       markers.push({
         severity: 'warning',
-        message: '可能未闭合的 \\cite 命令',
+        messageKey: 'editor.syntax.unclosedCite',
         startLineNumber: lineIndex + 1,
         startColumn: line.indexOf('\\cite') + 1,
         endLineNumber: lineIndex + 1,
@@ -134,7 +122,6 @@ function runDiagnostics(content: string): SyntaxMarker[] {
     }
   }
 
-  // Generate markers for unmatched environments
   for (const env of beginEnvs) {
     markers.push(createEnvMarker(env, 'begin', 'error'));
   }
@@ -145,7 +132,6 @@ function runDiagnostics(content: string): SyntaxMarker[] {
   return markers;
 }
 
-// Worker message handling
 self.onmessage = (event: MessageEvent<DiagnosticsRequest>) => {
   const { type, id, content } = event.data;
 

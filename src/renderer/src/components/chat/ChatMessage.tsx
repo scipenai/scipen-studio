@@ -195,6 +195,7 @@ function Timeline({
 
 function ToolCallCard({ call }: { call: ChatTurn['toolCalls'][number] }): ReactElement {
   const [open, setOpen] = useState(false);
+  const { t } = useTranslation();
   const argsPreview = formatArgsPreview(call.args);
   return (
     <div className="text-[11px]">
@@ -222,10 +223,12 @@ function ToolCallCard({ call }: { call: ChatTurn['toolCalls'][number] }): ReactE
       {open && (
         <div className="ml-3 space-y-1 border-l border-[var(--color-border-subtle)] py-1 pl-3">
           {call.args !== undefined && (
-            <DetailBlock label="参数" body={prettyJson(call.args)} mono />
+            <DetailBlock label={t('chat.toolDetail.args')} body={prettyJson(call.args)} mono />
           )}
-          {call.message && <DetailBlock label="状态" body={call.message} />}
-          {call.result && <DetailBlock label="结果" body={call.result} mono />}
+          {call.message && <DetailBlock label={t('chat.toolDetail.status')} body={call.message} />}
+          {call.result && (
+            <DetailBlock label={t('chat.toolDetail.result')} body={call.result} mono />
+          )}
         </div>
       )}
     </div>

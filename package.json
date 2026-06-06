@@ -29,6 +29,7 @@
     "start": "npm run dev",
     "lint": "oxlint --fix && npm run typecheck:all",
     "lint:check": "oxlint",
+    "lint:no-cjk": "node scripts/check-no-cjk.js",
     "format": "biome format --write && biome lint --write",
     "format:check": "biome format && biome lint",
     "typecheck": "tsc --noEmit",

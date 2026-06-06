@@ -8,6 +8,7 @@
 
 import type React from 'react';
 import { useState } from 'react';
+import { useTranslation } from '../../locales';
 
 interface ThinkingRendererProps {
   text: string;
@@ -19,6 +20,7 @@ export function ThinkingRenderer({
   text,
   streaming,
 }: ThinkingRendererProps): React.ReactElement | null {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState<boolean>(streaming ?? false);
 
   if (!text) return null;
@@ -40,7 +42,8 @@ export function ThinkingRenderer({
             <path d="M3 1 L7 5 L3 9 Z" fill="currentColor" />
           </svg>
           <span className="font-medium">
-            {streaming ? '思考中…' : '思考过程'} ({text.length})
+            {streaming ? t('chat.thinking.streaming') : t('chat.thinking.completed')} ({text.length}
+            )
           </span>
         </span>
         {streaming && (

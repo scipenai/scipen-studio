@@ -801,6 +801,7 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
         message: z.string().max(5000),
         title: z.string().max(200).optional(),
         type: z.enum(['info', 'warning', 'error', 'none']).optional(),
+        okText: z.string().max(100).optional(),
         detail: z.string().max(5000).optional(),
       }),
     ]),

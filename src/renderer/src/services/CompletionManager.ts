@@ -1,6 +1,6 @@
 /**
- * @file CompletionManager.ts - Intelligent Completion Manager
- * @description Layered completion strategy integrating LSP, static completion, and AI Ghost Text
+ * @file CompletionManager.ts - Intelligent completion manager
+ * @description Layered completion strategy integrating LSP, static completions, and AI ghost text.
  * @depends LSPService, AIService, LatexIndexer
  */
 
@@ -53,73 +53,93 @@ const LATEX_COMMANDS: CompletionItem[] = [
     label: '\\documentclass',
     kind: 'command',
     insertText: '\\documentclass{${1:article}}',
-    detail: '文档类',
+    detail: 'Document class',
   },
   {
     label: '\\usepackage',
     kind: 'command',
     insertText: '\\usepackage{${1:package}}',
-    detail: '引用宏包',
+    detail: 'Package',
   },
-  { label: '\\title', kind: 'command', insertText: '\\title{${1:标题}}', detail: '文档标题' },
-  { label: '\\author', kind: 'command', insertText: '\\author{${1:作者}}', detail: '作者' },
-  { label: '\\date', kind: 'command', insertText: '\\date{${1:\\today}}', detail: '日期' },
-  { label: '\\maketitle', kind: 'command', insertText: '\\maketitle', detail: '生成标题' },
+  { label: '\\title', kind: 'command', insertText: '\\title{${1:title}}', detail: 'Document title' },
+  { label: '\\author', kind: 'command', insertText: '\\author{${1:author}}', detail: 'Author' },
+  { label: '\\date', kind: 'command', insertText: '\\date{${1:\\today}}', detail: 'Date' },
+  { label: '\\maketitle', kind: 'command', insertText: '\\maketitle', detail: 'Render title' },
 
   // Sections
-  { label: '\\section', kind: 'command', insertText: '\\section{${1:标题}}', detail: '章节' },
+  { label: '\\section', kind: 'command', insertText: '\\section{${1:title}}', detail: 'Section' },
   {
     label: '\\subsection',
     kind: 'command',
-    insertText: '\\subsection{${1:标题}}',
-    detail: '子章节',
+    insertText: '\\subsection{${1:title}}',
+    detail: 'Subsection',
   },
   {
     label: '\\subsubsection',
     kind: 'command',
-    insertText: '\\subsubsection{${1:标题}}',
-    detail: '子子章节',
+    insertText: '\\subsubsection{${1:title}}',
+    detail: 'Subsubsection',
   },
-  { label: '\\paragraph', kind: 'command', insertText: '\\paragraph{${1:标题}}', detail: '段落' },
-  { label: '\\chapter', kind: 'command', insertText: '\\chapter{${1:标题}}', detail: '章' },
+  {
+    label: '\\paragraph',
+    kind: 'command',
+    insertText: '\\paragraph{${1:title}}',
+    detail: 'Paragraph',
+  },
+  { label: '\\chapter', kind: 'command', insertText: '\\chapter{${1:title}}', detail: 'Chapter' },
 
   // References
-  { label: '\\cite', kind: 'command', insertText: '\\cite{${1:key}}', detail: '引用文献' },
-  { label: '\\ref', kind: 'command', insertText: '\\ref{${1:label}}', detail: '引用标签' },
-  { label: '\\label', kind: 'command', insertText: '\\label{${1:name}}', detail: '设置标签' },
-  { label: '\\pageref', kind: 'command', insertText: '\\pageref{${1:label}}', detail: '引用页码' },
-  { label: '\\eqref', kind: 'command', insertText: '\\eqref{${1:label}}', detail: '引用公式' },
+  { label: '\\cite', kind: 'command', insertText: '\\cite{${1:key}}', detail: 'Cite' },
+  { label: '\\ref', kind: 'command', insertText: '\\ref{${1:label}}', detail: 'Reference label' },
+  { label: '\\label', kind: 'command', insertText: '\\label{${1:name}}', detail: 'Define label' },
+  {
+    label: '\\pageref',
+    kind: 'command',
+    insertText: '\\pageref{${1:label}}',
+    detail: 'Page reference',
+  },
+  {
+    label: '\\eqref',
+    kind: 'command',
+    insertText: '\\eqref{${1:label}}',
+    detail: 'Equation reference',
+  },
 
   // Formatting
-  { label: '\\textbf', kind: 'command', insertText: '\\textbf{${1:text}}', detail: '粗体' },
-  { label: '\\textit', kind: 'command', insertText: '\\textit{${1:text}}', detail: '斜体' },
-  { label: '\\underline', kind: 'command', insertText: '\\underline{${1:text}}', detail: '下划线' },
-  { label: '\\emph', kind: 'command', insertText: '\\emph{${1:text}}', detail: '强调' },
+  { label: '\\textbf', kind: 'command', insertText: '\\textbf{${1:text}}', detail: 'Bold' },
+  { label: '\\textit', kind: 'command', insertText: '\\textit{${1:text}}', detail: 'Italic' },
+  { label: '\\underline', kind: 'command', insertText: '\\underline{${1:text}}', detail: 'Underline' },
+  { label: '\\emph', kind: 'command', insertText: '\\emph{${1:text}}', detail: 'Emphasis' },
 
   // Figures and tables
   {
     label: '\\includegraphics',
     kind: 'command',
     insertText: '\\includegraphics[width=${1:0.8}\\textwidth]{${2:image}}',
-    detail: '插入图片',
+    detail: 'Insert image',
   },
-  { label: '\\caption', kind: 'command', insertText: '\\caption{${1:标题}}', detail: '图表标题' },
-  { label: '\\centering', kind: 'command', insertText: '\\centering', detail: '居中' },
+  { label: '\\caption', kind: 'command', insertText: '\\caption{${1:title}}', detail: 'Caption' },
+  { label: '\\centering', kind: 'command', insertText: '\\centering', detail: 'Center' },
 
   // File operations
-  { label: '\\input', kind: 'command', insertText: '\\input{${1:file}}', detail: '引入文件' },
-  { label: '\\include', kind: 'command', insertText: '\\include{${1:file}}', detail: '引入章节' },
+  { label: '\\input', kind: 'command', insertText: '\\input{${1:file}}', detail: 'Input file' },
+  {
+    label: '\\include',
+    kind: 'command',
+    insertText: '\\include{${1:file}}',
+    detail: 'Include chapter',
+  },
   {
     label: '\\bibliography',
     kind: 'command',
     insertText: '\\bibliography{${1:refs}}',
-    detail: '参考文献',
+    detail: 'Bibliography',
   },
   {
     label: '\\bibliographystyle',
     kind: 'command',
     insertText: '\\bibliographystyle{${1:plain}}',
-    detail: '参考文献样式',
+    detail: 'Bibliography style',
   },
 ];
 
@@ -166,7 +186,7 @@ const MATH_SYMBOLS: CompletionItem[] = [
     label: '\\frac',
     kind: 'math',
     insertText: '\\frac{${1:num}}{${2:den}}',
-    detail: '分数',
+    detail: 'Fraction',
     previewHtml: 'a/b',
   },
   { label: '\\sqrt', kind: 'math', insertText: '\\sqrt{${1:x}}', detail: '√', previewHtml: '√' },
@@ -209,13 +229,13 @@ const MATH_SYMBOLS: CompletionItem[] = [
   },
 
   // ====== Matrices and Vectors ======
-  { label: '\\mathbf', kind: 'math', insertText: '\\mathbf{${1:x}}', detail: '粗体向量' },
-  { label: '\\mathcal', kind: 'math', insertText: '\\mathcal{${1:X}}', detail: '花体' },
-  { label: '\\mathbb', kind: 'math', insertText: '\\mathbb{${1:R}}', detail: '黑板粗体' },
-  { label: '\\hat', kind: 'math', insertText: '\\hat{${1:x}}', detail: '帽子' },
-  { label: '\\bar', kind: 'math', insertText: '\\bar{${1:x}}', detail: '横线' },
-  { label: '\\vec', kind: 'math', insertText: '\\vec{${1:v}}', detail: '向量箭头' },
-  { label: '\\dot', kind: 'math', insertText: '\\dot{${1:x}}', detail: '点' },
+  { label: '\\mathbf', kind: 'math', insertText: '\\mathbf{${1:x}}', detail: 'Bold vector' },
+  { label: '\\mathcal', kind: 'math', insertText: '\\mathcal{${1:X}}', detail: 'Calligraphic' },
+  { label: '\\mathbb', kind: 'math', insertText: '\\mathbb{${1:R}}', detail: 'Blackboard bold' },
+  { label: '\\hat', kind: 'math', insertText: '\\hat{${1:x}}', detail: 'Hat' },
+  { label: '\\bar', kind: 'math', insertText: '\\bar{${1:x}}', detail: 'Bar' },
+  { label: '\\vec', kind: 'math', insertText: '\\vec{${1:v}}', detail: 'Vector arrow' },
+  { label: '\\dot', kind: 'math', insertText: '\\dot{${1:x}}', detail: 'Dot' },
 ];
 
 const ENVIRONMENTS: { [key: string]: string } = {
@@ -249,25 +269,30 @@ const ENVIRONMENTS: { [key: string]: string } = {
 
 const TYPST_COMMANDS: CompletionItem[] = [
   // Document settings
-  { label: '#set', kind: 'command', insertText: '#set ${1:rule}(${2:args})', detail: '设置规则' },
+  { label: '#set', kind: 'command', insertText: '#set ${1:rule}(${2:args})', detail: 'Set rule' },
   {
     label: '#show',
     kind: 'command',
     insertText: '#show ${1:selector}: ${2:replacement}',
-    detail: '显示规则',
+    detail: 'Show rule',
   },
-  { label: '#let', kind: 'command', insertText: '#let ${1:name} = ${2:value}', detail: '定义变量' },
+  {
+    label: '#let',
+    kind: 'command',
+    insertText: '#let ${1:name} = ${2:value}',
+    detail: 'Define variable',
+  },
   {
     label: '#import',
     kind: 'command',
     insertText: '#import "${1:module}": ${2:items}',
-    detail: '导入模块',
+    detail: 'Import module',
   },
   {
     label: '#include',
     kind: 'command',
     insertText: '#include "${1:file.typ}"',
-    detail: '包含文件',
+    detail: 'Include file',
   },
 
   // Text formatting
@@ -275,48 +300,48 @@ const TYPST_COMMANDS: CompletionItem[] = [
     label: '#text',
     kind: 'command',
     insertText: '#text(${1:size: 12pt})[${2:content}]',
-    detail: '文本样式',
+    detail: 'Text style',
   },
-  { label: '#strong', kind: 'command', insertText: '#strong[${1:text}]', detail: '加粗' },
-  { label: '#emph', kind: 'command', insertText: '#emph[${1:text}]', detail: '强调/斜体' },
-  { label: '#underline', kind: 'command', insertText: '#underline[${1:text}]', detail: '下划线' },
-  { label: '#strike', kind: 'command', insertText: '#strike[${1:text}]', detail: '删除线' },
-  { label: '#smallcaps', kind: 'command', insertText: '#smallcaps[${1:text}]', detail: '小型大写' },
-  { label: '#raw', kind: 'command', insertText: '#raw("${1:code}")', detail: '原始文本/代码' },
-  { label: '#link', kind: 'command', insertText: '#link("${1:url}")[${2:text}]', detail: '超链接' },
+  { label: '#strong', kind: 'command', insertText: '#strong[${1:text}]', detail: 'Strong' },
+  { label: '#emph', kind: 'command', insertText: '#emph[${1:text}]', detail: 'Emphasis' },
+  { label: '#underline', kind: 'command', insertText: '#underline[${1:text}]', detail: 'Underline' },
+  { label: '#strike', kind: 'command', insertText: '#strike[${1:text}]', detail: 'Strikethrough' },
+  { label: '#smallcaps', kind: 'command', insertText: '#smallcaps[${1:text}]', detail: 'Small caps' },
+  { label: '#raw', kind: 'command', insertText: '#raw("${1:code}")', detail: 'Raw text/code' },
+  { label: '#link', kind: 'command', insertText: '#link("${1:url}")[${2:text}]', detail: 'Hyperlink' },
 
   // Page and layout
   {
     label: '#page',
     kind: 'command',
     insertText: '#page(${1:paper: "a4"})[${2:content}]',
-    detail: '页面设置',
+    detail: 'Page setup',
   },
-  { label: '#pagebreak', kind: 'command', insertText: '#pagebreak()', detail: '分页' },
+  { label: '#pagebreak', kind: 'command', insertText: '#pagebreak()', detail: 'Page break' },
   {
     label: '#align',
     kind: 'command',
     insertText: '#align(${1:center})[${2:content}]',
-    detail: '对齐',
+    detail: 'Align',
   },
   {
     label: '#box',
     kind: 'command',
     insertText: '#box(${1:width: 100%})[${2:content}]',
-    detail: '盒子',
+    detail: 'Box',
   },
-  { label: '#block', kind: 'command', insertText: '#block[${1:content}]', detail: '块元素' },
+  { label: '#block', kind: 'command', insertText: '#block[${1:content}]', detail: 'Block' },
   {
     label: '#grid',
     kind: 'command',
     insertText: '#grid(columns: ${1:2}, gutter: ${2:10pt})[${3:content}]',
-    detail: '网格布局',
+    detail: 'Grid layout',
   },
   {
     label: '#stack',
     kind: 'command',
     insertText: '#stack(dir: ${1:ltr}, spacing: ${2:10pt})[${3:content}]',
-    detail: '堆叠布局',
+    detail: 'Stack layout',
   },
 
   // Images and figures
@@ -324,20 +349,20 @@ const TYPST_COMMANDS: CompletionItem[] = [
     label: '#image',
     kind: 'command',
     insertText: '#image("${1:path}", width: ${2:80%})',
-    detail: '插入图片',
+    detail: 'Insert image',
   },
   {
     label: '#figure',
     kind: 'command',
     insertText: '#figure(\n  ${1:content},\n  caption: [${2:caption}]\n) <${3:label}>',
-    detail: '图表',
+    detail: 'Figure',
   },
   {
     label: '#table',
     kind: 'command',
     insertText:
       '#table(\n  columns: ${1:3},\n  [${2:Header 1}], [${3:Header 2}], [${4:Header 3}],\n  [${5:Data 1}], [${6:Data 2}], [${7:Data 3}]\n)',
-    detail: '表格',
+    detail: 'Table',
   },
 
   // Lists
@@ -345,52 +370,57 @@ const TYPST_COMMANDS: CompletionItem[] = [
     label: '#list',
     kind: 'command',
     insertText: '#list(\n  [${1:Item 1}],\n  [${2:Item 2}]\n)',
-    detail: '无序列表',
+    detail: 'Unordered list',
   },
   {
     label: '#enum',
     kind: 'command',
     insertText: '#enum(\n  [${1:Item 1}],\n  [${2:Item 2}]\n)',
-    detail: '有序列表',
+    detail: 'Ordered list',
   },
   {
     label: '#terms',
     kind: 'command',
     insertText: '#terms(\n  [${1:Term}], [${2:Definition}]\n)',
-    detail: '术语列表',
+    detail: 'Term list',
   },
 
   // References
-  { label: '#cite', kind: 'command', insertText: '#cite(<${1:key}>)', detail: '引用文献' },
-  { label: '#ref', kind: 'command', insertText: '#ref(<${1:label}>)', detail: '引用标签' },
+  { label: '#cite', kind: 'command', insertText: '#cite(<${1:key}>)', detail: 'Cite' },
+  { label: '#ref', kind: 'command', insertText: '#ref(<${1:label}>)', detail: 'Reference label' },
   {
     label: '#bibliography',
     kind: 'command',
     insertText: '#bibliography("${1:refs.bib}")',
-    detail: '参考文献',
+    detail: 'Bibliography',
   },
 
   // Math
-  { label: '#math.equation', kind: 'command', insertText: '$ ${1:formula} $', detail: '数学公式' },
+  {
+    label: '#math.equation',
+    kind: 'command',
+    insertText: '$ ${1:formula} $',
+    detail: 'Math equation',
+  },
 
   // Conditionals and loops
   {
     label: '#if',
     kind: 'command',
     insertText: '#if ${1:condition} {\n  ${2:content}\n}',
-    detail: '条件语句',
+    detail: 'Conditional',
   },
   {
     label: '#for',
     kind: 'command',
     insertText: '#for ${1:item} in ${2:collection} {\n  ${3:content}\n}',
-    detail: '循环语句',
+    detail: 'For loop',
   },
   {
     label: '#while',
     kind: 'command',
     insertText: '#while ${1:condition} {\n  ${2:content}\n}',
-    detail: 'While 循环',
+    detail: 'While loop',
   },
 ];
 
@@ -437,7 +467,7 @@ const TYPST_MATH_SYMBOLS: CompletionItem[] = [
     label: 'frac',
     kind: 'math',
     insertText: 'frac(${1:num}, ${2:den})',
-    detail: '分数',
+    detail: 'Fraction',
     previewHtml: 'a/b',
   },
   { label: 'sqrt', kind: 'math', insertText: 'sqrt(${1:x})', detail: '√', previewHtml: '√' },
@@ -478,14 +508,14 @@ const TYPST_MATH_SYMBOLS: CompletionItem[] = [
     label: 'mat',
     kind: 'math',
     insertText: 'mat(\n  ${1:a}, ${2:b};\n  ${3:c}, ${4:d}\n)',
-    detail: '矩阵',
+    detail: 'Matrix',
   },
-  { label: 'vec', kind: 'math', insertText: 'vec(${1:x}, ${2:y})', detail: '向量' },
+  { label: 'vec', kind: 'math', insertText: 'vec(${1:x}, ${2:y})', detail: 'Vector' },
   {
     label: 'cases',
     kind: 'math',
     insertText: 'cases(\n  ${1:condition1} &"if" ${2:case1},\n  ${3:otherwise} &"otherwise"\n)',
-    detail: '分段函数',
+    detail: 'Cases',
   },
 ];
 
@@ -1056,7 +1086,8 @@ IMPORTANT RULES:
     }
 
     // Natural language characters: debounced trigger
-    if (/[a-zA-Z0-9\u4e00-\u9fa5]/.test(char)) {
+    // allow-cjk: regex literal must accept CJK input from user keystrokes
+    if (/[a-zA-Z0-9一-龥]/.test(char)) { // allow-cjk: regex literal
       return 'debounced';
     }
 
@@ -1156,7 +1187,8 @@ IMPORTANT RULES:
    */
   private extractPrefix(textBeforeCursor: string): string {
     // Match last command or word
-    const match = textBeforeCursor.match(/(\\[a-zA-Z@]*|[a-zA-Z0-9\u4e00-\u9fa5]*)$/);
+    // allow-cjk: regex literal must accept CJK input from user keystrokes
+    const match = textBeforeCursor.match(/(\\[a-zA-Z@]*|[a-zA-Z0-9一-龥]*)$/); // allow-cjk: regex literal
     return match ? match[1] : '';
   }
 

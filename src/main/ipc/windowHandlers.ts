@@ -125,9 +125,9 @@ export function registerWindowHandlers(deps: WindowHandlersDeps): void {
           }
 
           const result = await dialog.showSaveDialog(mainWindow!, {
-            title: '导出诊断报告',
+            title: 'Export Diagnostics Report',
             defaultPath: `scipen-diagnostics-${new Date().toISOString().slice(0, 10)}.log`,
-            filters: [{ name: '日志文件', extensions: ['log', 'txt'] }],
+            filters: [{ name: 'Log files', extensions: ['log', 'txt'] }],
           });
 
           if (result.canceled || !result.filePath) {

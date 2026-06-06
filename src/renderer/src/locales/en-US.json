@@ -95,6 +95,11 @@
       "aiCompletionDesc": "Trigger AI suggestions while typing",
       "ghostText": "Ghost Text",
       "ghostTextDesc": "Gray completion hints"
+    },
+    "syntax": {
+      "unmatchedEnd": "Missing matching \\end{{{name}}}",
+      "unmatchedBegin": "Missing matching \\begin{{{name}}}",
+      "unclosedCite": "Possibly unclosed \\cite command"
     }
   },
   "fileExplorer": {},
@@ -298,9 +303,17 @@
   },
   "common": {
     "cancel": "Cancel",
+    "confirm": "Confirm",
+    "ok": "OK",
     "close": "Close",
     "error": "Error",
     "refresh": "Refresh"
+  },
+  "dialog": {
+    "confirmTitle": "Confirm",
+    "errorTitle": "Error",
+    "warningTitle": "Warning",
+    "infoTitle": "Info"
   },
   "errorBoundary": {
     "title": "Application Error",
@@ -415,6 +428,22 @@
       "title": "No AI model configured yet",
       "desc": "Add your model service API key and model name in Settings to start chatting — this panel reconnects automatically once you're done.",
       "openSettings": "Open Settings"
+    },
+    "status": {
+      "disconnected": "Disconnected",
+      "initializing": "Initializing",
+      "connected": "Connected",
+      "unconfigured": "Not configured",
+      "error": "Error"
+    },
+    "toolDetail": {
+      "args": "Args",
+      "status": "Status",
+      "result": "Result"
+    },
+    "thinking": {
+      "streaming": "Thinking…",
+      "completed": "Thought process"
     },
     "compileErrorIntro": "{{compiler}} build error{{where}}:",
     "compileErrorAsk": "Help me figure out how to fix it.",

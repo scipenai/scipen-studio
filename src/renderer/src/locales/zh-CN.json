@@ -95,6 +95,11 @@
       "aiCompletionDesc": "输入时触发 AI 建议",
       "ghostText": "Ghost Text",
       "ghostTextDesc": "灰色补全提示"
+    },
+    "syntax": {
+      "unmatchedEnd": "未找到匹配的 \\end{{{name}}}",
+      "unmatchedBegin": "未找到匹配的 \\begin{{{name}}}",
+      "unclosedCite": "可能未闭合的 \\cite 命令"
     }
   },
   "fileExplorer": {},
@@ -298,9 +303,17 @@
   },
   "common": {
     "cancel": "取消",
+    "confirm": "确认",
+    "ok": "确定",
     "close": "关闭",
     "error": "错误",
     "refresh": "刷新"
+  },
+  "dialog": {
+    "confirmTitle": "确认",
+    "errorTitle": "错误",
+    "warningTitle": "警告",
+    "infoTitle": "提示"
   },
   "errorBoundary": {
     "title": "应用程序错误",
@@ -415,6 +428,22 @@
       "title": "还没配置 AI 模型",
       "desc": "在设置里填入模型服务的 API Key 和模型名称即可开始对话，填好后这里会自动连接。",
       "openSettings": "打开设置"
+    },
+    "status": {
+      "disconnected": "未连接",
+      "initializing": "初始化中",
+      "connected": "已连接",
+      "unconfigured": "待配置",
+      "error": "错误"
+    },
+    "toolDetail": {
+      "args": "参数",
+      "status": "状态",
+      "result": "结果"
+    },
+    "thinking": {
+      "streaming": "思考中…",
+      "completed": "思考过程"
     },
     "compileErrorIntro": "{{compiler}} 编译报错{{where}}：",
     "compileErrorAsk": "帮我看看怎么修。",

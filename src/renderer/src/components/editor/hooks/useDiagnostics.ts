@@ -9,6 +9,7 @@ import type { Monaco } from '@monaco-editor/react';
 import type * as monaco from 'monaco-editor';
 import { useCallback, useRef } from 'react';
 import { useDelayer } from '../../../hooks';
+import { type TranslationKey, useTranslation } from '../../../locales';
 import { createLogger } from '../../../services/LogService';
 import { LSPService } from '../../../services/LSPService';
 import type { DisposableStore } from '../../../../../../shared/utils';
@@ -45,11 +46,12 @@ export interface UseDiagnosticsReturn {
 
 function convertToMonacoMarkers(
   syntaxMarkers: SyntaxMarker[],
-  monacoInstance: Monaco
+  monacoInstance: Monaco,
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string
 ): monaco.editor.IMarkerData[] {
   return syntaxMarkers.map((marker) => ({
     severity: mapSeverityToMonaco(marker.severity, monacoInstance),
-    message: marker.message,
+    message: t(marker.messageKey as TranslationKey, marker.messageArgs ?? {}),
     startLineNumber: marker.startLineNumber,
     startColumn: marker.startColumn,
     endLineNumber: marker.endLineNumber,
@@ -64,6 +66,7 @@ export function useDiagnostics({
   activeTabPath,
   activeTabLanguage,
 }: UseDiagnosticsParams): UseDiagnosticsReturn {
+  const { t } = useTranslation();
   const runDiagnostics = useCallback(
     async (content: string, monacoInstance: Monaco, model: monaco.editor.ITextModel | null) => {
       if (!monacoInstance || !model) return;
@@ -76,14 +79,14 @@ export function useDiagnostics({
           return;
         }
 
-        const markers = convertToMonacoMarkers(syntaxMarkers, monacoInstance);
+        const markers = convertToMonacoMarkers(syntaxMarkers, monacoInstance, t);
         const markerOwner = activeTabLanguage === 'typst' ? 'typst-syntax-worker' : 'syntax-worker';
         monacoInstance.editor.setModelMarkers(model, markerOwner, markers);
       } catch (error) {
         console.error('[EditorPane] Syntax check failed:', error);
       }
     },
-    [activeTabLanguage]
+    [activeTabLanguage, t]
   );
 
   // Delayer gives us Promise support, cancellation, and cleaner lifecycle than raw setTimeout.

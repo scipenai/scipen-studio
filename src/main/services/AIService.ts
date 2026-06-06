@@ -32,7 +32,7 @@ Requirements:
 4. Keep the content academically rigorous
 5. Return only the continuation, not the original context`;
 
-// 会话标题生成:输出极简主题短语,不要标点/引号/前缀,语言跟随用户消息。
+// Title generation: emit a minimal topic phrase — no punctuation, quotes, or prefix; language follows the user's message.
 const TITLE_SYSTEM_PROMPT = `You generate a short, descriptive title for a conversation based on the user's first message.
 Rules:
 - Output ONLY the title text — no quotes, no punctuation at the end, no prefix, no explanation.

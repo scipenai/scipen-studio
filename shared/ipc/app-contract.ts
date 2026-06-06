@@ -28,12 +28,20 @@ export interface LogEntry {
 export interface ConfirmDialogOptions {
   message: string;
   title?: string;
+  /** i18n-resolved label for the confirm button. Main defaults to "Confirm". */
+  confirmText?: string;
+  /** i18n-resolved label for the cancel button. Main defaults to "Cancel". */
+  cancelText?: string;
+  type?: 'info' | 'warning' | 'error' | 'question';
 }
 
 export interface MessageDialogOptions {
   message: string;
   type?: 'info' | 'warning' | 'error';
   title?: string;
+  /** i18n-resolved label for the dismiss button. Main defaults to "OK". */
+  okText?: string;
+  detail?: string;
 }
 
 // ====== Auto Update Types ======

@@ -56,20 +56,27 @@ type StartupState =
   | { kind: 'idle' }
   | { kind: 'starting' }
   | { kind: 'ready'; sessionId: string }
-  // 「未配置 LLM」是预期初始态,与下面的运行时 error 显式区分:前者渲染引导卡
-  // (去设置填 key),后者才是红色报错。判定由主进程负责(见 AGENT_NOT_CONFIGURED_MARKER)。
+  // 'needs-config' is the expected initial state, explicitly distinct from
+  // runtime errors below: the former renders a guidance card (open Settings
+  // and fill in the key), the latter is a red error banner. Determined by
+  // the main process (see AGENT_NOT_CONFIGURED_MARKER).
   | { kind: 'needs-config' }
   | { kind: 'error'; message: string };
 
 /**
- * 已 startProject 过的项目缓存(模块级,跨组件挂载存活)。主页面三面板改为
- * 声明式条件渲染后,折叠聊天会卸载 ChatSidebar、展开会重挂 —— 用它让重挂
- * 只恢复本地 UI(startup/threads),不再重跑 startProject / reset 已有会话。
- * chatStreamStore 本就是模块级单例,消息在卸载期间继续累积、重挂后照常显示。
+ * Per-project startProject cache (module-level, survives component remounts).
+ * After main-page panel layout switched to declarative conditional rendering,
+ * collapsing chat unmounts ChatSidebar and expanding remounts it — this cache
+ * lets the remount restore local UI (startup/threads) without re-running
+ * startProject or resetting an existing session. chatStreamStore is already a
+ * module-level singleton, so messages keep accumulating during unmount and
+ * display on remount as expected.
  */
 const startedProjects = new Map<string, { sessionId: string; threads: ThreadSummary[] }>();
 
-/** 从用户首条消息派生兜底标题(LLM 不可用/失败时用):取首行、剥引用/附件标记/markdown、截断。 */
+/** Derive a fallback title from the user's first message (used when the LLM is
+ * unavailable or fails): take the first line, strip quotes/attachment markers/
+ * markdown, then truncate. */
 function deriveTitleFromText(text: string): string {
   const firstLine =
     text
@@ -86,16 +93,18 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
   const { t } = useTranslation();
   const chatFontSize = useSettings((s) => s.ui.chatFontSize);
   const [startup, setStartup] = useState<StartupState>({ kind: 'idle' });
-  // 让一次性挂载的 AI-config 监听器能读到最新 startup 态(避免把 startup 塞进它的
-  // 依赖、反复重订阅)。
+  // Let the one-shot AI-config listener read the latest startup state without
+  // putting `startup` in its dependency list (which would cause it to resubscribe).
   const startupRef = useRef<StartupState>(startup);
   startupRef.current = startup;
-  // 自动重试触发器:置位即让 start effect 重跑(配合 startedFor 守卫复位)。
+  // Auto-retry trigger: bumping this lets the start effect re-run (the startedFor guard resets).
   const [retryNonce, setRetryNonce] = useState(0);
-  // 自动重试的待发定时器:逐字符输入 key 会触发一串配置变更,只保留最后一次。
+  // Pending auto-retry timer: typing a key character by character triggers a
+  // burst of config changes — keep only the last one.
   const retryTimerRef = useRef<number | null>(null);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
-  // 给 handleSend 提供最新 threads 快照,避免把 threads 列进其 deps 造成频繁重建。
+  // Hand handleSend the latest threads snapshot without listing `threads`
+  // among its deps (which would cause frequent rebuilds).
   const threadsRef = useRef<ThreadSummary[]>(threads);
   threadsRef.current = threads;
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -150,8 +159,9 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
   }, [activeThreadId]);
 
   // Start (or re-attach to) the project session once the workspaceRoot is known.
-  // 重挂载安全:同一 root 已 start 过 → 只恢复本地 UI,不再 startProject、
-  // 不 reset 已有 chatStreamStore(面板切换卸载/重挂时对话不丢)。
+  // Safe across remounts: if this root has already been started, only restore
+  // local UI — do not call startProject again or reset an existing
+  // chatStreamStore (so panel toggling never drops the conversation).
   useEffect(() => {
     if (!workspaceRoot) return;
     if (startedFor.current === workspaceRoot) return;
@@ -186,8 +196,9 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
       })
       .catch((err) => {
         const message = extractErrorMessage(err);
-        // includes(非全等):Electron 会给跨进程 Error.message 加
-        // "Error invoking remote method '…':" 前缀,标记被夹在中间。
+        // `includes` (not strict equality): Electron prefixes cross-process
+        // Error.message with "Error invoking remote method '…':", sandwiching
+        // the marker in the middle.
         if (message.includes(AGENT_NOT_CONFIGURED_MARKER)) {
           setStartup({ kind: 'needs-config' });
         } else {
@@ -196,10 +207,12 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
       });
   }, [workspaceRoot, displayName, retryNonce]);
 
-  // 填完 API key 自动恢复:AI 配置变更时,若当前正卡在「未配置」,清掉本项目的
-  // start 守卫并 bump retryNonce 让上面的 start effect 重跑。延迟 500ms(防抖,仅留
-  // 最后一次)让主进程那条 debounce(300ms)的 sidecar 重启先落定,避免重试撞上
-  // sidecar 重启中途 —— 主进程拥有 sidecar 生命周期,我们在它稳定后再发起。
+  // Auto-recover after the user fills in an API key: when AI config changes
+  // while we are stuck on 'needs-config', clear this project's start guard
+  // and bump retryNonce so the start effect re-runs above. Delay 500ms
+  // (debounced, keep only the last fire) so the main-side debounced (300ms)
+  // sidecar restart lands first — main owns sidecar lifecycle, we wait
+  // until it stabilises before retrying.
   useEffect(() => {
     const settings = getSettingsService();
     const disposable = settings.onDidChangeAIProviders(() => {
@@ -267,8 +280,10 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
 
   const busy = currentTurn?.pending === true;
 
-  // 新会话首条消息后,用补全模型生成会话主题;失败/未配置则回退首句截取。
-  // 仅在会话尚无标题时触发,手动改过名的会话不被覆盖。
+  // After the first user message in a new thread, generate a topic title via
+  // the completion model; fall back to the leading-line extract on failure
+  // or when LLM is not configured. Only fires when the thread has no title;
+  // user-renamed threads are never overwritten.
   const autoGenerateTitle = useCallback(
     async (threadId: string, userText: string) => {
       let title = deriveTitleFromText(userText);
@@ -278,7 +293,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
           title = res.content.trim().slice(0, 24);
         }
       } catch {
-        // 保留兜底标题
+        // Keep the fallback title.
       }
       if (!title) return;
       setThreads((prev) => prev.map((th) => (th.thread_id === threadId ? { ...th, title } : th)));
@@ -286,7 +301,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         await agentClient.renameThread(threadId, title);
         void refreshThreads();
       } catch {
-        // 落库失败不影响本地展示
+        // Server-side rename failure does not affect the local display.
       }
     },
     [refreshThreads]
@@ -294,7 +309,8 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
 
   const handleSend = useCallback(
     async (text: string, intent: SendIntent) => {
-      // 在写入本轮消息前判定:这是否是某个尚无标题会话的第一条消息。
+      // Decide before writing this turn: is this the first message in a
+      // not-yet-titled thread?
       const titleThreadId = chatStreamStore.getActiveThreadId();
       const isFirstMessage = chatStreamStore.getMessages().length === 0;
       const existingThread = threadsRef.current.find((th) => th.thread_id === titleThreadId);
@@ -419,7 +435,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
   const threadTitle = activeThread?.title || t('thread.newConversation');
   const isEmpty = messages.length === 0 && !currentTurn;
 
-  // 单一 composer 元素:空态置于 hero 中央、有对话时落底部(docked)。
+  // Single composer element: centered hero in empty state, docked at the bottom otherwise.
   const composer = (
     <AgentChatInput
       busy={busy}
@@ -495,8 +511,9 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
           <EmptyState
             composerSlot={composer}
             onPickExample={(text) => {
-              // 直填输入框原文(可改后再发),不走 requestChatWithText —— 那条会把
-              // 文本包成 `> 引用块`,不适合示例 prompt。
+              // Drop the raw text into the input (editable before sending) instead of
+              // routing through requestChatWithText, which would wrap it in a
+              // `> quote block` — not appropriate for an example prompt.
               setSeedValue(text);
               setSeedKey((k) => k + 1);
             }}
@@ -505,7 +522,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
       ) : (
         <>
           <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto py-4">
-            {/* 居中阅读列:窄侧栏时 w-full 占满,宽屏时 max-w-3xl 居中,左右留白(对齐底部输入框) */}
+            {/* Centered reading column: narrow rail uses w-full, wide screens cap at max-w-3xl with horizontal gutters aligned to the bottom composer. */}
             <div className="mx-auto w-full max-w-3xl px-4">
               {messages.map((m, idx) => (
                 <ChatMessage
@@ -540,35 +557,42 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
 }
 
 /**
- * memo:主页面切面板时 shell 会重渲,但本组件 props(workspaceRoot/displayName)
- * 稳定 → 跳过整棵聊天子树重渲(含 N 条 ChatMessage 的 reconciliation)。
- * 流式时由内部 chatStreamStore 订阅自行重渲,不受 memo 影响。
+ * memo: when the main page swaps panels the shell re-renders, but this
+ * component's props (workspaceRoot/displayName) are stable, so the whole
+ * chat subtree (including N ChatMessage reconciliations) is skipped.
+ * Streaming re-renders are driven by the internal chatStreamStore
+ * subscription and are unaffected by the memo.
  */
 export const ChatSidebar = memo(ChatSidebarInner);
 
 function StartupBadge({ state }: { state: StartupState }): React.ReactElement {
+  const { t } = useTranslation();
   switch (state.kind) {
     case 'idle':
-      return <span className="text-[10px] text-[var(--color-text-muted)]">未连接</span>;
+      return (
+        <span className="text-[10px] text-[var(--color-text-muted)]">
+          {t('chat.status.disconnected')}
+        </span>
+      );
     case 'starting':
       return (
         <span className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-accent)]" />
-          初始化中
+          {t('chat.status.initializing')}
         </span>
       );
     case 'ready':
       return (
         <span className="flex items-center gap-1.5 text-[10px] text-[var(--color-success)]">
           <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)]" />
-          已连接
+          {t('chat.status.connected')}
         </span>
       );
     case 'needs-config':
       return (
         <span className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
           <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-text-muted)]" />
-          待配置
+          {t('chat.status.unconfigured')}
         </span>
       );
     case 'error':
@@ -578,16 +602,18 @@ function StartupBadge({ state }: { state: StartupState }): React.ReactElement {
           title={state.message}
         >
           <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-error)]" />
-          错误
+          {t('chat.status.error')}
         </span>
       );
   }
 }
 
 /**
- * 「未配置 LLM」引导卡 —— 取代首次进入时的红色启动报错。语气为安静引导而非错误,
- * 主操作是「打开设置」(走 UIService,与命令面板同一条开设置面板的路径)。填完
- * key 后由 ChatSidebar 的 AI-config 监听器自动重试,用户无需手动重连。
+ * 'needs-config' guidance card — replaces the red startup error on first
+ * entry. Tone is quiet onboarding rather than failure; the main action
+ * is "Open Settings" (routed via UIService, the same path used by the
+ * command palette). Once the user fills in the key, ChatSidebar's
+ * AI-config listener retries automatically; no manual reconnect needed.
  */
 function NeedsConfigCard({
   onOpenSettings,
@@ -690,8 +716,9 @@ function formatErrorPrompt(req: AskAIAboutErrorRequest): string {
     compiler: req.compilerType,
     where: where ? ` (${where})` : '',
   });
-  // 把被点击的那条错误的具体内容也带上,不只一行 title —— Agent 另从 ChatContext
-  // 拿到完整 diagnostics,这里负责锚定用户实际点的错误。
+  // Include the specific error content too, not just a one-line title — the
+  // Agent already gets full diagnostics from ChatContext; here we anchor the
+  // specific error the user clicked.
   const detail = req.errorContent?.trim()
     ? `${req.errorMessage.trim()}\n\n${req.errorContent.trim()}`
     : req.errorMessage.trim();

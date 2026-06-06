@@ -1,6 +1,11 @@
 /**
- * @file Dialog IPC Handlers (Type-Safe)
- * @description Provides native Electron dialog APIs to avoid focus issues with window.confirm().
+ * @file Dialog IPC Handlers (type-safe)
+ * @description Native Electron dialogs to avoid focus issues with window.confirm().
+ *              Defaults are English; callers should pass i18n-resolved labels
+ *              (`confirmText`/`cancelText`/`okText`/`title`) so the visible
+ *              text follows the renderer's current locale. Main process has no
+ *              i18n runtime — defaults exist only to keep the API ergonomic
+ *              when a caller has nothing useful to say.
  * @depends Electron dialog, BrowserWindow
  */
 
@@ -11,48 +16,49 @@ import { createTypedHandlers } from './typedIpc';
 
 const logger = createLogger('DialogHandlers');
 
-/**
- * Registers all dialog-related IPC handlers.
- * @sideeffect Registers ipcMain handlers for native dialogs
- */
+function defaultMessageTitle(type: 'info' | 'warning' | 'error' | 'none' | undefined): string {
+  switch (type) {
+    case 'error':
+      return 'Error';
+    case 'warning':
+      return 'Warning';
+    default:
+      return 'Info';
+  }
+}
+
 export function registerDialogHandlers(): void {
   const handlers = createTypedHandlers(
     {
-      /**
-       * Shows a confirmation dialog.
-       * @returns true if user clicked confirm, false if cancelled
-       */
       [IpcChannel.Dialog_Confirm]: async (options) => {
-        const { message, title } = options;
-
+        const { message, title, confirmText, cancelText } = options;
         const focusedWindow = BrowserWindow.getFocusedWindow();
 
         const result = await dialog.showMessageBox(
           focusedWindow ?? (undefined as unknown as BrowserWindow),
           {
             type: 'question',
-            buttons: ['取消', '确认'],
+            buttons: [cancelText ?? 'Cancel', confirmText ?? 'Confirm'],
             defaultId: 1,
             cancelId: 0,
-            title: title || '确认',
-            message: message,
+            title: title ?? 'Confirm',
+            message,
           }
         );
 
         return result.response === 1;
       },
 
-      /** Shows a message dialog (info/warning/error) */
       [IpcChannel.Dialog_Message]: async (options) => {
-        const { message, type = 'info', title } = options;
-
+        const { message, type = 'info', title, okText, detail } = options;
         const focusedWindow = BrowserWindow.getFocusedWindow();
 
         await dialog.showMessageBox(focusedWindow ?? (undefined as unknown as BrowserWindow), {
           type,
-          buttons: ['确定'],
-          title: title || (type === 'error' ? '错误' : type === 'warning' ? '警告' : '提示'),
-          message: message,
+          buttons: [okText ?? 'OK'],
+          title: title ?? defaultMessageTitle(type),
+          message,
+          detail,
         });
       },
     },

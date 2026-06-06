@@ -144,13 +144,13 @@ function AppContent() {
  */
 function App() {
   useEffect(() => {
-    logger.info('SciPen Studio 启动');
+    logger.info('SciPen Studio started');
   }, []);
 
   return (
     <ErrorBoundary
       onError={(error, errorInfo) => {
-        logger.fatal('应用程序崩溃', {
+        logger.fatal('Application crashed', {
           error: error.message,
           stack: error.stack,
           componentStack: errorInfo.componentStack,
