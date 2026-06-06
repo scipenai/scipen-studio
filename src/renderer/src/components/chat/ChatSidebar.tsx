@@ -456,19 +456,25 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         </div>
       ) : (
         <>
-          <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-4">
-            {messages.map((m, idx) => (
-              <ChatMessage
-                key={`${m.role}-${m.ts}-${m.turnId ?? idx}`}
-                message={m}
-                completedTurn={
-                  m.role === 'assistant' && m.turnId ? chatStreamStore.getTurn(m.turnId) : undefined
-                }
-              />
-            ))}
-            {currentTurn && <ChatMessage message={null} turn={currentTurn} />}
+          <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto py-4">
+            {/* 居中阅读列:窄侧栏时 w-full 占满,宽屏时 max-w-3xl 居中,左右留白(对齐底部输入框) */}
+            <div className="mx-auto w-full max-w-3xl px-4">
+              {messages.map((m, idx) => (
+                <ChatMessage
+                  key={`${m.role}-${m.ts}-${m.turnId ?? idx}`}
+                  message={m}
+                  completedTurn={
+                    m.role === 'assistant' && m.turnId
+                      ? chatStreamStore.getTurn(m.turnId)
+                      : undefined
+                  }
+                />
+              ))}
+              {currentTurn && <ChatMessage message={null} turn={currentTurn} />}
+            </div>
           </div>
-          <div className="px-4 pb-3">{composer}</div>
+          </div>
+          <div className="pb-3">{composer}</div>
         </>
       )}
 
