@@ -1,26 +1,32 @@
 /**
- * @file BibTexSyncService —— 把 Zotero canonical 索引同步成项目 root 下的
- *   `references.bib`,让 LaTeX/Biber/BibTeX 编译能找到 \cite{} 引用。
+ * @file BibTexSyncService — syncs the Zotero canonical index into a
+ *   `references.bib` under the project root so LaTeX / Biber / BibTeX builds
+ *   can resolve \cite{} entries.
  *
- * @description 数据流(全自动闭环):
+ * @description Data flow (fully automated):
  *
- *   Zotero 改 → Orchestrator refresh → ZoteroIndex.applyPatch
- *            → EventBus.emit('bib:patch' / 'bib:initial')
- *            → BibTexSyncService 收到事件 → debounce 500 ms
- *            → BBT exportBibTex(allCitationKeys, translator)
- *            → 算 hash,与上次写入比较;若变化:
- *                a. 检测用户是否手改过(我们记的 mtime 与当前 mtime 不一致)
- *                   → 是 → 标记 conflict,不覆盖,UI 提示
- *                   → 否 → 写新内容,记 mtime + hash
- *            → 编辑器编译时 bibtex/biber 读 references.bib 即可
+ *   Zotero edit → Orchestrator refresh → ZoteroIndex.applyPatch
+ *              → EventBus.emit('bib:patch' / 'bib:initial')
+ *              → BibTexSyncService receives the event → debounce 500 ms
+ *              → BBT exportBibTex(allCitationKeys, translator)
+ *              → hash the output and compare to the last write; if changed:
+ *                  a. Has the user hand-edited it? (recorded mtime ≠ current
+ *                     mtime)
+ *                     → yes → mark conflict, do not overwrite, prompt the UI
+ *                     → no  → write new contents, record mtime + hash
+ *              → editor build reads references.bib via bibtex/biber as usual
  *
- *   设计取舍:
- *   - **全量重写**:5k entry 实测 < 100 ms 写盘,简单;增量追加易出错。
- *   - **BetterBibLaTeX 默认 translator**:UTF-8 友好 / 现代字段全;可配置。
- *   - **mtime + hash 双守卫**:仅 mtime 易误判(同秒写两次),仅 hash 看不出
- *     外部覆写;两者并存才稳。
- *   - **空 ck fallback**:库里没装 BBT(degraded)→ exportBibTex 空 → 不写盘。
- *     这种场景下 .bib 留空是对的 —— citation key 都没有,写也没用。
+ *   Design trade-offs:
+ *   - **Full rewrite**: 5k entries measured at < 100 ms write; simple.
+ *     Incremental appending is error-prone.
+ *   - **BetterBibLaTeX default translator**: UTF-8 friendly, full modern
+ *     fields; user-configurable.
+ *   - **mtime + hash dual guards**: mtime alone misjudges (two writes in the
+ *     same second); hash alone cannot detect external overwrites; both are
+ *     needed for safety.
+ *   - **Empty-ck fallback**: if BBT is not installed (degraded) the export
+ *     is empty → do not write. Leaving the .bib alone is correct: with no
+ *     citation keys there is nothing to write.
  */
 
 import { promises as fs } from 'fs';
@@ -40,13 +46,15 @@ const logger = createLogger('BibTexSyncService');
 
 const DEFAULT_DEBOUNCE_MS = 500;
 /**
- * 默认写到 `.scipen/zotero_library.bib` —— 子目录隔离 IDE 自动生成文件,
- * 文件名暗示"Zotero 自动维护、用户勿手改"。配合 `.gitignore` 自动维护,
- * 不污染项目根、不进版本控制、和用户手写 `references.bib` 不冲突。
+ * Default output: `.scipen/zotero_library.bib`. Putting it in a subdirectory
+ * isolates IDE-generated files; the filename signals "auto-maintained by
+ * Zotero — do not hand-edit". Paired with an auto-maintained `.gitignore`
+ * entry: keeps the project root clean, stays out of version control, and
+ * does not collide with a user-written `references.bib`.
  */
 const DEFAULT_FILE_NAME = '.scipen/zotero_library.bib';
 const DEFAULT_TRANSLATOR = 'BetterBibLaTeX';
-/** 自动维护项目根 .gitignore,确保自动生成的 .scipen/ 不进版本控制。 */
+/** Auto-maintain a project-root .gitignore so generated .scipen/ stays out of VCS. */
 const SCIPEN_GITIGNORE_MARKER = '.scipen/';
 
 export type BibTexSyncConfig = BibTexSyncConfigDTO;
@@ -62,9 +70,9 @@ export interface BibTexSyncDeps {
   index: ZoteroIndex;
   bbt?: BetterBibTexClient;
   bus?: ZoteroEventBus;
-  /** 注入 fs 模块,便于测试。默认走 node:fs/promises。 */
+  /** Injectable fs module for testing. Defaults to node:fs/promises. */
   fileIO?: typeof fs;
-  /** debounce 时长,测试可缩短。 */
+  /** Debounce duration; tests can shorten it. */
   debounceMs?: number;
 }
 
@@ -79,7 +87,7 @@ export class BibTexSyncService {
   private config: BibTexSyncConfig = DEFAULT_BIBTEX_SYNC_CONFIG;
   private status: BibTexSyncStatus = { kind: 'idle' };
 
-  /** 上次成功写入的 hash + mtime;守卫用。 */
+  /** Hash + mtime of the last successful write; used as the dual guard. */
   private lastWrittenHash: string | null = null;
   private lastWrittenMtimeMs: number | null = null;
 
@@ -96,10 +104,10 @@ export class BibTexSyncService {
   }
 
   // ============================================================
-  // 公开 API
+  // Public API
   // ============================================================
 
-  /** 启动 —— 订阅 bib 事件。可重入(再次 start 是 no-op)。 */
+  /** Start — subscribe to bib events. Re-entrant (further start() is a no-op). */
   start(): void {
     if (this.unsubBus) return;
     this.unsubBus = this.bus.on((event) => {
@@ -122,25 +130,27 @@ export class BibTexSyncService {
     this.status = { kind: 'idle' };
   }
 
-  /** 项目切换时更新目标路径。null 关闭自动同步。 */
+  /** Update the target path on project switch. null disables auto-sync. */
   setProjectPath(projectPath: string | null): void {
     if (this.projectPath === projectPath) return;
     this.projectPath = projectPath;
-    // 项目变了,我们之前记的 mtime/hash 对应的是旧项目下的 .bib,要重置;
-    // 否则切回旧项目时会误判"用户改过"。
+    // Project changed: the previously recorded mtime/hash referred to the old
+    // project's .bib — reset them. Otherwise switching back would misjudge
+    // "user has edited the file".
     this.lastWrittenHash = null;
     this.lastWrittenMtimeMs = null;
     if (projectPath) this.scheduleSync();
   }
 
-  /** 设置变更时调用。enabled 翻 true 自动触发一次同步。 */
+  /** Called on config change. Enabling auto-triggers one sync. */
   setConfig(next: Partial<BibTexSyncConfig>): void {
     const prev = this.config;
     this.config = { ...this.config, ...next };
     if (!prev.enabled && this.config.enabled) {
       this.scheduleSync();
     }
-    // fileName 改变意味着旧 mtime/hash 对应错文件,重置守卫。
+    // A fileName change means the old mtime/hash points to the wrong file —
+    // reset the guards.
     if (next.fileName && next.fileName !== prev.fileName) {
       this.lastWrittenHash = null;
       this.lastWrittenMtimeMs = null;
@@ -152,7 +162,7 @@ export class BibTexSyncService {
     return this.status;
   }
 
-  /** 用户手动触发(忽略 enabled 网关、跳过 debounce)。 */
+  /** Manually triggered by the user (ignores `enabled`, skips debounce). */
   async syncNow(): Promise<BibTexSyncStatus> {
     return this.runSync({ force: true });
   }
@@ -193,7 +203,8 @@ export class BibTexSyncService {
 
     const citationKeys = this.collectCitationKeys();
     if (citationKeys.length === 0) {
-      // 没有任何 BBT key,写一份空文件没意义。把 .bib 留原状态。
+      // No BBT keys at all — writing an empty file is meaningless. Leave the
+      // .bib in its current state.
       this.status = { kind: 'idle' };
       return this.status;
     }
@@ -210,33 +221,34 @@ export class BibTexSyncService {
     const filePath = path.join(this.projectPath, this.config.fileName);
     const nextHash = sha256(bib);
 
-    // 内容没变:连写盘都跳过。
+    // Contents unchanged: skip the disk write entirely.
     if (this.lastWrittenHash === nextHash) {
       const lastSyncedAt = new Date().toISOString();
       this.status = { kind: 'skipped-no-change', filePath, lastSyncedAt };
       return this.status;
     }
 
-    // mtime 守卫:文件存在且 mtime 不等于我们上次写的 mtime → 外部改过。
+    // mtime guard: file exists and mtime differs from our last write → edited externally.
     try {
       const stat = await this.fileIO.stat(filePath);
       if (
         this.lastWrittenMtimeMs !== null &&
         Math.floor(stat.mtimeMs) !== Math.floor(this.lastWrittenMtimeMs)
       ) {
-        // 但若当前文件 hash 与 nextHash 已相等,说明并发但内容刚好一致,放心覆盖。
+        // But if the current file hash already equals nextHash, the concurrent
+        // write happens to match our intended contents — safe to overwrite.
         const currentContent = await this.fileIO.readFile(filePath, 'utf-8');
         if (sha256(currentContent) !== nextHash) {
           this.status = {
             kind: 'conflict',
             filePath,
-            reason: '检测到外部修改了 references.bib;为防数据丢失暂不覆盖',
+            reason: 'External modification detected on references.bib; not overwriting to prevent data loss',
           };
           return this.status;
         }
       }
     } catch (err) {
-      // 文件不存在是正常路径(首次同步),继续写。
+      // File not found is the expected first-sync path; keep going.
       if (!isFileNotFound(err)) {
         const reason = err instanceof Error ? err.message : String(err);
         this.status = { kind: 'error', reason: `stat failed: ${reason}` };
@@ -245,14 +257,15 @@ export class BibTexSyncService {
     }
 
     try {
-      // 子目录可能不存在(.scipen/ 第一次用),先确保父目录在。
+      // The subdirectory may not exist (first use of .scipen/); ensure parent first.
       const dir = path.dirname(filePath);
       await this.ensureDir(dir);
       await this.fileIO.writeFile(filePath, bib, 'utf-8');
       const stat = await this.fileIO.stat(filePath);
       this.lastWrittenHash = nextHash;
       this.lastWrittenMtimeMs = stat.mtimeMs;
-      // .gitignore 维护与写盘解耦 —— 失败不影响 sync 状态,只 warn 不抛。
+      // .gitignore maintenance is decoupled from the write — failures must
+      // not affect sync status; warn only, never throw.
       void this.ensureGitignore().catch((err) => logger.warn('ensureGitignore failed', err));
       this.status = {
         kind: 'ok',
@@ -272,7 +285,8 @@ export class BibTexSyncService {
     return this.status;
   }
 
-  /** 递归 mkdir;已存在则 no-op。fs.promises.mkdir({recursive:true}) 语义。 */
+  /** Recursive mkdir; no-op when already present. Mirrors
+   * fs.promises.mkdir({recursive:true}) semantics. */
   private async ensureDir(dir: string): Promise<void> {
     type MkdirFn = (p: string, opts: { recursive: boolean }) => Promise<unknown>;
     const mk = (this.fileIO as { mkdir?: MkdirFn }).mkdir;
@@ -282,17 +296,21 @@ export class BibTexSyncService {
   }
 
   /**
-   * 确保项目根 .gitignore 含 `.scipen/`。规则:
-   *   - 文件不存在 → 写一份只含本规则的 .gitignore
-   *   - 文件存在但缺规则 → 追加一行
-   *   - 已有规则 → no-op
+   * Ensure the project-root .gitignore contains `.scipen/`. Rules:
+   *   - File missing            → write a .gitignore containing only this rule
+   *   - File present, missing rule → append a line
+   *   - Rule already present    → no-op
    *
-   * 命中判定:整行 trim 后 exact 等于 `.scipen/` 或 `.scipen`(两种主流写法)。
-   * 不识别 glob 变体如 `/.scipen/` 或 `**\/.scipen/` —— 用户用这类写法时
-   * 会被视为缺失并追加一行,造成形式上的重复(语义无害,git 忽略行允许重复)。
-   * 接受这个边缘 case 是因为 99% 用户写的就是 `.scipen/`,严格匹配最直观。
+   * Match heuristic: each line trimmed and compared exactly to `.scipen/` or
+   * `.scipen` (the two common forms). Glob variants like `/.scipen/` or
+   * `**\/.scipen/` are not recognised — users writing those will be treated
+   * as missing the rule and we append a line, producing a formal duplicate
+   * (semantically harmless; git ignore lines may repeat). This edge case is
+   * accepted because 99% of users write `.scipen/`, and strict matching is
+   * the most intuitive policy.
    *
-   * 注:不强制用户使用 git;非 git 仓库下 .gitignore 也只是个无害文件。
+   * Note: this does not force users into git; on non-git repos .gitignore is
+   * just a harmless file.
    */
   private async ensureGitignore(): Promise<void> {
     if (!this.projectPath) return;

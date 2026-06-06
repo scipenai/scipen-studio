@@ -1,18 +1,23 @@
 /**
- * @file CiteCompletionProvider —— Monaco completion provider,在
- *   `[@|]` / `@|` 处弹文献候选(markdown / typst)。
+ * @file CiteCompletionProvider — Monaco completion provider that surfaces
+ *   reference candidates at `[@|]` / `@|` positions (markdown / typst).
  *
- * **LaTeX 故意不挂** —— texlab 已经从 BibTexSyncService 自动同步的
- * `.scipen/zotero_library.bib` 里读出全部 entry 做 `\cite{}` completion,
- * 单一真相源 = .bib 文件;在 Monaco 上再挂一份会和 LSP 重复 + 重复 entry
- * 在 dropdown 里出现两次。markdown / typst 没有等价的 LSP cite 路径
- * (marksman 不做 cite,tinymist 要求显式 import),这里继续补位。
+ * **LaTeX is intentionally not wired up** — texlab already reads every entry
+ * from `.scipen/zotero_library.bib` (auto-maintained by BibTexSyncService)
+ * for `\cite{}` completion. Single source of truth = the .bib file; adding
+ * another provider in Monaco would duplicate LSP results and show every
+ * entry twice in the dropdown. markdown / typst have no equivalent LSP cite
+ * path (marksman does not do cite, tinymist requires explicit import), so
+ * this provider fills the gap.
  *
- * 与 hover 预览共用 mirror 数据源,与 `citationKeyScan` / `CitedKeyExtractor`
- * 共用 cite regex 形态。三处对"什么算 cite"零分歧:补全 / hover / 引用面板。
+ * Shares the mirror data source with hover preview, and shares the cite regex
+ * shape with `citationKeyScan` / `CitedKeyExtractor`. The three usage sites
+ * (completion / hover / cited-refs panel) agree exactly on "what counts as a
+ * cite".
  *
- * 候选数据来自 `ZoteroBibMirror.searchByQueryWithScore`(citation-key 前缀 →
- * token → substring fallback 三档评分)。空索引时返回空,不弹 wizard。
+ * Candidate data comes from `ZoteroBibMirror.searchByQueryWithScore`
+ * (three-tier: citation-key prefix → token → substring fallback). Empty
+ * index returns empty; we never pop the wizard from here.
  */
 
 import type { Monaco } from '@monaco-editor/react';
@@ -25,27 +30,30 @@ const LANGUAGE_IDS = ['typst', 'markdown'] as const;
 const MAX_SUGGESTIONS = 20;
 
 /**
- * citation-key 命中档与模糊档的分界阈值。bibSearchScoring 给 citation-key 命中的
- * 分是 `1000 + (精确?100:0) - keyLen`(精确≈1090、前缀≈990,均远高于此阈值);
- * token / substring 模糊档分 ≤ ~15。取 500 居中分界:≥500 = 用户在敲 key,
- * 保持键入序、语义分不参与(含前缀匹配);< 500 = 模糊找,才按段落语义分重排。
+ * Boundary between the citation-key hit tier and the fuzzy tier.
+ * bibSearchScoring assigns ck hits `1000 + (exact?100:0) - keyLen`
+ * (exact≈1090, prefix≈990 — both far above this threshold);
+ * token / substring fuzzy hits score ≤ ~15. 500 sits comfortably in the
+ * middle: ≥500 = user is typing a key, preserve typing order and skip
+ * semantic ranking (covers prefix matches); < 500 = fuzzy lookup, apply
+ * paragraph-semantic re-ranking.
  */
 const CK_PREFIX_TIER = 500;
 
 /**
- * 光标前匹配触发位置:
- * - LaTeX `\cite[args]{a, b<cursor>` —— 抓 `\cite{...` 内尚未闭合 brace 的前缀
- * - Markdown `[@<cursor>` —— pandoc 风格
- * - Typst `@<cursor>` —— Typst 引用
+ * Pre-caret trigger patterns:
+ * - LaTeX `\cite[args]{a, b<cursor>` — capture the un-closed brace prefix in `\cite{...`
+ * - Markdown `[@<cursor>` — pandoc style
+ * - Typst `@<cursor>` — Typst reference
  */
 const LATEX_TRIGGER = /\\cite[a-zA-Z]*\*?\s*(?:\[[^\]]*\])?\s*\{([^{}]*)$/;
 const MD_TRIGGER = /\[@([^\]]*)$/;
 const TYPST_TRIGGER = /@([A-Za-z][\w-]*)$/;
 
 interface CompletionContext {
-  /** 当前正在补全的 cite key 前缀。 */
+  /** Current cite-key prefix being completed. */
   prefix: string;
-  /** 替换范围的起始列(1-based,Monaco)。 */
+  /** Replacement-range start column (1-based, Monaco). */
   rangeStart: number;
 }
 
@@ -79,7 +87,7 @@ function detectContext(
     endColumn: position.column,
   });
 
-  // LaTeX / Markdown 都可能用 \cite{...},先试 LaTeX。
+  // LaTeX / Markdown may both use \cite{...}; try LaTeX first.
   if (languageId !== 'typst') {
     const latex = LATEX_TRIGGER.exec(linePrefix);
     if (latex) return forCommaSeparated(latex, position.column);
@@ -92,7 +100,7 @@ function detectContext(
     }
   }
 
-  // Typst 也用 @key,markdown 里同样兼容 pandoc 风格 `@key`(不带方括号)。
+  // Typst also uses @key; markdown also accepts pandoc-style `@key` without brackets.
   if (languageId === 'typst' || languageId === 'markdown') {
     const typst = TYPST_TRIGGER.exec(linePrefix);
     if (typst) {
@@ -104,8 +112,9 @@ function detectContext(
 }
 
 /**
- * `\cite{a, b, c<cursor>` 时,真正补全的 prefix 应是 `c`,而不是整段 `a, b, c`。
- * 把最后一个逗号之后的部分(再 trimStart 掉空格)当 prefix,起始 column 跟着算。
+ * For `\cite{a, b, c<cursor>` the real completion prefix is `c`, not the
+ * whole `a, b, c`. Take everything after the last comma (then trimStart the
+ * space) as the prefix; the start column follows.
  */
 function forCommaSeparated(match: RegExpExecArray, caretColumn: number): CompletionContext {
   const insideBrace = match[1];
@@ -121,9 +130,11 @@ function buildSuggestions(
   ctx: CompletionContext
 ): monaco.languages.CompletionList {
   const mirror = getZoteroBibMirror();
-  // 键入热路径声明 'prefix-only' 意图(档 1 ck-prefix + 档 2 token-prefix)。
-  // substring 兜底由 RecallMode 在召回端切除 —— 架构上不可能召回半库噪声。
-  // 空 prefix 时 searchByQueryWithScore 对空查询返空,fallback 列全部文献。
+  // Declare 'prefix-only' intent on the keystroke hot path (tier 1 ck-prefix
+  // + tier 2 token-prefix). The substring fallback is sliced at the recall
+  // side by RecallMode — by design, half-library noise can never reach here.
+  // For an empty prefix searchByQueryWithScore returns empty; fall back to
+  // listing the full library.
   const hits: BibSearchHit[] =
     ctx.prefix.length === 0
       ? mirror
@@ -157,7 +168,8 @@ function buildSuggestions(
       kind: monacoInstance.languages.CompletionItemKind.Reference,
       insertText: key,
       filterText: `${key} ${item.title ?? ''} ${item.creatorsLabel ?? ''}`,
-      // sortText 强制按 mirror 评分顺序(用前缀 0-padded 序号,Monaco 字典序就稳)。
+      // Force mirror's scoring order via 0-padded indices (Monaco sorts the
+      // sortText lexicographically, so this is stable).
       sortText: String(idx).padStart(4, '0'),
       detail,
       documentation: item.title
@@ -175,14 +187,17 @@ function escapeMarkdown(s: string): string {
 }
 
 /**
- * 按当前段落语义分对候选确定性分层重排(键入热路径,纯同步,零 IPC)。
- * 无缓存分(未开主动推荐 / 未 ready / 尚未嵌段)→ 原样返回,完全等同改动前。
+ * Deterministically re-rank candidates by the current paragraph's semantic
+ * score (keystroke hot path: synchronous, zero IPC). With no cached score
+ * (active recommendation off, not yet ready, paragraph not yet embedded),
+ * return the input unchanged — fully equivalent to pre-feature behaviour.
  *
- * 分层(档间永不交叉):
- *  - Tier 0:citation-key 命中(score ≥ CK_PREFIX_TIER)—— 用户在敲 key,
- *    保持 mirror 原序,语义分不参与。
- *  - Tier 1:题名/作者词模糊命中 —— 同档内按段落语义分降序,无分项垫底,
- *    同分回落 mirror 原序。
+ * Tiers (never cross):
+ *  - Tier 0: citation-key hits (score ≥ CK_PREFIX_TIER) — user is typing the
+ *    key; preserve mirror order, skip semantic scoring.
+ *  - Tier 1: title/author fuzzy hits — within the tier sort descending by
+ *    paragraph-semantic score; unscored entries trail; ties fall back to
+ *    mirror order.
  */
 function reorderBySemantic(hits: BibSearchHit[]): BibSearchHit[] {
   const ranking = getActiveRecommendationService().getCitationRanking();
@@ -197,14 +212,14 @@ function reorderBySemantic(hits: BibSearchHit[]): BibSearchHit[] {
     .sort((a, b) => {
       const ta = a.h.score >= CK_PREFIX_TIER ? 0 : 1;
       const tb = b.h.score >= CK_PREFIX_TIER ? 0 : 1;
-      if (ta !== tb) return ta - tb; // Tier0 恒先于 Tier1
-      if (ta === 0) return a.i - b.i; // Tier0 内:保持 mirror 原序
+      if (ta !== tb) return ta - tb; // Tier 0 always precedes Tier 1
+      if (ta === 0) return a.i - b.i; // Tier 0: preserve mirror order
       const sa = sem(a.h);
       const sb = sem(b.h);
-      if (sa !== undefined && sb !== undefined && sa !== sb) return sb - sa; // 语义降序
-      if (sa !== undefined && sb === undefined) return -1; // 有分先于无分
+      if (sa !== undefined && sb !== undefined && sa !== sb) return sb - sa; // Semantic desc
+      if (sa !== undefined && sb === undefined) return -1; // Scored before unscored
       if (sa === undefined && sb !== undefined) return 1;
-      return a.i - b.i; // 都无分 / 同分:原序
+      return a.i - b.i; // Both unscored / equal: original order
     })
     .map((x) => x.h);
 }

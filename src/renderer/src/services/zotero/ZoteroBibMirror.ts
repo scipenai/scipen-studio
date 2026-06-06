@@ -1,21 +1,26 @@
 /**
- * @file ZoteroBibMirror —— renderer 侧 canonical bib 索引镜像
- * @description 单实例镜像 main 进程的 ZoteroIndex 全量数据 + 增量补丁。
- *              订阅 `Zotero_Event` 通道,内部维护 `items` / `keyToItem` +
- *              cite 专用倒排索引(citation-key 前缀 + token + haystack),
- *              通过 `subscribe` 暴露给 React (兼容 useSyncExternalStore)。
- *              诊断信息(数据源健康度)走 IPC 拉取,不缓存在镜像里。
+ * @file ZoteroBibMirror — renderer-side canonical bib index mirror
+ * @description Single instance mirroring the main-process ZoteroIndex (full
+ *              data + incremental patches). Subscribes to the `Zotero_Event`
+ *              channel, maintains `items` / `keyToItem` plus a cite-specific
+ *              inverted index (citation-key prefix + token + haystack), and
+ *              exposes itself to React via `subscribe` (useSyncExternalStore
+ *              compatible). Diagnostics (datasource health) are fetched on
+ *              demand via IPC, not cached in the mirror.
  *
  *              Lifecycle:
- *                未启用(idle)→ start() → 订阅事件 + 拉取 getSnapshot 全量
- *                                 → 接 bib:initial/patch/status 增量
- *                                 → dispose() 清理(取订阅 + 清数据)
+ *                disabled (idle) → start() → subscribe + pull full
+ *                                  getSnapshot
+ *                                  → bib:initial/patch/status increments
+ *                                  → dispose() cleans up (unsubscribe + clear)
  *
- *              IPC 时序 — 先订阅再拉快照,任何中途到达的 patch 都不会丢失;
- *              快照与 patch 各自带 etag,本地按"已 apply 过则跳过"的原则做去重。
+ *              IPC ordering — subscribe before pulling the snapshot so any
+ *              patch arriving mid-flight is preserved. Snapshot and patches
+ *              each carry an etag; the mirror dedupes on "already applied".
  *
- *              搜索评分见 bibSearchScoring.ts(citation-key 前缀 → token 交集
- *              → substring fallback 三档),从 m2-stash 的 Worker 端口移植。
+ *              Search scoring lives in bibSearchScoring.ts (three tiers:
+ *              citation-key prefix → token intersection → substring fallback).
+ *              Ported from the m2-stash Worker implementation.
  */
 
 import type { ZoteroItemDTO } from '../../../../../shared/types/zotero';
@@ -39,14 +44,14 @@ import {
 
 const logger = createLogger('ZoteroBibMirror');
 
-/** 视图层订阅时拿到的最小状态切片(配合 useSyncExternalStore)。 */
+/** Minimal state slice consumed by view layers (paired with useSyncExternalStore). */
 export interface ZoteroBibMirrorState {
   status: BibStatus;
   etag: string;
   itemCount: number;
-  /** ISO 8601 字符串;首次 hydrate 之前为 undefined。 */
+  /** ISO 8601 string; undefined until the first hydrate. */
   lastSyncedAt?: string;
-  /** Mirror 是否已成功完成首次 hydrate。 */
+  /** Whether the mirror has completed its first successful hydrate. */
   ready: boolean;
 }
 
@@ -61,13 +66,13 @@ const INITIAL_STATE: ZoteroBibMirrorState = {
 
 export class ZoteroBibMirror {
   private items = new Map<string, ZoteroItemDTO>();
-  /** 大小写敏感的 citationKey → itemKey,getByCitationKey 走这里。 */
+  /** Case-sensitive citationKey → itemKey; used by getByCitationKey. */
   private keyToItem = new Map<string, string>();
-  /** 小写 citationKey → itemKey,搜索时前缀匹配用。 */
+  /** Lowercase citationKey → itemKey; used for prefix matching during search. */
   private citationKeyLower = new Map<string, string>();
-  /** token(lowercase ≥2 char)→ itemKey 集合,搜索 token 评分用。 */
+  /** token (lowercase, ≥2 chars) → set of itemKeys; used for token scoring. */
   private tokenIndex = new Map<string, Set<string>>();
-  /** itemKey → 小写拼接 haystack,substring fallback 用。 */
+  /** itemKey → lowercase concatenated haystack; used by substring fallback. */
   private haystacks = new Map<string, string>();
 
   private state: ZoteroBibMirrorState = INITIAL_STATE;
@@ -83,14 +88,16 @@ export class ZoteroBibMirror {
   // ============================================================
 
   /**
-   * 启动镜像 —— 订阅事件、拉取初始快照。重入安全(并发调用合并为一次)。
-   * 已 stop 后允许再次 start();dispose 是终止操作,start 会被忽略。
+   * Start the mirror — subscribe to events, pull the initial snapshot.
+   * Re-entrant safe (concurrent calls collapse to one). After stop() the
+   * mirror may be started again; dispose() is terminal and ignores start.
    */
   async start(): Promise<void> {
     if (this.disposed || this.starting || this.state.ready) return;
     this.starting = true;
     try {
-      // 必须先订阅,再拉快照;反之中间到达的 patch 会丢。
+      // Subscribe before pulling the snapshot; otherwise any patch arriving
+      // mid-flight would be lost.
       this.unsubEvent = api.zotero.onEvent((event) => this.handleEvent(event));
 
       const snapshot = await api.zotero.getSnapshot({});
@@ -103,8 +110,9 @@ export class ZoteroBibMirror {
   }
 
   /**
-   * 停止镜像 —— 取订阅 + 清数据 + 状态回到 idle。
-   * **保留** subscribe 监听者,UI 仍可观察到状态回到 idle,后续 start() 可恢复。
+   * Stop the mirror — unsubscribe, clear data, reset state to idle.
+   * **Retains** subscribe listeners so the UI still observes the return to
+   * idle; a subsequent start() can resume normally.
    */
   stop(): void {
     this.unsubEvent?.();
@@ -118,7 +126,7 @@ export class ZoteroBibMirror {
     this.bumpSnapshot();
   }
 
-  /** 终止操作 —— stop + 清空 subscribe 监听者。仅在测试/进程退出场景使用。 */
+  /** Terminal — stop + drop subscribe listeners. Tests / process exit only. */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -135,7 +143,8 @@ export class ZoteroBibMirror {
     return () => this.listeners.delete(listener);
   }
 
-  /** 返回稳定引用:仅在状态变化后才换新对象,可直接作为 useSyncExternalStore 的 snapshot。 */
+  /** Returns a stable reference: only swaps to a new object after state
+   * changes, so it can drive useSyncExternalStore directly. */
   getState(): ZoteroBibMirrorState {
     return this.stateSnapshot;
   }
@@ -154,15 +163,18 @@ export class ZoteroBibMirror {
     return this.items.get(itemKey);
   }
 
-  /** 全部条目(空查询补全 fallback 用:敲 @ 还没输字符时列出全部文献)。 */
+  /** All entries (empty-query completion fallback: typing `@` with no chars
+   * yet should list every reference). */
   getAllItems(): ZoteroItemDTO[] {
     return Array.from(this.items.values());
   }
 
   /**
-   * 返回 cite 候选并附评分(供 dropdown / completion provider 排序展示)。
-   * 评分语义见 `bibSearchScoring.ts`(citation-key 前缀 → token 交集 → substring)。
-   * `mode` 见 RecallMode:键入补全传 'prefix-only',搜索框 / LLM 工具用默认 'full'。
+   * Return cite candidates with scores (for dropdown / completion-provider
+   * sorting). Scoring semantics live in `bibSearchScoring.ts` (citation-key
+   * prefix → token intersection → substring). `mode` follows RecallMode:
+   * keystroke completion passes 'prefix-only', search box / LLM tools use
+   * the default 'full'.
    */
   searchByQueryWithScore(query: string, limit = 20, mode: RecallMode = 'full'): BibSearchHit[] {
     return searchBibCorpus(
@@ -178,7 +190,7 @@ export class ZoteroBibMirror {
     );
   }
 
-  /** 兼容旧调用方:直接拿排序好的 ZoteroItemDTO 列表,丢掉 score。 */
+  /** Legacy-caller convenience: return the sorted ZoteroItemDTO list and drop score. */
   searchByQuery(query: string, limit = 20): ZoteroItemDTO[] {
     return this.searchByQueryWithScore(query, limit).map((h) => h.item);
   }
@@ -187,12 +199,13 @@ export class ZoteroBibMirror {
   // Async surface (proxies main)
   // ============================================================
 
-  /** 主动触发一次刷新(走 main 的 cooldown 防抖)。 */
+  /** Trigger a refresh (subject to main's cooldown debounce). */
   async refresh(): Promise<RefreshResultDTO> {
     return api.zotero.requestRefresh();
   }
 
-  /** 拉取完整诊断(含数据源健康度)。Popover 打开时按需调用,不在 state 里缓存。 */
+  /** Fetch full diagnostics (including datasource health). Popover calls on
+   * demand; not cached in state. */
   async fetchDiagnostics(): Promise<ZoteroDiagnosticsDTO> {
     return api.zotero.getDiagnostics();
   }
@@ -208,7 +221,7 @@ export class ZoteroBibMirror {
         this.applyInitial(event.snapshot);
         break;
       case 'bib:patch':
-        if (event.etag === this.state.etag) return; // 已 apply(竞态保护)
+        if (event.etag === this.state.etag) return; // Already applied (race guard).
         this.applyDelta(event.upserts, event.deletes, event.etag, event.status);
         break;
       case 'bib:status':
@@ -218,7 +231,8 @@ export class ZoteroBibMirror {
         }
         break;
       case 'bib:invalidated':
-        // 纯信息事件 —— 后续会跟随 bib:status('syncing') 或 bib:patch,不需要立即动作。
+        // Pure informational event — a bib:status('syncing') or bib:patch
+        // will follow; no immediate action required.
         break;
     }
   }
@@ -265,7 +279,8 @@ export class ZoteroBibMirror {
     }
     for (const item of upserts) {
       if (!item.itemKey) continue;
-      // upsert 之前先 unindex 旧 item(citationKey/token/haystack 可能改了)。
+      // Unindex the old item before upserting (citationKey/token/haystack
+      // may have changed).
       if (this.items.has(item.itemKey)) {
         this.unindexItem(item.itemKey);
       }
@@ -356,7 +371,7 @@ export function getZoteroBibMirror(): ZoteroBibMirror {
   return singleton;
 }
 
-/** Tests-only:重置单例。 */
+/** Tests only: reset the singleton. */
 export function __resetZoteroBibMirrorSingleton(): void {
   singleton?.dispose();
   singleton = null;
