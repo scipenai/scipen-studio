@@ -11,6 +11,7 @@ import {
   invokeResultSchemas,
   IpcResultValidationError,
 } from '../../../../shared/ipc/schemas';
+import { t as translate } from '../locales';
 
 const IPC_BATCH_LIMIT = 100;
 
@@ -691,11 +692,34 @@ export const app = {
 
 // ==================== Dialog API ====================
 
+// Default button labels are filled at this boundary using the renderer's
+// current locale (via the module-level `t()` from `../locales`, which reads
+// `currentLocale` at call time — no React hook needed). Callsites can
+// override per-call by passing `options.confirmText` / `cancelText` / `okText`.
 export const dialog = {
-  confirm: (message: string, title?: string) =>
-    invoke<boolean>(IpcChannel.Dialog_Confirm, { message, title }),
-  message: (message: string, type?: 'info' | 'warning' | 'error', title?: string) =>
-    invoke<void>(IpcChannel.Dialog_Message, { message, type, title }),
+  confirm: (
+    message: string,
+    title?: string,
+    options?: { confirmText?: string; cancelText?: string }
+  ) =>
+    invoke<boolean>(IpcChannel.Dialog_Confirm, {
+      message,
+      title,
+      confirmText: options?.confirmText ?? translate('common.confirm'),
+      cancelText: options?.cancelText ?? translate('common.cancel'),
+    }),
+  message: (
+    message: string,
+    type?: 'info' | 'warning' | 'error',
+    title?: string,
+    options?: { okText?: string }
+  ) =>
+    invoke<void>(IpcChannel.Dialog_Message, {
+      message,
+      type,
+      title,
+      okText: options?.okText ?? translate('common.ok'),
+    }),
 };
 
 // ==================== Config API ====================
