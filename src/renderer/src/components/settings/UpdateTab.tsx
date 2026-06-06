@@ -26,6 +26,8 @@ export const UpdateTab: React.FC = () => {
     });
 
     // Subscribe to update-status pushes.
+    // `api.app.onUpdateStatus` 透传给通用 `onEvent`,后者已在 `event-schemas.ts`
+    // 的 `eventSchemas` 注册中央校验,非法 payload 直接 drop —— 这里收到的永远合法。
     const unsubscribe = api.app.onUpdateStatus((s) => {
       setStatus(s);
     });
@@ -33,8 +35,15 @@ export const UpdateTab: React.FC = () => {
   }, []);
 
   const handleCheck = useCallback(async () => {
-    const result = await api.app.checkUpdate();
-    setStatus(result);
+    // `api.app.checkUpdate` 用同一份 `updateStatusSchema` 校验返回值;非法时 throw,
+    // 这里走 catch 兜底。
+    try {
+      const result = await api.app.checkUpdate();
+      setStatus(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus((prev) => ({ ...prev, state: 'error', error: msg }));
+    }
   }, []);
 
   const handleDownload = useCallback(async () => {

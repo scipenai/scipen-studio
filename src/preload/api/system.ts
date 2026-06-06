@@ -37,19 +37,14 @@ export const compileApi = {
 };
 
 // ====== App Info ======
+// 注:auto-update 相关(checkUpdate / downloadUpdate / installUpdate / onUpdateStatus)
+// 渲染层一律走 `window.electron.ipcRenderer` 通用桥(由 `renderer/src/api/index.ts`
+// 适配 + 边界校验),不在 appApi 暴露。
 export const appApi = {
   openExternal: (url: string) => ipcRenderer.invoke(IpcChannel.App_OpenExternal, url),
   getAppVersion: () => ipcRenderer.invoke(IpcChannel.App_GetVersion),
   getHomeDir: () => ipcRenderer.invoke(IpcChannel.App_GetHomeDir),
   getAppDataDir: () => ipcRenderer.invoke(IpcChannel.App_GetAppDataDir),
-  checkUpdate: () => ipcRenderer.invoke(IpcChannel.App_CheckUpdate),
-  downloadUpdate: () => ipcRenderer.invoke(IpcChannel.App_DownloadUpdate),
-  installUpdate: () => ipcRenderer.invoke(IpcChannel.App_InstallUpdate),
-  onUpdateStatus: (callback: (status: unknown) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, status: unknown) => callback(status);
-    ipcRenderer.on(IpcChannel.App_UpdateStatus, handler);
-    return () => ipcRenderer.removeListener(IpcChannel.App_UpdateStatus, handler);
-  },
 };
 
 // ====== Logging API ======

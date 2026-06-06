@@ -5,6 +5,8 @@
  */
 
 import { IpcChannel } from '../../../../shared/ipc/channels';
+import { type UpdateStatus } from '../../../../shared/ipc/app-contract';
+import { eventSchemas, updateStatusSchema } from './event-schemas';
 
 const IPC_BATCH_LIMIT = 100;
 
@@ -122,7 +124,26 @@ async function invoke<T>(channel: IpcChannel, ...args: unknown[]): Promise<T> {
 
 function onEvent<T>(channel: IpcChannel, callback: (data: T) => void): () => void {
   const ipc = getIpcRenderer();
-  const handler = (...args: unknown[]) => callback(args[1] as T);
+  const schema = eventSchemas.get(channel);
+  // 中央校验:命中 schema → safeParse;不合法 drop + warn,合法才 forward。
+  // 没命中 schema → 透传(渐进迁移:旧 channel 暂不强制声明,新 channel 应在
+  // `event-schemas.ts` 的 `eventSchemas` 注册)。
+  const handler = (...args: unknown[]) => {
+    const raw = args[1];
+    if (schema) {
+      const result = schema.safeParse(raw);
+      if (!result.success) {
+        console.warn(
+          `[onEvent] dropped malformed payload on '${channel}':`,
+          result.error.format()
+        );
+        return;
+      }
+      callback(result.data as T);
+      return;
+    }
+    callback(raw as T);
+  };
   return ipc.on(channel, handler);
 }
 
@@ -640,15 +661,21 @@ export const app = {
     const w = window as unknown as { electron?: { platform?: NodeJS.Platform } };
     return w.electron?.platform ?? 'linux';
   },
-  checkUpdate: () =>
-    invoke<import('../../../../shared/ipc/app-contract').UpdateStatus>(IpcChannel.App_CheckUpdate),
+  checkUpdate: async (): Promise<UpdateStatus> => {
+    // invoke 通道目前只校验 args(`channelSchemas`),没校验返回值;这里在 renderer
+    // 边界用与 event 通道共享的 `updateStatusSchema` 兜底,确保消费者拿到合法对象。
+    const result = await invoke<unknown>(IpcChannel.App_CheckUpdate);
+    const parsed = updateStatusSchema.safeParse(result);
+    if (!parsed.success) {
+      throw new Error('App_CheckUpdate returned malformed UpdateStatus payload');
+    }
+    return parsed.data;
+  },
   downloadUpdate: () => invoke<void>(IpcChannel.App_DownloadUpdate),
   installUpdate: () => invoke<void>(IpcChannel.App_InstallUpdate),
-  onUpdateStatus: (
-    callback: (status: import('../../../../shared/ipc/app-contract').UpdateStatus) => void
-  ): (() => void) => {
-    return onEvent(IpcChannel.App_UpdateStatus, callback);
-  },
+  // `onEvent` 已在 `App_UpdateStatus` 上中央校验,这里单行透传即可。
+  onUpdateStatus: (callback: (status: UpdateStatus) => void): (() => void) =>
+    onEvent<UpdateStatus>(IpcChannel.App_UpdateStatus, callback),
 };
 
 // ==================== Dialog API ====================
