@@ -158,8 +158,6 @@ export const SelectionTab: React.FC = () => {
         />
       </SettingCard>
 
-      <SectionTitle>{t('selectionSettings.shortcutSettings')}</SectionTitle>
-
       <SettingCard
         title={t('selectionSettings.triggerShortcut')}
         description={t('selectionSettings.triggerShortcutDesc')}
@@ -192,38 +190,31 @@ export const SelectionTab: React.FC = () => {
         </div>
       </SettingCard>
 
-      <SectionTitle>{t('selectionSettings.advancedSettings')}</SectionTitle>
-
       <SettingCard
         title={t('selectionSettings.triggerMode')}
         description={t('selectionSettings.triggerModeDesc')}
       >
-        <SettingItem
-          label={t('selectionSettings.triggerMode')}
-          description={t('selectionSettings.triggerModeDesc')}
-        >
-          <div className="flex items-center gap-3">
-            <Settings2 className="w-4 h-4 text-[var(--color-text-muted)]" />
-            <select
-              className={selectClassName}
-              value={config.triggerMode}
-              onChange={(e) =>
-                handleTriggerModeChange(e.target.value as SelectionConfigDTO['triggerMode'])
-              }
-              disabled={isSaving || !config.enabled}
-            >
-              <option value="shortcut">{t('selectionSettings.shortcutTrigger')}</option>
-              <option value="hook" disabled={!hookSupported}>
-                {t('selectionSettings.globalSelectionPopup')}
-              </option>
-            </select>
-          </div>
-          {!hookSupported && (
-            <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-              {t('selectionSettings.platformNotSupported')}
-            </p>
-          )}
-        </SettingItem>
+        <div className="flex items-center gap-3">
+          <Settings2 className="w-4 h-4 text-[var(--color-text-muted)]" />
+          <select
+            className={selectClassName}
+            value={config.triggerMode}
+            onChange={(e) =>
+              handleTriggerModeChange(e.target.value as SelectionConfigDTO['triggerMode'])
+            }
+            disabled={isSaving || !config.enabled}
+          >
+            <option value="shortcut">{t('selectionSettings.shortcutTrigger')}</option>
+            <option value="hook" disabled={!hookSupported}>
+              {t('selectionSettings.globalSelectionPopup')}
+            </option>
+          </select>
+        </div>
+        {!hookSupported && (
+          <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+            {t('selectionSettings.platformNotSupported')}
+          </p>
+        )}
       </SettingCard>
 
       <SectionTitle>{t('selectionSettings.instructions')}</SectionTitle>
