@@ -6,6 +6,7 @@
 
 import { ipcRenderer } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
+import { eventSchemas } from '../../../shared/ipc/schemas';
 
 // ====== Security: Allowed IPC Channels Whitelist ======
 // Only channels in this set can be invoked via the low-level ipcRenderer.invoke API
@@ -335,13 +336,35 @@ export function isPathSafe(filePath: string): boolean {
  * Unlike removeAllListeners, this only removes the specific listener,
  * preventing interference with other listeners on the same channel.
  *
+ * Schema enforcement: if `channel` is registered in `eventSchemas`
+ * (`shared/ipc/schemas.ts`), the payload is `safeParse`d before forward —
+ * malformed pushes are dropped at the preload boundary and never reach the
+ * renderer. Channels without a registered schema pass through (renderer-side
+ * `onEvent` may still re-validate; the two守门点共用同一份注册表 —— 渐进迁移).
+ *
  * @param channel The IPC channel to listen on
  * @returns A function that creates event subscriptions with proper cleanup
  * @sideeffect Registers an IPC event listener that must be cleaned up
  */
 export function createSafeListener<T>(channel: IpcChannel) {
+  const schema = eventSchemas.get(channel);
   return (callback: (data: T) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: T) => callback(data);
+    const handler = (_event: Electron.IpcRendererEvent, data: unknown) => {
+      if (schema) {
+        const result = schema.safeParse(data);
+        if (!result.success) {
+          // eslint-disable-next-line no-console -- preload 边界的诊断只能落 stdout
+          console.warn(
+            `[Preload] dropped malformed payload on '${channel}':`,
+            result.error.format()
+          );
+          return;
+        }
+        callback(result.data as T);
+        return;
+      }
+      callback(data as T);
+    };
     ipcRenderer.on(channel, handler);
     // Return a cleanup function that removes only this specific handler
     return () => ipcRenderer.removeListener(channel, handler);
