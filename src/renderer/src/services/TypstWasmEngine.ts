@@ -90,6 +90,26 @@ export interface TypstCompileOutput {
   diagnostics: TypstDiagnostic[];
 }
 
+/**
+ * Font-loading snapshot exposed by {@link TypstWasmEngine.fontContext}.
+ * Read-only — recomputed on every {@link TypstWasmEngine.loadEngine} call.
+ */
+export interface TypstFontContext {
+  /** True if `settings.compiler.typstFontEndpoint` was non-empty at init. */
+  endpointConfigured: boolean;
+  /**
+   * True if endpoint was configured AND its manifest fetched cleanly.
+   * False when endpoint was misconfigured/unreachable or simply not set.
+   * Distinguish from {@link endpointConfigured} to give the user a precise
+   * hint ("URL down" vs "URL not set").
+   */
+  endpointReachable: boolean;
+  /** Count of local-manifest fonts that successfully registered. */
+  localLoaded: number;
+  /** Count of remote-manifest fonts that successfully registered. */
+  remoteLoaded: number;
+}
+
 interface WorkerFontStats {
   localLoaded: number;
   localTotal: number;
@@ -153,8 +173,29 @@ export class TypstWasmEngine {
    */
   private fontEndpoint = '';
 
+  /**
+   * Snapshot of font-loading state from the last successful init. Read by
+   * the Provider when a compile diagnostic mentions a missing font, so the
+   * user-facing hint can be specific about which path failed:
+   *   - endpoint not configured → "configure one"
+   *   - endpoint configured but reachable but missing the font → "your manifest doesn't include it"
+   *   - endpoint configured but unreachable → "URL is down"
+   * Empty default lets the Provider degrade gracefully if read before init.
+   */
+  private _fontContext: TypstFontContext = {
+    endpointConfigured: false,
+    endpointReachable: false,
+    localLoaded: 0,
+    remoteLoaded: 0,
+  };
+
   get ready(): boolean {
     return this._ready;
+  }
+
+  /** See {@link _fontContext} doc. Stable snapshot, do not mutate. */
+  get fontContext(): TypstFontContext {
+    return this._fontContext;
   }
 
   /**
@@ -203,10 +244,22 @@ export class TypstWasmEngine {
     this._ready = true;
     const stats = initReply.fontStats;
     const diagnostics = initReply.fontDiagnostics ?? [];
+    // The worker prefixes endpoint-fetch failures with `remote endpoint `
+    // (see typst-compile-worker.js loadFonts catch block) — that single
+    // string is the signal for "configured but unreachable".
+    const endpointConfigured = !!this.fontEndpoint;
+    const endpointFetchFailed = diagnostics.some((d) => d.startsWith('remote endpoint '));
+    this._fontContext = {
+      endpointConfigured,
+      endpointReachable: endpointConfigured && !endpointFetchFailed,
+      localLoaded: stats?.localLoaded ?? 0,
+      remoteLoaded: stats?.remoteLoaded ?? 0,
+    };
     logger.info('Typst WASM engine ready', {
       loadMs: Math.round(performance.now() - t0),
       localFonts: stats ? `${stats.localLoaded}/${stats.localTotal}` : 'unknown',
       remoteFonts: stats ? `${stats.remoteLoaded}/${stats.remoteTotal}` : 'unknown',
+      fontContext: this._fontContext,
     });
     // Font failures don't abort init (a missing CJK font is a degraded
     // experience, not a broken engine). Surface them at warn level so a
@@ -297,6 +350,12 @@ export class TypstWasmEngine {
   close(): void {
     this.disposeWorker();
     this.stagedSources.clear();
+    this._fontContext = {
+      endpointConfigured: false,
+      endpointReachable: false,
+      localLoaded: 0,
+      remoteLoaded: 0,
+    };
   }
 
   // ====== Internal ======

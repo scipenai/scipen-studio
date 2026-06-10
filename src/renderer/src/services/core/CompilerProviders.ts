@@ -5,6 +5,7 @@
  */
 
 import { api } from '../../api';
+import { t } from '../../locales';
 import { createLogger } from '../LogService';
 import { BusyTexEngine, type BusyTexEngineType } from '../BusyTexEngine';
 import { TypstWasmEngine } from '../TypstWasmEngine';
@@ -259,12 +260,22 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
         message: d.message,
       }));
 
-      const log = output.diagnostics
-        .map(
+      // Font-related diagnostic? Attach a hint tailored to the user's
+      // endpoint state so they know exactly what to do (configure / fix
+      // URL / edit manifest). We append rather than replace so the raw
+      // typst diagnostic stays visible for debugging.
+      const fontHint = this.buildFontHint(output.diagnostics);
+      if (fontHint) {
+        parsedErrors.push({ line: 0, message: fontHint });
+      }
+
+      const log = [
+        ...output.diagnostics.map(
           (d) =>
             `${d.severity === 1 ? 'error' : d.severity === 2 ? 'warning' : 'info'}: ${d.message}`,
-        )
-        .join('\n');
+        ),
+        ...(fontHint ? [fontHint] : []),
+      ].join('\n');
 
       // `pdfBuffer` is consumed directly by useCompilation — no disk I/O
       // round-trip. typst-ts has no synctex so there's nothing for the
@@ -300,6 +311,33 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
     this.engine?.close();
     this.engine = null;
     this.compileCount = 0;
+  }
+
+  /**
+   * If any compile diagnostic mentions a font, pick the hint that matches
+   * the engine's font-loading state at last init. typst-ts can't add fonts
+   * post-build, so the action is always "fix config, restart engine" —
+   * this just makes that specific fix discoverable.
+   *
+   * Returns the localised hint string, or null when no font diagnostic
+   * is present.
+   */
+  private buildFontHint(
+    diagnostics: { severity: number; message: string }[],
+  ): string | null {
+    if (!this.engine) return null;
+    const fontMentioned = diagnostics.some(
+      (d) => d.severity === 1 && /font/i.test(d.message),
+    );
+    if (!fontMentioned) return null;
+    const ctx = this.engine.fontContext;
+    if (!ctx.endpointConfigured) {
+      return t('compiler.typstFontHintNotConfigured');
+    }
+    if (!ctx.endpointReachable) {
+      return t('compiler.typstFontHintFetchFailed');
+    }
+    return t('compiler.typstFontHintConfigured');
   }
 
   /**

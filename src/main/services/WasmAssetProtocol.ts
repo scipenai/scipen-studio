@@ -56,7 +56,9 @@ export function registerWasmAssetSchemePrivileged(): void {
 }
 
 /**
- * Resolve the on-disk root of bundled WASM assets.
+ * Resolve the on-disk root of bundled WASM assets. Exported so other
+ * main-side modules (e.g. capability probes that fs.read manifests
+ * outside the protocol handler) share one source of truth for the path.
  *
  * Layout (kept in sync with electron-vite + electron-builder.json5):
  *   dev   : <repoRoot>/out/renderer/wasm/   (electron-vite outputs here)
@@ -65,7 +67,7 @@ export function registerWasmAssetSchemePrivileged(): void {
  *           app.asar.unpacked, but Electron's path APIs hide that — we
  *           just join against app.getAppPath() and it resolves correctly)
  */
-function resolveWasmRoot(): string {
+export function resolveWasmRoot(): string {
   return path.join(app.getAppPath(), 'out', 'renderer', 'wasm');
 }
 

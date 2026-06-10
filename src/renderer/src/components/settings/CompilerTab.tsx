@@ -36,6 +36,18 @@ export const CompilerTab: FC = () => {
   const settingsService = getSettingsService();
   const projectPath = useProjectPath();
   const [typstCaps, setTypstCaps] = useState<TypstCapsState>(null);
+  /**
+   * Draft for the font-endpoint input. We don't write to SettingsService on
+   * every keystroke because trim()-on-change eats trailing whitespace mid-
+   * paste; commit happens onBlur. The effect below re-syncs from external
+   * settings changes (other panel, multi-window).
+   */
+  const [fontEndpointDraft, setFontEndpointDraft] = useState(
+    settings.compiler.typstFontEndpoint,
+  );
+  useEffect(() => {
+    setFontEndpointDraft(settings.compiler.typstFontEndpoint);
+  }, [settings.compiler.typstFontEndpoint]);
 
   useEffect(() => {
     let cancelled = false;
@@ -172,10 +184,15 @@ export const CompilerTab: FC = () => {
       >
         <input
           type="text"
-          value={settings.compiler.typstFontEndpoint}
-          onChange={(e) =>
-            settingsService.updateCompiler({ typstFontEndpoint: e.target.value.trim() })
-          }
+          value={fontEndpointDraft}
+          onChange={(e) => setFontEndpointDraft(e.target.value)}
+          onBlur={(e) => {
+            const next = e.target.value.trim();
+            if (next !== settings.compiler.typstFontEndpoint) {
+              settingsService.updateCompiler({ typstFontEndpoint: next });
+            }
+            setFontEndpointDraft(next);
+          }}
           placeholder="https://your-cdn.example.com/extra-fonts/manifest.json"
           className={inputMonoClassName}
         />

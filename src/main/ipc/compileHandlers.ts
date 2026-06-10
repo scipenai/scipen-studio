@@ -10,12 +10,12 @@
  * - SyncTeX service injected for bidirectional sync
  */
 
-import { app } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import type { LaTeXCompiler } from '../services/LaTeXCompiler';
 import { createLogger } from '../services/LoggerService';
 import { type PathAccessMode, checkPathSecurity } from '../services/PathSecurityService';
 import type { TypstCompiler } from '../services/TypstCompiler';
+import { resolveWasmRoot } from '../services/WasmAssetProtocol';
 import { CompilerRegistry } from '../services/compiler/CompilerRegistry';
 import type { CompileMessage } from '../services/compiler/interfaces/ICompiler';
 import type { ISyncTeXService } from '../services/interfaces';
@@ -313,14 +313,7 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
           version: null,
         };
         try {
-          const manifestPath = path.join(
-            app.getAppPath(),
-            'out',
-            'renderer',
-            'wasm',
-            'typst-ts',
-            'manifest.json',
-          );
+          const manifestPath = path.join(resolveWasmRoot(), 'typst-ts', 'manifest.json');
           const raw = await fs.readFile(manifestPath, 'utf-8');
           const parsed = JSON.parse(raw) as {
             compilerVersion?: string;
