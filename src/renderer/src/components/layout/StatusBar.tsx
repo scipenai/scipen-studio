@@ -91,6 +91,8 @@ export const StatusBar: React.FC = () => {
         return t('compiler.wasmPdftex');
       case 'wasm-xetex':
         return t('compiler.wasmXetex');
+      case 'wasm-lualatex':
+        return t('compiler.wasmLualatex');
       case 'latex':
         return 'LaTeX';
       case 'tinymist':
@@ -360,6 +362,11 @@ export const StatusBar: React.FC = () => {
                     {
                       value: 'wasm-pdftex',
                       label: getCompilerLabel('wasm-pdftex'),
+                      descKey: 'statusBar.wasmNoInstall' as const,
+                    },
+                    {
+                      value: 'wasm-lualatex',
+                      label: getCompilerLabel('wasm-lualatex'),
                       descKey: 'statusBar.wasmNoInstall' as const,
                     },
                   ].map((engine) => (

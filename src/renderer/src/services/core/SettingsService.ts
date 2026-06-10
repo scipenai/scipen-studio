@@ -96,7 +96,7 @@ export const defaultSettings: AppSettings = {
     outputDirectory: './output',
     cleanAuxFiles: true,
     stopOnFirstError: false,
-    texliveEndpoint: '',
+    texliveEndpoint: 'https://texlive2026.texlyre.org',
     overleaf: {
       serverUrl: OVERLEAF_SERVER_URL,
       cookies: '',

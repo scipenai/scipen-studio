@@ -19,6 +19,10 @@ import { CompilerRegistry } from '../services/compiler/CompilerRegistry';
 import type { CompileMessage } from '../services/compiler/interfaces/ICompiler';
 import type { ISyncTeXService } from '../services/interfaces';
 import { createTypedHandlers } from './typedIpc';
+import { promises as fs } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import os from 'node:os';
+import path from 'node:path';
 
 const logger = createLogger('CompileHandlers');
 
@@ -149,12 +153,21 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
       },
 
       // SyncTeX forward sync: source location -> PDF position
-      [IpcChannel.SyncTeX_Forward]: async (texFile, line, column, pdfFile) => {
+      [IpcChannel.SyncTeX_Forward]: async (texFile, line, column, pdfFile, projectRoot) => {
         try {
           const safeTexFile = assertPathSecurity(texFile, 'read');
           const safePdfFile = assertPathSecurity(pdfFile, 'read');
+          const safeProjectRoot = projectRoot
+            ? assertPathSecurity(projectRoot, 'read')
+            : undefined;
 
-          const result = await syncTeXService.forwardSync(safePdfFile, safeTexFile, line, column);
+          const result = await syncTeXService.forwardSync(
+            safePdfFile,
+            safeTexFile,
+            line,
+            column,
+            safeProjectRoot
+          );
           return result;
         } catch (error) {
           console.error('SyncTeX forward sync failed:', error);
@@ -163,16 +176,44 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
       },
 
       // SyncTeX backward sync: PDF position -> source location
-      [IpcChannel.SyncTeX_Backward]: async (pdfFile, page, x, y) => {
+      [IpcChannel.SyncTeX_Backward]: async (pdfFile, page, x, y, projectRoot) => {
         try {
           const safePdfFile = assertPathSecurity(pdfFile, 'read');
+          const safeProjectRoot = projectRoot
+            ? assertPathSecurity(projectRoot, 'read')
+            : undefined;
 
-          const result = await syncTeXService.inverseSync(safePdfFile, page, x, y);
+          const result = await syncTeXService.inverseSync(
+            safePdfFile,
+            page,
+            x,
+            y,
+            safeProjectRoot
+          );
           return result;
         } catch (error) {
           console.error('SyncTeX backward sync failed:', error);
           return null;
         }
+      },
+
+      // Persist BusyTeX WASM artifacts (pdf + .synctex.gz) to a fresh temp
+      // directory so the main-process `synctex` CLI can read them via the
+      // same code path as a CLI-compiled result. Buffer is the renderer's
+      // Uint8Array — it crosses the IPC boundary as a Node Buffer.
+      [IpcChannel.Compile_WriteWasmArtifacts]: async (pdfBuffer, synctexBuffer, baseName) => {
+        const safeName =
+          baseName && /^[A-Za-z0-9_.-]+$/.test(baseName) ? baseName : 'main';
+        const tempDir = path.join(
+          os.tmpdir(),
+          `scipen-wasm-${randomBytes(8).toString('hex')}`
+        );
+        await fs.mkdir(tempDir, { recursive: true });
+        const pdfPath = path.join(tempDir, `${safeName}.pdf`);
+        const synctexPath = path.join(tempDir, `${safeName}.synctex.gz`);
+        await fs.writeFile(pdfPath, Buffer.from(pdfBuffer));
+        await fs.writeFile(synctexPath, Buffer.from(synctexBuffer));
+        return { pdfPath, synctexPath };
       },
 
       // Typst compilation via CompilerRegistry (lazy instantiation)

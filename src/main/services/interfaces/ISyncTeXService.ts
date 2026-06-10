@@ -46,13 +46,18 @@ export interface ISyncTeXService {
    * @param sourceFile Absolute source file path
    * @param line Line number (1-based)
    * @param column Column number (0-based)
+   * @param projectRoot Optional project root. When the .synctex.gz was
+   *        produced with relative paths (e.g. BusyTeX WASM compile),
+   *        `sourceFile` is rebased onto this root so synctex CLI's input
+   *        argument matches the file ids recorded in the .synctex.gz.
    * @returns PDF position or null on failure
    */
   forwardSync(
     synctexFile: string,
     sourceFile: string,
     line: number,
-    column?: number
+    column?: number,
+    projectRoot?: string
   ): Promise<ForwardSyncResult | null>;
 
   /**
@@ -61,12 +66,15 @@ export interface ISyncTeXService {
    * @param page Page number (1-based)
    * @param x Horizontal position (PDF points)
    * @param y Vertical position (PDF points)
+   * @param projectRoot Optional project root. Relative file paths emitted
+   *        by synctex are joined onto this root before returning.
    * @returns Source position or null on failure
    */
   inverseSync(
     pdfFile: string,
     page: number,
     x: number,
-    y: number
+    y: number,
+    projectRoot?: string
   ): Promise<InverseSyncResult | null>;
 }

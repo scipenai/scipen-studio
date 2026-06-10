@@ -125,9 +125,9 @@ function getIpcRenderer(): IpcRenderer {
 
 async function invoke<T>(channel: IpcChannel, ...args: unknown[]): Promise<T> {
   const raw = await getIpcRenderer().invoke(channel, ...args);
-  // 中央校验:命中 invokeResultSchemas → safeParse;不合法 throw
-  // IpcResultValidationError(消费者可按"网络错误"等价处理)。没命中 → 透传
-  // (渐进迁移)。与 main 端 channelSchemas 守 args 入境配对,形成 RPC 双向边界。
+  // Central validation: if invokeResultSchemas has an entry → safeParse; on mismatch throw
+  // IpcResultValidationError (consumers can treat it like a generic network error). No entry → pass through
+  // (progressive migration). Paired with the main-process channelSchemas guarding inbound args, this forms the RPC two-way boundary.
   const schema = invokeResultSchemas.get(channel);
   if (schema) {
     const result = schema.safeParse(raw);
@@ -142,11 +142,11 @@ async function invoke<T>(channel: IpcChannel, ...args: unknown[]): Promise<T> {
 function onEvent<T>(channel: IpcChannel, callback: (data: T) => void): () => void {
   const ipc = getIpcRenderer();
   const schema = eventSchemas.get(channel);
-  // 中央校验:命中 schema → safeParse;不合法 drop + warn,合法才 forward。
-  // 没命中 schema → 透传(渐进迁移)。
+  // Central validation: if schemas has an entry → safeParse; on mismatch drop + warn, only forward when valid.
+  // No entry → pass through (progressive migration).
   //
-  // 注:`window.api.xxx.onYyy`(preload 包装桥)路径独立守门 —— 见
-  // `preload/api/_shared.ts:createSafeListener`,与本入口共用 `eventSchemas`。
+  // Note: the `window.api.xxx.onYyy` (preload wrapper bridge) path has its own guard — see
+  // `preload/api/_shared.ts:createSafeListener`, which shares `eventSchemas` with this entry point.
   const handler = (...args: unknown[]) => {
     const raw = args[1];
     if (schema) {
@@ -360,6 +360,17 @@ export const compile = {
       latex: { isCompiling: boolean; queueLength: number; currentTaskId: string | null };
       typst: { isCompiling: boolean };
     }>(IpcChannel.Compile_GetStatus),
+  /**
+   * Persist a BusyTeX WASM compile result to a temp dir on disk so the
+   * main-process `synctex` CLI can read it. Returns the on-disk paths.
+   */
+  writeWasmArtifacts: (pdfBuffer: Uint8Array, synctexBuffer: Uint8Array, baseName?: string) =>
+    invoke<{ pdfPath: string; synctexPath: string }>(
+      IpcChannel.Compile_WriteWasmArtifacts,
+      pdfBuffer,
+      synctexBuffer,
+      baseName
+    ),
 };
 
 // ==================== SyncTeX API ====================
@@ -379,10 +390,37 @@ interface InverseSyncResult {
 }
 
 export const synctex = {
-  forward: (texFile: string, line: number, column: number, pdfFile: string) =>
-    invoke<ForwardSyncResult | null>(IpcChannel.SyncTeX_Forward, texFile, line, column, pdfFile),
-  backward: (pdfFile: string, page: number, x: number, y: number) =>
-    invoke<InverseSyncResult | null>(IpcChannel.SyncTeX_Backward, pdfFile, page, x, y),
+  /**
+   * Forward sync: source location → PDF position.
+   *
+   * `projectRoot` is required when the .synctex.gz was produced by the
+   * BusyTeX WASM engine (records relative paths). The main process
+   * rebases `texFile` against `projectRoot` before invoking `synctex`.
+   */
+  forward: (
+    texFile: string,
+    line: number,
+    column: number,
+    pdfFile: string,
+    projectRoot?: string
+  ) =>
+    invoke<ForwardSyncResult | null>(
+      IpcChannel.SyncTeX_Forward,
+      texFile,
+      line,
+      column,
+      pdfFile,
+      projectRoot
+    ),
+  backward: (pdfFile: string, page: number, x: number, y: number, projectRoot?: string) =>
+    invoke<InverseSyncResult | null>(
+      IpcChannel.SyncTeX_Backward,
+      pdfFile,
+      page,
+      x,
+      y,
+      projectRoot
+    ),
 };
 
 // ==================== AI API ====================
@@ -680,12 +718,12 @@ export const app = {
     const w = window as unknown as { electron?: { platform?: NodeJS.Platform } };
     return w.electron?.platform ?? 'linux';
   },
-  // `invoke<T>` 已用 `invokeResultSchemas` 中央校验返回值,非法时 throw
-  // IpcResultValidationError。这里单行透传即可。
+  // `invoke<T>` already validates return values centrally via `invokeResultSchemas`, throwing
+  // IpcResultValidationError on mismatch. A single-line pass-through is enough here.
   checkUpdate: () => invoke<UpdateStatus>(IpcChannel.App_CheckUpdate),
   downloadUpdate: () => invoke<void>(IpcChannel.App_DownloadUpdate),
   installUpdate: () => invoke<void>(IpcChannel.App_InstallUpdate),
-  // `onEvent` 已在 `App_UpdateStatus` 上中央校验,这里单行透传即可。
+  // `onEvent` already centrally validates `App_UpdateStatus`; a single-line pass-through is enough here.
   onUpdateStatus: (callback: (status: UpdateStatus) => void): (() => void) =>
     onEvent<UpdateStatus>(IpcChannel.App_UpdateStatus, callback),
 };

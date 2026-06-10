@@ -37,6 +37,10 @@ import type { IOverleafFileSystemService } from './services/interfaces';
 
 import { initAllowedDirs, setupCSP } from './security';
 import {
+  registerWasmAssetProtocol,
+  registerWasmAssetSchemePrivileged,
+} from './services/WasmAssetProtocol';
+import {
   addPermanentAllowedDirectory,
   clearAllowedDirectories,
   registerLocalFileProtocol,
@@ -170,6 +174,7 @@ function openFileInWindow(filePath: string, targetWindow?: BrowserWindow | null)
 
 // Must register protocol schemes before app ready
 registerProtocolSchemes();
+registerWasmAssetSchemePrivileged();
 
 // ====== Single Instance Lock ======
 
@@ -498,6 +503,10 @@ app.whenReady().then(async () => {
 
   // Custom protocol for efficient streaming of large files (PDFs).
   registerLocalFileProtocol();
+  // Custom protocol for app-bundled WASM assets (BusyTeX, future tinymist, etc.).
+  // Required because Chromium blocks fetch() under file://, which BusyTeX's
+  // pipeline.js relies on to load texlive-*.js data package descriptors.
+  registerWasmAssetProtocol();
 
   registerServices();
 

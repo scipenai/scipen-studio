@@ -54,6 +54,12 @@ export enum IpcChannel {
   Compile_Typst = 'compile-typst',
   Compile_Cancel = 'compile-cancel',
   Compile_GetStatus = 'compile-get-status',
+  /**
+   * Persist a BusyTeX WASM compile result (pdf + .synctex.gz) to a fresh
+   * temp directory and return the on-disk paths so the main-process
+   * `synctex` CLI can parse them the same way as a CLI-compiled result.
+   */
+  Compile_WriteWasmArtifacts = 'compile-write-wasm-artifacts',
   Typst_Available = 'typst-available',
   SyncTeX_Forward = 'synctex-forward',
   SyncTeX_Backward = 'synctex-backward',

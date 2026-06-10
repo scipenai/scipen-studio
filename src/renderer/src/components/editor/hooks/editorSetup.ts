@@ -131,10 +131,12 @@ export function setupContentChangeTracking(
 }
 
 /**
- * 挂接 M3 主动文献推荐(标尺5)。**独立于 setupContentChangeTracking** —— 该函数
- * 是每 keystroke 的高频热路径,推荐触发绝不能塞进去。这里把 editor 交给
- * ActiveRecommendationService,由它做 1.5s debounce + 段落 hash 守卫后才查询。
- * @returns Disposable,编辑器销毁时解绑监听。
+ * Wire up M3 active citation recommendation (ruler 5). **Separate from
+ * setupContentChangeTracking** — that function is the per-keystroke hot path
+ * and must never carry recommendation triggering. Here we hand the editor to
+ * ActiveRecommendationService, which applies a 1.5s debounce + paragraph-hash
+ * guard before querying.
+ * @returns Disposable, unbinds the listener when the editor is destroyed.
  */
 export function setupActiveRecommendation(editor: Editor): { dispose: () => void } {
   const svc = getActiveRecommendationService();
@@ -183,7 +185,9 @@ function performLocalSyncTeX(
   }
 
   const syncTeXService = getSyncTeXService();
-  syncTeXService.forward(currentPath, lineNumber, column, synctexPath).then((result) => {
+  syncTeXService
+    .forward(currentPath, lineNumber, column, synctexPath, uiService.synctexProjectRoot ?? undefined)
+    .then((result) => {
     if (result) {
       uiService.setPdfHighlight({
         page: result.page || 1,
@@ -205,20 +209,20 @@ export function setupSyncTexClick(editor: Editor): void {
     if (!e.event.ctrlKey || !e.target.position) return;
     const { lineNumber, column } = e.target.position;
 
-    // cite 优先:光标在 \cite{key} / @key 上 → 打开 Zotero PDF;否则 SyncTeX。
+    // Cite has priority: cursor on \cite{key} / @key → open the Zotero PDF; otherwise SyncTeX.
     const model = editor.getModel();
     if (model) {
       const key = findCitationKeyAt(model, e.target.position, model.getLanguageId());
       if (key) {
         void openZoteroPaper(key);
-        return; // cite 命中,绝不再触发 SyncTeX
+        return; // cite matched — never fall through to SyncTeX
       }
     }
     performSyncTexForward(lineNumber, column);
   });
 }
 
-/** Ctrl+Click \cite{key} → 解析 itemKey → 拉 PDF → 切右栏「论文」tab。 */
+/** Ctrl+Click \cite{key} → resolve itemKey → fetch PDF → switch right panel to the paper tab. */
 async function openZoteroPaper(key: string): Promise<void> {
   const uiService = getUIService();
   const mirror = getZoteroBibMirror();

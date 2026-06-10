@@ -1,13 +1,12 @@
 /**
  * @file CompilerProviders.ts - Compiler Provider Implementation
  * @description Provides Provider implementations for LaTeX, Typst, Overleaf, and WASM compilers
- * @depends IPC (api.compiler), CompilerRegistry, StellarLatexEngine
+ * @depends IPC (api.compiler), CompilerRegistry, BusyTexEngine
  */
 
 import { api } from '../../api';
 import { createLogger } from '../LogService';
-import { StellarLatexEngine } from '../StellarLatexEngine';
-import { getSyncTeXService } from '../SyncTeXService';
+import { BusyTexEngine, type BusyTexEngineType } from '../BusyTexEngine';
 import { getSettingsService } from './ServiceRegistry';
 import type { CompileResult, LatexEngine, TypstEngine } from './CompileService';
 import type { CompilerOptions, CompilerProvider } from './LanguageFeatureRegistry';
@@ -47,10 +46,6 @@ export class LaTeXCompilerProvider implements CompilerProvider {
 
     const result = await api.compile.latex(content, compileOptions);
 
-    // Clear WASM engine for traditional compilation
-    const syncTeXService = getSyncTeXService();
-    syncTeXService.setWASMEngine(null);
-
     return {
       success: result.success,
       pdfPath: result.pdfPath,
@@ -66,7 +61,11 @@ export class LaTeXCompilerProvider implements CompilerProvider {
 
   canHandle(filePath: string, options?: CompilerOptions): boolean {
     // Exclude WASM engines
-    if (options?.engine === 'wasm-pdftex' || options?.engine === 'wasm-xetex') {
+    if (
+      options?.engine === 'wasm-pdftex' ||
+      options?.engine === 'wasm-xetex' ||
+      options?.engine === 'wasm-lualatex'
+    ) {
       return false;
     }
     const ext = filePath.split('.').pop()?.toLowerCase() || '';
@@ -126,73 +125,114 @@ export class TypstCompilerProvider implements CompilerProvider {
   }
 }
 
-// ====== WASM Compiler Provider (StellarLatex) ======
+// ====== WASM Compiler Provider (BusyTeX) ======
 
 /** File extensions relevant for LaTeX compilation */
 const TEX_FILE_EXTENSIONS = /\.(tex|bib|sty|cls|bst|def|cfg|fd|bbl|aux|clo|ldf|ltx|dtx|ins)$/i;
 
+/**
+ * Map the public Studio engine name to the BusyTeX engine type.
+ * The Studio engine ids stay stable across builds; the BusyTeX driver
+ * names live behind {@link BusyTexEngine}.
+ */
+const WASM_ENGINE_MAP: Record<string, BusyTexEngineType> = {
+  'wasm-pdftex': 'pdftex',
+  'wasm-xetex': 'xetex',
+  'wasm-lualatex': 'lualatex',
+};
+
 export class WASMCompilerProvider implements CompilerProvider {
-  readonly id = 'stellar-wasm';
-  readonly name = 'StellarLatex (WASM)';
+  readonly id = 'busytex-wasm';
+  readonly name = 'BusyTeX (WASM)';
   readonly supportedExtensions = ['tex', 'latex', 'ltx'];
   readonly priority = 8;
   readonly isRemote = false;
 
-  private engine: StellarLatexEngine | null = null;
-  private currentEngineType: 'pdftex' | 'xetex' | null = null;
+  /**
+   * Single combined-build engine for the lifetime of the provider. The
+   * BusyTeX wasm carries all three drivers (pdftex/xetex/lualatex), so
+   * switching engines is a per-compile parameter, not a worker rebuild
+   * — see {@link BusyTexEngine}'s class doc.
+   */
+  private engine: BusyTexEngine | null = null;
 
   async compile(
     filePath: string,
     content: string,
     options: CompilerOptions
   ): Promise<CompileResult> {
-    const engineType = options.engine === 'wasm-pdftex' ? 'pdftex' : 'xetex';
+    const engineType = WASM_ENGINE_MAP[options.engine ?? ''];
+    if (!engineType) {
+      return {
+        success: false,
+        errors: [`Unsupported WASM engine: ${options.engine}`],
+        log: '',
+      };
+    }
 
-    logger.info('Starting WASM compile', {
-      engine: engineType,
-      file: filePath,
-    });
+    logger.info('Starting WASM compile', { engine: engineType, file: filePath });
 
     try {
-      // Initialize or reuse engine
-      if (!this.engine || this.currentEngineType !== engineType) {
-        this.engine?.close();
-        this.engine = new StellarLatexEngine(engineType);
-        this.currentEngineType = engineType;
-        await this.engine.loadEngine();
+      // Lazy-init on first use; commit only after loadEngine() resolves
+      // so a failed init doesn't park a non-ready engine in the cache
+      // (every retry would then skip init and throw "not ready").
+      if (!this.engine) {
+        const engine = new BusyTexEngine();
+        await engine.loadEngine();
+        this.engine = engine;
       }
 
-      // Apply the user-configured TexLive package endpoint
-      const texliveEndpoint = getSettingsService().getSettings().compiler.texliveEndpoint;
-      if (texliveEndpoint) {
-        this.engine.setTexliveEndpoint(texliveEndpoint);
-      }
+      const settings = getSettingsService().getSettings().compiler;
+      this.engine.setTexliveEndpoint(settings.texliveEndpoint || '');
 
-      // Clean previous compilation state
+      // Each compile gets a fresh in-memory FS (BusyTeX semantics);
+      // flushWorkDir just resets the renderer-side staging list.
       this.engine.flushWorkDir();
-      this.engine.flushBuild();
 
-      // Write project files to WASM virtual filesystem
+      // Stage project sources into the worker FS.
+      const stageT0 = performance.now();
       await this.writeProjectFiles(filePath, content, options);
+      logger.info('WASM stage done', {
+        stageMs: Math.round(performance.now() - stageT0),
+      });
 
-      // Set main file and compile
       const mainFileName = this.resolveMainFile(filePath, options);
       this.engine.setMainFile(mainFileName);
 
-      const result = await this.engine.compile();
+      const result = await this.engine.compile({ engineType });
 
-      // Set WASM engine for SyncTeX if compilation succeeded
-      if (result.success && result.synctex) {
-        const syncTeXService = getSyncTeXService();
-        syncTeXService.setWASMEngine(this.engine);
+      if (!result.success) {
+        return {
+          success: false,
+          log: result.log,
+          errors: this.parseErrors(result.log),
+          warnings: this.parseWarnings(result.log),
+        };
       }
 
+      // Persist the WASM output (PDF + .synctex.gz) to a temp dir so the
+      // rest of the pipeline treats it exactly like a CLI compile: the PDF
+      // is loaded from `pdfPath` and SyncTeX resolves via the main-process
+      // `synctex` CLI against the on-disk `.synctex.gz`. This disk handoff
+      // is the canonical (and only) output path — a failure here is a real
+      // error and propagates to the outer catch.
+      const baseName = stripExtension(basename(mainFileName)) || 'main';
+      const writeT0 = performance.now();
+      const artifacts = await api.compile.writeWasmArtifacts(
+        result.pdf!,
+        result.synctex ?? new Uint8Array(),
+        baseName
+      );
+      logger.info('WASM artifacts persisted', {
+        writeMs: Math.round(performance.now() - writeT0),
+      });
+
       return {
-        success: result.success,
-        pdfBuffer: result.pdf,
-        synctexBuffer: result.synctex,
+        success: true,
+        pdfPath: artifacts.pdfPath,
+        synctexPath: result.synctex ? artifacts.synctexPath : undefined,
+        projectRoot: options.projectPath,
         log: result.log,
-        errors: result.success ? undefined : this.parseErrors(result.log),
         warnings: this.parseWarnings(result.log),
       };
     } catch (error) {
@@ -207,13 +247,14 @@ export class WASMCompilerProvider implements CompilerProvider {
   }
 
   canHandle(_filePath: string, options?: CompilerOptions): boolean {
-    return options?.engine === 'wasm-pdftex' || options?.engine === 'wasm-xetex';
+    return options?.engine !== undefined && options.engine in WASM_ENGINE_MAP;
   }
 
   /**
-   * Write all project files to the WASM virtual filesystem.
-   * Current file uses the provided content (may be unsaved).
-   * Other files are read via IPC batch read.
+   * Stage all project sources into the worker FS. Current file uses the
+   * (possibly unsaved) editor content; siblings are batch-read from disk.
+   * Paths are project-relative so BusyTeX reconstructs the source tree;
+   * parent directories are created implicitly by the virtual filesystem.
    */
   private async writeProjectFiles(
     currentFilePath: string,
@@ -223,34 +264,23 @@ export class WASMCompilerProvider implements CompilerProvider {
     const engine = this.engine!;
     const projectPath = options.projectPath;
     const currentRelativePath = this.toWasmRelativePath(currentFilePath, projectPath);
-    const createdDirs = new Set<string>();
 
-    await this.ensureParentDirectories(engine, currentRelativePath, createdDirs);
-    engine.registerPathMapping(currentFilePath, currentRelativePath);
     await engine.writeFile(currentRelativePath, content);
 
     if (!projectPath) return;
 
-    try {
-      const scanResult = await api.file.scanFilePaths(projectPath);
-      if (!scanResult.success || !scanResult.paths) return;
+    const scanResult = await api.file.scanFilePaths(projectPath);
+    if (!scanResult.success || !scanResult.paths) return;
 
-      const texFiles = scanResult.paths.filter((p) => TEX_FILE_EXTENSIONS.test(p));
-      if (texFiles.length === 0) return;
+    const texFiles = scanResult.paths.filter((p) => TEX_FILE_EXTENSIONS.test(p));
+    if (texFiles.length === 0) return;
 
-      const batchResult = await api.file.batchRead(texFiles);
+    const batchResult = await api.file.batchRead(texFiles);
 
-      for (const [absolutePath, fileContent] of Object.entries(batchResult)) {
-        const relativePath = this.toWasmRelativePath(absolutePath, projectPath);
-
-        if (relativePath === currentRelativePath) continue;
-
-        await this.ensureParentDirectories(engine, relativePath, createdDirs);
-        engine.registerPathMapping(absolutePath, relativePath);
-        await engine.writeFile(relativePath, fileContent);
-      }
-    } catch (error) {
-      logger.warn('Failed to read project files for WASM compilation', { error });
+    for (const [absolutePath, fileContent] of Object.entries(batchResult)) {
+      const relativePath = this.toWasmRelativePath(absolutePath, projectPath);
+      if (relativePath === currentRelativePath) continue;
+      await engine.writeFile(relativePath, fileContent);
     }
   }
 
@@ -268,24 +298,6 @@ export class WASMCompilerProvider implements CompilerProvider {
     }
 
     return normalizedFilePath.split('/').pop() || 'main.tex';
-  }
-
-  private async ensureParentDirectories(
-    engine: StellarLatexEngine,
-    relativePath: string,
-    createdDirs: Set<string>
-  ): Promise<void> {
-    const normalizedPath = relativePath.replace(/\\/g, '/');
-    const parts = normalizedPath.split('/');
-    if (parts.length <= 1) return;
-
-    let dirPath = '';
-    for (let index = 0; index < parts.length - 1; index++) {
-      dirPath = dirPath ? `${dirPath}/${parts[index]}` : parts[index];
-      if (createdDirs.has(dirPath)) continue;
-      await engine.mkdir(dirPath);
-      createdDirs.add(dirPath);
-    }
   }
 
   private parseErrors(log: string): string[] {
@@ -312,5 +324,15 @@ export class WASMCompilerProvider implements CompilerProvider {
 
   cancel(): void {
     this.engine?.close();
+    this.engine = null;
   }
+}
+
+function basename(p: string): string {
+  return p.split(/[/\\]/).pop() || p;
+}
+
+function stripExtension(name: string): string {
+  const idx = name.lastIndexOf('.');
+  return idx > 0 ? name.slice(0, idx) : name;
 }

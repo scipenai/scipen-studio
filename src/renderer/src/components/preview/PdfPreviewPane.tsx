@@ -700,7 +700,13 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
 
     try {
       const syncTeXService = getSyncTeXService();
-      const result = await syncTeXService.backward(pageNum, x, y, synctexPath);
+      const result = await syncTeXService.backward(
+        pageNum,
+        x,
+        y,
+        synctexPath,
+        uiService.synctexProjectRoot ?? undefined
+      );
 
       if (result?.file && result.line !== undefined) {
         window.dispatchEvent(

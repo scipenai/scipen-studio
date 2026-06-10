@@ -43,6 +43,18 @@ export interface CompileCancelResult {
   cancelled: number;
 }
 
+/**
+ * Result of `Compile_WriteWasmArtifacts`.
+ *
+ * WASM compile output (PDF + `.synctex.gz` as raw bytes) is persisted into
+ * a fresh `os.tmpdir()` subdir so the main-process `synctex` CLI can read
+ * them. The renderer only ever consumes the two file paths.
+ */
+export interface CompileWasmArtifactsResult {
+  pdfPath: string;
+  synctexPath: string;
+}
+
 // ====== Channel Contract ======
 
 export interface IPCCompileContract {
@@ -65,16 +77,26 @@ export interface IPCCompileContract {
       typst: { isCompiling: boolean };
     };
   };
+  [IpcChannel.Compile_WriteWasmArtifacts]: {
+    args: [pdfBuffer: Uint8Array, synctexBuffer: Uint8Array, baseName?: string];
+    result: CompileWasmArtifactsResult;
+  };
   [IpcChannel.Typst_Available]: {
     args: [];
     result: TypstAvailability;
   };
   [IpcChannel.SyncTeX_Forward]: {
-    args: [texFile: string, line: number, column: number, pdfFile: string];
+    args: [
+      texFile: string,
+      line: number,
+      column: number,
+      pdfFile: string,
+      projectRoot?: string,
+    ];
     result: SyncTeXForwardResult | null;
   };
   [IpcChannel.SyncTeX_Backward]: {
-    args: [pdfFile: string, page: number, x: number, y: number];
+    args: [pdfFile: string, page: number, x: number, y: number, projectRoot?: string];
     result: SyncTeXBackwardResult | null;
   };
 }

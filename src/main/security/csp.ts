@@ -10,6 +10,21 @@ import { createLogger } from '../services/LoggerService';
 const logger = createLogger('CSP');
 
 /**
+ * Custom protocol that serves app-bundled WASM engine assets — see
+ * {@link file://./../services/WasmAssetProtocol.ts}. The BusyTeX engine
+ * touches this scheme three ways, each gated by a different CSP directive:
+ *   - `connect-src`: the renderer `fetch()`es `manifest.json` and the
+ *     worker `fetch()`es every `texlive-*.js` data-package descriptor.
+ *   - `script-src` : the worker `importScripts()` the engine JS, AND
+ *     `WebAssembly.instantiate` runs `busytex.wasm` — the latter requires
+ *     `'wasm-unsafe-eval'` in production (dev already has `'unsafe-eval'`).
+ *   - `worker-src` : belt-and-braces for resources the worker pulls.
+ * Omitting any one of these surfaces as an opaque `TypeError: Failed to
+ * fetch` (connect) or a silent worker init failure (script/worker).
+ */
+const WASM_ASSET_SCHEME = 'scipen-wasm:';
+
+/**
  * CSP Directives
  */
 export interface CSPDirectives {
@@ -32,7 +47,7 @@ export interface CSPDirectives {
  */
 const DEV_CSP: Partial<CSPDirectives> = {
   'default-src': ["'self'"],
-  'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // Required for HMR
+  'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'", WASM_ASSET_SCHEME], // HMR + WASM engine
   'style-src': [
     "'self'",
     "'unsafe-inline'",
@@ -43,6 +58,7 @@ const DEV_CSP: Partial<CSPDirectives> = {
   'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com', 'https://cdn.jsdelivr.net'], // Google Fonts files, KaTeX fonts
   'connect-src': [
     "'self'",
+    WASM_ASSET_SCHEME, // BusyTeX manifest + texlive data-package descriptors
     'ws://localhost:*', // WebSocket for HMR
     'http://localhost:*',
     'https://*.openai.com',
@@ -57,7 +73,7 @@ const DEV_CSP: Partial<CSPDirectives> = {
   'media-src': ["'self'", 'blob:'],
   'object-src': ["'none'"],
   'frame-src': ["'self'"],
-  'worker-src': ["'self'", 'blob:'],
+  'worker-src': ["'self'", 'blob:', WASM_ASSET_SCHEME],
   'base-uri': ["'self'"],
   'form-action': ["'self'"],
 };
@@ -67,7 +83,7 @@ const DEV_CSP: Partial<CSPDirectives> = {
  */
 const PROD_CSP: Partial<CSPDirectives> = {
   'default-src': ["'self'"],
-  'script-src': ["'self'"],
+  'script-src': ["'self'", "'wasm-unsafe-eval'", WASM_ASSET_SCHEME], // WASM engine instantiation + worker importScripts
   'style-src': [
     "'self'",
     "'unsafe-inline'",
@@ -78,6 +94,7 @@ const PROD_CSP: Partial<CSPDirectives> = {
   'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com', 'https://cdn.jsdelivr.net'], // Google Fonts files, KaTeX fonts
   'connect-src': [
     "'self'",
+    WASM_ASSET_SCHEME, // BusyTeX manifest + texlive data-package descriptors
     'https://*.openai.com',
     'https://*.anthropic.com',
     'https://*.googleapis.com',
@@ -90,7 +107,7 @@ const PROD_CSP: Partial<CSPDirectives> = {
   'media-src': ["'self'", 'blob:'],
   'object-src': ["'none'"],
   'frame-src': ["'self'"],
-  'worker-src': ["'self'", 'blob:'],
+  'worker-src': ["'self'", 'blob:', WASM_ASSET_SCHEME],
   'base-uri': ["'self'"],
   'form-action': ["'self'"],
 };

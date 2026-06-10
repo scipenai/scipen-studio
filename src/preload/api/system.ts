@@ -29,17 +29,37 @@ export const compileApi = {
   getTypstAvailability: () => ipcRenderer.invoke(IpcChannel.Typst_Available),
   cancelCompile: (type?: 'latex' | 'typst') => ipcRenderer.invoke(IpcChannel.Compile_Cancel, type),
 
+  // BusyTeX WASM artifact persistence (pdf + .synctex.gz → temp paths)
+  writeWasmArtifacts: (pdfBuffer: Uint8Array, synctexBuffer: Uint8Array, baseName?: string) =>
+    ipcRenderer.invoke(
+      IpcChannel.Compile_WriteWasmArtifacts,
+      pdfBuffer,
+      synctexBuffer,
+      baseName
+    ),
+
   // SyncTeX
-  synctexForward: (texFile: string, line: number, column: number, pdfFile: string) =>
-    ipcRenderer.invoke(IpcChannel.SyncTeX_Forward, texFile, line, column, pdfFile),
-  synctexBackward: (pdfFile: string, page: number, x: number, y: number) =>
-    ipcRenderer.invoke(IpcChannel.SyncTeX_Backward, pdfFile, page, x, y),
+  synctexForward: (
+    texFile: string,
+    line: number,
+    column: number,
+    pdfFile: string,
+    projectRoot?: string
+  ) =>
+    ipcRenderer.invoke(IpcChannel.SyncTeX_Forward, texFile, line, column, pdfFile, projectRoot),
+  synctexBackward: (
+    pdfFile: string,
+    page: number,
+    x: number,
+    y: number,
+    projectRoot?: string
+  ) => ipcRenderer.invoke(IpcChannel.SyncTeX_Backward, pdfFile, page, x, y, projectRoot),
 };
 
 // ====== App Info ======
-// 注:auto-update 相关(checkUpdate / downloadUpdate / installUpdate / onUpdateStatus)
-// 渲染层一律走 `window.electron.ipcRenderer` 通用桥(由 `renderer/src/api/index.ts`
-// 适配 + 边界校验),不在 appApi 暴露。
+// Note: auto-update channels (checkUpdate / downloadUpdate / installUpdate / onUpdateStatus)
+// are wired from the renderer through the generic `window.electron.ipcRenderer` bridge
+// (adapted with boundary validation by `renderer/src/api/index.ts`) — not exposed here on appApi.
 export const appApi = {
   openExternal: (url: string) => ipcRenderer.invoke(IpcChannel.App_OpenExternal, url),
   getAppVersion: () => ipcRenderer.invoke(IpcChannel.App_GetVersion),

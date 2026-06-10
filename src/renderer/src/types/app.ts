@@ -125,7 +125,8 @@ export type LaTeXEngine =
   | 'xelatex'
   | 'lualatex'
   | 'wasm-pdftex'
-  | 'wasm-xetex';
+  | 'wasm-xetex'
+  | 'wasm-lualatex';
 
 export type TypstEngine = 'typst' | 'tinymist';
 
@@ -211,7 +212,7 @@ export interface AppSettings {
   ui: {
     theme: UITheme;
     language: UILocale;
-    /** 聊天面板正文/输入字号(px),12–20 可调。 */
+    /** Chat panel body/input font size (px), adjustable 12–20. */
     chatFontSize: number;
     previewWidth: number;
     rightPanelWidth: number;

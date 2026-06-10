@@ -46,6 +46,7 @@ export const CompilerTab: React.FC = () => {
           <option value="tectonic">{t('compiler.tectonic')}</option>
           <option value="wasm-pdftex">{t('compiler.wasmPdftex')}</option>
           <option value="wasm-xetex">{t('compiler.wasmXetex')}</option>
+          <option value="wasm-lualatex">{t('compiler.wasmLualatex')}</option>
         </select>
       </SettingItem>
 
@@ -59,7 +60,7 @@ export const CompilerTab: React.FC = () => {
           onChange={(e) =>
             settingsService.updateCompiler({ texliveEndpoint: e.target.value.trim() })
           }
-          placeholder="https://latex.arxtect.cn/latex6/arxtect_version_20251120/"
+          placeholder="https://texlive2026.texlyre.org"
           className={inputMonoClassName}
         />
       </SettingItem>

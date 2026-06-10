@@ -70,6 +70,7 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Compile_Typst,
   IpcChannel.Compile_Cancel,
   IpcChannel.Compile_GetStatus,
+  IpcChannel.Compile_WriteWasmArtifacts,
   IpcChannel.Typst_Available,
 
   // ====== LSP ======
@@ -340,7 +341,7 @@ export function isPathSafe(filePath: string): boolean {
  * (`shared/ipc/schemas.ts`), the payload is `safeParse`d before forward —
  * malformed pushes are dropped at the preload boundary and never reach the
  * renderer. Channels without a registered schema pass through (renderer-side
- * `onEvent` may still re-validate; the two守门点共用同一份注册表 —— 渐进迁移).
+ * `onEvent` may still re-validate; both gatekeepers share the same registry — progressive migration).
  *
  * @param channel The IPC channel to listen on
  * @returns A function that creates event subscriptions with proper cleanup
@@ -353,7 +354,7 @@ export function createSafeListener<T>(channel: IpcChannel) {
       if (schema) {
         const result = schema.safeParse(data);
         if (!result.success) {
-          // eslint-disable-next-line no-console -- preload 边界的诊断只能落 stdout
+          // eslint-disable-next-line no-console -- preload boundary diagnostics can only land on stdout
           console.warn(
             `[Preload] dropped malformed payload on '${channel}':`,
             result.error.format()

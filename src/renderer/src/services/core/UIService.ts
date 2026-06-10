@@ -26,7 +26,7 @@ import {
 // Built-in view IDs: 'im' | 'files' | 'settings'
 export type SidebarTab = string;
 export type RightPanelTab = 'preview' | 'paper';
-/** 主页面三大面板标识。取代旧的线性 WorkspaceMode —— 三面板各自独立显隐。 */
+/** Main-page three-panel identifier. Replaces the legacy linear WorkspaceMode — each panel toggles independently. */
 export type PanelId = 'chat' | 'editor' | 'preview';
 export type LogsSurface = 'hidden' | 'drawer';
 export type ResearchLayoutFocus = 'balanced' | 'files' | 'chat' | 'preview';
@@ -108,7 +108,7 @@ const STORAGE_KEYS = {
   EDITOR_WIDTH: 'ui.editorWidth', // Percentage
   CHAT_VISIBLE: 'ui.chatVisible',
   EDITOR_VISIBLE: 'ui.editorVisible',
-  // 旧键,仅用于一次性迁移种子(三独立面板取代后不再写入)
+  // Legacy key, used only for one-shot migration seeding (no further writes after the three-panel split)
   LEGACY_WORKSPACE_MODE: 'ui.workspaceMode',
   RESEARCH_LAYOUT_FOCUS: 'ui.researchLayoutFocus',
   ACTIVE_ARTIFACT_PATH: 'ui.activeArtifactPath',
@@ -158,13 +158,20 @@ export class UIService implements IDisposable {
 
   // SyncTeX
   private _synctexPath: string | null = null;
+  /**
+   * Project root that `_synctexPath`'s recorded paths are relative to.
+   * Only set for BusyTeX WASM compiles — CLI compiles record absolute
+   * paths and leave this null. Threaded into the synctex CLI invocation
+   * so the renderer doesn't need to know about engine type.
+   */
+  private _synctexProjectRoot: string | null = null;
   private _remoteBuildId: string | null = null;
   private _pdfHighlight: PdfHighlight | null = null;
 
-  // Zotero 论文 PDF(右栏「论文」tab)—— 与编译产物 _pdfData 独立,互不 clobber。
+  // Zotero paper PDF (right-panel "paper" tab) — independent of compile output _pdfData, no mutual clobber.
   private _zoteroPdf: { itemKey: string; pdfBytes: Uint8Array } | null = null;
 
-  // markdown 预览当前滚到的章节标题(scroll-spy)—— 注入 AI 上下文,表达阅读焦点。
+  // Current section scrolled to in markdown preview (scroll-spy) — injected into AI context to express reading focus.
   private _currentMarkdownSection: string | null = null;
 
   // Agent state
@@ -178,8 +185,8 @@ export class UIService implements IDisposable {
 
   // Preview mode state
   private _previewMode: PreviewMode = 'none';
-  // 三独立面板显隐。editorVisible 首次升级时从旧 workspaceMode 取种子
-  // (旧 'chat' 档无编辑器),之后走自己的持久化键。
+  // Three independent panel visibility flags. On first upgrade, editorVisible is seeded from
+  // the legacy workspaceMode (old 'chat' mode = no editor); afterwards each has its own persisted key.
   private _chatVisible = this._storage.getBoolean(STORAGE_KEYS.CHAT_VISIBLE, true);
   private _editorVisible = this._storage.getBoolean(
     STORAGE_KEYS.EDITOR_VISIBLE,
@@ -481,6 +488,10 @@ export class UIService implements IDisposable {
   get synctexPath(): string | null {
     return this._synctexPath;
   }
+
+  get synctexProjectRoot(): string | null {
+    return this._synctexProjectRoot;
+  }
   get remoteBuildId(): string | null {
     return this._remoteBuildId;
   }
@@ -540,17 +551,17 @@ export class UIService implements IDisposable {
     this._storage.store(STORAGE_KEYS.RIGHT_PANEL_TAB, nextTab);
     this._onDidChangeRightPanelTab.fire(nextTab);
 
-    // 切 tab 即意味着想看右栏 —— 确保预览面板可见。
+    // Switching tabs implies the user wants to see the right column — ensure preview panel is visible.
     if (!this._isPreviewVisible) {
       this.setPreviewVisible(true);
     }
   }
 
-  // ====== 三独立面板显隐 ======
+  // ====== Three independent panel visibility ======
 
   /**
-   * 关闭 target 面板是否会导致三面板全空 —— 守卫,杜绝空屏。
-   * target 传将被设为隐藏的那个面板。
+   * Whether hiding `target` would leave all three panels empty — guard against a blank screen.
+   * Pass the panel about to be hidden.
    */
   private _wouldHideLastPanel(target: PanelId): boolean {
     const othersVisible =
@@ -648,14 +659,15 @@ export class UIService implements IDisposable {
     this._onDidChangeZoteroPdf.fire(value);
   }
 
-  /** scroll-spy 上报 markdown 预览当前章节,发消息时被 ChatContextBuilder 读取。 */
+  /** scroll-spy reports the current markdown preview section; read by ChatContextBuilder when sending messages. */
   setCurrentMarkdownSection(value: string | null): void {
     this._currentMarkdownSection = value;
   }
 
   /**
-   * 一步加载 Zotero 论文 PDF 并切到右栏「论文」tab。收口右栏可见性 ——
-   * immersive 布局右栏受 previewVisible 控制,这里一并确保展开。
+   * One-shot: load a Zotero paper PDF and switch the right column to the "paper" tab.
+   * Also opens the right column — under the immersive layout it is gated by previewVisible,
+   * so we expand it here.
    */
   loadZoteroPaper(itemKey: string, pdfBytes: Uint8Array): void {
     this.setZoteroPdf({ itemKey, pdfBytes });
@@ -758,6 +770,10 @@ export class UIService implements IDisposable {
 
   setSynctexPath(path: string | null): void {
     this._synctexPath = path;
+  }
+
+  setSynctexProjectRoot(projectRoot: string | null): void {
+    this._synctexProjectRoot = projectRoot;
   }
 
   setRemoteBuildId(buildId: string | null): void {
