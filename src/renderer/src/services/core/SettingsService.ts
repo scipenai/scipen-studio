@@ -97,13 +97,12 @@ export const defaultSettings: AppSettings = {
     cleanAuxFiles: true,
     stopOnFirstError: false,
     texliveEndpoint: 'https://texlive2026.texlyre.org',
-    // Default points at the bundled manifest that layers Noto Serif/Sans
-    // CJK SC over the local Latin fonts. The manifest ships with the app
-    // (scipen-wasm://typst-ts/examples/noto-cjk-sc.json) but the font
-    // binaries are pulled from jsdelivr at worker init — install size
-    // doesn't grow, first-init pays ~38MB which Electron disk-caches.
-    // Set empty to disable; set a custom URL to override.
-    typstFontEndpoint: 'scipen-wasm://typst-ts/examples/noto-cjk-sc.json',
+    // Empty by default: the Typst engine ships with a full CJK font set
+    // (Libertinus + NewCM + DejaVu + Noto Serif/Sans/Mono CJK SC, ~54MB)
+    // baked into the installer via `download:typst-wasm:cjk`, so no
+    // network round-trip is needed. Set a manifest URL only to layer
+    // additional fonts (TC/JP/KR, custom Latin, etc.).
+    typstFontEndpoint: '',
     overleaf: {
       serverUrl: OVERLEAF_SERVER_URL,
       cookies: '',
@@ -352,14 +351,6 @@ export class SettingsService implements IDisposable {
         // Migration: 'overleaf' engine removed (local-first mode); fall back to xelatex
         if (parsed?.compiler?.engine === 'overleaf') {
           parsed.compiler.engine = 'xelatex';
-        }
-
-        // Migration: bump empty typstFontEndpoint to the bundled default so
-        // existing users get CJK fonts after upgrade without having to
-        // discover the setting. Empty was the original default; non-empty
-        // means the user explicitly chose something (keep it).
-        if (parsed?.compiler && parsed.compiler.typstFontEndpoint === '') {
-          parsed.compiler.typstFontEndpoint = undefined;
         }
 
         const merged = deepMerge(defaultSettings, parsed);

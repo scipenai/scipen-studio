@@ -1,5 +1,5 @@
 {
-  "_comment": "Bundled Typst font endpoint example — point settings.compiler.typstFontEndpoint at scipen-wasm://typst-ts/examples/noto-cjk-sc.json to layer Noto Serif/Sans CJK SC on top of the local Latin fonts at worker init time. Binaries are pulled from jsdelivr (notofonts/noto-cjk@main) — the CDN serves them with long-lived Cache-Control so subsequent inits hit Electron's disk cache.",
+  "_comment": "Typst font endpoint example — layers Noto Serif/Sans CJK SC + Mono CJK on top of the local fonts when settings.compiler.typstFontEndpoint points here. Binaries come from jsdelivr (notofonts/noto-cjk@main) with long-lived Cache-Control so repeated inits hit Electron's disk cache. The font list mirrors what `pnpm download:typst-wasm:cjk` bundles locally — keep the two in sync.",
   "fonts": [
     {
       "name": "NotoSerifSC-Regular.otf",
@@ -16,6 +16,10 @@
     {
       "name": "NotoSansSC-Bold.otf",
       "url": "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/SubsetOTF/SC/NotoSansSC-Bold.otf"
+    },
+    {
+      "name": "NotoSansMonoCJKsc-Regular.otf",
+      "url": "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/Mono/NotoSansMonoCJKsc-Regular.otf"
     }
   ]
 }

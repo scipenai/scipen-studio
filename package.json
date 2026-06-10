@@ -52,7 +52,7 @@
     "build:snaca": "node scripts/build-snaca.js",
     "deploy:snaca": "node scripts/build-snaca.js --install",
     "copy:skills": "node scripts/copy-skills.js",
-    "prebuild": "npm run download:lsp && npm run download:busytex && npm run download:typst-wasm && npm run copy:public-assets && npm run build:snaca && npm run copy:skills",
+    "prebuild": "npm run download:lsp && npm run download:busytex && npm run download:typst-wasm:cjk && npm run copy:public-assets && npm run build:snaca && npm run copy:skills",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",

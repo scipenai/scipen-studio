@@ -176,7 +176,7 @@ export const CompilerTab: FC = () => {
           onChange={(e) =>
             settingsService.updateCompiler({ typstFontEndpoint: e.target.value.trim() })
           }
-          placeholder="scipen-wasm://typst-ts/examples/noto-cjk-sc.json"
+          placeholder="https://your-cdn.example.com/extra-fonts/manifest.json"
           className={inputMonoClassName}
         />
       </SettingItem>

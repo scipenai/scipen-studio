@@ -204,14 +204,15 @@ export interface AppSettings {
     stopOnFirstError: boolean;
     texliveEndpoint: string;
     /**
-     * Optional URL for the worker to layer additional Typst WASM fonts on
-     * top of the bundled local fonts at init time. Two accepted forms:
+     * Optional URL for additional Typst fonts layered ON TOP of the local
+     * bundle (which already covers Latin + math + DejaVu mono + Noto CJK
+     * SC). Two accepted forms:
      *   - manifest URL (ends with `.json`): fetched directly
      *   - base URL: `/manifest.json` is appended
      * Manifest schema: `{ fonts: (string | { name, url })[] }`. Bare names
      * resolve against the manifest's own directory; object entries take
-     * their absolute `url` as-is (lets a single manifest pull from any CDN).
-     * Empty string disables the remote step (local fonts only).
+     * their absolute `url` as-is (one manifest can pull from any CDN).
+     * Empty disables the remote step (local fonts only — the default).
      */
     typstFontEndpoint: string;
     overleaf: {

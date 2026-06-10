@@ -79,6 +79,13 @@ const NOTO_CJK_SERIF_SC_BASE =
   `https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@${NOTO_CJK_REF}/Serif/SubsetOTF/SC`;
 const NOTO_CJK_SANS_SC_BASE =
   `https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@${NOTO_CJK_REF}/Sans/SubsetOTF/SC`;
+/**
+ * Mono CJK lives at the top of the Mono tree (not under SubsetOTF) — only
+ * full OTFs are published. Used for code-block / table alignment in CJK
+ * documents.
+ */
+const NOTO_CJK_SANS_MONO_SC_BASE =
+  `https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@${NOTO_CJK_REF}/Sans/Mono`;
 
 const DEST_DIR = path.resolve(__dirname, '..', 'public', 'wasm', 'typst-ts');
 const FONTS_DEST_DIR = path.join(DEST_DIR, 'fonts');
@@ -111,7 +118,19 @@ const COMPILER_FILES = [
  * upstream renames a file, the downloader fails loudly rather than
  * silently shipping a broken bundle.
  */
+/**
+ * Default Typst CLI embedded fonts. Mirrors the four families typst-cli
+ * ships with — Libertinus Serif (default text), New Computer Modern
+ * (alternate text), NewCM Math (default math), DejaVu Sans Mono (default
+ * raw). Without Libertinus the wasm engine silently falls back to NewCM,
+ * making wasm-compiled output diverge from CLI-compiled output for any
+ * document that doesn't override `set text(font: ...)`.
+ */
 const CORE_FONTS = [
+  'LibertinusSerif-Regular.otf',
+  'LibertinusSerif-Italic.otf',
+  'LibertinusSerif-Bold.otf',
+  'LibertinusSerif-BoldItalic.otf',
   'NewCM10-Regular.otf',
   'NewCM10-Italic.otf',
   'NewCM10-Bold.otf',
@@ -124,24 +143,27 @@ const CORE_FONTS = [
 ];
 
 /**
- * Simplified Chinese font set, opt-in via `--cjk`. ~30 MB total.
+ * Simplified Chinese font set, opt-in via `--cjk`. ~54 MB total.
  *
- * Each entry is `[filename, sourceBase]` because the SubsetOTF tree is split
- * Serif/Sans (different directories on GitHub) — the file basename alone
- * doesn't resolve to a unique URL.
+ * Each entry is `[filename, sourceBase]` because the noto-cjk tree splits
+ * Serif/Sans/Mono into separate directories — the basename alone doesn't
+ * resolve to a unique URL.
  *
  * Picks rationale:
- *   - NotoSerifSC R+B  — typst's `set text(font: "Noto Serif CJK SC")` default
- *   - NotoSansSC  R+B  — typst's `set text(font: "Noto Sans CJK SC")`
- * Bold weights are included because most documents at minimum bold the
- * headings; without them typst falls back to synthesizing fake bold,
- * which renders horribly for CJK.
+ *   - NotoSerifSC R+B       — typst `set text(font: "Noto Serif CJK SC")` default
+ *   - NotoSansSC  R+B       — typst `set text(font: "Noto Sans CJK SC")`
+ *   - NotoSansMonoCJKsc R   — code blocks / table column alignment in CJK
+ * Bold weights for serif/sans cover heading + emphasised text; without
+ * them typst synthesises fake bold which renders poorly for CJK glyphs.
+ * Mono is regular-only (16 MB) — bold mono is rare in code, not worth
+ * the extra weight.
  */
 const CJK_FONTS = [
   ['NotoSerifSC-Regular.otf', NOTO_CJK_SERIF_SC_BASE],
   ['NotoSerifSC-Bold.otf', NOTO_CJK_SERIF_SC_BASE],
   ['NotoSansSC-Regular.otf', NOTO_CJK_SANS_SC_BASE],
   ['NotoSansSC-Bold.otf', NOTO_CJK_SANS_SC_BASE],
+  ['NotoSansMonoCJKsc-Regular.otf', NOTO_CJK_SANS_MONO_SC_BASE],
 ];
 
 // ====== Argument Parsing ======
