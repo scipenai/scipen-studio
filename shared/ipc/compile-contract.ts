@@ -15,9 +15,30 @@ import type {
 // ====== Compilation Types ======
 
 export interface TypstCompileOptions {
-  engine?: 'typst' | 'tinymist';
+  engine?: 'typst' | 'tinymist' | 'wasm-typst';
   mainFile?: string;
   projectPath?: string;
+}
+
+/** Availability + version for a single Typst-family engine. */
+export interface TypstEngineCapability {
+  available: boolean;
+  /** Semver string when available, null otherwise. */
+  version: string | null;
+}
+
+/**
+ * Combined capability snapshot. `cli.*` is probed by spawning each binary
+ * with `--version`; `wasm.available` is true when the bundled WASM assets
+ * (manifest + compiler) are present on disk. Order is meaningful — the
+ * UI uses it to render dropdown options in a stable order.
+ */
+export interface TypstCapabilities {
+  cli: {
+    tinymist: TypstEngineCapability;
+    typst: TypstEngineCapability;
+  };
+  wasm: TypstEngineCapability;
 }
 
 export interface TypstCompileResult {
@@ -84,6 +105,10 @@ export interface IPCCompileContract {
   [IpcChannel.Typst_Available]: {
     args: [];
     result: TypstAvailability;
+  };
+  [IpcChannel.Typst_GetCapabilities]: {
+    args: [];
+    result: TypstCapabilities;
   };
   [IpcChannel.SyncTeX_Forward]: {
     args: [

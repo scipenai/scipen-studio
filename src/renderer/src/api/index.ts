@@ -353,6 +353,17 @@ export const compile = {
   typst: (content: string, options?: TypstCompileOptions) =>
     invoke<CompileResult>(IpcChannel.Compile_Typst, content, options),
   checkTypst: () => invoke<{ available: boolean; version?: string }>(IpcChannel.Typst_Available),
+  /**
+   * Probe Typst engine capabilities (CLI binaries + bundled WASM).
+   * Settings UI uses this to render only the engines actually available
+   * on the host. Result is intentionally read-once (not cached) so a user
+   * who installs `tinymist` mid-session sees it after the next settings
+   * panel open.
+   */
+  getTypstCapabilities: () =>
+    invoke<import('../../../../shared/ipc/compile-contract').TypstCapabilities>(
+      IpcChannel.Typst_GetCapabilities,
+    ),
   cancel: (type?: 'latex' | 'typst') =>
     invoke<{ success: boolean; cancelled: number }>(IpcChannel.Compile_Cancel, type),
   getStatus: () =>

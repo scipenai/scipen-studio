@@ -24,7 +24,7 @@ import {
   useProjectPath,
 } from '../../services/core/hooks';
 import { useTranslation } from '../../locales';
-import type { LaTeXEngine } from '../../types';
+import type { LaTeXEngine, TypstEngine } from '../../types';
 
 export const StatusBar: React.FC = () => {
   const { t } = useTranslation();
@@ -96,9 +96,11 @@ export const StatusBar: React.FC = () => {
       case 'latex':
         return 'LaTeX';
       case 'tinymist':
-        return 'Tinymist';
+        return t('compiler.tinymist');
       case 'typst':
-        return 'Typst CLI';
+        return t('compiler.typstCli');
+      case 'wasm-typst':
+        return t('compiler.typstWasm');
       default:
         return engine;
     }
@@ -306,12 +308,17 @@ export const StatusBar: React.FC = () => {
                       label: getCompilerLabel('typst'),
                       descKey: 'statusBar.officialCliTool' as const,
                     },
+                    {
+                      value: 'wasm-typst',
+                      label: getCompilerLabel('wasm-typst'),
+                      descKey: 'statusBar.wasmNoInstall' as const,
+                    },
                   ].map((engine) => (
                     <button
                       key={engine.value}
                       onClick={() => {
                         getSettingsService().updateCompiler({
-                          typstEngine: engine.value as 'typst' | 'tinymist',
+                          typstEngine: engine.value as TypstEngine,
                         });
                         setIsEngineDropdownOpen(false);
                       }}

@@ -10,6 +10,7 @@
  * - SyncTeX service injected for bidirectional sync
  */
 
+import { app } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import type { LaTeXCompiler } from '../services/LaTeXCompiler';
 import { createLogger } from '../services/LoggerService';
@@ -274,6 +275,68 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
             parsedInfo: [],
           };
         }
+      },
+
+      // Combined CLI + WASM Typst capability probe. Powers the Settings UI's
+      // dynamic engine dropdown — see CompilerTab.tsx.
+      [IpcChannel.Typst_GetCapabilities]: async () => {
+        let cli = {
+          tinymist: { available: false, version: null as string | null },
+          typst: { available: false, version: null as string | null },
+        };
+        try {
+          const typstCompiler = CompilerRegistry.get('typst-local') as TypstCompiler | undefined;
+          if (typstCompiler) {
+            const engines = await typstCompiler.getAvailableEngines();
+            const tinymist = engines.find((e) => e.engine === 'tinymist');
+            const typst = engines.find((e) => e.engine === 'typst');
+            cli = {
+              tinymist: {
+                available: tinymist?.available ?? false,
+                version: tinymist?.version ?? null,
+              },
+              typst: {
+                available: typst?.available ?? false,
+                version: typst?.version ?? null,
+              },
+            };
+          }
+        } catch (error) {
+          logger.warn(`[Typst_GetCapabilities] CLI probe failed: ${String(error)}`);
+        }
+
+        // WASM probe: ask the filesystem, not the renderer. Reading
+        // manifest.json from main avoids spinning up the worker just to
+        // answer a settings-panel question.
+        let wasm: { available: boolean; version: string | null } = {
+          available: false,
+          version: null,
+        };
+        try {
+          const manifestPath = path.join(
+            app.getAppPath(),
+            'out',
+            'renderer',
+            'wasm',
+            'typst-ts',
+            'manifest.json',
+          );
+          const raw = await fs.readFile(manifestPath, 'utf-8');
+          const parsed = JSON.parse(raw) as {
+            compilerVersion?: string;
+            compiler?: { mjs?: string; wasm?: string };
+          };
+          if (parsed.compiler?.mjs && parsed.compiler?.wasm) {
+            wasm = {
+              available: true,
+              version: parsed.compilerVersion ?? null,
+            };
+          }
+        } catch {
+          // ENOENT or invalid JSON ⇒ assets not bundled. Treat as unavailable.
+        }
+
+        return { cli, wasm };
       },
 
       // Check Typst compiler availability via Registry

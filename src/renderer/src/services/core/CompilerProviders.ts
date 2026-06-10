@@ -7,6 +7,7 @@
 import { api } from '../../api';
 import { createLogger } from '../LogService';
 import { BusyTexEngine, type BusyTexEngineType } from '../BusyTexEngine';
+import { TypstWasmEngine } from '../TypstWasmEngine';
 import { getSettingsService } from './ServiceRegistry';
 import type { CompileResult, LatexEngine, TypstEngine } from './CompileService';
 import type { CompilerOptions, CompilerProvider } from './LanguageFeatureRegistry';
@@ -82,6 +83,19 @@ export class TypstCompilerProvider implements CompilerProvider {
   readonly priority = 10;
   readonly isRemote = false;
 
+  /**
+   * Owns ONLY the CLI engines. `wasm-typst` is routed to
+   * {@link TypstWasmCompilerProvider} so a missing CLI binary doesn't
+   * masquerade as a WASM failure (and vice versa).
+   */
+  canHandle(filePath: string, options?: CompilerOptions): boolean {
+    if (options?.engine === 'wasm-typst') {
+      return false;
+    }
+    const ext = filePath.split('.').pop()?.toLowerCase() || '';
+    return this.supportedExtensions.includes(ext);
+  }
+
   async compile(
     filePath: string,
     content: string,
@@ -122,6 +136,227 @@ export class TypstCompilerProvider implements CompilerProvider {
       parsedWarnings: result.parsedWarnings as Array<{ line: number; message: string }> | undefined,
       parsedInfo: result.parsedInfo as Array<{ line: number; message: string }> | undefined,
     };
+  }
+}
+
+// ====== Typst WASM Compiler Provider (typst-ts) ======
+
+/** File extensions the Typst WASM engine reads. */
+const TYPST_FILE_EXTENSIONS = /\.typ$/i;
+
+/**
+ * Provider for the in-renderer typst.ts WASM compiler.
+ *
+ * Why a dedicated Provider (instead of an `engine` branch inside
+ * `TypstCompilerProvider`)?
+ *   - The CLI path round-trips through main-process IPC; the WASM path
+ *     stays entirely in the renderer. Mixing them would force every
+ *     compile through the IPC `Compile_Typst` schema even when the wasm
+ *     engine is in use.
+ *   - Capability-detection UI needs to advertise CLI and WASM availability
+ *     independently (`Typst_GetCapabilities`). Two providers map 1:1.
+ *   - Mirrors the LaTeX side: {@link WASMCompilerProvider} co-exists with
+ *     {@link LaTeXCompilerProvider} the same way.
+ *
+ * Differences from {@link WASMCompilerProvider}:
+ *   - typst-ts does NOT emit a `.synctex.gz` (Typst has no SyncTeX —
+ *     jump-to-source lives in the LSP/preview layer upstream). The
+ *     provider returns the PDF as a `pdfBuffer` directly; `useCompilation`
+ *     already supports buffer-only results.
+ *   - No project-relative path rewriting against MEMFS: typst-ts uses a
+ *     plain virtual filesystem rooted at `/` so paths translate directly.
+ */
+export class TypstWasmCompilerProvider implements CompilerProvider {
+  readonly id = 'typst-wasm';
+  readonly name = 'Typst.ts (WASM)';
+  readonly supportedExtensions = ['typ'];
+  readonly priority = 8;
+  readonly isRemote = false;
+
+  /**
+   * Lazy single engine for the provider lifetime. Init cost (~500ms) is
+   * paid on the first compile and amortised across the session.
+   * See {@link TypstWasmEngine} doc for the recycling story.
+   */
+  private engine: TypstWasmEngine | null = null;
+
+  /**
+   * Compile counter for memory-pressure recycling. typst-ts's incremental
+   * compiler accumulates layout state (typst#334) — in a long session this
+   * climbs to multi-GB. Hard cap: after this many compiles the engine is
+   * closed and the next compile pays the cold-init cost (~500ms) again.
+   *
+   * 50 is a compromise: typical 5-page papers compile every ~100ms during
+   * active editing, so 50 compiles ≈ 5-10 min of busy editing. Long enough
+   * that users don't notice the periodic re-init, short enough that the
+   * cache never grows beyond a few hundred MB.
+   */
+  private static readonly RECYCLE_THRESHOLD = 50;
+  private compileCount = 0;
+
+  canHandle(_filePath: string, options?: CompilerOptions): boolean {
+    return options?.engine === 'wasm-typst';
+  }
+
+  async compile(
+    filePath: string,
+    content: string,
+    options: CompilerOptions
+  ): Promise<CompileResult> {
+    logger.info('Starting Typst WASM compile', {
+      file: filePath,
+      compileCount: this.compileCount,
+    });
+
+    try {
+      // Hit the recycle threshold → close engine before the next compile
+      // re-inits. Doing this BEFORE the lazy-init check below means the
+      // cold-start path is taken automatically.
+      if (
+        this.engine &&
+        this.compileCount >= TypstWasmCompilerProvider.RECYCLE_THRESHOLD
+      ) {
+        logger.info('Typst WASM engine recycled (compileCount threshold reached)', {
+          threshold: TypstWasmCompilerProvider.RECYCLE_THRESHOLD,
+        });
+        this.engine.close();
+        this.engine = null;
+        this.compileCount = 0;
+      }
+
+      if (!this.engine) {
+        const engine = new TypstWasmEngine();
+        // Set the font endpoint BEFORE loadEngine — the worker registers all
+        // fonts up-front (typst-ts `add_raw_font` is only valid pre-`build()`).
+        // Changing the endpoint later requires `engine.close()` + rebuild.
+        const settings = getSettingsService().getSettings().compiler;
+        engine.setFontEndpoint(settings.typstFontEndpoint || '');
+        await engine.loadEngine();
+        this.engine = engine;
+      }
+
+      // Re-stage the current project tree. typst-ts `add_source` is
+      // overwrite-by-path; unchanged sources keep their memoised layout
+      // in the incremental cache — DO NOT flushSources() here, that would
+      // nuke the cache and turn every compile into a cold compile.
+      await this.stageProjectSources(filePath, content, options);
+
+      const mainPath = this.resolveMainPath(filePath, options);
+      this.engine.setMainFile(mainPath);
+
+      const output = await this.engine.compile();
+      this.compileCount += 1;
+
+      const errorDiags = output.diagnostics.filter((d) => d.severity === 1);
+      const warningDiags = output.diagnostics.filter((d) => d.severity === 2);
+
+      const parsedErrors = errorDiags.map((d) => ({
+        line: d.range.start.line + 1,
+        message: d.message,
+      }));
+      const parsedWarnings = warningDiags.map((d) => ({
+        line: d.range.start.line + 1,
+        message: d.message,
+      }));
+
+      const log = output.diagnostics
+        .map(
+          (d) =>
+            `${d.severity === 1 ? 'error' : d.severity === 2 ? 'warning' : 'info'}: ${d.message}`,
+        )
+        .join('\n');
+
+      // `pdfBuffer` is consumed directly by useCompilation — no disk I/O
+      // round-trip. typst-ts has no synctex so there's nothing for the
+      // SyncTeX CLI to read; skipping `Compile_WriteWasmArtifacts` avoids
+      // creating an empty `.synctex.gz` placeholder.
+      return {
+        success: output.success,
+        pdfBuffer: output.pdf,
+        log,
+        errors: parsedErrors.map((e) => e.message),
+        warnings: parsedWarnings.map((w) => w.message),
+        parsedErrors,
+        parsedWarnings,
+        parsedInfo: [],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('Typst WASM compile failed', { error: message });
+      return {
+        success: false,
+        errors: [message],
+        log: message,
+        parsedErrors: [{ line: 0, message }],
+      };
+    }
+  }
+
+  cancel(): void {
+    // Recycle the engine on cancel. typst-ts has no in-flight-cancel API
+    // (the compile call is a single wasm invocation that runs to
+    // completion); terminating the worker is the only way to stop it.
+    // The next compile pays the cold-init cost (~500ms) again.
+    this.engine?.close();
+    this.engine = null;
+    this.compileCount = 0;
+  }
+
+  /**
+   * Stage the current document + every other `.typ` file in the project
+   * so cross-file `#import` references resolve. Mirrors
+   * {@link WASMCompilerProvider.writeProjectFiles} but with the simpler
+   * typst-ts virtual-fs path conventions.
+   */
+  private async stageProjectSources(
+    currentFilePath: string,
+    content: string,
+    options: CompilerOptions,
+  ): Promise<void> {
+    const engine = this.engine!;
+    const projectPath = options.projectPath;
+    const currentRelativePath = this.toVfsPath(currentFilePath, projectPath);
+
+    // writeFile is renderer-side sync — no IPC, no await. The whole source
+    // table is shipped in one batch at engine.compile() time.
+    engine.writeFile(currentRelativePath, content);
+
+    if (!projectPath) return;
+
+    const scanResult = await api.file.scanFilePaths(projectPath);
+    if (!scanResult.success || !scanResult.paths) return;
+
+    const typFiles = scanResult.paths.filter((p) => TYPST_FILE_EXTENSIONS.test(p));
+    if (typFiles.length === 0) return;
+
+    const batchResult = await api.file.batchRead(typFiles);
+
+    for (const [absolutePath, fileContent] of Object.entries(batchResult)) {
+      const relativePath = this.toVfsPath(absolutePath, projectPath);
+      if (relativePath === currentRelativePath) continue;
+      engine.writeFile(relativePath, fileContent);
+    }
+  }
+
+  private resolveMainPath(filePath: string, options: CompilerOptions): string {
+    const mainFilePath = options.mainFile || filePath;
+    return this.toVfsPath(mainFilePath, options.projectPath);
+  }
+
+  /**
+   * Convert a host absolute path to a typst-ts virtual-fs path with a
+   * leading `/`. Paths outside the project root fall back to their
+   * basename, matching {@link WASMCompilerProvider.toWasmRelativePath}.
+   */
+  private toVfsPath(filePath: string, projectPath?: string): string {
+    const normalizedFilePath = filePath.replace(/\\/g, '/');
+    const normalizedProjectPath = projectPath?.replace(/\\/g, '/').replace(/\/$/, '');
+
+    if (normalizedProjectPath && normalizedFilePath.startsWith(`${normalizedProjectPath}/`)) {
+      return `/${normalizedFilePath.slice(normalizedProjectPath.length + 1)}`;
+    }
+
+    return `/${normalizedFilePath.split('/').pop() || 'main.typ'}`;
   }
 }
 

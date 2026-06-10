@@ -255,6 +255,9 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
         .object({
           mainFile: safePathSchema.optional(),
           projectPath: safePathSchema.optional(),
+          // Intentionally excludes `wasm-typst` — that engine runs entirely
+          // in the renderer (no IPC), so an arrival here means a routing
+          // bug. Schema rejection surfaces the bug fast.
           engine: z.enum(['typst', 'tinymist']).optional(),
         })
         .optional(),
@@ -909,6 +912,7 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
 
   // ==================== Typst (P1 fix) ====================
   [IpcChannel.Typst_Available, z.tuple([])],
+  [IpcChannel.Typst_GetCapabilities, z.tuple([])],
   [IpcChannel.Compile_GetStatus, z.tuple([])],
 
   // ==================== Zotero Integration ====================

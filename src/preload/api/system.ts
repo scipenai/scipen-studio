@@ -24,9 +24,14 @@ export const compileApi = {
   // Typst compilation
   compileTypst: (
     content: string,
-    options?: { engine?: 'typst' | 'tinymist'; mainFile?: string; projectPath?: string }
+    options?: {
+      engine?: 'typst' | 'tinymist' | 'wasm-typst';
+      mainFile?: string;
+      projectPath?: string;
+    }
   ) => ipcRenderer.invoke(IpcChannel.Compile_Typst, content, options),
   getTypstAvailability: () => ipcRenderer.invoke(IpcChannel.Typst_Available),
+  getTypstCapabilities: () => ipcRenderer.invoke(IpcChannel.Typst_GetCapabilities),
   cancelCompile: (type?: 'latex' | 'typst') => ipcRenderer.invoke(IpcChannel.Compile_Cancel, type),
 
   // BusyTeX WASM artifact persistence (pdf + .synctex.gz → temp paths)

@@ -84,7 +84,7 @@ interface ElectronAPI {
 
   // ============ Typst Compilation ============
   compileTypst: (content: string, options?: {
-    engine?: 'typst' | 'tinymist';
+    engine?: 'typst' | 'tinymist' | 'wasm-typst';
     mainFile?: string;
     projectPath?: string;
   }) => Promise<{
@@ -100,6 +100,7 @@ interface ElectronAPI {
     tinymist: { available: boolean; version: string | null };
     typst: { available: boolean; version: string | null };
   }>;
+  getTypstCapabilities: () => Promise<import('../shared/ipc/compile-contract').TypstCapabilities>;
 
   // ============ SyncTeX Bidirectional Sync ============
   synctexForward: (texFile: string, line: number, column: number, pdfFile: string) => Promise<SyncTeXForwardResult | null>;

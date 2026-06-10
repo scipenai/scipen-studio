@@ -128,7 +128,7 @@ export type LaTeXEngine =
   | 'wasm-xetex'
   | 'wasm-lualatex';
 
-export type TypstEngine = 'typst' | 'tinymist';
+export type TypstEngine = 'typst' | 'tinymist' | 'wasm-typst';
 
 export type CompilerEngine = LaTeXEngine | TypstEngine;
 
@@ -203,6 +203,17 @@ export interface AppSettings {
     cleanAuxFiles: boolean;
     stopOnFirstError: boolean;
     texliveEndpoint: string;
+    /**
+     * Optional URL for the worker to layer additional Typst WASM fonts on
+     * top of the bundled local fonts at init time. Two accepted forms:
+     *   - manifest URL (ends with `.json`): fetched directly
+     *   - base URL: `/manifest.json` is appended
+     * Manifest schema: `{ fonts: (string | { name, url })[] }`. Bare names
+     * resolve against the manifest's own directory; object entries take
+     * their absolute `url` as-is (lets a single manifest pull from any CDN).
+     * Empty string disables the remote step (local fonts only).
+     */
+    typstFontEndpoint: string;
     overleaf: {
       serverUrl: string;
       cookies: string;

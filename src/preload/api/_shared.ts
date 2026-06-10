@@ -72,6 +72,7 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Compile_GetStatus,
   IpcChannel.Compile_WriteWasmArtifacts,
   IpcChannel.Typst_Available,
+  IpcChannel.Typst_GetCapabilities,
 
   // ====== LSP ======
   IpcChannel.LSP_GetProcessInfo,

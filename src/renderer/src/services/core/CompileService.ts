@@ -16,6 +16,7 @@ import { createLogger } from '../LogService';
 import {
   LaTeXCompilerProvider,
   TypstCompilerProvider,
+  TypstWasmCompilerProvider,
   WASMCompilerProvider,
 } from './CompilerProviders';
 import { CompilerRegistry, type CompilerProvider } from './LanguageFeatureRegistry';
@@ -26,7 +27,7 @@ const logger = createLogger('CompileService');
 
 export type LatexEngine = 'pdflatex' | 'xelatex' | 'lualatex' | 'tectonic';
 export type WasmEngine = 'wasm-pdftex' | 'wasm-xetex' | 'wasm-lualatex';
-export type TypstEngine = 'typst' | 'tinymist';
+export type TypstEngine = 'typst' | 'tinymist' | 'wasm-typst';
 export type CompileEngine = LatexEngine | WasmEngine | TypstEngine;
 
 export type CompileLogType = 'info' | 'success' | 'warning' | 'error';
@@ -137,6 +138,8 @@ export class CompileService implements IDisposable {
     this._disposables.add(this._compilerRegistry.register(new TypstCompilerProvider(), 10));
 
     this._disposables.add(this._compilerRegistry.register(new WASMCompilerProvider(), 8));
+
+    this._disposables.add(this._compilerRegistry.register(new TypstWasmCompilerProvider(), 8));
 
     logger.info('Builtin compiler providers registered', {
       count: this._compilerRegistry.size,
