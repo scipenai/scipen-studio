@@ -119,27 +119,32 @@ const COMPILER_FILES = [
  * silently shipping a broken bundle.
  */
 /**
- * Default Typst CLI embedded fonts. Mirrors the four families typst-cli
- * ships with — Libertinus Serif (default text), New Computer Modern
- * (alternate text), NewCM Math (default math), DejaVu Sans Mono (default
- * raw). Without Libertinus the wasm engine silently falls back to NewCM,
- * making wasm-compiled output diverge from CLI-compiled output for any
- * document that doesn't override `set text(font: ...)`.
+ * Complete typst-assets v0.13.1 Latin/math font set — the same 17 files
+ * typst-cli ships with embedded. Bundling all of them (not a curated
+ * subset) guarantees wasm-compiled output is byte-for-byte equivalent to
+ * CLI output for any document, including ones that use `weight: 600`
+ * Semibold headings, math bold, or rare code-block bold-italic.
+ * Total ~7 MB — small enough that an explicit "must-have" subset would
+ * be cargo cult.
  */
 const CORE_FONTS = [
   'LibertinusSerif-Regular.otf',
   'LibertinusSerif-Italic.otf',
   'LibertinusSerif-Bold.otf',
   'LibertinusSerif-BoldItalic.otf',
+  'LibertinusSerif-Semibold.otf',
+  'LibertinusSerif-SemiboldItalic.otf',
   'NewCM10-Regular.otf',
   'NewCM10-Italic.otf',
   'NewCM10-Bold.otf',
   'NewCM10-BoldItalic.otf',
   'NewCMMath-Regular.otf',
   'NewCMMath-Book.otf',
+  'NewCMMath-Bold.otf',
   'DejaVuSansMono.ttf',
   'DejaVuSansMono-Bold.ttf',
   'DejaVuSansMono-Oblique.ttf',
+  'DejaVuSansMono-BoldOblique.ttf',
 ];
 
 /**
