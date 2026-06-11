@@ -620,6 +620,119 @@ ServiceNames.CONFIG                // IConfigManager
 
 ---
 
-## StellarLatex WASM artifacts
+## WASM Compile Engines
 
-Prebuilt `stellarlatex*.js` / `.wasm` files under `public/wasm/` are version-controlled and used directly at runtime — no source checkout or build toolchain is required for normal development, build, or runtime. To refresh, replace the files in place with new artifacts.
+SciPen Studio embeds two WASM compile pipelines so the app can produce a PDF
+without a system TeX install:
+
+| Engine id (internal) | UI label      | Toolchain                                          | Targets                       |
+| -------------------- | ------------- | -------------------------------------------------- | ----------------------------- |
+| `wasm-pdftex`        | BusyTeX pdfTeX  | [BusyTeX](https://github.com/vk-cs/busytex) ESM   | LaTeX (pdfTeX flavor)         |
+| `wasm-xetex`         | BusyTeX XeTeX   | BusyTeX ESM                                       | LaTeX (XeTeX flavor)          |
+| `wasm-lualatex`      | BusyTeX LuaTeX  | BusyTeX ESM                                       | LaTeX (LuaTeX flavor)         |
+| `wasm-typst`         | Typst           | [typst-ts-web-compiler](https://www.npmjs.com/package/@myriaddreamin/typst-ts-web-compiler) v0.6 | Typst                |
+
+Both are wired through the same six-layer IPC + provider pattern as the CLI
+engines — refer to the "IPC Communication" section above for the channel /
+contract / schema / handler / preload / renderer api flow.
+
+### Why a custom `scipen-wasm://` protocol
+
+Workers spawned from a `file://` page in Chromium can `importScripts(file://)`
+synchronously but cannot `fetch(file://)`. BusyTeX and typst-ts both `fetch()`
+their data packages and font files at runtime, so a separate privileged scheme
+is registered in `src/main/services/WasmAssetProtocol.ts`:
+
+- `supportFetchAPI: true` — bypass the `file://` fetch ban
+- `corsEnabled: true` + `Access-Control-Allow-Origin: *` — the worker script is
+  loaded same-origin from the renderer URL, but its sub-resources cross-origin
+  into `scipen-wasm://`
+- `standard: true, secure: true` — required for `WebAssembly.compileStreaming`
+  and module-mode Workers
+
+The CSP in `index.html` must include `scipen-wasm:` in `connect-src`,
+`script-src`, `worker-src`, and `'wasm-unsafe-eval'` for `script-src` —
+without all three, the engine fails silently at fetch / streaming compile time.
+
+### Path resolution: `resolveWasmRoot()`
+
+`WasmAssetProtocol.ts` exports `resolveWasmRoot()` — the single source of truth
+for `<app>/out/renderer/wasm/`. Use it anywhere main-side code needs to read
+bundled WASM assets directly (e.g. the Typst capability probe reads
+`typst-ts/manifest.json` outside the protocol handler). Don't recompute the
+path; the layout differs between dev (electron-vite output) and prod
+(electron-builder's `asarUnpack` rule).
+
+### Typst font loading strategy
+
+Fonts are bundled, not lazy:
+
+- **Local manifest** (`public/wasm/typst-ts/fonts/manifest.json` + `*.ttf` /
+  `*.otf`) — full typst-assets v0.13.1 (17 Latin/math fonts: Libertinus Serif,
+  NewCM, NewCMMath, DejaVuSansMono) + Noto CJK SC (5 entries: Serif R/B, Sans
+  R/B, Sans Mono Regular). Loaded eagerly on worker init; a failure here is
+  fatal.
+- **Remote endpoint** (`settings.compiler.typstFontEndpoint`) — optional
+  best-effort supplement, e.g. for TC / JP / KR users. URLs ending in `.json`
+  are treated as a manifest URL; anything else is treated as a base URL with
+  `/manifest.json` appended. A reference manifest is checked in at
+  `public/wasm/typst-ts/examples/noto-cjk-sc.json`.
+
+When a missing-font diagnostic surfaces, the CompilerProvider builds a
+three-state hint based on `TypstWasmEngine.fontContext`:
+
+| `endpointConfigured` | `endpointReachable` | Hint shown                                       |
+| -------------------- | ------------------- | ------------------------------------------------ |
+| false                | —                   | "Add a font endpoint to fetch missing glyphs"    |
+| true                 | false               | "Remote endpoint fetch failed, check the URL"    |
+| true                 | true                | "Endpoint loaded N fonts, glyph still missing"   |
+
+### Engine recycling (typst#334 workaround)
+
+`typst-ts-web-compiler` has a known memory-growth issue where each compile
+allocates without releasing fully. The provider in
+`src/renderer/src/services/core/CompilerProviders.ts` recycles the engine
+every `RECYCLE_THRESHOLD = 50` compiles (close + lazy re-init on next call) —
+incremental cache is sacrificed at the cycle boundary but RSS stays bounded.
+
+### Refreshing bundled artifacts
+
+```bash
+# LaTeX WASM (BusyTeX)
+npm run download:busytex                # full set
+npm run download:busytex:minimal        # minimal data packages, smaller install
+
+# Typst WASM
+npm run download:typst-wasm:cjk         # bundles Noto CJK SC by default (used by prebuild)
+npm run download:typst-wasm             # Latin/math only
+npm run download:typst-wasm:no-fonts    # zero fonts, BYO endpoint
+```
+
+`prebuild` runs `download:typst-wasm:cjk` to keep the default installer
+self-sufficient for Simplified Chinese workflows.
+
+### Known limitations
+
+**SyncTeX is not available for Typst — none of the three Typst engines (CLI
+tinymist, CLI typst, WASM typst-ts).** The underlying constraint is in the
+toolchain, not our integration:
+
+- The Typst CLI (`typst-cli` and `tinymist`) does not emit a `.synctex.gz`
+  file. Typst's source-position metadata is internal and not exposed through
+  the binary's output.
+- `typst-ts-web-compiler` v0.6.x exposes `query` / `get_ast` /
+  `get_semantic_tokens` but **no source-position API** — verified by reading
+  the generated `.d.ts`. We cannot reconstruct the mapping at runtime.
+
+Upstream paths that would unblock this:
+
+1. Wait for `typst-ts-web-compiler` to expose source-pos through a new wasm-
+   bindgen export (no public timeline as of writing).
+2. Switch the Typst preview stack to `reflexo` / `typst-preview`'s rendering
+   pipeline, which has a different position-tracking design. This is a large
+   rewrite — both the renderer-side viewer and the IPC contract change.
+
+Until one of those lands, Typst projects in SciPen Studio render PDFs but the
+"jump to source from PDF" / "jump to PDF from source" actions are disabled.
+LaTeX (CLI and BusyTeX WASM `pdftex` / `xetex` / `lualatex`) is unaffected and
+keeps session-level SyncTeX.
