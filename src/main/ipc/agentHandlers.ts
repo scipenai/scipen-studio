@@ -264,10 +264,11 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
     if (initPromise) return initPromise;
 
     initPromise = (async () => {
-      // 「未配置 LLM」是预期初始态,不是错误 —— 在启动 sidecar 之前就拦下,
-      // 避免白启子进程、也不让日志里留一条注定失败的 401。renderer 据这个
-      // 标记渲染引导卡(而非红色报错)。失败后 `initIfNeeded` 的 finally 会
-      // 清掉 initPromise,用户填完 key 触发的重试可重新走完整 init。
+      // "LLM not configured" is the expected initial state, not an error — short-circuit here
+      // before spawning the sidecar so we avoid an empty subprocess and don't pollute the log
+      // with a doomed 401. The renderer reads this marker and shows the onboarding card (not a
+      // red error). The finally clause in `initIfNeeded` clears `initPromise` on failure, so a
+      // retry triggered after the user fills in their key can re-run the full init.
       if (!isChatConfigured(config)) {
         throw new Error(AGENT_NOT_CONFIGURED_MARKER);
       }
@@ -316,6 +317,11 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
         if (state.inflightTurn?.turnId === e.turn_id) {
           state.inflightTurn = null;
         }
+        // Reclaim any pending reverse-RPC entries for this turn so the
+        // long-running `ask_user_question` (600 s) doesn't park promises
+        // after the turn is over. Cheap no-op for turns without pending
+        // entries.
+        contextRequest.cancelTurn(e.turn_id);
       }
       broadcast(IpcChannel.Agent_TurnDelta, e);
     })
@@ -651,6 +657,11 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
 
   ipcMain.handle(IpcChannel.Agent_CancelTurn, async (_e, rawTurnId: unknown) => {
     const turnId = parseOrThrow(turnIdSchema, rawTurnId, 'cancelTurn turnId');
+    // Reclaim pending reverse-RPC entries before notifying SNACA. There's a
+    // ~tens-of-ms gap between sending `turn.cancel` and receiving the
+    // terminal `turn.delta done`; reclaiming up front closes that window so
+    // the user-visible question card disappears immediately on Cancel.
+    contextRequest.cancelTurn(turnId);
     await client.turnCancel({ turn_id: turnId });
     return { ok: true } as const;
   });
@@ -1033,13 +1044,13 @@ function resolveChatProvider(config: IConfigManager): ResolvedChatProvider | nul
 }
 
 /**
- * 单一真相源:判定聊天 agent 是否已具备可用的 LLM 配置。
+ * Single source of truth: decide whether the chat agent has a usable LLM config.
  *
- * 就绪 = 选了 provider + model(`resolveChatProvider` 非空)且拿得到 API key。
- * key 来源与 `buildSnacaSidecarEnv` 完全一致:设置里的 key 优先,
- * `process.env.SNACA_API_KEY` 是仅供开发者的兜底 —— 把 env 也算进来,
- * 才不会误伤「只设了环境变量、没填设置」的开发场景(renderer 看不到 env,
- * 所以这个判定必须留在主进程,不能搬去前端)。
+ * Ready = provider + model selected (`resolveChatProvider` non-null) AND an API key is available.
+ * Key resolution mirrors `buildSnacaSidecarEnv` exactly: settings key wins, with
+ * `process.env.SNACA_API_KEY` as a developer-only fallback — count env in so we don't
+ * misclassify the "only env var, settings empty" developer scenario (renderer can't see env,
+ * so this check must live in main, not the front end).
  */
 function isChatConfigured(config: IConfigManager): boolean {
   const resolved = resolveChatProvider(config);
