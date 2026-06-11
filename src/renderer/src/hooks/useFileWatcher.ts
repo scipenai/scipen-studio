@@ -127,7 +127,8 @@ export function useFileWatcher() {
     for (const change of changes) {
       const { type, path: changedPath } = change;
 
-      // 内容变更 → 增量重索引(含未打开的文件;打开文件的实时索引另由编辑器负责,重复无害)。
+      // Content change → incremental re-index (covers unopened files too; live indexing
+      // of open files is owned by the editor — duplicates are harmless).
       if (type === 'change' || type === 'add') {
         void getFileIndexService().reindexChangedFile(changedPath);
       }

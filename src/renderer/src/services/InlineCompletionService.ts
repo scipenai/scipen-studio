@@ -232,7 +232,7 @@ export class InlineCompletionService implements IDisposable {
     completionManager.clearCache();
   }
 
-  /** 清空项目索引(标签/引用)—— 切换项目时调用,避免旧项目数据串味。 */
+  /** Clear project index (labels/citations) — call on project switch to avoid bleed from old project. */
   resetIndex(): void {
     completionManager.getIndexer().clear();
   }
@@ -448,7 +448,7 @@ export class InlineCompletionService implements IDisposable {
         const textBeforeCursor = lineContent.slice(0, position.column - 1);
         const triggerContext = detectTriggerContext(lineContent, position.column);
 
-        // Instant trigger strategy: Don't trigger AI for \、{ etc.
+        // Instant trigger strategy: don't trigger AI right after \, {, etc.
         if (CONFIG.INSTANT_TRIGGER_CHARS.some((c) => textBeforeCursor.endsWith(c))) {
           return null;
         }
@@ -458,7 +458,7 @@ export class InlineCompletionService implements IDisposable {
         }
 
         const trimmedLineLength = textBeforeCursor.trim().length;
-        const endsWithSpaceOrPunctuation = /[\s,.;:!?，。；：！？]$/.test(textBeforeCursor);
+        const endsWithSpaceOrPunctuation = /[\s,.;:!?，。；：！？]$/.test(textBeforeCursor); // allow-cjk: match CJK sentence punctuation as continuation trigger
         const canTriggerContinuation =
           trimmedLineLength >= CONFIG.MIN_LINE_LENGTH_FOR_CONTINUATION &&
           endsWithSpaceOrPunctuation;

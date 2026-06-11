@@ -58,7 +58,7 @@ export async function bootstrapProject(
   // ── 0. Reset runtime + load file tree ──
   getProjectRuntimeContext().update({ bootstrapState: 'booting', rootPath: projectPath });
   projectService.setProject(projectPath, fileTree);
-  // 内联补全的项目级内容索引:每项目一次(服务持久化,不随文件抽屉重挂重跑)。
+  // Project-level content index for inline completion: once per project (service-persisted; not re-run when the file drawer remounts).
   getFileIndexService().indexProject(projectPath, fileTree);
 
   // ── 1. Overleaf metadata restore/cleanup ──

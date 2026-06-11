@@ -120,9 +120,9 @@ export const ChatContextSchema = z.object({
    * Cap at 8KB to keep prompt budget predictable.
    */
   project_intel: z.string().max(8192).optional(),
-  /** 右栏正在查看的 Zotero 论文 itemKey。 */
+  /** itemKey of the Zotero paper currently shown in the right pane. */
   active_zotero_item: z.string().max(64).optional(),
-  /** markdown 预览当前章节标题(scroll-spy)。 */
+  /** Current section heading in the markdown preview (scroll-spy). */
   markdown_section: z.string().max(256).optional(),
 });
 export type ChatContext = z.infer<typeof ChatContextSchema>;

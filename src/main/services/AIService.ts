@@ -190,8 +190,9 @@ export class AIService implements IAIService {
   }
 
   /**
-   * 用补全模型(低延迟、与行内补全共用配置)把用户首条消息压成一个简洁会话标题。
-   * 复用 createCompletionModel(),但换成标题专用 system prompt(而非"续写"语义)。
+   * Use the completion model (low latency, sharing config with inline completion) to squeeze
+   * the user's first message into a short conversation title. Reuses createCompletionModel()
+   * but with the title-specific system prompt instead of the "continue writing" one.
    */
   async generateTitle(userMessage: string): Promise<string> {
     try {
@@ -205,11 +206,12 @@ export class AIService implements IAIService {
         temperature: 0.3,
       });
 
-      // 清洗:取首行、去包裹引号与首尾空白、限长,交给渲染层做最终回退判断。
+      // Cleanup: take the first line, strip surrounding quotes and whitespace, cap length;
+      // renderer makes the final fallback decision.
       return text
         .split('\n')[0]
         .trim()
-        .replace(/^["'“”‘’「」『』]+|["'“”‘’「」『』]+$/g, '')
+        .replace(/^["'“”‘’「」『』]+|["'“”‘’「」『』]+$/g, '') // allow-cjk: strip CJK paired quotes from model output
         .trim()
         .slice(0, 24);
     } catch (error) {

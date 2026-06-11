@@ -78,9 +78,11 @@ export async function buildMentions(
 
     // Reserved prefixes for non-file kinds. `cite:` is resolved earlier
     // by the chat composer (AtCiteDropdown rewrites `@cite:` into a
-    // concrete `@cite:<key>` once the user picks an entry),所以走到这里
-    // 时 token 已经携带规范 citation key,LLM 可以原样使用。其他前缀
-    // (label/fig/tab/sec/symbol/url)目前无 picker,作为 plain text 透传。
+    // concrete `@cite:<key>` once the user picks an entry), so by the
+    // time we reach here the token already carries a canonical citation
+    // key and the LLM can use it as-is. Other prefixes
+    // (label/fig/tab/sec/symbol/url) have no picker yet — pass through
+    // as plain text.
     if (/^(label|cite|fig|tab|sec|symbol|url|https?):/i.test(rawToken)) {
       continue;
     }

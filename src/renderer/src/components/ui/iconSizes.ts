@@ -1,13 +1,14 @@
 /**
- * @file iconSizes.ts — lucide-react 图标尺寸的统一约定。
+ * @file iconSizes.ts — unified size convention for lucide-react icons.
  *
- * lucide 的 `size` 是数值 prop(非 CSS),无法走 CSS 变量收口。此处建立
- * 跨组件一致的尺寸刻度,替代散落的 `size={14|16|18}` 魔法值。迁移随各
- * 界面打磨阶段推进,本常量是底座。
+ * lucide's `size` is a numeric prop (not CSS), so it cannot be funneled through
+ * a CSS variable. This module establishes a cross-component size scale to replace
+ * scattered magic values like `size={14|16|18}`. Migration proceeds alongside each
+ * UI polish phase; this constant is the foundation.
  *
- * 取值与设计节奏对齐:
- *   xs(12) 行内/密集列表 · sm(14) 工具栏/设置项 · md(16) 主操作/命令面板
- *   lg(18) 区块标题 · xl(20) 空态/欢迎
+ * Values are aligned with the design rhythm:
+ *   xs(12) inline / dense lists  -  sm(14) toolbars / settings rows  -  md(16) primary actions / command palette
+ *   lg(18) section headers  -  xl(20) empty states / welcome
  */
 export const ICON = {
   xs: 12,

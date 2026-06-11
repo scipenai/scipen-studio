@@ -1,10 +1,13 @@
 /**
- * @file ZoteroFullTextService —— 按需把 Zotero 论文 PDF 抽成正文纯文本,
- *   供 LLM 的 `zotero_read` 反向 RPC 拉取(文本来源档 1:本地 pdf-parse)。
+ * @file ZoteroFullTextService — on-demand extract Zotero paper PDFs into
+ *   plain body text for the LLM's `zotero_read` reverse RPC to pull (text
+ *   source tier 1: local pdf-parse).
  *
- * 数据流:itemKey → LocalApi 查 PDF 附件 → 解析本地文件路径 → pdf-parse
- * 抽文本 → 写全局缓存 `~/.scipen-studio/zotero-cache/<itemKey>/`。缓存按
- * itemKey 去重(论文属文献库,跨项目共享),mtime+size 做廉价失效守卫。
+ * Pipeline: itemKey -> LocalApi query PDF attachment -> resolve local file
+ * path -> pdf-parse extract text -> write global cache at
+ * `~/.scipen-studio/zotero-cache/<itemKey>/`. Cache is keyed by itemKey
+ * (papers belong to the library, shared across projects); mtime + size act
+ * as a cheap invalidation guard.
  */
 
 import { promises as fs } from 'fs';
@@ -20,26 +23,26 @@ import { resolveZoteroDataDir } from './ZoteroDiscoveryService';
 
 const logger = createLogger('ZoteroFullTextService');
 
-/** 单篇返回上限,与 AtMentionResolver 的 @file 上限对齐(超出截断 + 标记)。 */
+/** Per-paper return cap, aligned with AtMentionResolver's @file cap (truncate + flag beyond). */
 const MAX_TEXT_BYTES = 200 * 1024;
 
-/** 全局论文缓存根(跨项目按 itemKey 去重)。MinerU 解析产物 / 全文抽取共用。 */
+/** Global paper cache root (cross-project, keyed by itemKey). Shared by MinerU parse outputs and full-text extraction. */
 export const ZOTERO_CACHE_ROOT = path.join(os.homedir(), '.scipen-studio', 'zotero-cache');
 
-/** 某条目的缓存目录 `<root>/<itemKey>/`。itemKey 是 8 位 [A-Z0-9],作目录名安全。 */
+/** Per-item cache dir `<root>/<itemKey>/`. itemKey is 8 chars [A-Z0-9], safe as a directory name. */
 export function zoteroItemCacheDir(itemKey: string): string {
   return path.join(ZOTERO_CACHE_ROOT, itemKey);
 }
 
-/** MinerU 解析产物目录 `<itemKey>/parsed/`(full.md + content_list.json + images)。 */
+/** MinerU parse output dir `<itemKey>/parsed/` (full.md + content_list.json + images). */
 export function zoteroParsedDir(itemKey: string): string {
   return path.join(zoteroItemCacheDir(itemKey), 'parsed');
 }
 
 interface CacheMeta {
-  /** 源 PDF 绝对路径。 */
+  /** Source PDF absolute path. */
   pdfPath: string;
-  /** 廉价失效守卫:PDF 文件 mtime + size 任一变即重抽。 */
+  /** Cheap invalidation guard: any change in PDF mtime or size triggers re-extract. */
   pdfMtimeMs: number;
   pdfSize: number;
   extractedAt: string;
@@ -49,18 +52,20 @@ export class ZoteroFullTextService {
   constructor(private readonly api: ZoteroLocalApiClient = getZoteroLocalApiClient()) {}
 
   /**
-   * 取一篇论文的正文纯文本。无 PDF 附件 → `tier:'none'`;成功 → `tier:'local'`。
-   * 命中缓存(PDF 未变)跳过 pdf-parse;返回前按 `MAX_TEXT_BYTES` 截断。
+   * Fetch a paper's plain body text. No PDF attachment -> `tier:'none'`;
+   * success -> `tier:'local'`. Cache hit (PDF unchanged) skips pdf-parse;
+   * truncated to `MAX_TEXT_BYTES` before return.
    */
   async getFullText(itemKey: string): Promise<ZoteroFullTextResultDTO> {
     if (!itemKey) return emptyResult();
 
-    // 档2 优先:MinerU 精解析产物(结构化 markdown,公式/表格保真)。无 mtime
-    // 失效 —— 解析烧配额,仅用户显式重解析时覆盖。
+    // Tier 2 priority: MinerU precise-parse output (structured markdown,
+    // formula/table fidelity). No mtime invalidation — parsing burns quota,
+    // overwrite only on explicit user re-parse.
     const mineru = await this.readMinerUCache(itemKey);
     if (mineru !== null) {
       const truncated = truncateToBytes(mineru, MAX_TEXT_BYTES);
-      // 结构化 MD 视为高质量(公式/表格已保真),不再自检。
+      // Structured MD is treated as high quality (formula/table fidelity), no self-check.
       return { text: truncated, truncated: truncated !== mineru, tier: 'mineru', quality: 'good' };
     }
 
@@ -88,13 +93,14 @@ export class ZoteroFullTextService {
       text: truncatedText,
       truncated: truncatedText !== text,
       tier: 'local',
-      // 对完整抽取(非截断)算可读性,截断只是尾部省略不影响质量判断。
+      // Compute readability only on full (non-truncated) extraction; truncation
+      // is just tail elision and does not affect quality judgment.
       quality: computeReadability(text),
     };
   }
 
   // ============================================================
-  // PDF 定位
+  // PDF location
   // ============================================================
 
   private async resolvePdfPath(itemKey: string): Promise<string | null> {
@@ -102,7 +108,7 @@ export class ZoteroFullTextService {
   }
 
   // ============================================================
-  // 缓存
+  // Cache
   // ============================================================
 
   private cacheDir(itemKey: string): string {
@@ -124,11 +130,11 @@ export class ZoteroFullTextService {
       if (!fresh) return null;
       return await fs.readFile(path.join(dir, 'content.txt'), 'utf-8');
     } catch {
-      return null; // 无缓存 / 损坏 → 视为 miss。
+      return null; // No cache / corrupted -> treat as miss.
     }
   }
 
-  /** 读 MinerU 档(`parsed/full.md`)。存在即返回,无 mtime 校验。 */
+  /** Read MinerU tier (`parsed/full.md`). Return if present, no mtime check. */
   private async readMinerUCache(itemKey: string): Promise<string | null> {
     try {
       return await fs.readFile(path.join(zoteroParsedDir(itemKey), 'full.md'), 'utf-8');
@@ -138,8 +144,9 @@ export class ZoteroFullTextService {
   }
 
   /**
-   * 给「论文」面板的「解析 MD」视图用:返回完整 markdown(不截断)+ parsed 目录
-   * 绝对路径(renderer 据此把相对图片引用重写成 scipen-file:// URL)。无解析 → null。
+   * For the "Papers" panel's "Parsed MD" view: returns the full markdown
+   * (no truncation) plus the absolute parsed dir path (renderer uses it to
+   * rewrite relative image refs into scipen-file:// URLs). No parse -> null.
    */
   async getParsedMarkdown(
     itemKey: string
@@ -150,8 +157,9 @@ export class ZoteroFullTextService {
   }
 
   /**
-   * 读 MinerU 的 `*_content_list.json`(段落 bbox + page_idx),供 cite hover 选
-   * 截图区域。文件名是 UUID 前缀(非固定名)→ readdir 匹配后缀。无解析 / 损坏 → null。
+   * Read MinerU's `*_content_list.json` (paragraph bbox + page_idx), used by
+   * cite hover to pick the screenshot region. Filename is UUID-prefixed (not
+   * fixed) -> readdir matches the suffix. No parse / corrupted -> null.
    */
   async getContentList(itemKey: string): Promise<MinerUContentList | null> {
     const dir = zoteroParsedDir(itemKey);
@@ -194,7 +202,8 @@ export class ZoteroFullTextService {
       await fs.writeFile(path.join(dir, 'meta.json'), JSON.stringify(meta, null, 2), 'utf-8');
       logger.info('full text cached', { itemKey, chars: text.length });
     } catch (err) {
-      // 写缓存失败不致命 —— 文本已抽出,本次照常返回,下次再抽。
+      // Cache write failure is not fatal — text is already extracted, return
+      // it this round and re-extract next time.
       logger.warn('cache write failed', { itemKey, error: errMsg(err) });
     }
     return text;
@@ -202,10 +211,11 @@ export class ZoteroFullTextService {
 }
 
 /**
- * 解析一个 Zotero 条目的 PDF 附件本地路径。全文抽取与 PDF 内嵌渲染共用。
- *   - linked_file → 用户自管的绝对路径
- *   - imported_file / imported_url → {dataDir}/storage/{attachmentKey}/{filename}
- * 无 PDF 附件 / 无法定位 → null。
+ * Resolve a Zotero item's PDF attachment local path. Shared by full-text
+ * extraction and embedded PDF rendering.
+ *   - linked_file -> user-managed absolute path
+ *   - imported_file / imported_url -> {dataDir}/storage/{attachmentKey}/{filename}
+ * No PDF attachment / cannot resolve -> null.
  */
 export async function resolveZoteroPdfPath(
   itemKey: string,
@@ -238,17 +248,20 @@ function emptyResult(): ZoteroFullTextResultDTO {
 }
 
 /**
- * 档1 抽取可读性自检。保守判 `poor`(宁可漏报不可误报骚扰用户),只认两个
- * 明确信号:① 解码失败标志(�)+ 控制符占比偏高 → 字体无 ToUnicode 的
- * 真乱码;② 可读字符(字母含 CJK / 数字)占比极低 → 扫描版/纯图抽不出文字。
- * 中文论文的汉字属 `\p{L}`,占比天然高,不会误判。
+ * Tier-1 extraction readability self-check. Conservatively judges `poor`
+ * (better to under-report than spam users with false positives). Only two
+ * unambiguous signals: (1) decode failure marker (U+FFFD) + elevated control
+ * char ratio -> true garbage from fonts missing ToUnicode; (2) readable
+ * chars (letters incl. CJK + digits) ratio is very low -> scanned/image-only
+ * PDF with no extractable text. Chinese papers' hanzi are `\p{L}`, naturally
+ * high ratio, no false positives.
  */
 function computeReadability(text: string): 'good' | 'poor' {
   const trimmed = text.trim();
   if (trimmed.length === 0) return 'poor';
-  let readable = 0; // 字母(含 CJK)+ 数字
-  let garbled = 0; // � + C0 控制符(排除 \t\n\r)
-  let total = 0; // 非空白字符
+  let readable = 0; // letters (incl. CJK) + digits
+  let garbled = 0; // U+FFFD + C0 controls (excluding \t\n\r)
+  let total = 0; // non-whitespace chars
   for (const ch of trimmed) {
     if (/\s/u.test(ch)) continue;
     total++;

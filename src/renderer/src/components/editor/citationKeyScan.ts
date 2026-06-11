@@ -1,7 +1,8 @@
 /**
- * @file citationKeyScan —— 在编辑器某位置定位光标所在的 citation key(单行扫描)。
- *   hover 预览(CitePreviewService)、Ctrl+Click 跳转(editorSetup)共用,确保
- *   「什么算 citation」零语义漂移。key 提取 regex 与 `CitedKeyExtractor` 一致。
+ * @file citationKeyScan — locate the citation key under the cursor (single-line scan).
+ *   Shared by hover preview (CitePreviewService) and Ctrl+Click jump (editorSetup) so
+ *   that "what counts as a citation" has zero semantic drift. The key-extraction regex
+ *   matches `CitedKeyExtractor`.
  */
 
 import type * as monaco from 'monaco-editor';
@@ -10,14 +11,15 @@ const LATEX_CITE_REGEX = /\\cite[a-zA-Z]*\*?\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/g;
 const TYPST_CITE_REGEX = /@([A-Za-z][\w-]{1,})/g;
 
 /**
- * 定位光标所在的 citation key —— 仅扫当前行,避免每次 hover 全文 regex 抖动。
- * 同时支持 LaTeX `\cite{}` 和 Typst `@key`;Markdown 走 LaTeX 路径(pandoc 风格
- * `[@key]` 内的 `@key` 也会命中 Typst regex,体感无缝)。
+ * Locate the citation key under the cursor — scans only the current line to avoid
+ * re-running a full-document regex on every hover.
+ * Supports both LaTeX `\cite{}` and Typst `@key`; Markdown takes the LaTeX path
+ * (pandoc-style `[@key]` is also captured by the Typst regex, so the UX is seamless).
  */
 export function findCitationKeyAt(
   model: monaco.editor.ITextModel,
   position: monaco.Position,
-  // string(非联合)以接受 model.getLanguageId();内部只对 'typst' 特判。
+  // Typed as `string` (not a union) to accept `model.getLanguageId()`; only 'typst' is special-cased.
   languageId: string
 ): string | null {
   const line = model.getLineContent(position.lineNumber);
@@ -49,8 +51,9 @@ function scanLine(
 }
 
 /**
- * 给一个 `\cite{a,b,c}` 匹配 + 光标列,返回光标所在的具体 key(多 key 引用时
- * hover 跟着光标走)。光标在命令本身(braces 外)时返回 null。
+ * Given a `\cite{a,b,c}` match plus the cursor column, return the specific key under
+ * the cursor (so hover follows the cursor on multi-key citations). Returns null when
+ * the cursor is on the command itself (outside the braces).
  */
 export function extractKeyAt(match: RegExpExecArray, col: number): string | null {
   const matchStart = match.index;
@@ -72,9 +75,11 @@ export function extractKeyAt(match: RegExpExecArray, col: number): string | null
 }
 
 /**
- * 反向:给定 citation key + 语言,返回应插入编辑器的引用文本。与上面的扫描
- * regex 同源(「什么算 cite」零漂移):latex `\cite{}` / typst `@key` /
- * markdown pandoc `[@key]`。未知语言退化为 latex `\cite{}`(最通用)。
+ * Reverse direction: given a citation key + language, return the citation text to
+ * insert into the editor. Shares regex semantics with the scanner above (so "what
+ * counts as a cite" has zero drift): latex `\cite{}` / typst `@key` /
+ * markdown pandoc `[@key]`. Unknown languages fall back to latex `\cite{}` (most
+ * generally compatible).
  */
 export function formatCitationInsert(citationKey: string, languageId: string): string {
   if (languageId === 'typst') return `@${citationKey}`;
@@ -82,5 +87,5 @@ export function formatCitationInsert(citationKey: string, languageId: string): s
   return `\\cite{${citationKey}}`;
 }
 
-/** 测试用导出。 */
+/** Exported for tests. */
 export const _internal = { findCitationKeyAt, extractKeyAt, formatCitationInsert };

@@ -332,8 +332,9 @@ class InlineEditWidget implements Monaco.editor.IContentWidget {
         this.input.readOnly = false;
         break;
     }
-    // readOnly 不会改变焦点,但跨状态切换时浏览器有时会丢焦点;
-    // 主动确保 input 仍持有焦点,让 Tab/Esc 走 widget 的 keydown。
+    // readOnly doesn't change focus, but browsers occasionally drop focus on state
+    // transitions; proactively ensure the input keeps focus so Tab/Esc reach the
+    // widget's keydown handler.
     if (document.activeElement !== this.input) {
       this.input.focus({ preventScroll: true });
     }
@@ -382,7 +383,7 @@ class InlineEditWidget implements Monaco.editor.IContentWidget {
       return;
     }
     if (e.key === 'Tab') {
-      // 始终拦截 Tab,防止焦点逃离 widget;只在 complete 状态触发 accept。
+      // Always intercept Tab to prevent focus escaping the widget; only trigger accept in complete state.
       e.preventDefault();
       e.stopPropagation();
       if (this.state === 'complete') {

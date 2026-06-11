@@ -217,13 +217,13 @@ export function useRightPanelTab() {
   return useServiceEvent(service.onDidChangeRightPanelTab, () => service.rightPanelTab);
 }
 
-/** Returns chat panel visibility (主页面三独立面板之一). */
+/** Returns chat panel visibility (one of the three independent main-page panels). */
 export function useChatVisible() {
   const service = getUIService();
   return useServiceEvent(service.onDidChangeChatVisible, () => service.chatVisible);
 }
 
-/** Returns editor panel visibility (主页面三独立面板之一). */
+/** Returns editor panel visibility (one of the three independent main-page panels). */
 export function useEditorVisible() {
   const service = getUIService();
   return useServiceEvent(service.onDidChangeEditorVisible, () => service.editorVisible);

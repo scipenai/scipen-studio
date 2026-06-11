@@ -1,19 +1,24 @@
 /**
- * @file useLazyModule.ts - 可靠提交的动态组件加载(替代 React.lazy + Suspense)
- * @description 本应用中 React.lazy + Suspense 的「首次 resolve」不提交挂载 —— 诊断实测:
- *   chunk 在首次点击即解析(<12ms),但组件直到下一次交互才 mount(即用户感知的「点两次才出现」)。
- *   根因:lazy 的加载器天生异步 → 必 suspend 一次 → resolve 后 React 把「提交」排进低优先级
- *   retry lane,被持续的高优先级渲染饿死,直到下次交互强制 flush。
+ * @file useLazyModule.ts - Reliably-committing dynamic component loader (replacement for React.lazy + Suspense).
+ * @description React.lazy + Suspense's "first resolve" fails to commit-mount in this app — measured:
+ *   the chunk resolves on first click (<12ms), but the component does not mount until the next
+ *   interaction (the user-visible "have to click twice" symptom). Root cause: lazy's loader is
+ *   inherently async → it always suspends once → after resolve, React schedules the commit on a
+ *   low-priority retry lane, which is starved by ongoing high-priority renders until the next
+ *   interaction forces a flush.
  *
- *   本 hook 改走「动态 import → setState」路径:setState 是默认优先级更新,提交可靠、不被饿死;
- *   同时保留 code-split(动态 import 仍产出独立 chunk)。配合 shell 的 idle 预加载,import 命中
- *   已 warm 的缓存 → 近乎瞬时。静态导入(如文件抽屉)是同一思路的极端形态(零异步),已验证可靠。
+ *   This hook routes through "dynamic import → setState" instead: setState is a default-priority
+ *   update, so the commit is reliable and never starved. Code-splitting is preserved (dynamic
+ *   import still emits a separate chunk). With the shell's idle prefetch, the import hits a warm
+ *   cache → effectively instant. Static imports (e.g. the file drawer) are the extreme form of
+ *   the same idea (zero async) and have been verified reliable.
  */
 import { useEffect, useState, type ComponentType } from 'react';
 
 /**
- * 动态加载一个组件并在就绪后返回它(未就绪返回 null,由调用方渲染 fallback)。
- * @param load 模块加载器,返回目标组件,例如 `() => import('./Heavy').then(m => m.Heavy)`
+ * Dynamically loads a component and returns it once ready (returns null until ready;
+ * caller renders the fallback).
+ * @param load Module loader returning the target component, e.g. `() => import('./Heavy').then(m => m.Heavy)`
  */
 export function useLazyModule<P = Record<string, never>>(
   load: () => Promise<ComponentType<P>>
@@ -24,18 +29,20 @@ export function useLazyModule<P = Record<string, never>>(
     let alive = true;
     void load()
       .then((resolved) => {
-        // 函数式 setState:组件本身是函数,直接传会被当作 updater,故包一层返回。
+        // Functional setState: the component itself is a function, so passing it directly
+        // would be treated as an updater — wrap it in a returning lambda.
         if (alive) setComponent(() => resolved);
       })
       .catch((err) => {
-        // chunk 加载失败罕见但严重(组件会永久停在 fallback),记日志便于诊断;
-        // 不抛出 → 不连累整个面板(组件自身渲染期的真实错误仍由上层 ErrorBoundary 兜底)。
-        console.error('[useLazyModule] 动态组件加载失败', err);
+        // Chunk load failure is rare but severe (component would stay on fallback forever);
+        // log for diagnostics. Do not rethrow — keeps the surrounding panel alive (genuine
+        // render-time errors are still caught by the upstream ErrorBoundary).
+        console.error('[useLazyModule] dynamic component load failed', err);
       });
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- load 在每个调用点是稳定的模块加载器,仅挂载时加载一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load is a stable module loader at each call site; load once on mount
   }, []);
 
   return Component;

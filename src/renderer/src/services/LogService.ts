@@ -35,9 +35,10 @@ export interface LogFilter {
 }
 
 // Keywords for sensitive data detection.
-// 注意:用 substring 匹配,所以列表里**不要放裸 'key'** —— 它会误伤所有合法字段名
-// (citationKey / itemKey / publicKey / keyToItemSize 等)。需要识别 API key 时
-// 用 apikey / api_key / apiKey 三种具体形态(实际项目里 secret 都带前缀)。
+// Note: matched via substring, so the list must **not** contain the bare token 'key' —
+// it would false-positive on legitimate field names (citationKey / itemKey / publicKey /
+// keyToItemSize etc.). To catch API keys, use the three concrete forms apikey / api_key /
+// apiKey (real-world secrets always carry a prefix).
 const SENSITIVE_KEYS = [
   'apikey',
   'api_key',
@@ -232,10 +233,12 @@ class LogServiceImpl implements IDisposable {
     // Also output to console
     this.consoleLog(entry);
 
-    // Persist info+ to main process file. info 进盘是诊断刚需 —— prod build 关
-    // DevTools 之后 console 是黑洞,所有 [M2-DEBUG] / lifecycle 日志只能靠这条
-    // 通路落到 main.log 的 [Renderer] 区,不然 prod 出问题没法回放。
-    // debug 仍只走 console,因为它是高频开发噪音,不该污染 prod 盘上文件。
+    // Persist info+ to main process file. Persisting info is a diagnostics necessity —
+    // once DevTools is closed in a prod build the renderer console is a black hole, so
+    // every [M2-DEBUG] / lifecycle entry must funnel through this path into main.log's
+    // [Renderer] section, otherwise prod issues cannot be replayed.
+    // debug still goes to console only — it is high-frequency dev noise and should not
+    // pollute the on-disk prod file.
     if (level === 'info' || level === 'warn' || level === 'error' || level === 'fatal') {
       this.queueForPersistence(entry);
     }

@@ -1,13 +1,16 @@
 /**
- * @file EmbeddingStore —— Zotero 文献向量的内存索引 + 磁盘缓存 + 暴力 cosine。
+ * @file EmbeddingStore — in-memory index + on-disk cache + brute-force cosine
+ *   for Zotero paper vectors.
  *
- * 向量入库前 L2 归一化 → cosine 退化为点积,搜索更快。≤5k 条暴力搜索 <20ms,
- * 不引入 FAISS/hnsw(SNACA 已验证暴力够用)。整个 store 绑定单一 modelId
- * (`provider:model`),换模型 → 文件名变 → 旧文件被忽略 → 触发重建。
+ * Vectors are L2-normalized before insert, so cosine collapses to a dot product
+ * for faster search. Brute force on <=5k entries runs <20ms, so we don't pull
+ * in FAISS/hnsw (SNACA proved brute force is enough). The whole store is bound
+ * to a single modelId (`provider:model`); switching models changes the
+ * filename, the old file is ignored, and a rebuild is triggered.
  *
- * bin 布局(`embeddings/<modelId-safe>.bin`):
+ * bin layout (`embeddings/<modelId-safe>.bin`):
  *   Header 32B: magic u32 'SPEB' | version u32 | dim u32 | count u32 | reserved[16]
- *   Record×N : itemKey 8B(ASCII) | abstractHash 8B(ASCII) | vector dim×f32 LE
+ *   Record xN : itemKey 8B (ASCII) | abstractHash 8B (ASCII) | vector dim x f32 LE
  */
 
 import { promises as fs } from 'fs';
@@ -23,23 +26,23 @@ const HEADER_BYTES = 32;
 const ITEMKEY_BYTES = 8;
 const HASH_BYTES = 8;
 
-/** embedding 缓存根:`~/.scipen-studio/zotero-cache/embeddings/`(与 parsed 同级)。 */
+/** Embedding cache root: `~/.scipen-studio/zotero-cache/embeddings/` (sibling of parsed). */
 export const ZOTERO_EMBEDDING_DIR = path.join(ZOTERO_CACHE_ROOT, 'embeddings');
 
 export interface VectorEntry {
   itemKey: string;
-  /** 入库时摘要文本的 hash;摘要变 → hash 变 → 需重 embed。 */
+  /** Hash of the abstract text at insert time; abstract changes -> hash changes -> needs re-embedding. */
   abstractHash: string;
-  /** 已 L2 归一化的向量。 */
+  /** L2-normalized vector. */
   vector: Float32Array;
 }
 
-/** 把 modelId 里的 `:`/`/` 等替成 `_`,作安全文件名。导出供单测。 */
+/** Replace `:`/`/` etc in modelId with `_` to form a safe filename. Exported for unit tests. */
 export function modelIdToFileName(modelId: string): string {
   return `${modelId.replace(/[^a-zA-Z0-9._-]/g, '_')}.bin`;
 }
 
-/** L2 归一化(零向量返回全 0)。导出供单测。 */
+/** L2 normalize (zero vector returns all-zero). Exported for unit tests. */
 export function l2normalize(v: number[]): Float32Array {
   let sum = 0;
   for (let i = 0; i < v.length; i++) sum += v[i] * v[i];
@@ -50,7 +53,7 @@ export function l2normalize(v: number[]): Float32Array {
   return out;
 }
 
-/** 两个**已归一化**向量的 cosine = 点积。维度不等返回 0。导出供单测。 */
+/** Cosine of two **already-normalized** vectors = dot product. Returns 0 on dim mismatch. Exported for unit tests. */
 export function cosineNormalized(a: Float32Array, b: Float32Array): number {
   if (a.length !== b.length) return 0;
   let dot = 0;
@@ -71,18 +74,18 @@ export class EmbeddingStore {
     return this.entries.size;
   }
 
-  /** 设定当前 store 绑定的 modelId(建库前调用;与已加载文件 modelId 不符则应先 clear)。 */
+  /** Set the modelId this store is bound to (call before building; if it differs from the loaded file's modelId, clear first). */
   setModelId(modelId: string): void {
     this.modelId = modelId;
   }
 
-  /** 守卫命中:同 itemKey 且 abstractHash 未变 → 无需重 embed。 */
+  /** Guard hit: same itemKey and abstractHash unchanged -> no re-embedding needed. */
   has(itemKey: string, abstractHash: string): boolean {
     const e = this.entries.get(itemKey);
     return e !== undefined && e.abstractHash === abstractHash;
   }
 
-  /** 写入 / 覆盖一条(向量须已归一化)。首条确定维度。 */
+  /** Insert / overwrite one entry (vector must already be normalized). First entry locks the dim. */
   upsert(itemKey: string, abstractHash: string, vector: Float32Array): void {
     if (this.dim === 0) this.dim = vector.length;
     this.entries.set(itemKey, { itemKey, abstractHash, vector });
@@ -97,8 +100,9 @@ export class EmbeddingStore {
     this.dim = 0;
   }
 
-  /** cosine 暴力打分全库(query 须已归一化),降序,不截断。top3 推荐取前缀,
-   *  @cite 补全语义重排消费完整序——同一次嵌入两处复用,避免二次全库扫描。 */
+  /** Brute-force cosine score the entire store (query must be normalized), descending, no truncation.
+   *  top3 recommendation takes a prefix; @cite completion semantic rerank consumes the full sequence
+   *  — same embedding reused in two places, avoiding a second full scan. */
   scoreAll(query: Float32Array): Array<{ itemKey: string; score: number }> {
     const hits: Array<{ itemKey: string; score: number }> = [];
     for (const e of this.entries.values()) {
@@ -108,7 +112,7 @@ export class EmbeddingStore {
     return hits;
   }
 
-  /** cosine 暴力 top-k(query 须已归一化),降序。 */
+  /** Brute-force cosine top-k (query must be normalized), descending. */
   searchTopK(query: Float32Array, k: number): Array<{ itemKey: string; score: number }> {
     return this.scoreAll(query).slice(0, k);
   }
@@ -118,8 +122,9 @@ export class EmbeddingStore {
   }
 
   /**
-   * 从磁盘加载指定 modelId 的向量。文件不存在 / 损坏 / magic 不符 → 静默清空
-   * (调用方据 size()===0 决定是否重建)。成功则填充内存索引并设 modelId。
+   * Load vectors for the given modelId from disk. File missing / corrupt /
+   * magic mismatch -> silently clear (caller decides whether to rebuild
+   * based on size()===0). On success, fill the in-memory index and set modelId.
    */
   async loadFromDisk(modelId: string): Promise<void> {
     this.clear();
@@ -128,7 +133,7 @@ export class EmbeddingStore {
     try {
       buf = await fs.readFile(this.fileFor(modelId));
     } catch {
-      return; // 无缓存 → 留空
+      return; // no cache -> stay empty
     }
     try {
       this.deserialize(buf);
@@ -139,7 +144,7 @@ export class EmbeddingStore {
     }
   }
 
-  /** 把当前内存索引写盘(原子:先写 tmp 再 rename)。 */
+  /** Flush the in-memory index to disk (atomic: write tmp then rename). */
   async flushToDisk(): Promise<void> {
     if (!this.modelId || this.entries.size === 0) return;
     await fs.mkdir(ZOTERO_EMBEDDING_DIR, { recursive: true });
@@ -151,7 +156,7 @@ export class EmbeddingStore {
   }
 
   // ============================================================
-  // 序列化
+  // Serialization
   // ============================================================
 
   private serialize(): Buffer {
@@ -162,7 +167,7 @@ export class EmbeddingStore {
     buf.writeUInt32LE(VERSION, 4);
     buf.writeUInt32LE(this.dim, 8);
     buf.writeUInt32LE(count, 12);
-    // 16..32 reserved(已是 0)
+    // 16..32 reserved (already 0)
 
     let off = HEADER_BYTES;
     for (const e of this.entries.values()) {
@@ -206,14 +211,14 @@ export class EmbeddingStore {
   }
 }
 
-/** 写定长 ASCII(右侧补 \0;超长截断)。 */
+/** Write fixed-length ASCII (right-pad with \0; truncate if too long). */
 function writeFixedAscii(buf: Buffer, str: string, offset: number, len: number): void {
   for (let i = 0; i < len; i++) {
     buf.writeUInt8(i < str.length ? str.charCodeAt(i) & 0x7f : 0, offset + i);
   }
 }
 
-/** 读定长 ASCII(去尾部 \0)。 */
+/** Read fixed-length ASCII (strip trailing \0). */
 function readFixedAscii(buf: Buffer, offset: number, len: number): string {
   let s = '';
   for (let i = 0; i < len; i++) {

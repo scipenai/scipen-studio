@@ -61,8 +61,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         {openTabs.map((tab) => {
           const isActive = tab.path === activeTabPath;
           return (
-            // 现代 tab:active = 浮起白色药丸(bg-primary + 轻阴影),非活动透明 muted;
-            // 凹陷 tab 行(bg-void)托底,与右栏分段控件同一套语言。去掉旧 violet 渐变指示条。
+            // Modern tab: active = floating white pill (bg-primary + light shadow); inactive transparent muted.
+            // Recessed tab row (bg-void) provides the base, sharing the segmented-control vocabulary with the right panel. Old violet gradient indicator bar removed.
             <div
               key={tab.path}
               onClick={() => onTabClick(tab.path)}
@@ -207,7 +207,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             isCompileDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
           )}
           style={{
-            // ghost/outline:默认透明,仅蓝字蓝图标 + 一道淡描边 —— 不与文件 tab 抢视觉
+            // ghost/outline: transparent by default, only blue text + blue icon + a faint border — avoids competing visually with the file tabs.
             background: 'transparent',
             color: isCompiling
               ? 'var(--color-error)'
@@ -224,7 +224,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           }}
           onMouseEnter={(e) => {
             if (isCompileDisabled) return;
-            // 仅一层极淡填充作 hover 反馈,去掉原先的发光(glow)以减重
+            // A single very faint fill is the hover feedback — the old glow was dropped to lighten the visual weight.
             e.currentTarget.style.background = isCompiling
               ? 'color-mix(in srgb, var(--color-error) 12%, transparent)'
               : 'var(--color-accent-muted)';

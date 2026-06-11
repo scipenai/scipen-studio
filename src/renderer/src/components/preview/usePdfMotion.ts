@@ -1,26 +1,30 @@
 /**
- * @file usePdfMotion.ts - PDF 预览 GSAP 动画 hook
- * @description SyncTeX 落点脉冲高亮。纯渲染层动画,不触碰 pdf.js / canvas 渲染;
- *   集中 GSAP 插件注册与 prefers-reduced-motion 降级,避免动画调用散落到组件里。
+ * @file usePdfMotion.ts - GSAP animation hook for PDF preview.
+ * @description SyncTeX landing-point pulse highlight. Pure render-layer animation;
+ *   does not touch pdf.js / canvas rendering. Centralizes GSAP plugin registration
+ *   and prefers-reduced-motion fallback so animation calls don't scatter across components.
  */
 
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import type { RefObject } from 'react';
 
-// useGSAP 需在使用前注册一次(幂等)。
+// useGSAP must be registered once before use (idempotent).
 gsap.registerPlugin(useGSAP);
 
 /**
- * 落点脉冲高亮:`token` 每自增一次,就在 `targetRef` 元素上播放一次
- * "发光框放大淡入 → 停留 → 淡出"。token 为 0 时不动(初始态)。
+ * Landing-point pulse highlight: every time `token` increments, play one
+ * "glow box scale-in fade-in -> hold -> fade-out" on the `targetRef` element.
+ * Stays idle when token is 0 (initial state).
  *
- * 设计要点:
- * - 用 `autoAlpha` 收口可见性(值为 0 时 GSAP 置 visibility:hidden),叠加层永不挡点击。
- * - 可见性/缩放(opacity/visibility/transform)完全交给 GSAP,组件 style 不声明这些属性,
- *   避免上层 re-render(如 500ms 后清空 highlight)把动画中途覆盖。
- * - `prefers-reduced-motion`:退化为纯静态淡入淡出,无缩放/位移。
- * - `useGSAP({ scope })` 自动 revert;`revertOnUpdate` 保证新一次脉冲干净重启。
+ * Design notes:
+ * - Use `autoAlpha` to gate visibility (GSAP sets visibility:hidden at 0), so the
+ *   overlay never blocks clicks.
+ * - Visibility / scale (opacity/visibility/transform) are owned entirely by GSAP;
+ *   component style declares none of them, preventing parent re-renders (e.g.
+ *   clearing highlight after 500ms) from overriding the animation mid-flight.
+ * - `prefers-reduced-motion`: degrade to plain static fade in/out, no scale/translate.
+ * - `useGSAP({ scope })` auto-reverts; `revertOnUpdate` ensures each new pulse restarts cleanly.
  */
 export function usePulseHighlight(
   scopeRef: RefObject<HTMLElement | null>,

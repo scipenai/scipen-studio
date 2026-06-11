@@ -1,7 +1,8 @@
 /**
- * @file statusColor.ts —— BibStatus → CSS 变量 颜色映射
- * @description Mirror UI 共享字典。StatusBar 徽章、Settings 状态卡都依赖。
- *              新增 BibStatus 时仅改这一处,自动同步全屏渲染点。
+ * @file statusColor.ts -- BibStatus -> CSS variable color mapping.
+ * @description Shared dictionary for Mirror UI. StatusBar badge and Settings
+ *              status card both depend on it. Adding a new BibStatus only
+ *              requires editing here; all render sites stay in sync.
  */
 
 import type { BibStatus } from '../../../../../shared/types/zotero-events';

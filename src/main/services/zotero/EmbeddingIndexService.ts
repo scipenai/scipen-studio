@@ -1,13 +1,17 @@
 /**
- * @file EmbeddingIndexService —— M3 主动文献推荐的 embedding 索引编排(照
- *   ZoteroOrchestrator 形态:lazy 建库 + 订阅 bus 增量 + 失效重建 + 查询入口)。
+ * @file EmbeddingIndexService — M3 active literature recommendation's
+ *   embedding index orchestrator (follows the ZoteroOrchestrator shape:
+ *   lazy build + bus subscription for incremental + invalidation rebuild +
+ *   query entry).
  *
- * 向量索引 + cosine 都在 main(EmbeddingStore),renderer 永不持有。建库语料 =
- * 条目级「title + abstract」(SPECTER 式),只对有摘要的条目 embed。失效守卫
- * 两层:① modelId(provider/model 变 → 整库重建);② abstractHash(摘要变 →
- * 单条重 embed)。
+ * Vector index + cosine all live in main (EmbeddingStore); renderer never
+ * holds them. Indexing corpus = item-level "title + abstract" (SPECTER-style),
+ * only embed items that have an abstract. Two invalidation guards:
+ * (1) modelId (provider/model change -> full rebuild); (2) abstractHash
+ * (abstract change -> re-embed single item).
  *
- * 本文件(批2)recommend 只做 cosine top3;批4 在 cosine 与返回之间插 LLM rerank。
+ * This file (batch 2) recommend does cosine top3 only; batch 4 inserts LLM
+ * rerank between cosine and return.
  */
 
 import type { ZoteroEmbeddingProvider } from '../../../../shared/types/zotero';
@@ -34,13 +38,13 @@ import type { IAIService } from '../interfaces/IAIService';
 
 const logger = createLogger('EmbeddingIndexService');
 
-/** cosine 粗召池大小(批4 rerank 从中精排 top3;批2 直接取前 3)。 */
+/** Cosine recall pool size (batch 4 rerank narrows to top3; batch 2 takes the first 3 directly). */
 export const RECALL_POOL_SIZE = 15;
-/** 返回给用户的推荐条数。 */
+/** Number of recommendations returned to the user. */
 export const RECOMMEND_TOP_K = 3;
-/** 增量写盘 debounce,避免每条 upsert 都落盘。 */
+/** Incremental flush debounce — avoid disk write on every upsert. */
 const FLUSH_DEBOUNCE_MS = 5000;
-/** bib:initial(全库 5k)后延迟建库,避开 bootstrap + BibTexSync 高峰。 */
+/** Delay build after bib:initial (5k full library) to avoid bootstrap + BibTexSync peak. */
 const BUILD_INITIAL_DELAY_MS = 2000;
 
 interface ResolvedConfig {
@@ -53,12 +57,12 @@ export interface EmbeddingIndexDeps {
   index?: ZoteroIndex;
   bus?: ZoteroEventBus;
   store?: EmbeddingStore;
-  /** 读取 provider / key / 开关;默认读 ConfigManager + keychain。 */
+  /** Read provider / key / toggle; defaults to ConfigManager + keychain. */
   loadConfig?: () => ResolvedConfig;
   clientFactory?: (cfg: EmbeddingClientConfig) => EmbeddingClient;
-  /** 聊天模型(rerank 复用);默认 main 单例。 */
+  /** Chat model (reused for rerank); defaults to main singleton. */
   ai?: IAIService;
-  /** 状态变化回调(批3 接 webContents.send 广播进度)。 */
+  /** Status change callback (batch 3 hooks webContents.send to broadcast progress). */
   onStatus?: (status: EmbeddingIndexStatusDTO) => void;
   now?: () => number;
   flushDebounceMs?: number;
@@ -113,10 +117,10 @@ export class EmbeddingIndexService {
   }
 
   // ============================================================
-  // 公开 API
+  // Public API
   // ============================================================
 
-  /** 设置状态广播回调(main 接 webContents.send,单例创建后注入)。 */
+  /** Set status broadcast callback (main hooks webContents.send, injected after singleton creation). */
   setStatusListener(cb: (status: EmbeddingIndexStatusDTO) => void): void {
     this.onStatus = cb;
   }
@@ -132,7 +136,7 @@ export class EmbeddingIndexService {
     };
   }
 
-  /** 订阅 bib 事件做增量。可重入。 */
+  /** Subscribe to bib events for incremental updates. Re-entrant. */
   start(): void {
     if (this.unsubBus) return;
     this.unsubBus = this.bus.on((event) => {
@@ -155,8 +159,9 @@ export class EmbeddingIndexService {
   }
 
   /**
-   * Lazy 建库入口(settings 开启 / 启动 / key 配好时调)。幂等:building 中
-   * 复用同一 promise;已 ready 且 modelId 未变直接返回。
+   * Lazy build entry (called when settings enable / on startup / when key
+   * is configured). Idempotent: while building, reuse the same promise;
+   * if already ready and modelId unchanged, return immediately.
    */
   async ensureBuilt(): Promise<void> {
     if (this.buildInFlight) return this.buildInFlight;
@@ -178,22 +183,25 @@ export class EmbeddingIndexService {
     return this.buildInFlight;
   }
 
-  /** provider / key 变更 / 手动重建:丢弃旧 client + 索引,强制重建。 */
+  /** provider / key change / manual rebuild: drop old client + index, force rebuild. */
   invalidate(reason: 'provider-change' | 'key-change' | 'manual'): void {
     logger.info('invalidate', { reason });
     this.client = null;
     this.store.clear();
     this.embedded = 0;
-    // 关键:清空后必须让 ensureBuilt 的「ready 且 modelId 未变 → 早退」守卫失效,
-    // 否则 store 已空但守卫仍认为 ready,build() 被跳过 → 库永久停在 0 篇。
-    // 转 building 表达「正在重建」,且让 renderer 收到 building→ready 翻转。
+    // Critical: after clearing, we must invalidate ensureBuilt's "ready and
+    // modelId unchanged -> early return" guard, otherwise store is empty but
+    // the guard still thinks ready -> build() is skipped -> index stuck at 0.
+    // Transition to building to express "rebuilding" and let renderer observe
+    // a building->ready flip.
     this.setState('building');
     void this.ensureBuilt();
   }
 
   /**
-   * 主动推荐查询。索引未 ready → 返回空(带当前 state 供 UI 提示)。
-   * cosine 粗召 top15 → LLM rerank 精排 top3;rerank 不可用时降级纯 cosine top3。
+   * Active recommendation query. Index not ready -> returns empty (with
+   * current state for UI to surface). Cosine recall top15 -> LLM rerank
+   * top3; falls back to pure cosine top3 if rerank unavailable.
    */
   async recommend(req: RecommendRequestDTO): Promise<ZoteroEmbeddingResultDTO> {
     const paragraphHash = hashParagraph(req.paragraph);
@@ -210,7 +218,8 @@ export class EmbeddingIndexService {
     }
     try {
       const { vector } = await this.client.embedOne(req.paragraph);
-      // 一次全库打分:top3 取前缀,@cite 重排消费完整序——避免二次扫描。
+      // Single full-library score pass: top3 takes the prefix, @cite rerank
+      // consumes the full sequence — avoid a second scan.
       const allScored = this.store.scoreAll(l2normalize(vector));
       const scores = this.toCitationScores(allScored);
       const hits = allScored.slice(0, RECALL_POOL_SIZE);
@@ -234,21 +243,23 @@ export class EmbeddingIndexService {
         return { items, paragraphHash, scores };
       }
 
-      // 降级:区分「未配置」(cosine-only)与「配置了但忙/失败」(no-rerank)。
+      // Degraded path: distinguish "not configured" (cosine-only) from
+      // "configured but busy/failed" (no-rerank).
       const degraded = this.ai.isConfigured() ? 'no-rerank' : 'cosine-only';
       const items = hits.slice(0, RECOMMEND_TOP_K).map((h) => this.toResultItem(h));
       logger.info('recommend result', { items: items.length, path: degraded });
       return { items, paragraphHash, degraded, scores };
     } catch (err) {
       logger.warn('recommend failed', { error: String(err) });
-      if (err instanceof EmbeddingAuthError) this.setState('error', 'API key 无效');
-      // 失败不带 scores → renderer 保留上次缓存,@cite 下拉不瞬间失序。
+      if (err instanceof EmbeddingAuthError) this.setState('error', 'API key invalid');
+      // On failure, omit scores so renderer keeps the previous cache and the
+      // @cite dropdown doesn't suddenly lose its order.
       return { items: [], paragraphHash };
     }
   }
 
   // ============================================================
-  // 建库 / 增量
+  // Build / incremental
   // ============================================================
 
   private async build(client: EmbeddingClient): Promise<void> {
@@ -256,7 +267,7 @@ export class EmbeddingIndexService {
     this.embedded = 0;
     try {
       await this.store.loadFromDisk(client.modelId);
-      this.store.setModelId(client.modelId); // 显式绑定,不依赖 loadFromDisk 副作用
+      this.store.setModelId(client.modelId); // Bind explicitly, do not rely on loadFromDisk side effect
       const items = this.collectCorpus();
       this.total = items.length;
       const pending = items.filter((it) => !this.store.has(it.itemKey, it.hash));
@@ -276,7 +287,7 @@ export class EmbeddingIndexService {
       this.setState('ready');
     } catch (err) {
       logger.warn('build failed', { error: String(err) });
-      const msg = err instanceof EmbeddingAuthError ? 'API key 无效' : '建库失败(网络或服务异常)';
+      const msg = err instanceof EmbeddingAuthError ? 'API key invalid' : 'Build failed (network or service error)';
       this.setState('error', msg);
     }
   }
@@ -305,7 +316,7 @@ export class EmbeddingIndexService {
     this.emitStatus();
   }
 
-  /** 从 ZoteroIndex 取有摘要的条目,组「title + abstract」语料 + hash。 */
+  /** From ZoteroIndex, pull items with abstracts, build "title + abstract" corpus + hash. */
   private collectCorpus(): Array<{ itemKey: string; text: string; hash: string }> {
     const out: Array<{ itemKey: string; text: string; hash: string }> = [];
     for (const item of this.index.values()) {
@@ -344,8 +355,9 @@ export class EmbeddingIndexService {
     };
   }
 
-  /** 全库分映射到 citationKey 空间(过滤无 BBT key 的不可引用条目),供 @cite 重排。
-   *  入参已降序,过滤保序。 */
+  /** Map full-library scores into citationKey space (filter out non-citable items
+   *  without BBT key), for @cite reranking. Input is already descending; filter
+   *  preserves order. */
   private toCitationScores(
     scored: Array<{ itemKey: string; score: number }>
   ): Array<{ citationKey: string; score: number }> {

@@ -169,14 +169,15 @@ export class ZoteroOrchestrator {
     this.localApiProbe = { ok: true };
     this.bbtProbe = bbtHealthResult.ok ? { ok: true } : { ok: false, error: bbtHealthResult.error };
 
-    // citation key 由 LocalApi 直接从 data.citationKey 注入,无需 BBT 合并。
-    // mergeBbtIntoItems 仍 export 作为可测试纯函数 + 将来 opt-in reconcile 工具。
+    // citation key is injected directly by LocalApi from data.citationKey; no BBT merge needed.
+    // mergeBbtIntoItems is still exported as a testable pure function + future opt-in reconcile tool.
     const items = localApiResult.items;
 
-    // First-fill vs incremental:首次 cold boot 时 index 为空 → 走 hydrate,
-    // 广播 bib:initial 让 renderer 整库 rehydrate。后续 refresh(window focus
-    // 或 manual)走 diff + applyPatch,只广播变化的 bib:patch;无变化时退化
-    // 为 bib:status 让 renderer 撤掉 "syncing" 旋转。
+    // First-fill vs incremental: on cold boot the index is empty → hydrate,
+    // broadcast bib:initial so renderer rehydrates the whole library. Subsequent
+    // refreshes (window focus or manual) go through diff + applyPatch and only
+    // broadcast changed bib:patch; when nothing changed, fall back to bib:status
+    // so renderer drops the "syncing" spinner.
     const isFirstFill = this.index.size() === 0;
     const nextStatus: BibStatus = bbtHealthResult.ok ? 'ready' : 'degraded';
 
@@ -195,7 +196,7 @@ export class ZoteroOrchestrator {
           status: nextStatus,
         });
       } else {
-        // 内容无变化,不发 bib:patch;状态回 ready 由下面的 transition() 统一 emit。
+        // No content change; don't emit bib:patch. The status flip back to ready is emitted by the transition() call below.
       }
     }
 
@@ -220,9 +221,10 @@ export class ZoteroOrchestrator {
   }
 
   /**
-   * BBT 健康度信号 —— citation key 由 LocalApi 直接从 `data.citationKey`
-   * (BBT 7+ 注入到 Zotero data schema)拿,无需 RPC。BBT down 仅影响
-   * status(ready ↔ degraded),不影响数据可用性。
+   * BBT health signal — citation keys are read by LocalApi directly from
+   * `data.citationKey` (BBT 7+ injects them into the Zotero data schema),
+   * no RPC needed. BBT being down only affects status (ready ↔ degraded);
+   * data availability is unaffected.
    */
   private async fetchBbtHealth(): Promise<{ ok: boolean; error?: string }> {
     try {
@@ -237,13 +239,17 @@ export class ZoteroOrchestrator {
   }
 
   /**
-   * Status 单一通路 —— 任何 status 变化都从这里 emit `bib:status` 到 bus,
-   * renderer mirror 据此 bumpSnapshot,UI(StatusBadge spinner 等)随之同步。
+   * Single status channel — every status change emits `bib:status` to the
+   * bus from here, and the renderer mirror bumps its snapshot so UI
+   * (StatusBadge spinner, etc.) stays in sync.
    *
-   * 之前 transition 只改本地,doRefresh 末尾才手动 emit `bib:status(ready)` —
-   * 导致 syncing/bootstrapping 中间态对 renderer 完全不可见,StatusBar 永远停
-   * 在 ready,"立即刷新"看起来没反应。统一到 transition 之后,所有调用方都
-   * 不用再单独 emit;`bib:patch` / `bib:initial` 自带 status,mirror 端去重处理。
+   * Previously transition() only mutated local state and doRefresh
+   * manually emitted `bib:status(ready)` at the end — so syncing/
+   * bootstrapping intermediate states were invisible to the renderer and
+   * the StatusBar was stuck on ready, making "refresh now" look like a
+   * no-op. After centralising on transition, no caller emits status
+   * separately; `bib:patch` / `bib:initial` carry status, and the mirror
+   * dedupes.
    */
   private transition(next: BibStatus, detail?: string): void {
     if (this.status === next && this.detail === detail) return;

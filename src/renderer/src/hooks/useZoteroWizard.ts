@@ -1,16 +1,19 @@
 /**
- * @file useZoteroWizard.ts —— just-in-time Zotero 配置向导
- * @description 架构:module-level store + `useSyncExternalStore` hook,让任意组件
- *              都能 (a) 读 wizard 状态、(b) 调 `openZoteroWizard()` 触发。Wizard
- *              UI 只在 App 根挂一份,订阅 store 渲染。
+ * @file useZoteroWizard.ts — just-in-time Zotero configuration wizard.
+ * @description Architecture: module-level store + `useSyncExternalStore` hook so any
+ *              component can (a) read wizard state and (b) call `openZoteroWizard()`
+ *              to trigger it. The wizard UI mounts once at the App root and renders
+ *              from the store.
  *
- *              选择 module 单例而非 Context,因为触发点散在多处(设置面板 / chat
- *              composer / Monaco hover),Provider 包到根反而绕路。pub-sub store
- *              更简洁,等价可测。
+ *              Module singleton chosen over Context: trigger points are scattered
+ *              (settings panel / chat composer / Monaco hover); wrapping a Provider
+ *              around the root is a detour. A pub-sub store is simpler and equally
+ *              testable.
  *
- *              `finish()` 是 wizard 唯一的副作用集中点 —— 原子写入三字段(D 方案
- *              主开关 integrationEnabled + path + localApiEnabled)。半途关 wizard
- *              则零副作用,避免出现"半启用"脏状态。
+ *              `finish()` is the wizard's single side-effect sink — atomic write of
+ *              three fields (master toggle `integrationEnabled` + `path` +
+ *              `localApiEnabled`). Closing the wizard mid-flow has zero side
+ *              effects, preventing a "half-enabled" dirty state.
  */
 
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
@@ -28,13 +31,13 @@ export type WizardStepStatus = 'idle' | 'checking' | 'ok' | 'missing';
 
 export interface WizardStepState {
   status: WizardStepStatus;
-  /** status === 'missing' 且 probe 抛错时的错误信息。 */
+  /** Error message when status === 'missing' and the probe threw. */
   error?: string;
 }
 
 export interface ZoteroWizardState {
   isOpen: boolean;
-  /** 1-based step:1 = Zotero,2 = Local API,3 = BBT。 */
+  /** 1-based step: 1 = Zotero, 2 = Local API, 3 = BBT. */
   currentStep: 1 | 2 | 3;
   zoteroStep: WizardStepState;
   detection: ZoteroDetectionResultDTO | null;
@@ -82,7 +85,7 @@ function getSnapshot(): ZoteroWizardState {
 }
 
 // ============================================================
-// Actions(module-level —— 非 hook 上下文也能调用)
+// Actions (module-level — callable outside hook context)
 // ============================================================
 
 async function recheckZotero(): Promise<void> {
@@ -128,9 +131,9 @@ async function recheckLocalApi(): Promise<void> {
   }
 }
 
-// BBT 检测当前借 detection.betterBibTexInstalled —— Discovery service 在
-// detectInstallation 内部已并行 ping 过 BBT。M2 之后引入独立 BBT ping 时
-// 替换此调用。
+// BBT detection currently piggy-backs on detection.betterBibTexInstalled — the
+// Discovery service already pings BBT in parallel inside detectInstallation.
+// Replace this call once a dedicated BBT ping lands post-M2.
 async function recheckBBT(): Promise<void> {
   setState((prev) => ({ ...prev, bbtStep: { status: 'checking' } }));
   try {
@@ -160,7 +163,7 @@ function skipBBT(): void {
   }));
 }
 
-/** 公开 action:弹 wizard。重复调用幂等(已打开时不重置 state)。 */
+/** Public action: open the wizard. Idempotent — does not reset state if already open. */
 export function openZoteroWizard(): void {
   if (state.isOpen) return;
   setState((prev) => ({ ...prev, isOpen: true, currentStep: 1 }));
@@ -205,11 +208,12 @@ function goBack(): void {
 }
 
 /**
- * wizard 唯一副作用集中点 —— 一次原子落盘三字段:
- *   integrationEnabled = 用户启用意图(D 方案主开关)
- *   path / localApiEnabled = 此次走完 wizard 观察到的真实状态
- * canGoNext gate 已保证 step1/step2 都通过才能到 finish,detection.path
- * 和 pingResult.ok 都有真实值;半途关 wizard 则零副作用。
+ * Wizard's single side-effect sink — atomic write of three fields:
+ *   integrationEnabled    = user enablement intent (master toggle)
+ *   path / localApiEnabled = real state observed during this wizard run
+ * The canGoNext gate guarantees step1/step2 both passed before finish, so
+ * detection.path and pingResult.ok hold real values. Closing mid-flow has
+ * zero side effects.
  */
 function finish(): void {
   const { detection, pingResult } = state;
@@ -239,7 +243,7 @@ export interface ZoteroWizardController extends ZoteroWizardState {
   finish: () => void;
 }
 
-/** Full controller —— wizard UI 用。订阅 store 状态变化。 */
+/** Full controller — used by the wizard UI. Subscribes to store state changes. */
 export function useZoteroWizard(): ZoteroWizardController {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
@@ -267,8 +271,9 @@ export function useZoteroWizard(): ZoteroWizardController {
 }
 
 /**
- * 轻量 handle —— 给 chat composer / hover provider 等触发位置用,
- * 只暴露 `open()`,不订阅 state 变化(避免无意义 re-render)。
+ * Lightweight handle for trigger sites (chat composer / hover provider).
+ * Exposes only `open()` and does not subscribe to state changes — avoids
+ * unnecessary re-renders.
  */
 export function useZoteroWizardController(): { open: () => void } {
   return { open: openZoteroWizard };

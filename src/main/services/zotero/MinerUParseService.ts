@@ -1,11 +1,13 @@
 /**
- * @file MinerUParseService —— 用 MinerU 云 API 把 Zotero 论文 PDF 精解析为
- *   结构化 markdown(档2)。本地文件流程:申请上传 URL → PUT bytes → 轮询
- *   batch 结果 → 下载 zip → 解压到 `<itemKey>/parsed/`。进度经事件广播。
+ * @file MinerUParseService — uses the MinerU cloud API to precisely parse
+ *   Zotero paper PDFs into structured markdown (tier 2). Local file flow:
+ *   request upload URL -> PUT bytes -> poll batch result -> download zip ->
+ *   extract into `<itemKey>/parsed/`. Progress is broadcast via events.
  *
- * 隐私:PDF 上传到第三方 MinerU 云;token 明文只在 main(keychain 读出)。
- * 缓存按 itemKey 全局去重;解析烧配额,故同 itemKey 不重复提交,且产物无
- * mtime 失效(仅用户显式重解析覆盖)。
+ * Privacy: PDFs are uploaded to the third-party MinerU cloud; the token is
+ * plaintext only in main (read from keychain). Cache is globally deduplicated
+ * by itemKey; parsing burns quota, so the same itemKey is never re-submitted,
+ * and outputs have no mtime invalidation (only an explicit user re-parse overwrites).
  */
 
 import { BrowserWindow } from 'electron';
@@ -28,9 +30,9 @@ const logger = createLogger('MinerUParseService');
 
 const BASE_URL = 'https://mineru.net/api/v4';
 const POLL_INTERVAL_MS = 3000;
-const POLL_TIMEOUT_MS = 10 * 60 * 1000; // 10 分钟硬上限
-const HTTP_TIMEOUT_MS = 30_000; // 单次 HTTP(上传/下载更大文件)
-const MAX_PDF_BYTES = 200 * 1024 * 1024; // MinerU 200MB 上限,本地预检
+const POLL_TIMEOUT_MS = 10 * 60 * 1000; // 10-minute hard cap
+const HTTP_TIMEOUT_MS = 30_000; // single HTTP (upload/download larger files)
+const MAX_PDF_BYTES = 200 * 1024 * 1024; // MinerU 200MB cap, validated locally
 
 interface MinerUEnvelope<T> {
   code: number;
@@ -49,7 +51,7 @@ export class MinerUParseService {
     );
   }
 
-  /** 触发解析。同 itemKey 已在进行则复用,不重复提交(省配额)。 */
+  /** Trigger parse. If the same itemKey is already in progress, reuse it (saves quota). */
   parse(itemKey: string, model: MinerUModelVersion = 'pipeline'): Promise<void> {
     const existing = this.inFlight.get(itemKey);
     if (existing) return existing;
@@ -59,7 +61,7 @@ export class MinerUParseService {
   }
 
   // ============================================================
-  // 核心状态机
+  // Core state machine
   // ============================================================
 
   private async run(itemKey: string, model: MinerUModelVersion): Promise<void> {
@@ -104,7 +106,7 @@ export class MinerUParseService {
   }
 
   // ============================================================
-  // MinerU API 调用
+  // MinerU API calls
   // ============================================================
 
   private async applyUpload(
@@ -130,7 +132,7 @@ export class MinerUParseService {
     return { batchId: res.batch_id, uploadUrl };
   }
 
-  /** PUT 上传到预签名 OSS URL。不设 Content-Type(MinerU 要求)。 */
+  /** PUT upload to the presigned OSS URL. Do not set Content-Type (MinerU requirement). */
   private async put(url: string, bytes: Buffer): Promise<void> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS * 2);
@@ -146,7 +148,7 @@ export class MinerUParseService {
     }
   }
 
-  /** 轮询 batch 结果直到 done;超时/failed 抛错。返回 full_zip_url。 */
+  /** Poll the batch result until done; throw on timeout/failed. Returns full_zip_url. */
   private async poll(token: string, batchId: string, itemKey: string): Promise<string> {
     const deadline = Date.now() + POLL_TIMEOUT_MS;
     for (;;) {
@@ -204,13 +206,13 @@ export class MinerUParseService {
       await fs.mkdir(parsedDir, { recursive: true });
       await fs.writeFile(tmpZip, zipBytes);
       await extract(tmpZip, { dir: parsedDir });
-      await fs.access(path.join(parsedDir, 'full.md')); // 校验产物存在
+      await fs.access(path.join(parsedDir, 'full.md')); // verify output exists
     } finally {
       await fs.rm(tmpZip, { force: true }).catch(() => undefined);
     }
   }
 
-  /** MinerU JSON-RPC 封套调用,校验 code===0,失败按 code/msg 抛 MinerUError。 */
+  /** MinerU JSON-RPC envelope call: verifies code===0; throws MinerUError with code/msg on failure. */
   private async fetchJson<T>(url: string, token: string, init: RequestInit): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
@@ -237,7 +239,7 @@ export class MinerUParseService {
   }
 
   // ============================================================
-  // 状态广播
+  // Status broadcasting
   // ============================================================
 
   private emit(
@@ -253,7 +255,7 @@ export class MinerUParseService {
       updatedAt: new Date().toISOString(),
     };
     this.statuses.set(itemKey, status);
-    // running 进度高频,节流 200ms;其余状态(阶段切换)立即广播。
+    // running progress is high-frequency, throttle 200ms; other states (stage transitions) broadcast immediately.
     this.broadcast(status, state !== 'running');
   }
 
@@ -284,7 +286,7 @@ function toErr(err: unknown): { code: string; message: string } {
   return { code: 'generic', message: err instanceof Error ? err.message : String(err) };
 }
 
-/** 从 MinerU err_msg 文本里捞错误码(优先精确码,否则 generic)。 */
+/** Extract an error code from the MinerU err_msg text (prefer exact code, else generic). */
 function parseErrCode(msg?: string): string {
   if (!msg) return 'generic';
   const m = msg.match(/(A0\d{3}|-\d{4,5})/);

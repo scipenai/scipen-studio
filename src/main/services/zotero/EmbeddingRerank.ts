@@ -1,13 +1,18 @@
 /**
- * @file EmbeddingRerank —— 推荐质量核心:对 cosine 粗召的候选做 LLM 精排。
+ * @file EmbeddingRerank — recommendation-quality core: LLM rerank over the
+ *   cosine coarse-recall candidates.
  *
- * 复用 main 的聊天模型(IAIService.chat)给「当前段落」选最该引的几篇,带一句
- * 理由。这是「把推荐做好」的最大杠杆(借鉴 snaca-engine 的 cosine→rerank 两阶段)。
+ * Reuses main's chat model (IAIService.chat) to pick the most worth-citing
+ * papers for "this paragraph", with a one-line reason. This is the biggest
+ * lever for "doing recommendation well" (borrowing snaca-engine's two-stage
+ * cosine -> rerank).
  *
- * 三级降级(永远有 cosine 兜底,见 EmbeddingIndexService.recommend):
- *   ① 聊天模型未配置 → 不调,返回 null
- *   ② 聊天模型忙(用户正在对话,isGenerating)→ 不抢配额,返回 null
- *   ③ 调用抛错 / 6s 超时 / JSON 非法 / itemKey 不在候选 → 返回 null
+ * Three-level degradation (cosine is always the fallback, see
+ * EmbeddingIndexService.recommend):
+ *   (1) chat model not configured -> skip, return null
+ *   (2) chat model busy (user is mid-conversation, isGenerating) -> don't
+ *       steal quota, return null
+ *   (3) call throws / 6s timeout / invalid JSON / itemKey not in candidates -> return null
  */
 
 import type { DocLang } from '../../../../shared/types/zotero-embedding';
@@ -16,11 +21,11 @@ import { createLogger } from '../LoggerService';
 
 const logger = createLogger('EmbeddingRerank');
 
-/** rerank 调用硬超时;一次小请求,超时即放弃走降级。 */
+/** Hard timeout for the rerank call; a small request, fall back on timeout. */
 const RERANK_TIMEOUT_MS = 6000;
-/** prompt 内段落截断,控 token。 */
+/** Paragraph truncation inside the prompt, to control tokens. */
 const PARAGRAPH_LIMIT = 1500;
-/** 每条候选摘要截断。 */
+/** Per-candidate abstract truncation. */
 const ABSTRACT_LIMIT = 300;
 
 export interface RerankCandidate {
@@ -46,7 +51,7 @@ function clip(s: string, max: number): string {
   return s.length <= max ? s : s.slice(0, max);
 }
 
-/** 构造 rerank 的 user prompt(纯函数,导出供测试)。 */
+/** Build the rerank user prompt (pure function, exported for tests). */
 export function buildRerankPrompt(
   paragraph: string,
   candidates: RerankCandidate[],
@@ -69,8 +74,9 @@ export function buildRerankPrompt(
 }
 
 /**
- * 解析模型输出(纯函数,导出供测试)。容错:提取首个 JSON 数组、校验每个 itemKey
- * 属于候选集、保序。任何异常返回 null(调用方降级)。
+ * Parse the model output (pure function, exported for tests). Tolerant:
+ * extracts the first JSON array, validates each itemKey is in the candidate
+ * set, preserves order. Any exception returns null (caller degrades).
  */
 export function parseRerankResponse(
   raw: string,
@@ -87,7 +93,7 @@ export function parseRerankResponse(
     for (const entry of parsed) {
       const itemKey = typeof entry?.itemKey === 'string' ? entry.itemKey : null;
       if (!itemKey || !valid.has(itemKey)) continue;
-      if (out.some((o) => o.itemKey === itemKey)) continue; // 去重
+      if (out.some((o) => o.itemKey === itemKey)) continue; // dedupe
       const reason = typeof entry?.reason === 'string' ? entry.reason : '';
       out.push({ itemKey, reason });
     }
@@ -98,7 +104,8 @@ export function parseRerankResponse(
 }
 
 /**
- * 调 LLM 精排。返回 null 表示「降级到纯 cosine」(未配置 / 忙 / 失败 / 超时)。
+ * Call the LLM reranker. Returns null to signal "degrade to pure cosine"
+ * (not configured / busy / failed / timeout).
  */
 export async function rerankCandidates(
   ai: IAIService,
@@ -107,8 +114,8 @@ export async function rerankCandidates(
   lang: DocLang
 ): Promise<RerankedItem[] | null> {
   if (candidates.length === 0) return null;
-  if (!ai.isConfigured()) return null; // ① 未配置
-  if (ai.isGenerating()) return null; // ② 忙,避免抢用户对话配额
+  if (!ai.isConfigured()) return null; // (1) not configured
+  if (ai.isGenerating()) return null; // (2) busy, don't steal user-chat quota
 
   const messages: AIMessage[] = [
     { role: 'system', content: SYSTEM_PROMPT },
@@ -120,11 +127,11 @@ export async function rerankCandidates(
     return parseRerankResponse(raw, candidates);
   } catch (err) {
     logger.warn('rerank failed, falling back to cosine', { error: String(err) });
-    return null; // ③ 抛错 / 超时
+    return null; // (3) thrown / timeout
   }
 }
 
-/** Promise + 超时(超时只丢弃响应,不真正取消——一次小请求,可接受)。 */
+/** Promise + timeout (timeout discards the response, doesn't truly cancel — small request, acceptable). */
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('rerank timeout')), ms);

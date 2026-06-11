@@ -127,19 +127,22 @@ export function registerLSPProviders(monacoInstance: Monaco): void {
     });
   }
 
-  // Typst Completion Provider (tinymist) —— 单挂 typst,不挂 latex/markdown:
-  // - latex:texlab 的 \cite{} completion 与 BibTexSyncService 同步入 .bib 的 Zotero
-  //   entry 会重复出现(单 entry 两份);texlab 的 \ref{} 也已被 InlineCompletionService
-  //   的 LaTeX 索引覆盖。这里再挂会出现三份,故不挂。
-  // - markdown:marksman 暂未启用,挂了也是空。
-  // - typst:tinymist 提供 <label> 引用(@fig-1/@tbl-x/@sec-)与内置函数补全。
-  //   与 CiteCompletionProvider 双源并存,triggerCharacters 共享 '@';Monaco 多
-  //   provider 是合并不抢,各自 filterText 自动分流:
-  //     打 @fig- → tinymist 命中 label,Zotero cite 因 filterText 不匹配被 Monaco
-  //                  fuzzy filter 过滤掉
-  //     打 @liu → Zotero cite 命中文献,tinymist 通常无 label 匹配返空
-  //   '@' 列入 trigger 是 typst 引用语法刚需;'#'/'.'/'('/','/' ' 是 typst function
-  //   call / method / argument list 的通用触发集。
+  // Typst Completion Provider (tinymist) — registered for typst only, not latex/markdown:
+  // - latex: texlab's \cite{} completion overlaps with BibTexSyncService's Zotero
+  //   entries synced into .bib, so a single entry would appear twice; texlab's
+  //   \ref{} is already covered by InlineCompletionService's LaTeX index. Adding
+  //   tinymist here would produce three duplicates, so we skip it.
+  // - markdown: marksman is not enabled; registering would just return empty.
+  // - typst: tinymist provides <label> references (@fig-1/@tbl-x/@sec-) and
+  //   built-in function completion. Coexists with CiteCompletionProvider via
+  //   the shared '@' trigger; Monaco merges providers without preempting them,
+  //   and each filterText splits the lane naturally:
+  //     typing @fig-  → tinymist hits the label; Zotero cite is filtered out by
+  //                     Monaco's fuzzy filter because filterText does not match.
+  //     typing @liu   → Zotero cite hits the bibliography; tinymist usually has
+  //                     no matching label and returns empty.
+  //   '@' is a hard requirement for typst reference syntax; '#'/'.'/'('/','/' '
+  //   are the standard typst function-call / method / argument-list triggers.
   monacoInstance.languages.registerCompletionItemProvider('typst', {
     triggerCharacters: ['@', '#', '.', ',', '(', ' '],
     provideCompletionItems: async (model: monaco.editor.ITextModel, position: monaco.Position) => {

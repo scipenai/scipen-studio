@@ -298,7 +298,7 @@ export class MarkdownRenderService {
               ],
             },
             {
-              // 纯图标复制按钮(图标走 CSS mask,sanitize 安全);文案改为 aria/title。
+              // Icon-only copy button (icon rendered via CSS mask — sanitize-safe); label moved to aria/title.
               type: 'element',
               tagName: 'button',
               properties: {
