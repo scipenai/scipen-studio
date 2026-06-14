@@ -99,7 +99,7 @@ CREATE TABLE history_label_file (
 ```
 
 设计要点:
-- **BLAKE3 选择**:比 SHA-256 快 5-10x,与 regent 同;有 pure-JS 实现(@noble/hashes)避免 native binding
+- **Hash 算法**:M2 暂用 Node 内置 `node:crypto` SHA-256(32 字节,与 BLAKE3 同长度;`Hash = Uint8Array` 是私有细节,后续可一行切换)。原计划 BLAKE3 因 M2 时网络不可达 + 不引入新依赖优先,留 TODO(blake3) 待 @noble/hashes 可装时切换并对两算法跑同套 BlobStore 测试。性能预算 §11 50ms 仍满足(SHA-256 < 100ms / 1MB)
 - **Chunk = Mercurial revlog 思路**(append-only + 单文件 chunk 链),不走 Git pack
 - **Chunk 不存 ops 内容**,只存 base+target blob 指针 + version range;ops 仍在 L0 operations 表是真相
 - **Label 多文件原子单元**(投稿涉及整个 project)
