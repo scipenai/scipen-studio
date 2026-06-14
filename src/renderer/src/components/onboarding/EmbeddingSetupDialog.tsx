@@ -1,8 +1,10 @@
 /**
- * @file EmbeddingSetupDialog —— M3 主动推荐的 embedding BYOK 配置弹框。
- *   just-in-time:用户在设置里开「主动推荐」时弹出。provider 选择 + key 输入 +
- *   隐私 opt-in(正在编辑的段落文本会发送到所选 embedding 服务商)。key 明文经
- *   IPC 存入 keychain,renderer 永不回读。保存成功后 onConfirmed 触发建库。
+ * @file EmbeddingSetupDialog — BYOK embedding configuration dialog for M3 active recommendation.
+ *   just-in-time: shown when the user enables "active recommendation" in settings. Provider
+ *   selection + key input + privacy opt-in (the currently edited paragraph text will be sent
+ *   to the chosen embedding provider). The plaintext key is persisted into the keychain via
+ *   IPC and is never read back by the renderer. On successful save, onConfirmed triggers
+ *   index building.
  */
 
 import { AnimatePresence, motion } from 'framer-motion';
@@ -16,7 +18,8 @@ import type { ZoteroEmbeddingProvider } from '../../../../../shared/types/zotero
 interface Props {
   open: boolean;
   onClose: () => void;
-  /** key + provider 保存成功后回调(调用方据此开启 activeRecommendation + 建库)。 */
+  /** Callback fired after key + provider are saved successfully (caller then enables
+   *  activeRecommendation and starts index building). */
   onConfirmed: () => void;
 }
 
@@ -80,7 +83,7 @@ export const EmbeddingSetupDialog: React.FC<Props> = ({ open, onClose, onConfirm
               </button>
             </div>
 
-            {/* 隐私提示 */}
+            {/* Privacy notice */}
             <div
               className="mt-4 flex gap-2 rounded-xl p-3 text-[13px] leading-relaxed"
               style={{ background: 'var(--color-warning-muted)', color: 'var(--color-warning)' }}
@@ -94,7 +97,7 @@ export const EmbeddingSetupDialog: React.FC<Props> = ({ open, onClose, onConfirm
               </div>
             </div>
 
-            {/* provider 选择 */}
+            {/* Provider selection */}
             <label className="mt-4 block text-[13px] font-medium text-[var(--color-text-secondary)]">
               {t('zoteroEmbedding.dialog.providerLabel')}
             </label>
@@ -115,7 +118,7 @@ export const EmbeddingSetupDialog: React.FC<Props> = ({ open, onClose, onConfirm
               ))}
             </div>
 
-            {/* key 输入 */}
+            {/* Key input */}
             <label className="mt-4 block text-[13px] font-medium text-[var(--color-text-secondary)]">
               {t('zoteroEmbedding.dialog.keyLabel')}
             </label>
@@ -138,7 +141,7 @@ export const EmbeddingSetupDialog: React.FC<Props> = ({ open, onClose, onConfirm
 
             {error && <div className="mt-2 text-xs text-[var(--color-error)]">{error}</div>}
 
-            {/* 同意 */}
+            {/* Consent */}
             <label className="mt-4 flex cursor-pointer items-start gap-2 text-[13px] text-[var(--color-text-secondary)]">
               <input
                 type="checkbox"

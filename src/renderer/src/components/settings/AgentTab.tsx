@@ -201,8 +201,9 @@ const BOOL_FIELDS: Array<{
   },
 ];
 
-/** 引擎数字字段的语义分组(折叠区内分块,降低认知负荷)。仅靠 key 引用
- *  NUMBER_FIELDS,不改动字段定义本身。 */
+/** Semantic grouping of engine numeric fields (sub-sections inside the
+ *  collapsible region, to reduce cognitive load). References NUMBER_FIELDS
+ *  by key only; field definitions themselves are unchanged. */
 const ENGINE_GROUPS: Array<{ titleKey: string; keys: NumberKey[] }> = [
   {
     titleKey: 'settingsAgent.engine.groupExecution',
@@ -330,7 +331,7 @@ export const AgentTab: React.FC = () => {
   );
   return (
     <div>
-      {/* ---------- 核心行为:审批模式 ---------- */}
+      {/* ---------- Core behavior: approval mode ---------- */}
       <FormSection title={t('settingsAgent.sectionCoreBehavior')} first>
         <FormRow
           title={t('settingsAgent.approval.mode')}
@@ -348,7 +349,7 @@ export const AgentTab: React.FC = () => {
         </FormRow>
       </FormSection>
 
-      {/* ---------- 记忆与工具:Memory / Skills 查看器 ---------- */}
+      {/* ---------- Memory & tools: Memory / Skills viewer ---------- */}
       <FormSection title={t('settingsAgent.sectionMemoryTools')}>
         <FormRow
           title={t('settingsAgent.memoryLabel')}
@@ -370,7 +371,7 @@ export const AgentTab: React.FC = () => {
         </FormRow>
       </FormSection>
 
-      {/* ---------- 外部集成:Tavily + MCP ---------- */}
+      {/* ---------- External integrations: Tavily + MCP ---------- */}
       <FormSection title={t('settingsAgent.sectionIntegrations')}>
         <FormField
           title={t('settingsAgent.webSearch.apiKey')}
@@ -389,7 +390,7 @@ export const AgentTab: React.FC = () => {
         <McpServersSection />
       </FormSection>
 
-      {/* ---------- 高级引擎(折叠) ---------- */}
+      {/* ---------- Advanced engine (collapsible) ---------- */}
       <FormSection title={t('settingsAgent.engine.title')}>
         <button
           type="button"

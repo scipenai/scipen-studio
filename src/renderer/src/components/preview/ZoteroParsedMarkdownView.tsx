@@ -1,8 +1,8 @@
 /**
- * @file ZoteroParsedMarkdownView —— 「论文」面板「解析 MD」视图,渲染 MinerU
- *   产出的 full.md(结构化 markdown:表格 / 公式 / 图片)。复用
- *   MarkdownRenderService(KaTeX + GFM + sanitize),不绑 EditorService。
- *   图片是相对路径(parsed/images/),用 scipen-file:// 重写为可加载 URL。
+ * @file ZoteroParsedMarkdownView — the "Parsed MD" view within the "Paper" panel; renders MinerU's
+ *   full.md output (structured markdown: tables / formulas / images). Reuses
+ *   MarkdownRenderService (KaTeX + GFM + sanitize); not bound to EditorService.
+ *   Images are relative paths (parsed/images/), rewritten with scipen-file:// to a loadable URL.
  */
 
 import type React from 'react';
@@ -15,12 +15,12 @@ import { useSettings } from '../../services/core/hooks';
 import { useMarkdownSectionSpy } from './useMarkdownSectionSpy';
 import 'katex/dist/katex.min.css';
 
-/** 把 markdown 里的相对图片引用重写成 scipen-file:// 绝对 URL。 */
+/** Rewrite relative image references inside markdown to absolute scipen-file:// URLs. */
 function rewriteImagePaths(markdown: string, parsedDir: string): string {
-  // 仅处理 markdown 图片语法 ![alt](relative)，跳过已是 http/绝对/协议的。
+  // Only handle markdown image syntax ![alt](relative); skip anything already absolute / with a protocol.
   return markdown.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (full, alt: string, src: string) => {
     const s = src.trim();
-    if (/^([a-z]+:|\/|[a-zA-Z]:[\\/])/.test(s)) return full; // 已绝对/带协议
+    if (/^([a-z]+:|\/|[a-zA-Z]:[\\/])/.test(s)) return full; // already absolute / has a protocol
     try {
       const abs = `${parsedDir}/${s}`;
       return `![${alt}](${api.file.getLocalFileUrl(abs)})`;
@@ -36,7 +36,7 @@ export const ZoteroParsedMarkdownView: React.FC<{ itemKey: string }> = ({ itemKe
   const [html, setHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
-  // scroll-spy:解析 MD 视图也上报当前章节给 AI 上下文。
+  // scroll-spy: the parsed MD view also reports the current section to the AI context.
   useMarkdownSectionSpy(containerRef, [html]);
 
   useEffect(() => {

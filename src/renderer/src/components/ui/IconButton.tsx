@@ -8,14 +8,16 @@ import type React from 'react';
 import { forwardRef } from 'react';
 
 export interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  /** Button variant — 通用图标按钮(走 size + active/idle ternary) */
+  /** Button variant — generic icon button (driven by size + active/idle ternary) */
   variant?: 'default' | 'ghost' | 'solid' | 'destructive';
   /** Button size */
   size?: 'sm' | 'md' | 'lg';
   /** Active state */
   active?: boolean;
-  /** Active 视觉强度:'accent'(默认,品牌色高亮)或 'subtle'(仅 bg-hover + 主文本,
-   *  用于「高亮收敛」场景,如主页面三面板 toggle —— 避免多个同时点亮造成 accent 泛滥)。 */
+  /** Active visual intensity: 'accent' (default, brand-color highlight) or 'subtle'
+   *  (bg-hover + primary text only, used for "highlight-restraint" surfaces such as the
+   *  main-page three-panel toggle — avoids accent oversaturation when multiple toggles
+   *  are lit at once). */
   activeTone?: 'accent' | 'subtle';
   /** Loading state */
   loading?: boolean;

@@ -1,9 +1,12 @@
 /**
- * @file EmbeddingRecommendationSection —— ZoteroTab 内「主动文献推荐(M3)」设置区。
+ * @file EmbeddingRecommendationSection — settings panel for "Active literature
+ * recommendation (M3)" inside ZoteroTab.
  *
- * 主开关 activeRecommendation + embedding 索引状态卡(建库进度 / no-key / error)
- * + 配置 key(弹 EmbeddingSetupDialog)+ 重建索引。开关翻 true 时若无 key 先弹
- * 配置框,配好再开启;翻 false 直接关。状态经 onEmbeddingProgress 实时更新。
+ * Master toggle `activeRecommendation` + embedding index status card (build
+ * progress / no-key / error) + configure key (opens EmbeddingSetupDialog) +
+ * rebuild index. When the toggle flips true without a key, the setup dialog
+ * pops first and the toggle only activates after the key is saved. Flipping
+ * false disables it immediately. Status is pushed live via onEmbeddingProgress.
  */
 
 import { KeyRound, RefreshCw } from 'lucide-react';
@@ -25,7 +28,7 @@ export const EmbeddingRecommendationSection: React.FC = () => {
   const [status, setStatus] = useState<EmbeddingIndexStatusDTO | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  // 初始读 settings + 索引状态;订阅 settings/进度变更。
+  // Initial read of settings + index status; subscribe to settings/progress updates.
   useEffect(() => {
     let cancelled = false;
     void api.zotero.getSettings().then((s) => {
@@ -49,7 +52,7 @@ export const EmbeddingRecommendationSection: React.FC = () => {
   const handleToggle = useCallback(
     async (next: boolean) => {
       if (next && !hasKey) {
-        setDialogOpen(true); // 无 key → 先配置,onConfirmed 再开启
+        setDialogOpen(true); // No key → configure first; onConfirmed will enable it.
         return;
       }
       try {

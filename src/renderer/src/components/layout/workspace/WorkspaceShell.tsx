@@ -1,21 +1,23 @@
 /**
- * @file WorkspaceShell.tsx - 工作台外壳容器
- * @description 承担 ResearchWorkspaceShell 的"画布(canvas)+ header"职责。
- *   现代 AI 工具观感:外壳本身是 canvas(bg-void),三面板各自作为浮动卡片
- *   悬浮其上(卡片样式由 ResearchWorkspaceShell 在 Panel 内层施加),此处不再
- *   是一张包裹全部的大卡片。提供 header slot 与 body 区(flex-1 + relative,
- *   relative 供 WorkspaceDrawer 绝对定位叠加)。
+ * @file WorkspaceShell.tsx - Workspace shell container
+ * @description Carries the "canvas + header" responsibility of ResearchWorkspaceShell.
+ *   Modern AI-tool aesthetic: the shell itself is a canvas (bg-void); the three
+ *   panels each act as floating cards hovering on top (card styling is applied by
+ *   ResearchWorkspaceShell inside each Panel). The shell is no longer a single
+ *   large card wrapping everything. Provides a header slot and a body area
+ *   (flex-1 + relative; relative is required for WorkspaceDrawer's absolute
+ *   positioning overlay).
  */
 
 import { clsx } from 'clsx';
 import type React from 'react';
 
 export interface WorkspaceShellProps {
-  /** Header slot — 通常传 <WorkspaceHeader /> */
+  /** Header slot — typically receives <WorkspaceHeader /> */
   header?: React.ReactNode;
-  /** Body 内容(会被包在 relative flex-1 容器内,用于承载抽屉与主面板) */
+  /** Body content (wrapped in a relative flex-1 container that hosts the drawer and main panels) */
   children: React.ReactNode;
-  /** 自定义 className 透传到外层容器 */
+  /** Custom className forwarded to the outer container */
   className?: string;
 }
 

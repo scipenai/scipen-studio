@@ -1,6 +1,7 @@
 /**
  * @file SettingsPanel.tsx - Settings Panel Container
- * @description AI-first 分组导航的设置面板:左栏按功能域分组,右栏渲染当前 tab 内容
+ * @description AI-first grouped-navigation settings panel: left column
+ *   groups tabs by functional domain; right column renders the active tab.
  */
 
 import { clsx } from 'clsx';
@@ -65,7 +66,8 @@ const TAB_META: Record<SettingsTab, TabMeta> = {
   update: { id: 'update', labelKey: 'settings.tabs.update', icon: <RefreshCw size={14} />, summaryKey: 'settingsPanel.summaries.update' },
 };
 
-// AI-first 分组:AI 引擎置顶,其后基础设定 → 科研工作流 → 系统;组内顺序即展示顺序。
+// AI-first grouping: AI engine on top, then basics → research workflow →
+// system. The order within a group is the display order.
 const TAB_GROUPS: { titleKey: TranslationKey; ids: SettingsTab[] }[] = [
   { titleKey: 'settings.groups.aiEngine', ids: ['ai', 'agent'] },
   { titleKey: 'settings.groups.basics', ids: ['ui', 'shortcuts'] },

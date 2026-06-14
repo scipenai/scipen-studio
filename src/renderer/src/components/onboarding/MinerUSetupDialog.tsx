@@ -1,7 +1,9 @@
 /**
- * @file MinerUSetupDialog —— MinerU 精解析的 BYOK token 配置 + 隐私 opt-in 弹框。
- *   just-in-time:用户点「精解析」且无 token 时弹出。token 明文经 IPC 存入
- *   keychain(renderer 永不回读明文);必须勾选同意(PDF 上传第三方云)才能保存。
+ * @file MinerUSetupDialog — BYOK token configuration + privacy opt-in dialog for MinerU
+ *   precision parsing. just-in-time: shown when the user clicks "precision parse" without
+ *   a token. The plaintext token is persisted into the keychain via IPC (the renderer never
+ *   reads the plaintext back); the consent checkbox (PDFs are uploaded to a third-party
+ *   cloud) must be ticked before saving is allowed.
  */
 
 import { AnimatePresence, motion } from 'framer-motion';
@@ -14,7 +16,7 @@ import { useTranslation } from '../../locales';
 interface Props {
   open: boolean;
   onClose: () => void;
-  /** token 保存成功后回调,调用方据此继续触发解析。 */
+  /** Callback fired after the token is saved successfully; the caller then resumes parsing. */
   onConfirmed: () => void;
 }
 
@@ -77,7 +79,7 @@ export const MinerUSetupDialog: React.FC<Props> = ({ open, onClose, onConfirmed 
               </button>
             </div>
 
-            {/* 隐私提示 */}
+            {/* Privacy notice */}
             <div
               className="mt-4 flex gap-2 rounded-xl p-3 text-[13px] leading-relaxed"
               style={{
@@ -94,7 +96,7 @@ export const MinerUSetupDialog: React.FC<Props> = ({ open, onClose, onConfirmed 
               </div>
             </div>
 
-            {/* token 输入 */}
+            {/* Token input */}
             <label className="mt-4 block text-[13px] font-medium text-[var(--color-text-secondary)]">
               {t('zoteroMineru.dialog.tokenLabel')}
             </label>
@@ -117,7 +119,7 @@ export const MinerUSetupDialog: React.FC<Props> = ({ open, onClose, onConfirmed 
 
             {error && <div className="mt-2 text-xs text-[var(--color-error)]">{error}</div>}
 
-            {/* 同意 */}
+            {/* Consent */}
             <label className="mt-4 flex cursor-pointer items-start gap-2 text-[13px] text-[var(--color-text-secondary)]">
               <input
                 type="checkbox"

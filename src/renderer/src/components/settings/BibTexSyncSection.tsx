@@ -1,8 +1,9 @@
 /**
- * @file BibTexSyncSection.tsx —— Zotero tab 内的 references.bib 同步控制
- * @description 启用 toggle / 文件名 / translator 选择 / 立即同步按钮 / 当前状态。
- *              所有写操作通过 api.zotero.setSettings({bibTexSync: ...}) 走主进程,
- *              BibTexSyncService.setConfig 由 handler 端立即应用。
+ * @file BibTexSyncSection.tsx — references.bib sync controls inside the Zotero tab.
+ * @description Enable toggle / file name / translator selector / sync-now
+ *              button / current status. All writes go through the main process
+ *              via api.zotero.setSettings({ bibTexSync: ... }); the handler side
+ *              applies the change immediately via BibTexSyncService.setConfig.
  */
 
 import { FileText, Loader2, RefreshCw } from 'lucide-react';
@@ -33,7 +34,8 @@ export const BibTexSyncSection: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
-  // 初始读 settings 拿当前 config + 订阅变更(主开关切换 / 在别处改也能同步)。
+  // Initial read of settings to grab the current config, plus subscribe to
+  // changes (so toggling the master switch or external edits stay in sync).
   useEffect(() => {
     let cancelled = false;
     void api.zotero
@@ -51,7 +53,8 @@ export const BibTexSyncSection: React.FC = () => {
     };
   }, []);
 
-  // 拉一次状态 + 定时刷新(同步通常 < 100ms,2s 轮询体感即时)。
+  // Pull the status once and refresh on a timer. Sync usually completes in
+  // < 100ms, so a 2s poll feels instant to the user.
   useEffect(() => {
     let cancelled = false;
     const pull = (): void => {
@@ -181,8 +184,10 @@ export const BibTexSyncSection: React.FC = () => {
       </SettingCard>
 
       {/*
-        启用后 LaTeX 编译还是要 .tex 显式 \addbibresource{} —— texlab 看得见
-        .bib 文件不等于 LaTeX 编译能用。给出标准片段供用户复制。
+        Even when enabled, LaTeX compilation still requires an explicit
+        \addbibresource{} in the .tex file — texlab being able to see the
+        .bib doesn't mean LaTeX builds will use it. We surface the standard
+        snippet here so the user can copy it.
       */}
       {config.enabled && (
         <SettingCard>

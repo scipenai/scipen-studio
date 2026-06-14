@@ -423,7 +423,7 @@ export const StatusBar: React.FC = () => {
         {/* Zotero canonical bib index status badge */}
         <ZoteroStatusBadge />
 
-        {/* M3 标尺5:主动文献推荐微章(✨ N + 点击弹 top3) */}
+        {/* M3 ruler 5: active citation recommendation badge (Sparkles N + click to reveal top 3) */}
         <ActiveRecommendationSegment />
 
         {/* SciPen Studio Brand */}

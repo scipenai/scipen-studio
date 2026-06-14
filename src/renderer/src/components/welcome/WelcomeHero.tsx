@@ -1,6 +1,6 @@
 /**
- * @file WelcomeHero.tsx - Welcome 屏左列
- * @description logo + title + subtitle + 2 个 action cards(本地/远程)+ feature highlights
+ * @file WelcomeHero.tsx - Left column of the welcome screen.
+ * @description logo + title + subtitle + 2 action cards (local/remote) + feature highlights.
  */
 
 import { motion } from 'framer-motion';

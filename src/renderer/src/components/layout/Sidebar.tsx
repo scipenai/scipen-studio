@@ -1,7 +1,8 @@
 /**
- * @file Sidebar.tsx - 工作台左侧导航轨
- * @description 紧凑「图标+小字」轨:品牌置顶,对话/文件导航,设置居底。
- *   活动项以 accent 左条 + 轻 accent-muted 底标识(强调收敛,无 glow)。
+ * @file Sidebar.tsx - Workspace left navigation rail
+ * @description Compact "icon + small label" rail: brand pinned at top, chat/files nav,
+ *   settings pinned at the bottom. The active item is marked by an accent left bar plus a
+ *   subtle accent-muted background (restrained emphasis, no glow).
  */
 
 import { clsx } from 'clsx';
@@ -19,7 +20,7 @@ interface SidebarNavItemProps {
   onClick: () => void;
 }
 
-/** 单个导航项:图标竖叠小字标签。活动 = accent 左条 + accent-muted 底(无 glow)。 */
+/** A single nav item: icon stacked above a small label. Active = accent left bar + accent-muted background (no glow). */
 const SidebarNavItem: React.FC<SidebarNavItemProps> = ({ icon, label, active, onClick }) => (
   <button
     type="button"
@@ -62,7 +63,7 @@ export const Sidebar: React.FC = () => {
         'bg-[color-mix(in_srgb,var(--color-bg-primary)_96%,transparent)]'
       }
     >
-      {/* 品牌:logo 字符牌 + 简短 wordmark */}
+      {/* Brand: logo glyph plate + short wordmark */}
       <div className="mb-2 flex flex-col items-center gap-1">
         <div
           className={

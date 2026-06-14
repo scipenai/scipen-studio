@@ -17,7 +17,7 @@ export const EditorTab: React.FC = () => {
 
   return (
     <>
-      {/* —— 字体与排版 —— */}
+      {/* —— Typography —— */}
       <SectionTitle>{t('editor.settings.groupTypography')}</SectionTitle>
       <SettingItem label={`${t('editor.settings.fontSize')} ${settings.editor.fontSize}px`}>
         <input
@@ -60,7 +60,7 @@ export const EditorTab: React.FC = () => {
         </select>
       </SettingItem>
 
-      {/* —— 显示 —— */}
+      {/* —— Display —— */}
       <SectionTitle>{t('editor.settings.groupDisplay')}</SectionTitle>
       <SettingItem label={t('editor.settings.cursorStyle')}>
         <select
@@ -98,7 +98,7 @@ export const EditorTab: React.FC = () => {
         onChange={(v) => settingsService.updateEditor({ bracketPairColorization: v })}
       />
 
-      {/* —— 行为 —— */}
+      {/* —— Behavior —— */}
       <SectionTitle>{t('editor.settings.groupBehavior')}</SectionTitle>
       <Toggle
         label={t('editor.settings.wordWrap')}
@@ -111,7 +111,7 @@ export const EditorTab: React.FC = () => {
         onChange={(v) => settingsService.updateEditor({ smoothScrolling: v })}
       />
 
-      {/* —— AI 辅助 —— */}
+      {/* —— AI assist —— */}
       <SectionTitle>{t('editor.settings.groupAI')}</SectionTitle>
       <Toggle
         label={t('editor.settings.aiCompletion')}

@@ -10,7 +10,8 @@ import { getSettingsService } from '../../services/core/ServiceRegistry';
 import { useSettings } from '../../services/core/hooks';
 import { SectionTitle, SettingItem, selectClassName } from './SettingsUI';
 
-/** 聊天字号范围(px)。值写入 ui.chatFontSize,驱动 --chat-font-size。 */
+/** Chat font-size range (px). The value is written to ui.chatFontSize and
+ *  drives the --chat-font-size CSS variable. */
 const CHAT_FONT_MIN = 12;
 const CHAT_FONT_MAX = 20;
 

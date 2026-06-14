@@ -1,7 +1,8 @@
 /**
- * @file WorkspaceDrawer.tsx - 工作台侧滑抽屉
- * @description backdrop + drawer panel 的 framer-motion 双子元素封装。
- *              定位为 absolute,需放在 relative 父容器内(WorkspaceShell 的 body 区自带)
+ * @file WorkspaceDrawer.tsx - Workspace sliding drawer
+ * @description framer-motion backdrop + drawer panel pair.
+ *              Positioned absolute; must live inside a relative parent
+ *              (WorkspaceShell's body area provides this by default).
  */
 
 import { clsx } from 'clsx';
@@ -11,11 +12,11 @@ import type React from 'react';
 export interface WorkspaceDrawerProps {
   open: boolean;
   onClose: () => void;
-  /** 抽屉位于左侧或右侧,默认左 */
+  /** Drawer side — left or right; defaults to left */
   side?: 'left' | 'right';
-  /** Backdrop 的 aria-label(关闭按钮的无障碍名) */
+  /** Accessible name for the backdrop close button */
   closeAriaLabel: string;
-  /** 抽屉宽度,默认 320px */
+  /** Drawer width in px; defaults to 320 */
   width?: number;
   children: React.ReactNode;
 }

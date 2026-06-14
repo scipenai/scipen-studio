@@ -1,13 +1,16 @@
 /**
- * @file ActiveRecommendationSegment.tsx —— StatusBar 中的「主动文献推荐」微章 + 弹层。
+ * @file ActiveRecommendationSegment.tsx — Active citation recommendation badge + popover in the StatusBar.
  *
- * 形态(注意力心理学定调):底部状态栏常驻「✨ N」微章——余光可见、固定槽位、
- * 零占正文、不打断写作;想看时点开,上方弹出 top3 卡片,点别处自动收。把推荐
- * 从「文件树抽屉(拉取式,常关 → 送不达)」迁到「状态栏(环境感知,push 可达)」。
+ * Shape (attention psychology): a persistent "✨ N" badge in the bottom status bar — visible in
+ * peripheral vision, fixed slot, zero footprint in the body, never interrupting writing. Users
+ * can click to open and see the top-3 cards; clicking elsewhere auto-closes it. This migrates
+ * recommendations from "file-tree drawer (pull-based, usually collapsed → delivery fails)" to
+ * "status bar (ambient, push-based delivery)".
  *
- * 数据/插入全由 ActiveRecommendationService 驱动(subscribe/getState/insertCitation),
- * 本组件只做展示。indexState='disabled' → return null,不占位(对齐 ZoteroStatusBadge)。
- * 静默更新数字、无动画(守 active-jank 红线)。
+ * All data and insertion are driven by ActiveRecommendationService (subscribe / getState /
+ * insertCitation); this component only renders. When indexState='disabled' → return null (no
+ * placeholder), aligned with ZoteroStatusBadge. Counter updates silently without animation
+ * (protecting the active-jank red line).
  */
 
 import { Loader2, Sparkles } from 'lucide-react';
@@ -33,7 +36,7 @@ export const ActiveRecommendationSegment: React.FC = () => {
 
   useClickOutside(containerRef, () => setOpen(false), open);
 
-  // 功能未开启 → 整个微章隐藏,不占位。
+  // Feature disabled → hide the whole badge, no placeholder.
   if (state.indexState === 'disabled') return null;
 
   const busy = state.indexState === 'building' || state.loading;

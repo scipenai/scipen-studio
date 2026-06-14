@@ -1,5 +1,5 @@
 /**
- * @file WelcomeTips.tsx - Welcome 屏右列下半:Pro Tip 提示卡
+ * @file WelcomeTips.tsx - Bottom of the welcome screen's right column: Pro Tip card.
  */
 
 import { motion } from 'framer-motion';

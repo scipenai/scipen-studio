@@ -1,6 +1,6 @@
 /**
- * @file WelcomeRecent.tsx - Welcome 屏右列上半:最近项目列表
- * @description 列表 / empty state 切换;时间格式化逻辑内聚
+ * @file WelcomeRecent.tsx - Top of the welcome screen's right column: recent projects list.
+ * @description Toggles between list and empty state; time-formatting logic kept local.
  */
 
 import { motion } from 'framer-motion';

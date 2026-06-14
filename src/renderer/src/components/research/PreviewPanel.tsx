@@ -1,8 +1,9 @@
 /**
- * @file PreviewPanel.tsx - 右栏预览面板(预览 / 论文 双 tab)
- * @description 从原 MainLayout 的 RightPanelContent 抽出,逻辑不变。主页面拍平为
- *   单层三面板后,预览作为独立 Panel 直接渲染本组件。预览/论文 tab 切换、
- *   ZoteroPaperPane(论文 tab)行为与原实现一致。
+ * @file PreviewPanel.tsx - Right-column preview panel (preview / paper dual tab).
+ * @description Extracted from the original MainLayout's RightPanelContent with the logic unchanged.
+ *   After the main page was flattened to a single layer of three panels, preview is now rendered
+ *   directly by this component as a standalone Panel. The preview/paper tab switching and the
+ *   ZoteroPaperPane (paper tab) behavior match the original implementation.
  */
 
 import type React from 'react';
@@ -14,7 +15,7 @@ import { useLazyModule } from '../../hooks/useLazyModule';
 import { PanelErrorBoundary } from '../ErrorBoundary';
 import { PreviewLoadingFallback } from '../LoadingFallback';
 
-/** 预览标题随 previewMode(pdf / markdown / typst)切换。 */
+/** Preview title follows previewMode (pdf / markdown / typst). */
 export function usePreviewTitle(): string {
   const { t } = useTranslation();
   const previewMode = usePreviewMode();
@@ -42,8 +43,9 @@ function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.Re
   );
 
   const setTab = (tab: 'preview' | 'paper') => getUIService().setRightPanelTab(tab);
-  // iOS 分段控件:凹陷 track(bg-void)上浮起白色 active 药丸(bg-primary + 轻阴影),
-  // 非活动透明 muted。取代旧的 2px 下划线 / accent 描边。
+  // iOS-style segmented control: a recessed track (bg-void) with a raised white active pill
+  // (bg-primary + light shadow); inactive tabs are transparent muted. Replaces the old 2px
+  // underline / accent outline.
   const tabBtn = (tab: 'preview' | 'paper', label: string) => {
     const active = rightPanelTab === tab;
     return (
@@ -96,7 +98,7 @@ function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.Re
 }
 
 /**
- * memo:切面板时 shell 重渲,但 previewTitle 稳定 → 跳过预览子树
- * (PreviewController / pdf.js)重渲。
+ * memo: when other panels toggle the shell re-renders, but previewTitle is stable -> the preview
+ * subtree (PreviewController / pdf.js) skips re-rendering.
  */
 export const PreviewPanel = memo(PreviewPanelInner);

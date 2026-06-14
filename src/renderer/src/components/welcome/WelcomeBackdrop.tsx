@@ -1,6 +1,6 @@
 /**
- * @file WelcomeBackdrop.tsx - Welcome 屏动态背景
- * @description radial gradient + grid pattern + 4 个 motion glow orbs。纯装饰,无业务
+ * @file WelcomeBackdrop.tsx - Animated background for the welcome screen.
+ * @description radial gradient + grid pattern + 4 motion glow orbs. Pure decoration, no business logic.
  */
 
 import { motion } from 'framer-motion';

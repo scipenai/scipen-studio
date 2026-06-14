@@ -31,9 +31,9 @@ import { AtFileDropdown, scoreFilePath } from './AtFileDropdown';
 export type SendIntent = 'chat' | 'composer';
 
 export interface ComposerChipConfig {
-  /** Label shown on the chip (e.g. "任务模式"). */
+  /** Label shown on the chip (e.g. "Task mode"). */
   label: string;
-  /** Tooltip when chip is currently armed (e.g. "下次发送将触发任务模式"). */
+  /** Tooltip when chip is currently armed (e.g. "Next send will trigger task mode"). */
   armedTooltip?: string;
   /** Tooltip when chip is idle. */
   idleTooltip?: string;
@@ -139,9 +139,10 @@ export function AgentChatInput({
     return scored.slice(0, DROPDOWN_MAX_ITEMS).map((s) => s.path);
   }, [fileDropdownActive, trigger, filePathIndex]);
 
-  // ----- citation candidates (sync,from main canonical mirror) -----
-  // mirror.searchByQueryWithScore 是同步;主线程实测 <8ms / 5k entry。空索引
-  // (mirror 还没 hydrate 或 itemCount=0)弹 just-in-time wizard(PM-3)。
+  // ----- citation candidates (sync, from main canonical mirror) -----
+  // mirror.searchByQueryWithScore is synchronous; measured <8ms / 5k entry on
+  // the main thread. Empty index (mirror not yet hydrated or itemCount=0)
+  // pops the just-in-time wizard (PM-3).
   useEffect(() => {
     if (!citeDropdownActive || citeQuery === null) {
       setCiteCandidates([]);
@@ -187,8 +188,8 @@ export function AgentChatInput({
   const applyCiteMention = useCallback(
     (hit: BibSearchHit) => {
       if (!trigger) return;
-      // 优先用人类可读 BBT key,BBT 缺失时退到 Zotero itemKey,任一形态都
-      // 给 LLM 一个稳定 identifier。
+      // Prefer the human-readable BBT key; fall back to the Zotero itemKey
+      // when BBT is missing. Either shape gives the LLM a stable identifier.
       const key = hit.item.citationKey ?? hit.item.itemKey;
       const before = value.slice(0, trigger.replaceFrom);
       const after = value.slice(trigger.replaceTo);

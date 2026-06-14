@@ -1,14 +1,16 @@
 /**
- * @file ZoteroTab.tsx — Zotero 集成设置入口
- * @description 主开关 `integrationEnabled` 一统全局:
- *              - 未启用态:引导卡片 + "立即引导设置" 按钮(打开 wizard)
- *              - 已启用态:实时状态卡(BibStatus / itemCount / lastSyncedAt)+
- *                          数据源健康度(Local API / Better BibTeX)+
- *                          三个动作按钮(刷新 / 重开向导 / 重检测安装)
+ * @file ZoteroTab.tsx — Zotero integration settings entry.
+ * @description Master switch `integrationEnabled` gates everything:
+ *              - Disabled state: onboarding card + "Start wizard" button (opens wizard)
+ *              - Enabled state: live status card (BibStatus / itemCount / lastSyncedAt)
+ *                + data source health (Local API / Better BibTeX)
+ *                + three action buttons (refresh / reopen wizard / redetect install)
  *
- *              状态卡复用 `useZoteroBibMirror` 单例,与 StatusBar 徽章看到同一份事实。
- *              首次启用(toggle 翻 true 且 `localApiEnabled=false`)自动弹 wizard。
- *              停用仅停镜像,不清子设置 —— 用户切换试用不会丢配置。
+ *              Status card reuses the `useZoteroBibMirror` singleton, so it shares
+ *              the same source of truth as the StatusBar badge. First enable
+ *              (toggle flips true while `localApiEnabled=false`) auto-pops the wizard.
+ *              Disabling only stops the mirror without clearing sub-settings — users
+ *              can toggle the trial on/off without losing their configuration.
  */
 
 import { BookMarked, CheckCircle2, RefreshCw, Sparkles, XCircle } from 'lucide-react';
@@ -39,12 +41,14 @@ export const ZoteroTab: React.FC = () => {
   const [diagnostics, setDiagnostics] = useState<ZoteroDiagnosticsDTO | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [redetecting, setRedetecting] = useState(false);
-  // 防止 toggle 翻 true 后,settings 异步同步期间反复触发 wizard 自动弹出。
+  // Prevent the wizard from re-popping while settings sync asynchronously
+  // after the toggle flips true.
   const [autoOpenedOnce, setAutoOpenedOnce] = useState(false);
 
-  // 已启用 + 状态切换时拉一次完整诊断(数据源健康度)。
-  // 依赖 state.status 而非 state.etag —— etag 每次 patch 都变,但源健康度只在
-  // status(ready/degraded/error)切换时才有意义重拉。
+  // When enabled and status transitions, refetch the full diagnostics
+  // (data source health). Depends on state.status rather than state.etag —
+  // etag changes on every patch, but source health only meaningfully shifts
+  // when status (ready/degraded/error) actually changes.
   useEffect(() => {
     if (!enabled) {
       setDiagnostics(null);
@@ -62,9 +66,10 @@ export const ZoteroTab: React.FC = () => {
     };
   }, [enabled, state.status]);
 
-  // 首次启用 + localApiEnabled 还未就绪 → 自动开 wizard。
-  // wizard controller 引用不稳定(useZoteroWizard 未 memo),所以这里同步 set
-  // autoOpenedOnce=true 以拦截 effect 重入,避免多发 getSettings IPC。
+  // First enable + localApiEnabled not yet ready → auto-open the wizard.
+  // The wizard controller reference is unstable (useZoteroWizard is not
+  // memoized), so we synchronously set autoOpenedOnce=true to short-circuit
+  // effect re-entry and avoid duplicate getSettings IPC calls.
   useEffect(() => {
     if (!enabled || autoOpenedOnce) return;
     setAutoOpenedOnce(true);
@@ -89,7 +94,7 @@ export const ZoteroTab: React.FC = () => {
     try {
       await api.zotero.setSettings({ integrationEnabled: next });
       if (!next) {
-        // 关闭时让自动弹窗策略复位,下次再开重新评估。
+        // Reset auto-popup policy on disable, so the next enable re-evaluates.
         setAutoOpenedOnce(false);
       }
     } catch (err) {

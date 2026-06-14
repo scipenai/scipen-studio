@@ -1,7 +1,8 @@
 /**
- * @file CopyButton.tsx - 通用一键复制按钮
- * @description 复制 text 到剪贴板,1.4s 内显示"已复制"反馈。温度风(非终端),
- *              用于 AI 消息复制等场景。复用了原 MarkdownCodeBlock 的 copy 模式。
+ * @file CopyButton.tsx - Generic one-tap copy button
+ * @description Copies text to the clipboard and shows a "copied" feedback for 1.4s. Warm
+ *              (non-terminal) styling, used for AI message copy and similar surfaces. Reuses
+ *              the copy pattern that originated in MarkdownCodeBlock.
  */
 
 import { clsx } from 'clsx';
@@ -11,11 +12,11 @@ import { useCallback, useState } from 'react';
 import { useTranslation } from '../../locales';
 
 export interface CopyButtonProps {
-  /** 要复制的文本 */
+  /** Text to copy */
   text: string;
-  /** 自定义类名(透传到 button) */
+  /** Custom class name (forwarded to the button) */
   className?: string;
-  /** 自定义"复制"标签(默认 chat.copyMessage) */
+  /** Custom "copy" label (defaults to chat.copyMessage) */
   label?: string;
 }
 
@@ -29,7 +30,7 @@ export const CopyButton: React.FC<CopyButtonProps> = ({ text, className, label }
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
     } catch {
-      // 剪贴板不可用时静默(无权限/非安全上下文)
+      // Stay silent when the clipboard is unavailable (no permission / non-secure context)
     }
   }, [text]);
 

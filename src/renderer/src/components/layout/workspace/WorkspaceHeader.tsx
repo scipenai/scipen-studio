@@ -1,13 +1,13 @@
 /**
- * @file WorkspaceHeader.tsx - 工作台头部
- * @description title(左)+ toolbar(右)的两段式 header,含 border-bottom 分隔条
+ * @file WorkspaceHeader.tsx - Workspace header
+ * @description Two-part header: title (left) + toolbar (right), with a bottom border divider.
  */
 
 import type React from 'react';
 
 export interface WorkspaceHeaderProps {
   title: string;
-  /** Toolbar slot — 通常传 <WorkspaceToolbar>...</WorkspaceToolbar> */
+  /** Toolbar slot — typically receives <WorkspaceToolbar>...</WorkspaceToolbar> */
   toolbar?: React.ReactNode;
 }
 

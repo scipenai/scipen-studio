@@ -1,10 +1,12 @@
 /**
- * @file ZoteroDiagnosticsPopover.tsx — 索引诊断弹窗(StatusBar 徽章上方)
- * @description 同步显示来自 mirror 的状态切片(status / itemCount / lastSyncedAt),
- *              异步拉 main 的完整诊断(数据源健康度:Local API + Better BibTeX)。
- *              提供 "手动刷新" 按钮,直接走 mirror.refresh()(main 的 cooldown 防抖)。
+ * @file ZoteroDiagnosticsPopover.tsx — Index diagnostics popover (above the StatusBar badge)
+ * @description Synchronously renders mirror state slices (status / itemCount / lastSyncedAt),
+ *              and asynchronously pulls full diagnostics from main (data-source health:
+ *              Local API + Better BibTeX). Provides a "manual refresh" button that calls
+ *              mirror.refresh() directly (main applies its own cooldown debounce).
  *
- *              UI 仅在 StatusBar 徽章被点击时挂载,卸载即释放 fetchDiagnostics 监听。
+ *              The UI is mounted only when the StatusBar badge is clicked; unmount releases
+ *              the fetchDiagnostics listener.
  */
 
 import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
@@ -28,7 +30,8 @@ export const ZoteroDiagnosticsPopover: React.FC<Props> = ({ state, mirror, onClo
   const [diagnostics, setDiagnostics] = useState<ZoteroDiagnosticsDTO | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // 弹窗打开即拉一次完整诊断(主进程数据源健康度);后续手动刷新按钮再拉。
+  // On popover open, pull full diagnostics once (data-source health from main); the manual
+  // refresh button re-pulls afterward.
   useEffect(() => {
     let cancelled = false;
     void mirror

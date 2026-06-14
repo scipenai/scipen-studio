@@ -1,6 +1,7 @@
 /**
  * @file AITab.tsx - AI Agent Settings Tab
- * @description 两节:基础连接 + 模型路由。The user picks a protocol family (OpenAI-
+ * @description Two sections: basic connection + model routing. The user
+ *   picks a protocol family (OpenAI-
  *   compatible or Anthropic-compatible) and points it at whichever base
  *   URL their provider exposes — SNACA and Ctrl+K both use the same
  *   credentials. Brand-level provider names (DeepSeek, SiliconFlow, …)
@@ -29,8 +30,11 @@ type ModelSelection = NonNullable<SelectedModels['chat']>;
 interface ProviderOption {
   /** ProviderId stored in settings. */
   id: ProviderId;
-  /** Label shown in the dropdown. */
-  label: string;
+  /** i18n key for the label shown in the dropdown. */
+  labelKey: string;
+  /** Fallback name written into the provider DTO when no translation is
+   *  available (e.g. on first save before locales hydrate). */
+  fallbackName: string;
   /** Placeholder used as a UX hint when the host field is empty. */
   defaultHost: string;
   /** Two short examples of common upstream endpoints under this protocol. */
@@ -42,7 +46,8 @@ interface ProviderOption {
 const PROVIDER_OPTIONS: ProviderOption[] = [
   {
     id: 'openai',
-    label: 'OpenAI 兼容',
+    labelKey: 'aiSettings.providerOpenAICompat',
+    fallbackName: 'OpenAI Compatible',
     defaultHost: 'https://api.openai.com/v1',
     // Studio AIService auto-appends `/v1` if missing, so both bare host and
     // `/v1` form work — show both to make the convention obvious.
@@ -50,7 +55,8 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
   },
   {
     id: 'anthropic',
-    label: 'Anthropic 兼容',
+    labelKey: 'aiSettings.providerAnthropicCompat',
+    fallbackName: 'Anthropic Compatible',
     defaultHost: 'https://api.anthropic.com',
     hostExamples: ['https://api.anthropic.com', 'https://api.deepseek.com/anthropic'],
   },
@@ -60,7 +66,7 @@ function makeProvider(id: ProviderId): AIProviderDTO {
   const opt = PROVIDER_OPTIONS.find((o) => o.id === id);
   return {
     id,
-    name: opt?.label ?? id,
+    name: opt?.fallbackName ?? id,
     apiKey: '',
     apiHost: opt?.defaultHost ?? '',
     defaultApiHost: opt?.defaultHost ?? '',
@@ -240,7 +246,7 @@ export const AITab: React.FC = () => {
           >
             {PROVIDER_OPTIONS.map((opt) => (
               <option key={opt.id} value={opt.id}>
-                {opt.label}
+                {t(opt.labelKey as never)}
               </option>
             ))}
           </select>

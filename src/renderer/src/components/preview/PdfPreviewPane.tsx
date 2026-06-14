@@ -108,8 +108,8 @@ const PDFPage = memo<{
   const renderingRef = useRef(false);
   const renderTaskRef = useRef<{ cancel(): void } | null>(null);
 
-  // SyncTeX 落点脉冲:锁存非空 highlight 快照并自增 token 触发一次动画。
-  // 上层在 ~500ms 后把 highlight 置 null(清导航态)不会打断已锁存的这次脉冲——彻底解耦。
+  // SyncTeX landing pulse: latch a snapshot of the non-null highlight and bump a token to trigger one animation.
+  // The parent clearing highlight to null ~500ms later (to drop navigation state) won't interrupt the latched pulse — fully decoupled.
   const pulseTokenRef = useRef(0);
   const [pulse, setPulse] = useState<{
     x: number;
@@ -221,8 +221,8 @@ const PDFPage = memo<{
           <div className="w-6 h-6 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
         </div>
       )}
-      {/* SyncTeX 落点脉冲层:可见性/缩放完全交给 GSAP(autoAlpha),style 不声明 opacity/visibility/transform,
-          以免上层 re-render 覆盖动画;pointer-events-none 双保险,永不挡反向同步点击。 */}
+      {/* SyncTeX landing pulse layer: visibility/scale is fully delegated to GSAP (autoAlpha); style does not declare opacity/visibility/transform
+          to avoid parent re-renders overriding the animation; pointer-events-none as a safety net so it never blocks reverse-sync clicks. */}
       {pulse && (
         <div
           ref={pulseRef}
@@ -248,8 +248,8 @@ PDFPage.displayName = 'PDFPage';
 export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   source = 'compile',
 }) => {
-  // 两个数据 hook 都无条件调用(hook 规则),按 source 选。zotero 源是 Zotero
-  // 论文 PDF(无 synctex / 无编译态),compile 源是编译产物(默认,行为不变)。
+  // Both data hooks are called unconditionally (rules of hooks), then we pick by source. The zotero source is a Zotero
+  // paper PDF (no synctex / no compile state); the compile source is the compilation artifact (default, behavior unchanged).
   const compilePdfData = usePdfData();
   const zoteroPdfData = useZoteroPdf();
   const pdfData = source === 'zotero' ? zoteroPdfData : compilePdfData;
@@ -440,7 +440,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   }, [currentZoomPercent]);
 
   useEffect(() => {
-    // SyncTeX 正向高亮是编译产物专属;zotero 论文 PDF 无 synctex,跳过。
+    // SyncTeX forward highlight is exclusive to compilation artifacts; zotero paper PDFs have no synctex, skip.
     if (source === 'zotero') return;
     if (!pdfHighlight || !pdfDoc || !pagesContainerRef.current) return;
 
@@ -647,8 +647,8 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     });
   }, [pdfDoc]);
 
-  // 每次新 PDF 文档加载后(切文件 / 切源 / 重编译都会产生新的 pdfDoc 实例),
-  // 默认按容器宽度自适应,而不是固定 120% —— 复用 fitToWidth,容器此时已挂载。
+  // After every new PDF document load (switching files / sources / recompiling all produce a new pdfDoc instance),
+  // default to fitting container width instead of a fixed 120% — reuse fitToWidth; the container is already mounted by then.
   useEffect(() => {
     if (!pdfDoc || totalPages === 0) return;
     fitToWidth();
@@ -724,11 +724,11 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     }
   }, []);
 
-  // zotero 论文 PDF 无 .synctex → 禁用反向同步点击(传 undefined 即关闭),
-  // 避免 backward 在无 synctexPath 时报错。
+  // zotero paper PDFs have no .synctex → disable reverse-sync clicks (pass undefined to turn off),
+  // avoiding backward() throwing when synctexPath is missing.
   const pageClickHandler = source === 'zotero' ? undefined : handlePageClick;
 
-  // SyncTeX 落点高亮仅编译产物有(zotero 论文无 synctex);只给命中页下发,其余传 null。
+  // SyncTeX landing highlight only exists for compilation artifacts (zotero papers have no synctex); only forward to the hit page, others get null.
   const activeHighlight = source === 'zotero' ? null : pdfHighlight;
 
   const pageNumbers = useMemo(

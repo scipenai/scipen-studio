@@ -1,8 +1,8 @@
 /**
- * @file ZoteroPaperPane —— 右栏「论文」tab。展示 Zotero 论文 PDF,并提供:
- *   ① 「精解析」按钮触发 MinerU 云解析(无 token 先弹配置框),进度内联显示;
- *   ② [原始PDF | 解析MD] 切换 —— 解析后可看结构化 markdown。
- *   PDF 由 Ctrl+Click \cite{} 经 UIService.loadZoteroPaper 注入。
+ * @file ZoteroPaperPane — right-pane "Paper" tab. Displays the Zotero paper PDF and provides:
+ *   (1) a "Deep Parse" button that triggers MinerU cloud parsing (opens the setup dialog first if no token), progress shown inline;
+ *   (2) [Raw PDF | Parsed MD] toggle — once parsed, the structured markdown becomes viewable.
+ *   The PDF is injected via Ctrl+Click on \cite{} through UIService.loadZoteroPaper.
  */
 
 import type React from 'react';
@@ -28,10 +28,10 @@ export const ZoteroPaperPane: React.FC = () => {
   const [hasMd, setHasMd] = useState(false);
   const [status, setStatus] = useState<MinerUParseStatusDTO | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  // 档1 抽取质量:'poor' 时提示用户精解析(数据来自 getFullText,有缓存)。
+  // Tier-1 extraction quality: when 'poor', nudge the user to run deep parse (data comes from getFullText, cached).
   const [quality, setQuality] = useState<'good' | 'poor' | null>(null);
 
-  // 探测当前条目是否已有解析产物(决定 MD 切换是否可用),并订阅进度。
+  // Probe whether the current item already has a parsed artifact (decides if the MD toggle is enabled) and subscribe to progress.
   useEffect(() => {
     if (!itemKey) {
       setHasMd(false);
@@ -44,7 +44,7 @@ export const ZoteroPaperPane: React.FC = () => {
     void api.zotero.getParsedMarkdown(itemKey).then((r) => {
       if (!cancelled) setHasMd(r !== null);
     });
-    // 探测档1 抽取质量(命中缓存不重跑 pdf-parse),poor 时显提示条。
+    // Probe tier-1 extraction quality (cache hit avoids re-running pdf-parse); show the hint banner when poor.
     void api.zotero.getFullText(itemKey).then((r) => {
       if (!cancelled) setQuality(r.quality ?? null);
     });
@@ -112,7 +112,7 @@ export const ZoteroPaperPane: React.FC = () => {
         className="flex items-center gap-2 border-b px-3 py-2"
         style={{ borderBottomColor: 'var(--color-border-subtle)' }}
       >
-        {/* PDF / MD 切换 */}
+        {/* PDF / MD toggle */}
         <div className="flex items-center gap-1 rounded-lg bg-[var(--color-bg-tertiary)] p-0.5">
           <SegBtn active={viewMode === 'pdf'} onClick={() => setViewMode('pdf')}>
             {t('zoteroPaper.viewPdf')}
@@ -129,7 +129,7 @@ export const ZoteroPaperPane: React.FC = () => {
 
         <div className="flex-1" />
 
-        {/* 精解析 */}
+        {/* Deep parse */}
         <button
           type="button"
           onClick={() => void startParse()}
@@ -142,7 +142,7 @@ export const ZoteroPaperPane: React.FC = () => {
         </button>
       </div>
 
-      {/* 档1 质量差提示:仅 PDF 视图、未解析时出现,引导精解析。 */}
+      {/* Tier-1 quality warning: only shown in PDF view when no parsed artifact exists; guides the user to deep parse. */}
       {quality === 'poor' && viewMode === 'pdf' && !hasMd && (
         <div
           className="flex items-center gap-2 border-b px-3 py-2 text-xs"
@@ -205,7 +205,7 @@ const SegBtn: React.FC<{
   </button>
 );
 
-/** 错误码 → i18n key 后缀。 */
+/** Error code -> i18n key suffix. */
 function mapErr(code?: string): string {
   switch (code) {
     case 'MINERU_NO_TOKEN':

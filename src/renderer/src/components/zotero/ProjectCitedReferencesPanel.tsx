@@ -43,7 +43,8 @@ const EXTRACT_DEBOUNCE_MS = 250;
 export const ProjectCitedReferencesPanel: React.FC = () => {
   const { t } = useTranslation();
   const activeTab = useActiveTab();
-  // 默认折叠:抽屉打开时不抢占视觉,用户点击标题才展开本文引用列表
+  // Collapsed by default: when the drawer opens we don't grab attention; the user has to
+  // click the header to expand this file's citation list.
   const [collapsed, setCollapsed] = useState(true);
   const [content, setContent] = useState<string>('');
   const [bibState, setBibState] = useState<ZoteroBibMirrorState>(() =>
@@ -80,7 +81,8 @@ export const ProjectCitedReferencesPanel: React.FC = () => {
   }, []);
 
   // ----- Extract cited keys + join with mirror -----
-  // bibState 进依赖列表:mirror 异步 hydrate 完成后,重新 join 拿到 title/meta。
+  // bibState enters the dependency list: once the mirror finishes its async hydrate, we
+  // re-join to pick up title/meta.
   const cited = useMemo<CitedEntry[]>(() => {
     if (!content) return [];
     const occurrences = extractCitedKeys(content);
@@ -99,8 +101,9 @@ export const ProjectCitedReferencesPanel: React.FC = () => {
       occurrences: occs,
       entry: mirror.getByCitationKey(key) ?? mirror.getByItemKey(key),
     }));
-    // bibState.etag 是 mirror 数据版本号:etag 变 → mirror hydrate/patch 落地 →
-    // 重新 join 拿到最新 title/meta。mirror 本身是单例,不在 deps 里。
+    // bibState.etag is the mirror's data version number: when etag changes the mirror has
+    // hydrated / a patch has landed, and we re-join to pick up the latest title/meta. The
+    // mirror itself is a singleton, so it stays out of the deps array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content, bibState.etag]);
 

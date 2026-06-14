@@ -1,6 +1,7 @@
 /**
- * @file WorkspaceToolbar.tsx - 工作台 toolbar 容器
- * @description 轻量内联按钮组(无边框/无底色胶囊),放在 WorkspaceHeader 的 toolbar slot
+ * @file WorkspaceToolbar.tsx - Workspace toolbar container
+ * @description Lightweight inline button group (no border / no pill background), placed
+ *              in WorkspaceHeader's toolbar slot.
  */
 
 import type React from 'react';

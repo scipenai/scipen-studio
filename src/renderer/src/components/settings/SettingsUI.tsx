@@ -198,12 +198,15 @@ export const selectClassName = `
 `;
 
 // ============================================================================
-// 现代表单设计系统 —— 用于已重构的设置页(AI 服务 / Agent 行为 / Zotero)。
-// 结构/间距遵循统一规范;颜色一律映射到 --color-* token,深浅主题通用
-// (不写死 slate/white,否则默认深色主题下会瞎掉)。
+// Modern form design system — used by the refactored settings pages
+// (AI service / Agent behavior / Zotero). Structure and spacing follow the
+// unified spec; colors map exclusively to --color-* tokens so light/dark
+// themes work uniformly (never hardcode slate/white — the default dark
+// theme would break).
 // ============================================================================
 
-/** 分区标题:底部细线分隔。首个分区传 `first` 去掉上间距。 */
+/** Section title with a thin bottom divider. Pass `first` on the first
+ *  section to remove the top margin. */
 export const FormSection: React.FC<{
   title: string;
   first?: boolean;
@@ -217,7 +220,8 @@ export const FormSection: React.FC<{
   </section>
 );
 
-/** 左右行:标题/描述在左,控件(Toggle / 按钮 / 短下拉)在右。 */
+/** Horizontal row: title/description on the left, control (Toggle /
+ *  button / short dropdown) on the right. */
 export const FormRow: React.FC<{
   title: string;
   description?: string;
@@ -234,7 +238,8 @@ export const FormRow: React.FC<{
   </div>
 );
 
-/** 堆叠行:长输入(API Key / URL / 模型 ID)标题描述在上、输入在下。 */
+/** Stacked row: long inputs (API Key / URL / model ID) with the title and
+ *  description on top and the input below. */
 export const FormField: React.FC<{
   title: string;
   description?: string;
@@ -249,7 +254,7 @@ export const FormField: React.FC<{
   </div>
 );
 
-/** 空状态虚线框(如未配置 MCP server)。 */
+/** Dashed empty-state box (e.g. when no MCP server is configured). */
 export const EmptyState: React.FC<{ children: React.ReactNode; className?: string }> = ({
   children,
   className,
@@ -261,7 +266,7 @@ export const EmptyState: React.FC<{ children: React.ReactNode; className?: strin
   </div>
 );
 
-/** 次级按钮(白底描边轻阴影 → token 化)。 */
+/** Secondary button (light-fill, outlined, soft shadow — fully tokenized). */
 export const secondaryButtonClass =
   'inline-flex items-center justify-center gap-1.5 rounded-md border ' +
   'border-[var(--color-border)] bg-[var(--color-bg-elevated)] shadow-[var(--shadow-sm)] ' +
