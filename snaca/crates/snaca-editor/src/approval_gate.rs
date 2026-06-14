@@ -292,6 +292,12 @@ fn apply_single_edit(
 }
 
 /// `DenyAlways` collapses to `Deny` (engine has no remembered-deny mode).
+///
+/// TODO(approval-symmetry): wire / docs promise persistence but engine
+/// only persists Allow (see `PersistedDecision` and engine.rs match arm).
+/// Until `ApprovalDecision::DenyAlways` + `PersistedDecision::Deny` land,
+/// the studio UI deliberately hides the `Always deny` button (and its
+/// `Shift+D` shortcut) so we don't lie about persistence.
 pub fn decision_from_wire(decision: ToolDecision) -> ApprovalDecision {
     match decision {
         ToolDecision::Allow => ApprovalDecision::AllowOnce,
