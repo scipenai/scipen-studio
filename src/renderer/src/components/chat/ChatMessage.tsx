@@ -9,15 +9,26 @@
  */
 
 import {
+  AlertTriangle,
   ChevronRight,
   CornerDownLeft,
   FileCog,
   FilePlus,
   FileX,
   FilePen,
+  HelpCircle,
   Loader2,
+  ShieldAlert,
+  SkipForward,
 } from 'lucide-react';
-import { useCallback, useState, type ReactElement } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactElement,
+} from 'react';
 import { agentClient } from '../../services/agent/AgentClientService';
 import {
   chatStreamStore,
@@ -173,8 +184,10 @@ function Timeline({
           return (
             <div key={`tx-${i}`} className="chat-msg-text leading-[1.6]">
               {streaming ? (
-                // 流式期间渲纯文本,避免每个 token 重解析整段 markdown 引发重排抖动;
-                // turn 完成后一次性切到 markdown 渲染(对齐 Reasonix Message 模式)。
+                // Render plain text while streaming to avoid re-parsing the
+                // whole markdown block on every token (causes reflow jitter);
+                // switch to markdown rendering once the turn finishes
+                // (matches the Reasonix Message pattern).
                 <div className="whitespace-pre-wrap break-words">
                   {ev.text}
                   <span className="streaming-cursor" />
@@ -660,64 +673,281 @@ function ApprovalList({
   );
 }
 
+/**
+ * High-risk cards lock the primary Allow action for a short cooldown so
+ * the user can't auto-pilot through a destructive call. 1500ms is the
+ * sweet spot in security UX literature — long enough to break a reflex
+ * click, short enough to not annoy intentional approvers.
+ */
+const HIGH_RISK_ARMING_MS = 1500;
+
+/**
+ * Wire-level enum is `allow | deny | allow_always | deny_always`. UI
+ * intentionally does NOT expose `deny_always` until the SNACA engine
+ * grows a remembered-deny mode — currently it collapses to `Deny`
+ * (snaca-editor/src/approval_gate.rs:`decision_from_wire`), so showing
+ * the button would lie about persistence. See that file's TODO.
+ */
+type ApprovalDecision = 'allow' | 'allow_always' | 'deny' | 'deny_always';
+
+/** Shared button shape for the Deny / Allow-always actions. The Allow-once
+ *  button stays inline because it carries the arming overlay. */
+function ApprovalActionButton({
+  decision,
+  idleLabel,
+  className,
+  lastDecision,
+  submitState,
+  onClick,
+  t,
+}: {
+  decision: ApprovalDecision;
+  idleLabel: string;
+  className: string;
+  lastDecision: ApprovalDecision | null;
+  submitState: 'idle' | 'submitting' | 'error';
+  onClick: () => void;
+  t: T;
+}): ReactElement {
+  const isMine = lastDecision === decision;
+  const label =
+    submitState === 'submitting' && isMine
+      ? t('chat.approvalSubmitting')
+      : submitState === 'error' && isMine
+        ? t('chat.approvalRetry')
+        : idleLabel;
+  return (
+    <button
+      type="button"
+      data-decision={decision}
+      onClick={onClick}
+      disabled={submitState === 'submitting'}
+      className={className}
+    >
+      {submitState === 'submitting' && isMine && <Loader2 size={11} className="animate-spin" />}
+      {label}
+    </button>
+  );
+}
+
 function ApprovalCard({ approval }: { approval: ChatApprovalRequest }): ReactElement {
   const { t } = useTranslation();
   const argsPreview = formatArgsPreview(approval.args);
+  const [submitState, setSubmitState] = useState<'idle' | 'submitting' | 'error'>('idle');
+  const [lastDecision, setLastDecision] = useState<ApprovalDecision | null>(null);
+  // `armingMsLeft > 0` means the Allow buttons are still cooling down.
+  // Only ever non-zero for high-risk cards.
+  const [armingMsLeft, setArmingMsLeft] = useState(
+    approval.risk === 'high' ? HIGH_RISK_ARMING_MS : 0
+  );
+  const cardRef = useRef<HTMLDivElement>(null);
+  const armingStartRef = useRef<number>(Date.now());
+
+  // High-risk cooldown ticker. Stops itself once it reaches 0 to avoid
+  // pointless re-renders for the rest of the card's lifetime.
+  useEffect(() => {
+    if (approval.risk !== 'high') return;
+    const tick = (): void => {
+      const elapsed = Date.now() - armingStartRef.current;
+      const left = Math.max(0, HIGH_RISK_ARMING_MS - elapsed);
+      setArmingMsLeft(left);
+    };
+    const id = window.setInterval(tick, 50);
+    return () => window.clearInterval(id);
+  }, [approval.risk]);
+
+  // Auto-focus: Deny on high-risk (we want the safest action under the
+  // user's thumb), Allow once on the rest (matches the most common
+  // intentional answer).
+  useEffect(() => {
+    const sel =
+      approval.risk === 'high' ? 'button[data-decision="deny"]' : 'button[data-decision="allow"]';
+    cardRef.current?.querySelector<HTMLButtonElement>(sel)?.focus();
+  }, [approval.risk]);
 
   const decide = useCallback(
-    async (decision: 'allow' | 'allow_always' | 'deny') => {
-      // Optimistic flip so the card stops looking active before the
-      // IPC round trip lands; engine timeout will Deny if we never get there.
-      chatStreamStore.markApprovalResolved(approval.toolCallId);
+    async (decision: ApprovalDecision) => {
+      if (submitState === 'submitting') return;
+      // The cooldown applies to anything that grants the tool — both
+      // one-shot and "always". Deny paths are never locked.
+      if (
+        approval.risk === 'high' &&
+        armingMsLeft > 0 &&
+        (decision === 'allow' || decision === 'allow_always')
+      ) {
+        return;
+      }
+      setSubmitState('submitting');
+      setLastDecision(decision);
       try {
         await agentClient.confirmTool({ toolCallId: approval.toolCallId, decision });
+        // Hide ONLY after the host acknowledges. The previous version
+        // hid optimistically and relied on "engine timeout will Deny" —
+        // a load-bearing implicit assumption that this code now no
+        // longer makes.
+        chatStreamStore.markApprovalResolved(approval.toolCallId);
       } catch {
-        /* best-effort */
+        setSubmitState('error');
       }
     },
-    [approval.toolCallId]
+    [approval.risk, approval.toolCallId, armingMsLeft, submitState]
   );
+
+  // Scoped keyboard shortcuts. A=allow, D=deny; Shift escalates to the
+  // "always" variant when available for the current risk tier.
+  const handleKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+      if (submitState === 'submitting') return;
+      // Don't hijack typing inside the args <pre> (it's focusable for
+      // scrolling) or any future inline input.
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      const key = e.key.toLowerCase();
+      if (key === 'a') {
+        e.preventDefault();
+        // High-risk cards drop allow_always entirely — Shift+A still
+        // means "Allow once" so the muscle memory isn't punished.
+        if (approval.risk === 'high') {
+          void decide('allow');
+        } else {
+          void decide(e.shiftKey ? 'allow_always' : 'allow');
+        }
+        return;
+      }
+      if (key === 'd') {
+        e.preventDefault();
+        // Deny_always intentionally NOT bound: engine collapses it to
+        // Deny so the keystroke would lie about persistence.
+        void decide('deny');
+      }
+    },
+    [approval.risk, decide, submitState]
+  );
+
+  // Risk-tier visual derivations. Kept in one place so the eye-grab
+  // intensity scales monotonically with risk.
+  const topBarColor = riskTopBarColor(approval.risk);
+  const Icon = approval.risk === 'high' ? ShieldAlert : AlertTriangle;
+  const showRiskIcon = approval.risk !== 'low';
+
+  const armingPct = approval.risk === 'high' ? (armingMsLeft / HIGH_RISK_ARMING_MS) * 100 : 0;
+  const isArming = armingMsLeft > 0;
+
+  const allowLabel =
+    submitState === 'submitting' && lastDecision === 'allow'
+      ? t('chat.approvalSubmitting')
+      : submitState === 'error' && lastDecision === 'allow'
+        ? t('chat.approvalRetry')
+        : isArming
+          ? t('chat.approvalArming', { seconds: Math.ceil(armingMsLeft / 1000) })
+          : t('chat.approvalAllowOnce');
 
   return (
     <div
-      className={`rounded-md border p-2 ${riskBorder(approval.risk)} text-[11px] bg-[var(--color-bg-secondary)]`}
+      ref={cardRef}
+      onKeyDown={handleKeyDown}
+      role="group"
+      aria-label={approval.tool}
+      tabIndex={-1}
+      className={`overflow-hidden rounded-md border ${riskBorder(approval.risk)} bg-[var(--color-bg-secondary)] text-[12px] shadow-[0_1px_2px_rgba(0,0,0,0.04)]`}
     >
-      <div className="mb-1 flex items-center gap-1.5">
-        <span className={`text-[10px] uppercase tracking-wider ${riskText(approval.risk)}`}>
+      <div className="h-0.5" style={{ backgroundColor: topBarColor }} aria-hidden />
+
+      <div className="flex items-center gap-1.5 border-b border-[var(--color-border-subtle)] px-2.5 py-1.5">
+        {showRiskIcon && <Icon size={12} className={riskText(approval.risk)} />}
+        <span
+          className={`text-[10px] font-semibold uppercase tracking-wider ${riskText(approval.risk)}`}
+        >
           {approval.risk}
         </span>
-        <span className="font-medium text-[var(--color-text-primary)]">{approval.tool}</span>
+        <span className="font-mono text-[11px] font-medium text-[var(--color-text-primary)]">
+          {approval.tool}
+        </span>
+        {approval.risk === 'high' && (
+          <span className="ml-auto truncate text-[10px] text-[var(--color-error)]">
+            {t('chat.approvalHighRiskWarning')}
+          </span>
+        )}
       </div>
-      {approval.summary && (
-        <div className="mb-1.5 text-[var(--color-text-muted)]">{approval.summary}</div>
-      )}
-      {argsPreview && (
-        <pre className="mb-2 max-h-24 overflow-y-auto whitespace-pre-wrap rounded bg-[var(--color-bg-primary)] px-1.5 py-1 font-mono text-[10px] text-[var(--color-text-primary)]">
-          {argsPreview}
-        </pre>
-      )}
-      <div className="flex gap-1.5">
-        <button
-          type="button"
-          onClick={() => void decide('allow')}
-          className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-0.5 text-[10px] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-        >
-          {t('chat.approvalAllowOnce')}
-        </button>
-        <button
-          type="button"
-          onClick={() => void decide('allow_always')}
-          className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-0.5 text-[10px] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-        >
-          {t('chat.approvalAllowAlways')}
-        </button>
-        <button
-          type="button"
-          onClick={() => void decide('deny')}
-          className="rounded border border-[var(--color-error)]/50 bg-[var(--color-error-muted)] px-2 py-0.5 text-[10px] text-[var(--color-error)] hover:opacity-90"
-        >
-          {t('chat.approvalDeny')}
-        </button>
+
+      <div className="px-2.5 py-2">
+        {approval.summary && (
+          <div className="mb-1.5 text-[var(--color-text-muted)]">{approval.summary}</div>
+        )}
+        {argsPreview && (
+          <pre className="mb-2 max-h-24 overflow-y-auto whitespace-pre-wrap rounded bg-[var(--color-bg-primary)] px-1.5 py-1 font-mono text-[10px] text-[var(--color-text-primary)]">
+            {argsPreview}
+          </pre>
+        )}
+
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-[var(--color-border-subtle)] pt-2">
+          <span
+            className="hidden truncate text-[10px] text-[var(--color-text-muted)] sm:inline"
+            aria-hidden
+          >
+            {t('chat.approvalShortcutHint')}
+          </span>
+          {submitState === 'error' && (
+            <span className="text-[10px] text-[var(--color-error)]">
+              {t('chat.approvalSubmitFailed')}
+            </span>
+          )}
+
+          <div className="ml-auto flex flex-wrap gap-1.5">
+            <ApprovalActionButton
+              decision="deny"
+              idleLabel={t('chat.approvalDeny')}
+              className="flex items-center gap-1 rounded border border-[var(--color-error)]/50 bg-[var(--color-error-muted)] px-2 py-0.5 text-[10px] text-[var(--color-error)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              lastDecision={lastDecision}
+              submitState={submitState}
+              onClick={() => void decide('deny')}
+              t={t}
+            />
+
+            {/* allow_always — hidden on high risk: a long-lived blanket
+                allow on a destructive tool is the exact failure mode the
+                cooldown is trying to prevent. */}
+            {approval.risk !== 'high' && (
+              <ApprovalActionButton
+                decision="allow_always"
+                idleLabel={t('chat.approvalAllowAlways')}
+                className="flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-0.5 text-[10px] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                lastDecision={lastDecision}
+                submitState={submitState}
+                onClick={() => void decide('allow_always')}
+                t={t}
+              />
+            )}
+
+            {/* Allow once — primary on low/medium, locked on high until
+                the cooldown bar drains. */}
+            <button
+              type="button"
+              data-decision="allow"
+              onClick={() => void decide('allow')}
+              disabled={submitState === 'submitting' || isArming}
+              className={`relative flex items-center gap-1 overflow-hidden rounded border px-2.5 py-0.5 text-[10px] font-medium disabled:cursor-not-allowed disabled:opacity-60 ${
+                approval.risk === 'high'
+                  ? 'border-[var(--color-warning)]/60 bg-[var(--color-warning-muted)] text-[var(--color-warning)] hover:opacity-90'
+                  : 'border-[var(--color-accent)]/50 bg-[var(--color-accent)] text-white hover:opacity-90'
+              }`}
+            >
+              {/* Cooldown fill — a subtle leftover bar inside the button
+                  so the wait is felt, not just told. */}
+              {isArming && (
+                <span
+                  className="pointer-events-none absolute inset-y-0 left-0 bg-[var(--color-warning)]/30"
+                  style={{ width: `${armingPct}%` }}
+                  aria-hidden
+                />
+              )}
+              {submitState === 'submitting' && lastDecision === 'allow' && (
+                <Loader2 size={11} className="animate-spin" />
+              )}
+              <span className="relative tabular-nums">{allowLabel}</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -745,6 +975,22 @@ function riskText(risk: 'low' | 'medium' | 'high'): string {
   }
 }
 
+/**
+ * Top-bar accent strip for the approval card. Same monotone severity
+ * ramp as `riskBorder` / `riskText`, just at a stronger saturation so
+ * the eye reads risk from across the chat scroll, not after squinting.
+ */
+function riskTopBarColor(risk: 'low' | 'medium' | 'high'): string {
+  switch (risk) {
+    case 'high':
+      return 'var(--color-error)';
+    case 'medium':
+      return 'var(--color-warning)';
+    default:
+      return 'transparent';
+  }
+}
+
 function QuestionsList({
   questions,
 }: {
@@ -763,8 +1009,10 @@ function QuestionsList({
   );
 }
 
+// `border-transparent` reserves the 1px on every row so the :checked state can
+// swap to a visible accent border without shifting layout by a pixel.
 const questionOptionRow =
-  'flex cursor-pointer items-start gap-1.5 rounded px-1 py-0.5 hover:bg-[var(--color-bg-hover)]';
+  'flex cursor-pointer items-start gap-1.5 rounded border border-transparent px-1.5 py-1 transition-colors hover:bg-[var(--color-bg-hover)] [&:has(:checked)]:border-[color-mix(in_srgb,var(--color-accent)_45%,transparent)] [&:has(:checked)]:bg-[color-mix(in_srgb,var(--color-accent)_10%,transparent)]';
 
 function QuestionBlock({
   q,
@@ -838,11 +1086,46 @@ function QuestionBlock({
   );
 }
 
+/**
+ * Mirror of `ContextRequestService.QUESTION_TIMEOUT_MS` (600s). The host
+ * is the source of truth — this constant only powers the renderer-side
+ * countdown bar. Drift from the host clock is bounded by the initial IPC
+ * RTT (sub-second) and is invisible at the user-facing 1s granularity.
+ */
+const QUESTION_TIMEOUT_MS = 600_000;
+
 function UserQuestionCard({ card }: { card: ChatUserQuestion }): ReactElement {
   const { t } = useTranslation();
   const [picks, setPicks] = useState<Record<string, { ids: string[]; other: string }>>(() =>
     Object.fromEntries(card.questions.map((q) => [q.id, { ids: [], other: '' }]))
   );
+  const [submitState, setSubmitState] = useState<'idle' | 'submitting' | 'error'>('idle');
+  const [secondsLeft, setSecondsLeft] = useState(Math.floor(QUESTION_TIMEOUT_MS / 1000));
+
+  const cardRef = useRef<HTMLDivElement>(null);
+  // Anchor at the first render of THIS card; replacing it (e.g. via Strict-
+  // Mode re-mount) restarts the countdown, which is the correct behaviour.
+  const startedAtRef = useRef<number>(Date.now());
+
+  // Countdown ticker. The 1s cadence matches the displayed precision.
+  useEffect(() => {
+    const tick = (): void => {
+      const elapsed = Date.now() - startedAtRef.current;
+      const remaining = Math.max(0, QUESTION_TIMEOUT_MS - elapsed);
+      setSecondsLeft(Math.ceil(remaining / 1000));
+    };
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // Drop focus on the first selectable input so keyboard users can act
+  // without reaching for the mouse.
+  useEffect(() => {
+    const first = cardRef.current?.querySelector<HTMLInputElement>(
+      'input[type="radio"], input[type="checkbox"]'
+    );
+    first?.focus();
+  }, []);
 
   const setIds = useCallback((qid: string, ids: string[]) => {
     setPicks((prev) => ({ ...prev, [qid]: { ids, other: prev[qid]?.other ?? '' } }));
@@ -858,8 +1141,8 @@ function UserQuestionCard({ card }: { card: ChatUserQuestion }): ReactElement {
   });
 
   const submit = useCallback(async () => {
-    // Optimistic: hide the card before the IPC round-trip lands.
-    chatStreamStore.markQuestionAnswered(card.requestId);
+    if (!canSubmit || submitState === 'submitting') return;
+    setSubmitState('submitting');
     const answers = card.questions.map((q) => {
       const p = picks[q.id];
       const otherText = (p?.other ?? '').trim();
@@ -875,33 +1158,155 @@ function UserQuestionCard({ card }: { card: ChatUserQuestion }): ReactElement {
         ok: true,
         answers: { answers },
       });
+      // Hide ONLY after the host acknowledges. Hiding before the await
+      // would silently abandon dropped replies and the user would wait
+      // the full 600s for SNACA to time out on its own.
+      chatStreamStore.markQuestionAnswered(card.requestId);
     } catch {
-      /* best-effort — engine timeout covers a dropped reply */
+      setSubmitState('error');
     }
-  }, [card.requestId, card.questions, picks]);
+  }, [canSubmit, card.questions, card.requestId, picks, submitState]);
+
+  const skip = useCallback(async () => {
+    if (submitState === 'submitting') return;
+    setSubmitState('submitting');
+    try {
+      // `ok: false` is the protocol's existing "no usable answer" channel
+      // (ContextRequestService.handleQuestion surfaces it as an error to
+      // SNACA, which can then decide without the user's input).
+      await agentClient.respondUserQuestion({
+        requestId: card.requestId,
+        ok: false,
+        error: 'user_skipped',
+      });
+      chatStreamStore.markQuestionAnswered(card.requestId);
+    } catch {
+      setSubmitState('error');
+    }
+  }, [card.requestId, submitState]);
+
+  // Keyboard shortcuts scoped to the card subtree — global keys would
+  // collide with the chat composer.
+  const handleKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+      if (submitState === 'submitting') return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        void skip();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (canSubmit) void submit();
+      }
+    },
+    [canSubmit, skip, submit, submitState]
+  );
+
+  const progressPct = Math.max(
+    0,
+    Math.min(100, ((secondsLeft * 1000) / QUESTION_TIMEOUT_MS) * 100)
+  );
+
+  // Three-stop colour so urgency reads at a glance before the bar empties.
+  const progressColor =
+    progressPct > 50
+      ? 'var(--color-success)'
+      : progressPct > 20
+        ? 'var(--color-warning)'
+        : 'var(--color-error)';
+
+  const submitLabel =
+    submitState === 'error'
+      ? t('chat.questionRetry')
+      : submitState === 'submitting'
+        ? t('chat.questionSubmitting')
+        : t('chat.questionSubmit');
 
   return (
-    <div className="rounded-md border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] p-2 text-[11px]">
-      {card.questions.map((q) => (
-        <QuestionBlock
-          key={q.id}
-          q={q}
-          groupKey={card.requestId}
-          ids={picks[q.id]?.ids ?? []}
-          other={picks[q.id]?.other ?? ''}
-          onIds={(ids) => setIds(q.id, ids)}
-          onOther={(o) => setOther(q.id, o)}
-          otherLabel={t('chat.questionOther')}
-        />
-      ))}
-      <button
-        type="button"
-        disabled={!canSubmit}
-        onClick={() => void submit()}
-        className="mt-1 rounded border border-[var(--color-accent)]/50 bg-[var(--color-accent)] px-2.5 py-0.5 text-[10px] text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {t('chat.questionSubmit')}
-      </button>
+    <div
+      ref={cardRef}
+      onKeyDown={handleKeyDown}
+      role="group"
+      aria-label={t('chat.questionHeader')}
+      className="overflow-hidden rounded-md border border-[color-mix(in_srgb,var(--color-accent)_35%,transparent)] bg-[var(--color-bg-secondary)] text-[12px] shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+    >
+      {/* Timeout progress strip — 2px-thin so it reads as a status hint */}
+      {/* rather than a primary control. */}
+      <div
+        className="h-0.5 transition-all duration-1000 ease-linear"
+        style={{ width: `${progressPct}%`, backgroundColor: progressColor }}
+        aria-hidden
+      />
+
+      <div className="flex items-center gap-1.5 border-b border-[var(--color-border-subtle)] px-2.5 py-1.5">
+        <HelpCircle size={12} className="text-[var(--color-accent)]" />
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-accent)]">
+          {t('chat.questionHeader')}
+        </span>
+        <span className="ml-auto text-[10px] tabular-nums text-[var(--color-text-muted)]">
+          {t('chat.questionTimeRemaining', { seconds: secondsLeft })}
+        </span>
+      </div>
+
+      <div className="px-2.5 py-2">
+        {card.questions.map((q) => {
+          const p = picks[q.id];
+          const selectedCount = p?.ids.length ?? 0;
+          return (
+            <div key={q.id} className="mb-2 last:mb-0">
+              <QuestionBlock
+                q={q}
+                groupKey={card.requestId}
+                ids={p?.ids ?? []}
+                other={p?.other ?? ''}
+                onIds={(ids) => setIds(q.id, ids)}
+                onOther={(o) => setOther(q.id, o)}
+                otherLabel={t('chat.questionOther')}
+              />
+              {q.multiSelect && selectedCount > 0 && (
+                <div className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+                  {t('chat.questionSelectedCount', {
+                    count: selectedCount,
+                    total: q.options.length,
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        <div className="mt-2 flex items-center gap-2 border-t border-[var(--color-border-subtle)] pt-2">
+          <span className="hidden truncate text-[10px] text-[var(--color-text-muted)] sm:inline">
+            {t('chat.questionShortcutHint')}
+          </span>
+          {submitState === 'error' && (
+            <span className="text-[10px] text-[var(--color-error)]">
+              {t('chat.questionSubmitFailed')}
+            </span>
+          )}
+          <div className="ml-auto flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => void skip()}
+              disabled={submitState === 'submitting'}
+              className="flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-0.5 text-[10px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <SkipForward size={11} />
+              {t('chat.questionSkip')}
+            </button>
+            <button
+              type="button"
+              disabled={!canSubmit || submitState === 'submitting'}
+              onClick={() => void submit()}
+              className="flex items-center gap-1 rounded border border-[var(--color-accent)]/50 bg-[var(--color-accent)] px-2.5 py-0.5 text-[10px] font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {submitState === 'submitting' && <Loader2 size={11} className="animate-spin" />}
+              {submitLabel}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
