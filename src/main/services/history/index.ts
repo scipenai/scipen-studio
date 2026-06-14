@@ -1,4 +1,9 @@
 export { BlobStore, createBlobStore, type BlobStoreOptions } from './BlobStore';
+export {
+  HistoryManager,
+  createHistoryManager,
+  type HistoryManagerOptions,
+} from './HistoryManager';
 export { HistoryService, createHistoryService, type HistoryServiceDeps } from './HistoryService';
 export { MetaDb, createMetaDb, MIGRATIONS, type Migration, type MetaDbOptions } from './MetaDb';
 export type {

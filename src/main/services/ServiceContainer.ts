@@ -224,6 +224,9 @@ export const ServiceNames = {
    */
   INLINE_EDIT: 'inlineEdit',
 
+  /** Per-project history (blob + chunk + label + step). See `HistoryManager`. */
+  HISTORY_MANAGER: 'historyManager',
+
   /** SNACA editor sidecar process (spawn / restart / pipe). */
   AGENT_SIDECAR: 'agentSidecar',
   /** JSON-RPC editor-protocol client over the sidecar. */
