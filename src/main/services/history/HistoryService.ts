@@ -1,13 +1,14 @@
 /**
  * @file HistoryService - L1 + L2 history API for scipen-studio.
  *
- * M1 stub: surface only — every method throws so consumers fail loudly until
- * M4 wires real storage. The constructor accepts its dependencies (BlobStore +
- * config) so DI registration in M5 needs no rework.
+ * M3 wiring: constructor now also keeps MetaDb so M4 can implement the real
+ * recordChunk / createLabel / recordStep against SQL. Methods still throw the
+ * "(M4)" marker so a stray caller fails loudly — but the dependency graph is
+ * complete from M3 onward.
  */
 
 import { createLogger } from '../LoggerService';
-import { BlobStore } from './BlobStore';
+import type { BlobStore } from './BlobStore';
 import type {
   CreateLabelInput,
   IHistoryService,
@@ -15,11 +16,19 @@ import type {
   RecordChunkResult,
   RecordStepInput,
 } from './interfaces/IHistoryService';
-import { DEFAULT_HISTORY_CONFIG, type HistoryChunk, type HistoryConfig, type HistoryLabel, type HistoryStep } from './types';
+import type { MetaDb } from './MetaDb';
+import {
+  DEFAULT_HISTORY_CONFIG,
+  type HistoryChunk,
+  type HistoryConfig,
+  type HistoryLabel,
+  type HistoryStep,
+} from './types';
 
 const logger = createLogger('HistoryService');
 
 export interface HistoryServiceDeps {
+  metaDb: MetaDb;
   blobStore: BlobStore;
   config?: Partial<HistoryConfig>;
 }
@@ -29,9 +38,10 @@ export class HistoryService implements IHistoryService {
 
   constructor(private readonly deps: HistoryServiceDeps) {
     this.config = { ...DEFAULT_HISTORY_CONFIG, ...(deps.config ?? {}) };
-    void this.deps;
     void this.config;
-    logger.debug('HistoryService stub constructed (M1)');
+    logger.debug('HistoryService constructed', {
+      schemaVersion: deps.metaDb.schemaVersion(),
+    });
   }
 
   recordChunk(_input: RecordChunkInput): Promise<RecordChunkResult> {
@@ -68,6 +78,7 @@ export class HistoryService implements IHistoryService {
 
   async dispose(): Promise<void> {
     await this.deps.blobStore.dispose();
+    this.deps.metaDb.close();
   }
 }
 

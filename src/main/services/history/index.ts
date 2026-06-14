@@ -1,5 +1,6 @@
 export { BlobStore, createBlobStore, type BlobStoreOptions } from './BlobStore';
 export { HistoryService, createHistoryService, type HistoryServiceDeps } from './HistoryService';
+export { MetaDb, createMetaDb, MIGRATIONS, type Migration, type MetaDbOptions } from './MetaDb';
 export type {
   IBlobStore,
   IHistoryService,
