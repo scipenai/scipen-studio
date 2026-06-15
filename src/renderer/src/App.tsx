@@ -9,6 +9,7 @@ import { useEffect, useRef } from 'react';
 import { CommandPalette } from './components/CommandPalette';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { FileConflictModal } from './components/FileConflictModal';
+import { NewLabelDialog } from './components/history/NewLabelDialog';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { Sidebar } from './components/layout/Sidebar';
 import { StatusBar } from './components/layout/StatusBar';
@@ -132,6 +133,8 @@ function AppContent() {
       {showStatusBar && <StatusBar />}
 
       <CommandPalette isOpen={isCommandPaletteOpen} onClose={handleCloseCommandPalette} />
+
+      <NewLabelDialog />
 
       <FileConflictModal />
     </div>

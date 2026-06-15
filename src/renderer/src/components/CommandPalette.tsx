@@ -4,19 +4,28 @@
  */
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { FileText, HelpCircle, MessageSquare, Play, Search, Settings } from 'lucide-react';
+import {
+  FileText,
+  HelpCircle,
+  MessageSquare,
+  Play,
+  Search,
+  Settings,
+  Tag,
+} from 'lucide-react';
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useWindowEvent } from '../hooks';
 import { useTranslation } from '../locales';
 import { getUIService } from '../services/core';
+import { historyUIBus } from '../services/core/HistoryUIBus';
 
 interface Command {
   id: string;
   label: string;
   description?: string;
   icon: React.ReactNode;
-  category: 'ai' | 'file' | 'edit' | 'view' | 'help';
+  category: 'ai' | 'file' | 'edit' | 'view' | 'help' | 'history';
   shortcut?: string;
   action: () => void;
 }
@@ -89,6 +98,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
       action: () => {
         uiService.setSidebarTab('settings');
         onClose();
+      },
+    },
+    {
+      id: 'history-create-label',
+      label: t('history.createLabel'),
+      description: t('history.createLabelDesc'),
+      icon: <Tag size={16} />,
+      category: 'history',
+      action: () => {
+        onClose();
+        historyUIBus.openCreateLabel();
       },
     },
     {

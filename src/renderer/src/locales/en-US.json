@@ -383,6 +383,29 @@
   "fileTree": {
     "noFiles": "No files"
   },
+  "history": {
+    "createLabel": "Create snapshot label",
+    "createLabelDesc": "Capture a named version snapshot of every currently open file",
+    "browseLabels": "Browse snapshot labels",
+    "browseLabelsDesc": "Inspect this project's snapshots; restore any version",
+    "labelNamePlaceholder": "Label name (e.g. \"Submission v1\")",
+    "labelDescriptionPlaceholder": "Description (optional)",
+    "labelCreating": "Creating…",
+    "labelCreateFailed": "Create failed: {{error}}",
+    "labelCreateSuccess": "Created snapshot \"{{name}}\"",
+    "labelEmpty": "No snapshots yet — use \"Create snapshot label\" to start",
+    "labelNoFiles": "No open files to snapshot — open a file first",
+    "labelNoProject": "No project open",
+    "labelKindManual": "Manual",
+    "labelKindAuto": "Auto",
+    "labelKindMilestone": "Milestone",
+    "labelFilesCount": "{{count}} files",
+    "submit": "Create",
+    "cancel": "Cancel",
+    "close": "Close",
+    "open": "Open",
+    "restore": "Restore"
+  },
   "chat": {
     "rename": "Rename",
     "delete": "Delete",

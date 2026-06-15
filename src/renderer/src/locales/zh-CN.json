@@ -383,6 +383,29 @@
   "fileTree": {
     "noFiles": "暂无文件"
   },
+  "history": {
+    "createLabel": "创建快照标签",
+    "createLabelDesc": "为当前所有打开文件创建一个命名版本快照",
+    "browseLabels": "浏览快照标签",
+    "browseLabelsDesc": "查看本项目历史快照,可还原到任意版本",
+    "labelNamePlaceholder": "快照名称(如「投稿 v1」)",
+    "labelDescriptionPlaceholder": "描述(可选)",
+    "labelCreating": "创建中…",
+    "labelCreateFailed": "创建失败: {{error}}",
+    "labelCreateSuccess": "已创建快照「{{name}}」",
+    "labelEmpty": "暂无快照,使用「创建快照标签」开始",
+    "labelNoFiles": "没有打开的文件可纳入快照,请先打开文件",
+    "labelNoProject": "尚未打开项目",
+    "labelKindManual": "手动",
+    "labelKindAuto": "自动",
+    "labelKindMilestone": "里程碑",
+    "labelFilesCount": "{{count}} 个文件",
+    "submit": "创建",
+    "cancel": "取消",
+    "close": "关闭",
+    "open": "打开",
+    "restore": "还原"
+  },
   "chat": {
     "rename": "重命名",
     "delete": "删除",

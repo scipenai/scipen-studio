@@ -928,6 +928,66 @@ export const zotero = {
     on(IpcChannel.Zotero_EmbeddingProgress, (data) => callback(data as EmbeddingIndexStatusDTO)),
 };
 
+// ==================== History API ====================
+
+export type HistoryLabelKindDTO = 'manual' | 'auto' | 'milestone';
+export type HistoryStepOriginDTO = 'snaca_tool' | 'human_edit' | 'merge';
+
+export interface HistoryLabelDTO {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string | null;
+  kind: HistoryLabelKindDTO;
+  createdAt: number;
+  createdBy: string;
+}
+
+export interface HistoryStepDTO {
+  hash: Uint8Array;
+  parentHash: Uint8Array | null;
+  projectId: string;
+  sessionId: string;
+  treeHash: Uint8Array;
+  causes: Uint8Array;
+  origin: HistoryStepOriginDTO;
+  ts: number;
+  sizeDelta: number;
+}
+
+export const history = {
+  putBlob: (input: { projectId: string; bytes: Uint8Array }) =>
+    invoke<{ hashHex: string; size: number }>(IpcChannel.History_PutBlob, input),
+
+  ensureSession: (input: {
+    projectId: string;
+    id: string;
+    chatThreadId: string | null;
+    parentSession: string | null;
+  }) => invoke<{ ok: true }>(IpcChannel.History_EnsureSession, input),
+
+  createLabel: (input: {
+    projectId: string;
+    name: string;
+    description?: string;
+    kind: HistoryLabelKindDTO;
+    createdBy: string;
+    files: Array<{ fileId: string; blobHashHex: string; version: number }>;
+  }) => invoke<HistoryLabelDTO>(IpcChannel.History_CreateLabel, input),
+
+  listLabels: (input: { projectId: string; limit?: number }) =>
+    invoke<HistoryLabelDTO[]>(IpcChannel.History_ListLabels, input),
+
+  resolveLabelSnapshot: (input: { projectId: string; labelId: string }) =>
+    invoke<Record<string, Uint8Array>>(IpcChannel.History_ResolveLabelSnapshot, input),
+
+  getStep: (input: { projectId: string; hashHex: string }) =>
+    invoke<HistoryStepDTO | null>(IpcChannel.History_GetStep, input),
+
+  listSessionSteps: (input: { projectId: string; sessionId: string; limit?: number }) =>
+    invoke<HistoryStepDTO[]>(IpcChannel.History_ListSessionSteps, input),
+};
+
 // ==================== Unified exports ====================
 
 export const api = {
@@ -949,6 +1009,7 @@ export const api = {
   fileWatcher,
   selection,
   zotero,
+  history,
 };
 
 export default api;
