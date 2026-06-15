@@ -186,6 +186,64 @@ export class HistoryService implements IHistoryService {
     };
   }
 
+  async mergeChunks(
+    projectId: string,
+    fileId: string,
+    minChunks = 1000
+  ): Promise<{ merged: number }> {
+    const db = this.deps.metaDb.db;
+    const rows = db
+      .prepare<unknown[]>(
+        `SELECT id, version_from, version_to, base_blob, target_blob, op_count, created_at
+         FROM history_chunk WHERE project_id = ? AND file_id = ?
+         ORDER BY version_from ASC`
+      )
+      .all(projectId, fileId) as Array<{
+      id: number;
+      version_from: number;
+      version_to: number;
+      base_blob: Uint8Array;
+      target_blob: Uint8Array;
+      op_count: number;
+      created_at: number;
+    }>;
+    if (rows.length <= minChunks) return { merged: 0 };
+
+    const firstRow = rows[0];
+    const lastRow = rows[rows.length - 1];
+    const totalOps = rows.reduce((acc, r) => acc + r.op_count, 0);
+    const decStmt = db.prepare<unknown[]>(
+      `UPDATE history_blob SET refcount = CASE WHEN refcount - 1 < 0 THEN 0 ELSE refcount - 1 END WHERE hash = ?`
+    );
+    const deleteStmt = db.prepare<unknown[]>('DELETE FROM history_chunk WHERE id = ?');
+    const updateStmt = db.prepare<unknown[]>(
+      `UPDATE history_chunk SET version_to = ?, target_blob = ?, op_count = ? WHERE id = ?`
+    );
+
+    const apply = db.transaction(() => {
+      // Update the first row to span the full range; decRef every intermediate
+      // base + target blob (the first row's base stays referenced, last row's
+      // target stays referenced).
+      for (let i = 1; i < rows.length; i++) {
+        decStmt.run(new Uint8Array(rows[i].base_blob));
+      }
+      for (let i = 0; i < rows.length - 1; i++) {
+        decStmt.run(new Uint8Array(rows[i].target_blob));
+      }
+      updateStmt.run(
+        lastRow.version_to,
+        new Uint8Array(lastRow.target_blob),
+        totalOps,
+        firstRow.id
+      );
+      for (let i = 1; i < rows.length; i++) {
+        deleteStmt.run(rows[i].id);
+      }
+    });
+    apply();
+    return { merged: rows.length - 1 };
+  }
+
   async listChunks(projectId: string, fileId: string, limit = 100): Promise<HistoryChunk[]> {
     const rows = this.stmts.listChunks.all(projectId, fileId, limit) as Array<{
       id: number;

@@ -92,6 +92,56 @@ describe('HistoryService - L1 chunks', () => {
     expect(chunks[2].versionTo).toBe(10);
   });
 
+  it('mergeChunks collapses contiguous chunks while preserving end blobs', async () => {
+    // Build 5 chunks v0→1, 1→2, 2→3, 3→4, 4→5 on file `m.tex`.
+    let prev = bytes('seed');
+    const targets: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const next = bytes(`step-${i + 1}`);
+      const r = await svc.recordChunk({
+        projectId: 'pm',
+        fileId: 'm.tex',
+        versionFrom: i,
+        versionTo: i + 1,
+        baseContent: prev,
+        targetContent: next,
+        opCount: 2,
+        primaryActor: null,
+      });
+      targets.push(r.targetBlob);
+      prev = next;
+    }
+    // minChunks=1 ⇒ collapse if more than 1 chunk exists
+    const result = await svc.mergeChunks('pm', 'm.tex', 1);
+    expect(result.merged).toBe(4);
+    const chunks = await svc.listChunks('pm', 'm.tex');
+    expect(chunks.length).toBe(1);
+    expect(chunks[0].versionFrom).toBe(0);
+    expect(chunks[0].versionTo).toBe(5);
+    expect(chunks[0].opCount).toBe(10);
+    // Final target blob unchanged
+    expect(hexToBytes(targets[targets.length - 1]).join(',')).toBe(
+      Array.from(chunks[0].targetBlob).join(',')
+    );
+  });
+
+  it('mergeChunks no-ops below the threshold', async () => {
+    await svc.recordChunk({
+      projectId: 'pm2',
+      fileId: 'x.tex',
+      versionFrom: 0,
+      versionTo: 1,
+      baseContent: bytes('a'),
+      targetContent: bytes('b'),
+      opCount: 1,
+      primaryActor: null,
+    });
+    const result = await svc.mergeChunks('pm2', 'x.tex', 10);
+    expect(result.merged).toBe(0);
+    const chunks = await svc.listChunks('pm2', 'x.tex');
+    expect(chunks.length).toBe(1);
+  });
+
   it('refcount accumulates across chained chunks', async () => {
     const r1 = await svc.recordChunk({
       projectId: 'p1',

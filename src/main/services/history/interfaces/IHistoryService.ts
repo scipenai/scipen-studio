@@ -62,6 +62,14 @@ export interface IHistoryService {
 
   recordChunk(input: RecordChunkInput): Promise<RecordChunkResult>;
   listChunks(projectId: string, fileId: string, limit?: number): Promise<HistoryChunk[]>;
+  /**
+   * Collapse every contiguous chunk run on `(project, file)` into a single
+   * chunk row when the file has more than `minChunks` chunks. Returns the
+   * number of rows pruned. The first chunk's `baseBlob` and the last chunk's
+   * `targetBlob` survive; intermediate base/target refcounts get decremented
+   * — orphan reaping is the GC sweep's job.
+   */
+  mergeChunks(projectId: string, fileId: string, minChunks?: number): Promise<{ merged: number }>;
   createLabel(input: CreateLabelInput): Promise<HistoryLabel>;
   listLabels(projectId: string, limit?: number): Promise<HistoryLabel[]>;
   /** Resolve a label to a file → bytes map by reading the referenced blobs. */
