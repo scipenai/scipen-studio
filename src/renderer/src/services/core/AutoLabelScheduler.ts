@@ -11,6 +11,7 @@
 
 import { api } from '../../api';
 import { createLogger } from '../LogService';
+import { getCompileServiceAsync } from './CompileService';
 import { getEditorService, getProjectRuntimeContext } from './ServiceRegistry';
 
 const logger = createLogger('AutoLabelScheduler');
@@ -22,18 +23,29 @@ export interface AutoLabelSchedulerOptions {
 
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
+/**
+ * Throttle two milestone-style auto-labels back-to-back. A user who triggers
+ * five compiles in a minute doesn't want five labels in their browse list.
+ */
+const MILESTONE_MIN_GAP_MS = 5 * 60 * 1000;
+
 class AutoLabelScheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastRunAtByProject = new Map<string, number>();
+  private lastMilestoneAt = 0;
+  private compileDispose: (() => void) | null = null;
   private running = false;
 
   start(opts: AutoLabelSchedulerOptions = {}): void {
     this.stop();
     const interval = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
-    if (interval <= 0) return;
-    this.timer = setInterval(() => void this.tick(), interval);
-    // Best-effort daemon — don't keep the renderer process alive solo on it.
-    if (typeof this.timer.unref === 'function') this.timer.unref();
+    if (interval > 0) {
+      this.timer = setInterval(() => void this.tick({ kind: 'auto' }), interval);
+      if (typeof this.timer.unref === 'function') this.timer.unref();
+    }
+    // Subscribe to compile success events — async because the compile service
+    // is lazy-loaded.
+    void this.subscribeToCompile();
     logger.info('AutoLabelScheduler started', { intervalMs: interval });
   }
 
@@ -42,14 +54,36 @@ class AutoLabelScheduler {
       clearInterval(this.timer);
       this.timer = null;
     }
+    if (this.compileDispose) {
+      this.compileDispose();
+      this.compileDispose = null;
+    }
+  }
+
+  private async subscribeToCompile(): Promise<void> {
+    try {
+      const compile = await getCompileServiceAsync();
+      const sub = compile.onDidFinishCompile((result) => {
+        if (!result.success) return;
+        const now = Date.now();
+        if (now - this.lastMilestoneAt < MILESTONE_MIN_GAP_MS) return;
+        this.lastMilestoneAt = now;
+        void this.tick({ kind: 'milestone' });
+      });
+      this.compileDispose = () => sub.dispose();
+    } catch (err) {
+      logger.warn('compile subscription failed', { error: (err as Error).message });
+    }
   }
 
   /** Force a tick immediately. Tests / "snapshot now" shortcuts use this. */
   async runOnce(): Promise<{ ok: boolean; reason?: string }> {
-    return this.tick();
+    return this.tick({ kind: 'auto' });
   }
 
-  private async tick(): Promise<{ ok: boolean; reason?: string }> {
+  private async tick(opts: {
+    kind: 'auto' | 'milestone';
+  }): Promise<{ ok: boolean; reason?: string }> {
     if (this.running) return { ok: false, reason: 'busy' };
     this.running = true;
     try {
@@ -67,19 +101,20 @@ class AutoLabelScheduler {
         files.push({ fileId, blobHashHex: result.hashHex, version: 0 });
       }
       const now = new Date();
-      const name = `Auto: ${now.toISOString().slice(0, 16).replace('T', ' ')}`;
+      const stamp = now.toISOString().slice(0, 16).replace('T', ' ');
+      const name = opts.kind === 'milestone' ? `Compile OK: ${stamp}` : `Auto: ${stamp}`;
       await api.history.createLabel({
         projectId,
         name,
-        kind: 'auto',
-        createdBy: 'auto',
+        kind: opts.kind,
+        createdBy: opts.kind === 'milestone' ? 'compile' : 'auto',
         files,
       });
       this.lastRunAtByProject.set(projectId, Date.now());
-      logger.info('auto label created', { projectId, name, files: files.length });
+      logger.info('label created', { projectId, name, kind: opts.kind, files: files.length });
       return { ok: true };
     } catch (err) {
-      logger.warn('auto label tick failed', { error: (err as Error).message });
+      logger.warn('label tick failed', { error: (err as Error).message });
       return { ok: false, reason: (err as Error).message };
     } finally {
       this.running = false;
