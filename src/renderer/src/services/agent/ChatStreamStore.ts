@@ -28,6 +28,7 @@ function safeStringify(value: unknown): string | undefined {
 
 import { agentClient, type ThreadMessageDTO } from './AgentClientService';
 import { resolveAgentPath } from './agentPathResolver';
+import { historyUIBus } from '../core/HistoryUIBus';
 import {
   deleteTurnMetaForThread,
   loadTurnMetaForThread,
@@ -885,6 +886,10 @@ class ChatStreamStoreImpl {
         sizeDelta,
       });
       this.lastStepBySession.set(sessionId, step.hashHex);
+      // Cache-invalidation broadcast — HistoryBrowserDialog refetches the
+      // sessions list (step count, lastTs) and the steps panel for the
+      // currently-selected session.
+      historyUIBus.fireSessionsChanged();
 
       // Drift checkpoint: once the AI has changed enough bytes, ask the
       // autoLabelScheduler to drop a recoverable snapshot. Reset the

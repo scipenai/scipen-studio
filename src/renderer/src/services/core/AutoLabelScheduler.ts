@@ -14,6 +14,7 @@ import { historyProjectIdOf } from '../../utils/historyProjectId';
 import { createLogger } from '../LogService';
 import { getCompileServiceAsync } from './CompileService';
 import { getEditorService, getProjectRuntimeContext } from './ServiceRegistry';
+import { historyUIBus } from './HistoryUIBus';
 
 const logger = createLogger('AutoLabelScheduler');
 
@@ -112,6 +113,9 @@ class AutoLabelScheduler {
         files,
       });
       this.lastRunAtByProject.set(projectId, Date.now());
+      // Cache-invalidation broadcast — picked up by HistoryBrowserDialog
+      // so labels created by drift/milestone triggers show up live.
+      historyUIBus.fireLabelsChanged();
       logger.info('label created', { projectId, name, kind: opts.kind, files: files.length });
       return { ok: true };
     } catch (err) {

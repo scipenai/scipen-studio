@@ -130,6 +130,12 @@ export function HistoryBrowserDialog(): ReactElement | null {
   const [labelsState, setLabelsState] = useState<LabelsState>(INITIAL_LABELS_STATE);
   const [sessionsState, setSessionsState] = useState<SessionsState>(INITIAL_SESSIONS_STATE);
   const [diffViewFile, setDiffViewFile] = useState<HistoryFileSnapshot | null>(null);
+  // Counter that the steps-loading effect depends on so a `sessionsChanged`
+  // broadcast (e.g. a SNACA tool step just landed) refetches the steps list
+  // for the currently-selected session WITHOUT having to deselect/reselect.
+  // selectedSessionId stays stable, so we bump this counter as the explicit
+  // invalidation signal.
+  const [stepsReloadKey, setStepsReloadKey] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   useFocusTrap(containerRef, isOpen);
 
@@ -249,6 +255,34 @@ export function HistoryBrowserDialog(): ReactElement | null {
     }
   }, [isOpen, activeTab, sessionsState.sessions, loadSessions]);
 
+  // Live invalidation — write sites (NewLabelDialog, AutoLabelScheduler,
+  // ChatStreamStore.recordSnacaToolStep) fire on the bus; if the browser
+  // is open we refetch the affected tab so freshly-saved data shows up
+  // without the user having to close and reopen the dialog.
+  //
+  // `!isOpen` short-circuits because the dialog is always mounted (it
+  // needs the openBrowser listener) but holds no UI when closed — no
+  // need to refetch.
+  useEffect(() => {
+    if (!isOpen) return;
+    const dLabels = historyUIBus.onLabelsChanged(() => {
+      if (activeTab === 'labels') void loadLabels();
+    });
+    const dSessions = historyUIBus.onSessionsChanged(() => {
+      if (activeTab === 'sessions') {
+        void loadSessions();
+        // Force the steps-load effect to re-run for the currently-selected
+        // session — selectedSessionId is unchanged so we can't rely on a
+        // dep-change to invalidate it.
+        setStepsReloadKey((n) => n + 1);
+      }
+    });
+    return () => {
+      dLabels.dispose();
+      dSessions.dispose();
+    };
+  }, [isOpen, activeTab, loadLabels, loadSessions]);
+
   useEffect(() => {
     if (!sessionsState.selectedSessionId) {
       setSessionsState((s) => ({ ...s, steps: null, selectedStepHashHex: null, stepDetail: null }));
@@ -287,7 +321,7 @@ export function HistoryBrowserDialog(): ReactElement | null {
     return () => {
       cancelled = true;
     };
-  }, [sessionsState.selectedSessionId]);
+  }, [sessionsState.selectedSessionId, stepsReloadKey]);
 
   const selectedStep = useMemo<HistoryStepDTO | null>(() => {
     if (!sessionsState.steps || !sessionsState.selectedStepHashHex) return null;

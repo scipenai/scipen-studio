@@ -24,6 +24,23 @@ class HistoryUIBus {
   private readonly _openBrowser = new Emitter<HistoryBrowserTab>();
   readonly onOpenBrowser: Event<HistoryBrowserTab> = this._openBrowser.event;
 
+  /**
+   * Cache-invalidation broadcasts — fired by the write sites
+   * (`NewLabelDialog` after `createLabel` succeeds; `ChatStreamStore`
+   * after a SNACA tool step is persisted). Any open browser refetches
+   * the affected tab without the user having to close and reopen.
+   *
+   * Both events are `void` — listeners are expected to call back into
+   * the `api.history.list*` paths to pull fresh data, so passing a delta
+   * payload would force every listener to reconcile, which is more
+   * brittle than refetching the small list.
+   */
+  private readonly _labelsChanged = new Emitter<void>();
+  readonly onLabelsChanged: Event<void> = this._labelsChanged.event;
+
+  private readonly _sessionsChanged = new Emitter<void>();
+  readonly onSessionsChanged: Event<void> = this._sessionsChanged.event;
+
   openCreateLabel(): void {
     this._openCreateLabel.fire();
   }
@@ -34,6 +51,14 @@ class HistoryUIBus {
 
   openBrowseSessions(): void {
     this._openBrowser.fire('sessions');
+  }
+
+  fireLabelsChanged(): void {
+    this._labelsChanged.fire();
+  }
+
+  fireSessionsChanged(): void {
+    this._sessionsChanged.fire();
   }
 }
 

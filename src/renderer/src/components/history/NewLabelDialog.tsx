@@ -105,6 +105,10 @@ export function NewLabelDialog(): ReactElement | null {
         createdBy: 'user',
         files,
       });
+      // Broadcast so an already-open HistoryBrowserDialog refetches the
+      // labels list immediately — without this the new label only shows
+      // up after the browser is closed and reopened.
+      historyUIBus.fireLabelsChanged();
       setIsOpen(false);
     } catch (e) {
       setSubmitState('error');
