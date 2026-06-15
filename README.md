@@ -28,15 +28,16 @@
 
 ## Features
 
-- 🧩 **Built-in compiler** — WebAssembly pdfTeX / XeTeX, no local TeX install required. Tectonic and TeX Live are auto-detected when present.
+- 🧩 **Built-in compiler** — [BusyTeX](https://github.com/busytex/busytex) (pdfTeX / XeTeX / LuaLaTeX, WebAssembly) and [typst.ts](https://github.com/Myriad-Dreamin/typst.ts) ship with the app, no local TeX install required. Tectonic, TeX Live, and a system Typst CLI are auto-detected when present.
 - ✏️ **Editor** — Monaco with TexLab, Tinymist, and Marksman: completion, diagnostics, hover, and jump-to-definition for LaTeX, Typst, and Markdown.
 - 📄 **Live PDF preview** — pdf.js renderer with SyncTeX two-way jump, KaTeX inline math, smooth zoom, and CJK glyph rendering.
 - 🤖 **AI agent (built-in)** — SNACA runtime ships with the app: file editing with Diff Review, web search / fetch, interactive multiple-choice questions, per-project memory, and bundled academic-research skills (paper / reviewer / pipeline / deep-research, sourced from [Imbad0202/academic-research-skills](https://github.com/Imbad0202/academic-research-skills)). No separate server to run.
+- 📚 **Zotero integration** — Connect to a running Zotero (via Better BibTeX), browse the library inside the app, drag-and-drop attachments, `@cite` autocomplete from the live BibTeX, and semantic search across attachment PDFs via a local embedding index.
 - 🕘 **Local history & restore** — Background snapshots of your project, no Git required: named labels (manual checkpoints), auto-milestones on successful compile, drift-triggered snapshots after large AI edits, and per-message rollback in chat. Browse, diff, and restore from a unified timeline.
 - ☁️ **Overleaf sync** — Sign in once, projects download to disk, edits stay offline, three-way merge on push.
 
 > [!NOTE]
-> **Status: 0.3.0-pre.1 — pre-1.0.** Editing, compile, preview, AI agent, and Overleaf flows are stable. Some settings and APIs may still change before 1.0; breaking changes are noted in [CHANGELOG.md](CHANGELOG.md).
+> **Status: 0.3.0 — pre-1.0.** Editing, compile, preview, AI agent, Zotero, history, and Overleaf flows are stable. Some settings and APIs may still change before 1.0; breaking changes are noted in [CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 
@@ -57,8 +58,13 @@ The AI assistant and Overleaf sync are optional — first launch needs no config
 
 ```bash
 git clone https://github.com/scipenai/scipen-studio.git
-cd scipen-studio && npm run setup && npm run dev
+cd scipen-studio
+npm install
+npm run prebuild   # download LSPs + BusyTeX + Typst WASM + build SNACA + stage skills (~1 GB)
+npm run dev
 ```
+
+`prebuild` is the first-time bootstrap and must run before `dev` — `npm run setup` only fetches LSP binaries and is not enough on its own. After bootstrap, `npm run dev` is the day-to-day entry point.
 
 Requires **Node.js 20+** and **npm 10+**. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide — testing, IPC contracts, packaging (`build:win` / `build:mac` / `build:linux`), and architectural conventions.
 
@@ -84,10 +90,13 @@ SciPen Studio builds on the work of these open-source projects:
 
 - [Electron](https://www.electronjs.org/) and [electron-vite](https://electron-vite.org/) — desktop runtime and build pipeline
 - [Monaco Editor](https://microsoft.github.io/monaco-editor/) — the editor that powers the writing surface
+- [BusyTeX](https://github.com/busytex/busytex) — the bundled WebAssembly TeX engine (pdfTeX / XeTeX / LuaLaTeX)
+- [typst.ts](https://github.com/Myriad-Dreamin/typst.ts) — the bundled WebAssembly Typst engine
 - [TexLab](https://github.com/latex-lsp/texlab), [Tinymist](https://github.com/Myriad-Dreamin/tinymist), [Marksman](https://github.com/artempyanykh/marksman) — language servers for LaTeX, Typst, and Markdown
 - [pdf.js](https://github.com/mozilla/pdf.js) — PDF rendering and CMap support
 - [KaTeX](https://katex.org/) — inline math preview
 - [diff-match-patch](https://github.com/google/diff-match-patch) — hunk-level diff for AI review
+- [Better BibTeX](https://retorque.re/zotero-better-bibtex/) — the Zotero plugin that exposes the library to the app
 - [academic-research-skills](https://github.com/Imbad0202/academic-research-skills) — the bundled SNACA Skills (`academic-paper`, `academic-paper-reviewer`, `academic-pipeline`, `deep-research`)
 - [Tectonic](https://tectonic-typesetting.github.io/) and [TeX Live](https://www.tug.org/texlive/) — optional full TeX distributions
 
