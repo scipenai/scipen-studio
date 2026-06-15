@@ -20,7 +20,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Bot,
-  Eye,
   GitCommit,
   Inbox,
   Loader2,
@@ -48,6 +47,7 @@ import { historyProjectIdOf } from '../../utils/historyProjectId';
 import { applySnapshotToOpenTabs } from '../../utils/historyRestore';
 import { lineDiffStats } from '../../utils/lineDiffStats';
 import { FileDiffOverlay } from './FileDiffOverlay';
+import { HistoryFileRow, type HistoryFileSnapshot } from './HistoryFileRow';
 
 interface SessionSummary {
   sessionId: string;
@@ -56,12 +56,7 @@ interface SessionSummary {
   lastTs: number;
 }
 
-interface StepFile {
-  fileId: string;
-  beforeText: string;
-  afterText: string | null;
-  stats: { added: number; removed: number } | null;
-}
+type StepFile = HistoryFileSnapshot;
 
 interface StepCause {
   id: string;
@@ -615,7 +610,7 @@ function StepDetailPane({
         {!loading && (
           <ul className="space-y-0.5 font-mono text-[10px]">
             {files.map((f) => (
-              <FileRow key={f.fileId} file={f} onViewDiff={onViewDiff} t={t} />
+              <HistoryFileRow key={f.fileId} file={f} onViewDiff={onViewDiff} t={t} />
             ))}
           </ul>
         )}
@@ -647,49 +642,6 @@ function StepDetailPane({
         </button>
       </div>
     </div>
-  );
-}
-
-function FileRow({
-  file,
-  onViewDiff,
-  t,
-}: {
-  file: StepFile;
-  onViewDiff: (f: StepFile) => void;
-  t: T;
-}): ReactElement {
-  const viewable = file.stats !== null && (file.stats.added > 0 || file.stats.removed > 0);
-  return (
-    <li className="group flex items-center gap-1.5 truncate rounded px-1 py-0.5 text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
-      <span className="min-w-0 flex-1 truncate">{file.fileId}</span>
-      {file.stats === null ? (
-        <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
-          {t('history.diffStatsClosed')}
-        </span>
-      ) : file.stats.added === 0 && file.stats.removed === 0 ? (
-        <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
-          {t('history.diffStatsNoChange')}
-        </span>
-      ) : (
-        <span className="flex-shrink-0 tabular-nums">
-          <span className="text-[var(--color-success)]">+{file.stats.removed}</span>
-          <span className="px-0.5 text-[var(--color-text-muted)]">/</span>
-          <span className="text-[var(--color-error)]">-{file.stats.added}</span>
-        </span>
-      )}
-      {viewable && (
-        <button
-          type="button"
-          onClick={() => onViewDiff(file)}
-          title={t('history.viewDiff')}
-          aria-label={t('history.viewDiff')}
-          className="flex h-5 w-5 flex-shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-accent)] focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] group-hover:opacity-100"
-        >
-          <Eye size={11} />
-        </button>
-      )}
-    </li>
   );
 }
 
