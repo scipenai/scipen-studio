@@ -1006,6 +1006,16 @@ export const history = {
       IpcChannel.History_FindStepBeforeTs,
       input
     ),
+
+  listSessions: (input: { projectId: string; limit?: number }) =>
+    invoke<
+      Array<{
+        sessionId: string;
+        chatThreadId: string | null;
+        stepCount: number;
+        lastTs: number;
+      }>
+    >(IpcChannel.History_ListSessions, input),
 };
 
 // ==================== Unified exports ====================

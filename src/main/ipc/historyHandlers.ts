@@ -127,6 +127,11 @@ const findStepBeforeTsSchema = z.object({
   beforeTs: z.number().int().nonnegative(),
 });
 
+const listSessionsSchema = z.object({
+  projectId: projectIdSchema,
+  limit: z.number().int().positive().max(500).optional(),
+});
+
 function parseOrThrow<T>(schema: z.ZodSchema<T>, value: unknown, label: string): T {
   const result = schema.safeParse(value);
   if (!result.success) {
@@ -233,6 +238,11 @@ export function registerHistoryHandlers(deps: HistoryHandlersDeps): void {
       .getOrCreate(p.projectId)
       .findStepBeforeTs(p.sessionId, p.beforeTs);
     return step ? { hashHex: toHex(step.hash), ts: step.ts, origin: step.origin } : null;
+  });
+
+  ipcMain.handle(IpcChannel.History_ListSessions, async (_e, raw: unknown) => {
+    const p = parseOrThrow(listSessionsSchema, raw, 'listSessions');
+    return await historyManager.getOrCreate(p.projectId).listSessions(p.projectId, p.limit);
   });
 
   logger.info('history IPC handlers registered');

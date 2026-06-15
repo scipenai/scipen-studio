@@ -488,6 +488,34 @@ export class HistoryService implements IHistoryService {
     return rowToStep(row);
   }
 
+  async listSessions(
+    projectId: string,
+    limit = 50
+  ): Promise<Array<{ sessionId: string; chatThreadId: string | null; stepCount: number; lastTs: number }>> {
+    // Aggregate from history_step + join session row for chat_thread_id.
+    // Sessions without any step are skipped — they exist only as FK targets.
+    const rows = this.deps.metaDb.db
+      .prepare(
+        `SELECT s.session_id AS sessionId,
+                ss.chat_thread_id AS chatThreadId,
+                COUNT(*) AS stepCount,
+                MAX(s.ts) AS lastTs
+         FROM history_step s
+         LEFT JOIN history_session ss ON ss.id = s.session_id
+         WHERE s.project_id = ?
+         GROUP BY s.session_id
+         ORDER BY lastTs DESC
+         LIMIT ?`
+      )
+      .all(projectId, limit) as Array<{
+      sessionId: string;
+      chatThreadId: string | null;
+      stepCount: number;
+      lastTs: number;
+    }>;
+    return rows;
+  }
+
   async dispose(): Promise<void> {
     await this.deps.blobStore.dispose();
     this.deps.metaDb.close();

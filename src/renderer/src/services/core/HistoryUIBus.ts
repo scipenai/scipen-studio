@@ -16,12 +16,19 @@ class HistoryUIBus {
   private readonly _openBrowseLabels = new Emitter<void>();
   readonly onOpenBrowseLabels: Event<void> = this._openBrowseLabels.event;
 
+  private readonly _openBrowseSessions = new Emitter<void>();
+  readonly onOpenBrowseSessions: Event<void> = this._openBrowseSessions.event;
+
   openCreateLabel(): void {
     this._openCreateLabel.fire();
   }
 
   openBrowseLabels(): void {
     this._openBrowseLabels.fire();
+  }
+
+  openBrowseSessions(): void {
+    this._openBrowseSessions.fire();
   }
 }
 

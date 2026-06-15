@@ -405,6 +405,33 @@ describe('HistoryService - L2 steps', () => {
     expect(new TextDecoder().decode(snap.get('b.tex')!)).toBe('bravo contents');
   });
 
+  it('listSessions aggregates step counts and orders by lastTs DESC', async () => {
+    svc.ensureSession({ id: 'sA', projectId: 'pls', chatThreadId: 'tA', parentSession: null });
+    svc.ensureSession({ id: 'sB', projectId: 'pls', chatThreadId: null, parentSession: null });
+    const f = await blobStore.put(bytes('x'));
+    const tree = [{ fileId: 'a', blobHashHex: toHex(f) }];
+    await svc.recordStep({
+      projectId: 'pls', sessionId: 'sA', parentStepHashHex: null,
+      tree, causes: [], origin: 'human_edit', ts: 100, sizeDelta: 0,
+    });
+    await svc.recordStep({
+      projectId: 'pls', sessionId: 'sA', parentStepHashHex: null,
+      tree, causes: [], origin: 'human_edit', ts: 200, sizeDelta: 0,
+    });
+    await svc.recordStep({
+      projectId: 'pls', sessionId: 'sB', parentStepHashHex: null,
+      tree, causes: [], origin: 'snaca_tool', ts: 50, sizeDelta: 0,
+    });
+    const sessions = await svc.listSessions('pls');
+    expect(sessions.length).toBe(2);
+    expect(sessions[0].sessionId).toBe('sA');
+    expect(sessions[0].stepCount).toBe(2);
+    expect(sessions[0].lastTs).toBe(200);
+    expect(sessions[0].chatThreadId).toBe('tA');
+    expect(sessions[1].sessionId).toBe('sB');
+    expect(sessions[1].chatThreadId).toBeNull();
+  });
+
   it('findStepBeforeTs returns the latest step strictly before the cutoff', async () => {
     svc.ensureSession({ id: 's1', projectId: 'p1', chatThreadId: null, parentSession: null });
     const fileHash = await blobStore.put(bytes('x'));

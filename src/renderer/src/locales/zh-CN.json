@@ -421,7 +421,17 @@
     "diffStatsClosed": "未打开",
     "diffStatsNoChange": "无变化",
     "viewDiff": "查看变化",
-    "diffOverlayTitle": "{{fileId}} 变化对比"
+    "diffOverlayTitle": "{{fileId}} 变化对比",
+    "browseSessions": "会话历史",
+    "browseSessionsDesc": "查看每次 AI 会话的所有改动记录,可还原到任一步",
+    "sessionsEmpty": "暂无 AI 会话历史",
+    "stepsEmpty": "本会话无改动记录",
+    "sessionsStepCount": "{{count}} 步",
+    "sessionChat": "会话 {{thread}}",
+    "sessionLocal": "本地编辑",
+    "originSnaca": "AI",
+    "originHuman": "人工",
+    "originMerge": "合并"
   },
   "chat": {
     "rename": "重命名",
@@ -566,6 +576,7 @@
     "imTab": "对话",
     "filesTab": "文件",
     "historyTab": "快照",
+    "sessionsTab": "会话",
     "settingsTab": "设置",
     "settingsLoading": "正在加载设置..."
   },

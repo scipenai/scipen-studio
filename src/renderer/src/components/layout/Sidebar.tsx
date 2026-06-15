@@ -6,7 +6,7 @@
  */
 
 import { clsx } from 'clsx';
-import { FolderKanban, History, MessageSquare, Settings } from 'lucide-react';
+import { FolderKanban, GitCommit, History, MessageSquare, Settings } from 'lucide-react';
 import type React from 'react';
 import logoS from '../../assets/logo-s.svg';
 import { useTranslation } from '../../locales';
@@ -108,6 +108,13 @@ export const Sidebar: React.FC = () => {
           label={t('workspaceSidebar.historyTab')}
           active={false}
           onClick={() => historyUIBus.openBrowseLabels()}
+        />
+        {/* Sessions: git-log style view over every AI session's step DAG. */}
+        <SidebarNavItem
+          icon={<GitCommit />}
+          label={t('workspaceSidebar.sessionsTab')}
+          active={false}
+          onClick={() => historyUIBus.openBrowseSessions()}
         />
         <SidebarNavItem
           icon={<Settings />}

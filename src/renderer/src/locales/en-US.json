@@ -421,7 +421,17 @@
     "diffStatsClosed": "not open",
     "diffStatsNoChange": "no change",
     "viewDiff": "View diff",
-    "diffOverlayTitle": "Diff: {{fileId}}"
+    "diffOverlayTitle": "Diff: {{fileId}}",
+    "browseSessions": "Session history",
+    "browseSessionsDesc": "Browse every AI session's change records; restore to any step",
+    "sessionsEmpty": "No AI session history yet",
+    "stepsEmpty": "No changes recorded in this session",
+    "sessionsStepCount": "{{count}} steps",
+    "sessionChat": "Chat {{thread}}",
+    "sessionLocal": "Local edit",
+    "originSnaca": "AI",
+    "originHuman": "Human",
+    "originMerge": "Merge"
   },
   "chat": {
     "rename": "Rename",
@@ -566,6 +576,7 @@
     "imTab": "Chat",
     "filesTab": "Files",
     "historyTab": "History",
+    "sessionsTab": "Sessions",
     "settingsTab": "Settings",
     "settingsLoading": "Loading settings..."
   },

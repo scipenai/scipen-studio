@@ -462,6 +462,8 @@ export enum IpcChannel {
   History_ResolveStepSnapshot = 'history:resolve-step-snapshot',
   /** Locate the most recent step in a session whose `ts < beforeTs`. */
   History_FindStepBeforeTs = 'history:find-step-before-ts',
+  /** List every chat-style session that has at least one recorded step. */
+  History_ListSessions = 'history:list-sessions',
 }
 
 export type IpcChannelType = `${IpcChannel}`;
