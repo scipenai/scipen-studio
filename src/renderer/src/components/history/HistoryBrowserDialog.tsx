@@ -257,31 +257,31 @@ export function HistoryBrowserDialog(): ReactElement | null {
 
   // Live invalidation — write sites (NewLabelDialog, AutoLabelScheduler,
   // ChatStreamStore.recordSnacaToolStep) fire on the bus; if the browser
-  // is open we refetch the affected tab so freshly-saved data shows up
-  // without the user having to close and reopen the dialog.
+  // is open we refetch BOTH tabs eagerly so when the user switches between
+  // them the freshly-saved data is already there.
   //
-  // `!isOpen` short-circuits because the dialog is always mounted (it
-  // needs the openBrowser listener) but holds no UI when closed — no
-  // need to refetch.
+  // Earlier guarded by `activeTab === '...'` to skip refetches for the
+  // hidden tab, but that drops invalidations: a write while in labels-tab
+  // would leave sessions stale until a full close/reopen cycle. Each list
+  // is ~200 rows / one IPC call, so unconditional refetch is the simpler
+  // and correct trade.
   useEffect(() => {
     if (!isOpen) return;
     const dLabels = historyUIBus.onLabelsChanged(() => {
-      if (activeTab === 'labels') void loadLabels();
+      void loadLabels();
     });
     const dSessions = historyUIBus.onSessionsChanged(() => {
-      if (activeTab === 'sessions') {
-        void loadSessions();
-        // Force the steps-load effect to re-run for the currently-selected
-        // session — selectedSessionId is unchanged so we can't rely on a
-        // dep-change to invalidate it.
-        setStepsReloadKey((n) => n + 1);
-      }
+      void loadSessions();
+      // Bump the counter so the steps-load effect re-runs for the
+      // currently-selected session — selectedSessionId is unchanged, so a
+      // dep-change is the only way to invalidate it.
+      setStepsReloadKey((n) => n + 1);
     });
     return () => {
       dLabels.dispose();
       dSessions.dispose();
     };
-  }, [isOpen, activeTab, loadLabels, loadSessions]);
+  }, [isOpen, loadLabels, loadSessions]);
 
   useEffect(() => {
     if (!sessionsState.selectedSessionId) {

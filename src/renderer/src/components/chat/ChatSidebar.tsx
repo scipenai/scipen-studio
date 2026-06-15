@@ -75,9 +75,6 @@ type StartupState =
  */
 const startedProjects = new Map<string, { sessionId: string; threads: ThreadSummary[] }>();
 
-/** Derive a fallback title from the user's first message (used when the LLM is
- * unavailable or fails): take the first line, strip quotes/attachment markers/
- * markdown, then truncate. */
 /**
  * SNACA's `session.new_thread` returns a non-empty sentinel title when the
  * caller doesn't supply one (`snaca_editor::session_manager::DEFAULT_THREAD_TITLE`).
@@ -92,6 +89,9 @@ function isUntitledThread(title: string | null | undefined): boolean {
   return !title || title === SNACA_DEFAULT_THREAD_TITLE;
 }
 
+/** Derive a fallback title from the user's first message (used when the LLM is
+ * unavailable or fails): take the first line, strip quotes/attachment markers/
+ * markdown, then truncate. */
 function deriveTitleFromText(text: string): string {
   const firstLine =
     text

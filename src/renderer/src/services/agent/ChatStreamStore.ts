@@ -611,7 +611,9 @@ class ChatStreamStoreImpl {
         turn.error = {
           code: evt.code,
           message: evt.message,
-          recoverable: evt.recoverable,
+          // Coerce in case the wire omits `recoverable` — ChatTurn.error
+          // types it as boolean, matches handleError's contract.
+          recoverable: !!evt.recoverable,
         };
         this.finalizeTurn(turn, 'error');
         break;
@@ -648,26 +650,22 @@ class ChatStreamStoreImpl {
     // a turn_delta 'error' event. Without this the stop-button / busy flag
     // sticks even when the agent has already given up.
     this.finalizeTurn(turn, 'error');
+    this.fire();
   }
 
   /**
-   * Terminal state transition for a turn. Idempotent — calling twice on the
-   * same turn (e.g. SNACA sends Error then a stray Done) is a no-op the
-   * second time because pending is already false and the turn has already
-   * been moved to completedTurns.
+   * Terminal state transition for a turn. Pure state mutation — the caller
+   * is responsible for firing listeners. Idempotent: a second call (e.g.
+   * SNACA sends Error then a stray Done) short-circuits, so any field the
+   * caller mutated before re-entering (a late `error` payload) is left
+   * intact for the caller's fire() to flush.
    *
    * Shared by the `done` event, the in-band `error` event, and the
-   * top-level chat error channel. The `error` paths additionally set
-   * `turn.error` *before* calling this so listeners that re-render on
-   * `pending → false` see the error payload in the same tick.
+   * top-level chat error channel. The `error` paths set `turn.error`
+   * *before* calling this so listeners see the payload in the same tick.
    */
   private finalizeTurn(turn: ChatTurn, reason: ChatTurn['doneReason']): void {
-    if (!turn.pending) {
-      // Already finalized — fire to flush whatever lightweight field (e.g.
-      // a late `error` payload) the caller mutated, then return.
-      this.fire();
-      return;
-    }
+    if (!turn.pending) return;
     turn.pending = false;
     turn.doneReason = reason;
     const turnId = turn.turnId;
@@ -686,7 +684,6 @@ class ChatStreamStoreImpl {
     if (this.activeThreadId) {
       void this.persistTurnMeta(this.activeThreadId, turn);
     }
-    this.fire();
   }
 
   /**
