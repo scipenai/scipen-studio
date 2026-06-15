@@ -333,10 +333,14 @@ AI Agent UX 对照:
 
 执行历史(模块完成时追加):
 
-- [ ] M0 plan md
-- [ ] M1 包骨架
-- [ ] M2 BlobStore + BLAKE3 + 单测
-- [ ] M3 SQLite migration
-- [ ] M4 HistoryService 核心 API
-- [ ] M5 IPC channels + preload
-- [ ] M6 ChunkWriter consumer
+- [x] M0 plan md(3dc9bce)
+- [x] M1 包骨架(6dcf553)
+- [x] M2 BlobStore + SHA-256(BLAKE3 留 TODO)+ 11 测(c2e7f0c)
+- [x] M3 SQLite migration + 持久化 refcount + 7 测 + better-sqlite3 ~12.6 dep(6c8d5c0)
+- [x] M4 HistoryService 核心 API(L1 chunk/label/snapshot + L2 step/session)+ 13 测(9147d38)
+- [x] M5 HistoryManager per-project lifecycle + ServiceContainer 注册 + 安全护栏 + 10 测(595a811)
+- [x] M5b IPC layer:6 channels + zod schema + preload api.history + ALLOWED_INVOKE_CHANNELS 白名单(eff64cf)
+- [x] M6 ChunkWriter 异步批量 consumer + perf 预算 + onError 容错 + 8 测(e37c531)
+
+vitest 累计:50/50 全过
+typecheck:all / lint:check / check-no-cjk:全程 baseline 持平
