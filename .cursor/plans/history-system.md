@@ -333,6 +333,7 @@ AI Agent UX 对照:
 
 执行历史(模块完成时追加):
 
+P0 后端基础设施 ✅
 - [x] M0 plan md(3dc9bce)
 - [x] M1 包骨架(6dcf553)
 - [x] M2 BlobStore + SHA-256(BLAKE3 留 TODO)+ 11 测(c2e7f0c)
@@ -341,6 +342,27 @@ AI Agent UX 对照:
 - [x] M5 HistoryManager per-project lifecycle + ServiceContainer 注册 + 安全护栏 + 10 测(595a811)
 - [x] M5b IPC layer:6 channels + zod schema + preload api.history + ALLOWED_INVOKE_CHANNELS 白名单(eff64cf)
 - [x] M6 ChunkWriter 异步批量 consumer + perf 预算 + onError 容错 + 8 测(e37c531)
+- [x] M5c IPC PutBlob 暴露(2e3c12a)
 
-vitest 累计:50/50 全过
+P1 L1 文档级 MVP ✅
+- [x] P1.UI.A NewLabelDialog + 命令面板 Create label + 23 i18n keys(全 zh+en)
+- [x] P1.UI.B BrowseLabelsDialog list/detail + KindChip 三色 + Browse 入口
+
+P2 L2 AI 会话级 + Cursor 风格 rollback ✅
+- [x] P2.A IPC RecordStep + ChatStreamStore SNACA tool hook(H1):markApprovalResolved 时 fire-and-forget recordStep,session=`chat-${threadId}`,per-session head step 形成 DAG
+- [x] P2.B Label Restore 启用(共享 dialog + apply 流程)
+- [x] P2.C.backend resolveStepSnapshot + findStepBeforeTs + 2 新单测
+- [x] P2.C.UI Cursor 风格:用户消息悬停 RotateCcw 按钮 → findStepBeforeTs → confirm → applySnapshot 写盘+setContentFromExternal
+
+P3 Timeline UI + auto labels + diff preview ⏳ 留独立任务
+- [ ] 顶部 timeline slider
+- [ ] 自动 label 触发器(每天 18:00 / 编译成功 / SNACA 影响 >3 文件)
+- [ ] diff preview(read-only)
+
+P4 GC + 协同 ⚠ 部分完成
+- [x] P4.GC blob orphan sweep daemon + sweepAll API + 1 测
+- [ ] chunk merge(连续 N chunk 合并大 chunk)— 量到 1000+/file 才有 ROI,留 P5
+- [ ] rollback OT broadcast(协同 rebroadcast)— 跨 ot-server,留 P5+ 独立任务
+
+vitest 累计:53/53 全过
 typecheck:all / lint:check / check-no-cjk:全程 baseline 持平
