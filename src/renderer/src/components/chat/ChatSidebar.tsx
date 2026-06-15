@@ -19,7 +19,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { History, Plus } from 'lucide-react';
+import { Check, Copy, History, Plus } from 'lucide-react';
 import type React from 'react';
 import {
   memo,
@@ -44,6 +44,7 @@ import type { AskAIAboutErrorRequest } from '../../services/core/UIService';
 import { AgentChatInput, type SendIntent } from './AgentChatInput';
 import { ChatMessage } from './ChatMessage';
 import { ThreadHistoryDrawer } from './ThreadHistoryDrawer';
+import { serializeChatThread } from '../../utils/serializeChatThread';
 
 interface ChatSidebarProps {
   /** Absolute path of the current project root. Required for startProject. */
@@ -479,6 +480,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <ThreadCopyButton disabled={startup.kind !== 'ready'} />
           <button
             type="button"
             className="rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:opacity-40"
@@ -564,6 +566,52 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
  * subscription and are unaffected by the memo.
  */
 export const ChatSidebar = memo(ChatSidebarInner);
+
+/**
+ * Header-mounted "copy the entire chat thread" affordance. Reads the
+ * current active thread directly from chatStreamStore (rather than wiring
+ * `messages` through props) — the button is purely an on-demand action
+ * and doesn't need to re-render with each streamed delta.
+ *
+ * On click: serialize → write to clipboard → flip to a transient ✓ for
+ * 1.5s as visual confirmation. Disabled while the agent is still starting
+ * up so we don't put a stale/empty thread on the clipboard.
+ */
+function ThreadCopyButton({ disabled }: { disabled: boolean }): React.ReactElement {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+  const onClick = useCallback(async () => {
+    const messages = chatStreamStore.getMessages();
+    if (messages.length === 0) return;
+    const text = serializeChatThread({
+      messages,
+      resolveTurn: (id) => chatStreamStore.getTurn(id),
+    });
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard denied (e.g. focus lost) — silent; the user can retry.
+    }
+  }, []);
+  return (
+    <button
+      type="button"
+      className="rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:opacity-40"
+      aria-label={t('thread.copyThread')}
+      title={t('thread.copyThread')}
+      onClick={() => void onClick()}
+      disabled={disabled}
+    >
+      {copied ? (
+        <Check size={14} className="text-[var(--color-success)]" aria-hidden="true" />
+      ) : (
+        <Copy size={14} aria-hidden="true" />
+      )}
+    </button>
+  );
+}
 
 function StartupBadge({ state }: { state: StartupState }): React.ReactElement {
   const { t } = useTranslation();

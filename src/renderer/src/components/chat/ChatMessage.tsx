@@ -56,6 +56,7 @@ import { applySnapshotToOpenTabs } from '../../utils/historyRestore';
 import { MarkdownContent } from './MarkdownContent';
 import { ThinkingRenderer } from './ThinkingRenderer';
 import { CopyButton } from '../ui';
+import { useTextSelectionActive } from '../../hooks';
 
 type T = (key: TranslationKey, params?: Record<string, string | number>) => string;
 
@@ -92,13 +93,13 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
         <Timeline
           events={turn.events}
           toolCalls={turn.toolCalls}
+          proposals={turn.proposals}
           pending={turn.pending}
           suppressText={suppressText}
         />
         {turn.plan && <PlanCard plan={turn.plan} turnId={turn.turnId} />}
         <ApprovalList approvals={turn.approvals} />
         <QuestionsList questions={turn.questions} />
-        <ProposalsList proposals={turn.proposals} />
         {showPlanComposing && (
           <div className="flex items-center gap-1.5 text-[12px] text-[var(--color-text-muted)]">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-accent)]" />
@@ -145,12 +146,12 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
         <Timeline
           events={completedTurn.events}
           toolCalls={completedTurn.toolCalls}
+          proposals={completedTurn.proposals}
           pending={false}
           suppressText={suppressText}
         />
       )}
       {completedTurn?.plan && <PlanCard plan={completedTurn.plan} turnId={completedTurn.turnId} />}
-      {completedTurn && <ProposalsList proposals={completedTurn.proposals} />}
       {renderLegacyTail && (
         <div className="chat-msg-text leading-[1.6]">
           <MarkdownContent content={message.text} />
@@ -176,6 +177,12 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
 function RollbackBeforeMessageButton({ messageTs }: { messageTs: number }): ReactElement {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
+  // Step aside during a drag-select: when the user is mid-selection across
+  // multiple user messages (to copy a passage), this hover button would
+  // otherwise split the selection where the cursor crosses it. We don't
+  // need to actually hide it — `pointer-events-none` keeps the button out
+  // of the selection's hit-test entirely without animating layout.
+  const selectionActive = useTextSelectionActive();
   const onClick = useCallback(async () => {
     if (busy) return;
     const projectId = historyProjectIdOf(getProjectRuntimeContext().rootPath);
@@ -223,7 +230,9 @@ function RollbackBeforeMessageButton({ messageTs }: { messageTs: number }): Reac
       // h-6 w-6 = 24px (skill: minimum desktop tap target); opacity revealed
       // on user-message hover, keyboard-focus also reveals so it's reachable
       // without a mouse.
-      className="flex h-6 w-6 flex-shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] group-hover/user:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+      className={`flex h-6 w-6 flex-shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] group-hover/user:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 ${
+        selectionActive ? 'pointer-events-none opacity-0' : ''
+      }`}
     >
       {busy ? (
         <Loader2 size={12} className="motion-safe:animate-spin" />
@@ -237,11 +246,13 @@ function RollbackBeforeMessageButton({ messageTs }: { messageTs: number }): Reac
 function Timeline({
   events,
   toolCalls,
+  proposals,
   pending,
   suppressText,
 }: {
   events: ChatTimelineEvent[];
   toolCalls: ChatTurn['toolCalls'];
+  proposals: ChatProposalRecord[];
   pending: boolean;
   /** Composer-plan turns hide raw JSON text events in favor of PlanCard. */
   suppressText: boolean;
@@ -253,6 +264,14 @@ function Timeline({
         const isLast = i === events.length - 1;
         if (ev.kind === 'thinking') {
           return <ThinkingRenderer key={`th-${i}`} text={ev.text} streaming={isLast && pending} />;
+        }
+        if (ev.kind === 'proposal') {
+          const proposal = proposals.find((p) => p.proposalId === ev.proposalId);
+          // Stale event ref (proposal got pruned) — skip silently rather
+          // than render a placeholder; the timeline must always reflect
+          // currently-existing records.
+          if (!proposal) return null;
+          return <ProposalRow key={`pr-${ev.proposalId}`} proposal={proposal} />;
         }
         if (ev.kind === 'text') {
           if (suppressText) return null;
@@ -647,17 +666,6 @@ function planStatusLabel(status: ChatPlanFile['status'], t: T): string {
     case 'failed':
       return t('chat.planStatusFailed');
   }
-}
-
-function ProposalsList({ proposals }: { proposals: ChatProposalRecord[] }): ReactElement | null {
-  if (proposals.length === 0) return null;
-  return (
-    <div className="mb-2 space-y-1">
-      {proposals.map((p) => (
-        <ProposalRow key={p.proposalId} proposal={p} />
-      ))}
-    </div>
-  );
 }
 
 function ProposalRow({ proposal }: { proposal: ChatProposalRecord }): ReactElement {

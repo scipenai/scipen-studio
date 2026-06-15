@@ -783,6 +783,7 @@
   "thread": {
     "newConversation": "New conversation",
     "newThread": "New thread",
+    "copyThread": "Copy entire thread",
     "historyTitle": "Threads",
     "historyEmpty": "No threads yet.",
     "active": "Active",

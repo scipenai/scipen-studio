@@ -783,6 +783,7 @@
   "thread": {
     "newConversation": "新对话",
     "newThread": "新建对话",
+    "copyThread": "复制整个对话",
     "historyTitle": "历史对话",
     "historyEmpty": "暂无历史对话。",
     "active": "当前",

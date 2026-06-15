@@ -77,6 +77,10 @@ export interface ChatProposalRecord {
   status: 'pending' | 'accepted' | 'rejected';
 }
 
+// Note: proposal is woven into the timeline via a 'proposal' event (see
+// ChatTimelineEvent) so the propose card renders inline with the tool_call
+// that produced it instead of stacking at the bottom of the turn.
+
 export interface ChatPlanFile {
   /** Agent-supplied path, as it appeared in `plan.update`. Display only. */
   agentRelativePath: string;
@@ -142,6 +146,7 @@ export interface ChatUserQuestion {
 export type ChatTimelineEvent =
   | { kind: 'thinking'; text: string }
   | { kind: 'tool_ref'; toolCallId: string }
+  | { kind: 'proposal'; proposalId: string }
   | { kind: 'text'; text: string };
 
 export interface ChatTurn {
@@ -702,6 +707,11 @@ class ChatStreamStoreImpl {
         hunkCount,
         status: 'pending',
       });
+      // Weave the proposal into the timeline at the point it was emitted so
+      // the card renders alongside the tool_call that produced it. Idempotent
+      // — only the first-sighting branch runs this; later updates only touch
+      // the existing record's hunkCount/path.
+      turn.events.push({ kind: 'proposal', proposalId });
     }
     this.fire();
   }
@@ -1004,7 +1014,7 @@ function recordToCompletedTurn(r: TurnMetaRecord): ChatTurn {
   const events: ChatTimelineEvent[] =
     r.events && r.events.length > 0
       ? r.events
-      : fabricateTimelineFromLegacy(r.thinking, r.toolCalls);
+      : fabricateTimelineFromLegacy(r.thinking, r.toolCalls, r.proposals);
   return {
     turnId: r.turnId,
     origin: r.origin ?? 'chat',
@@ -1025,11 +1035,16 @@ function recordToCompletedTurn(r: TurnMetaRecord): ChatTurn {
 
 function fabricateTimelineFromLegacy(
   thinking: string,
-  toolCalls: ChatTurn['toolCalls']
+  toolCalls: ChatTurn['toolCalls'],
+  proposals: ChatProposalRecord[]
 ): ChatTimelineEvent[] {
   const events: ChatTimelineEvent[] = [];
   if (thinking.length > 0) events.push({ kind: 'thinking', text: thinking });
   for (const tc of toolCalls) events.push({ kind: 'tool_ref', toolCallId: tc.toolCallId });
+  // Best-effort positioning: legacy records have no per-event timestamps, so
+  // proposals trail tool_refs as a single block. Beats the old standalone
+  // ProposalsList that always sat at the very bottom of the turn.
+  for (const p of proposals) events.push({ kind: 'proposal', proposalId: p.proposalId });
   return events;
 }
 
