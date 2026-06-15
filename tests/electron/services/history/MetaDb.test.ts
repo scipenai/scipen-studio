@@ -29,14 +29,14 @@ describe('MetaDb', () => {
 
   it('opens with WAL journal mode', () => {
     metaDb = createMetaDb({ rootDir: tmpRoot });
-    const mode = metaDb.db.pragma('journal_mode', { simple: true });
-    expect(mode).toBe('wal');
+    const row = metaDb.db.prepare('PRAGMA journal_mode').get() as { journal_mode: string };
+    expect(row.journal_mode).toBe('wal');
   });
 
   it('enables foreign_keys', () => {
     metaDb = createMetaDb({ rootDir: tmpRoot });
-    const fk = metaDb.db.pragma('foreign_keys', { simple: true });
-    expect(fk).toBe(1);
+    const row = metaDb.db.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number };
+    expect(row.foreign_keys).toBe(1);
   });
 
   it('creates the seven history tables', () => {

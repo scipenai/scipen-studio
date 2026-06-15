@@ -23,8 +23,27 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import type Database from 'better-sqlite3';
+import type { StatementSync } from 'node:sqlite';
 import { createLogger } from '../LoggerService';
+
+type Stmt = StatementSync;
+
+/**
+ * `node:sqlite` does not provide a `db.transaction(fn)` helper the way
+ * better-sqlite3 does, so wrap manually. Same semantics: any throw inside
+ * `fn` rolls back; otherwise commits.
+ */
+function runInTx<T>(db: { exec: (sql: string) => void }, fn: () => T): T {
+  db.exec('BEGIN');
+  try {
+    const out = fn();
+    db.exec('COMMIT');
+    return out;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
 import type { BlobStore } from './BlobStore';
 import type {
   CreateLabelInput,
@@ -57,21 +76,21 @@ export interface HistoryServiceDeps {
 export class HistoryService implements IHistoryService {
   private readonly config: HistoryConfig;
   private readonly stmts: {
-    insertChunk: Database.Statement<unknown[]>;
-    listChunks: Database.Statement<unknown[]>;
-    insertLabel: Database.Statement<unknown[]>;
-    insertLabelFile: Database.Statement<unknown[]>;
-    listLabels: Database.Statement<unknown[]>;
-    listLabelFiles: Database.Statement<unknown[]>;
-    insertStep: Database.Statement<unknown[]>;
-    insertStepFile: Database.Statement<unknown[]>;
-    getStep: Database.Statement<unknown[]>;
-    listSessionSteps: Database.Statement<unknown[]>;
-    insertSession: Database.Statement<unknown[]>;
+    insertChunk: Stmt;
+    listChunks: Stmt;
+    insertLabel: Stmt;
+    insertLabelFile: Stmt;
+    listLabels: Stmt;
+    listLabelFiles: Stmt;
+    insertStep: Stmt;
+    insertStepFile: Stmt;
+    getStep: Stmt;
+    listSessionSteps: Stmt;
+    insertSession: Stmt;
     /** Inline refcount bump used inside transactions; shares cache with BlobStore. */
-    incRefBlob: Database.Statement<unknown[]>;
-    listStepFiles: Database.Statement<unknown[]>;
-    findStepBefore: Database.Statement<unknown[]>;
+    incRefBlob: Stmt;
+    listStepFiles: Stmt;
+    findStepBefore: Stmt;
   };
 
   constructor(private readonly deps: HistoryServiceDeps) {
@@ -79,61 +98,61 @@ export class HistoryService implements IHistoryService {
     void this.config;
     const db = deps.metaDb.db;
     this.stmts = {
-      insertChunk: db.prepare<unknown[]>(
+      insertChunk: db.prepare(
         `INSERT INTO history_chunk
          (project_id, file_id, version_from, version_to, base_blob, target_blob, op_count, primary_actor, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ),
-      listChunks: db.prepare<unknown[]>(
+      listChunks: db.prepare(
         `SELECT id, project_id, file_id, version_from, version_to, base_blob, target_blob, op_count, primary_actor, created_at
          FROM history_chunk WHERE project_id = ? AND file_id = ?
          ORDER BY version_to DESC LIMIT ?`
       ),
-      insertLabel: db.prepare<unknown[]>(
+      insertLabel: db.prepare(
         `INSERT INTO history_label
          (id, project_id, name, description, kind, created_at, created_by)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       ),
-      insertLabelFile: db.prepare<unknown[]>(
+      insertLabelFile: db.prepare(
         `INSERT INTO history_label_file (label_id, file_id, blob_hash, version) VALUES (?, ?, ?, ?)`
       ),
-      listLabels: db.prepare<unknown[]>(
+      listLabels: db.prepare(
         `SELECT id, project_id, name, description, kind, created_at, created_by
          FROM history_label WHERE project_id = ?
          ORDER BY created_at DESC LIMIT ?`
       ),
-      listLabelFiles: db.prepare<unknown[]>(
+      listLabelFiles: db.prepare(
         `SELECT file_id, blob_hash, version FROM history_label_file WHERE label_id = ?`
       ),
-      insertStep: db.prepare<unknown[]>(
+      insertStep: db.prepare(
         `INSERT OR IGNORE INTO history_step
          (hash, parent_hash, project_id, session_id, tree_hash, causes, origin, ts, size_delta)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ),
-      insertStepFile: db.prepare<unknown[]>(
+      insertStepFile: db.prepare(
         `INSERT OR IGNORE INTO history_step_file (step_hash, file_id, blob_hash) VALUES (?, ?, ?)`
       ),
-      getStep: db.prepare<unknown[]>(
+      getStep: db.prepare(
         `SELECT hash, parent_hash, project_id, session_id, tree_hash, causes, origin, ts, size_delta
          FROM history_step WHERE hash = ?`
       ),
-      listSessionSteps: db.prepare<unknown[]>(
+      listSessionSteps: db.prepare(
         `SELECT hash, parent_hash, project_id, session_id, tree_hash, causes, origin, ts, size_delta
          FROM history_step WHERE session_id = ?
          ORDER BY ts ASC LIMIT ?`
       ),
-      insertSession: db.prepare<unknown[]>(
+      insertSession: db.prepare(
         `INSERT OR IGNORE INTO history_session
          (id, project_id, chat_thread_id, head_step_hash, parent_session, created_at, closed_at)
          VALUES (?, ?, ?, ?, ?, ?, NULL)`
       ),
-      incRefBlob: db.prepare<unknown[]>(
+      incRefBlob: db.prepare(
         `UPDATE history_blob SET refcount = refcount + 1 WHERE hash = ?`
       ),
-      listStepFiles: db.prepare<unknown[]>(
+      listStepFiles: db.prepare(
         `SELECT file_id, blob_hash FROM history_step_file WHERE step_hash = ?`
       ),
-      findStepBefore: db.prepare<unknown[]>(
+      findStepBefore: db.prepare(
         `SELECT hash, parent_hash, project_id, session_id, tree_hash, causes, origin, ts, size_delta
          FROM history_step WHERE session_id = ? AND ts < ?
          ORDER BY ts DESC LIMIT 1`
@@ -162,7 +181,7 @@ export class HistoryService implements IHistoryService {
     const targetHash = await this.deps.blobStore.put(input.targetContent);
     const now = Date.now();
 
-    const apply = this.deps.metaDb.db.transaction(() => {
+    const chunkId = runInTx(this.deps.metaDb.db, () => {
       const result = this.stmts.insertChunk.run(
         input.projectId,
         input.fileId,
@@ -178,7 +197,6 @@ export class HistoryService implements IHistoryService {
       this.stmts.incRefBlob.run(targetHash);
       return Number(result.lastInsertRowid);
     });
-    const chunkId = apply();
     return {
       chunkId,
       baseBlob: toHex(baseHash),
@@ -193,7 +211,7 @@ export class HistoryService implements IHistoryService {
   ): Promise<{ merged: number }> {
     const db = this.deps.metaDb.db;
     const rows = db
-      .prepare<unknown[]>(
+      .prepare(
         `SELECT id, version_from, version_to, base_blob, target_blob, op_count, created_at
          FROM history_chunk WHERE project_id = ? AND file_id = ?
          ORDER BY version_from ASC`
@@ -212,15 +230,15 @@ export class HistoryService implements IHistoryService {
     const firstRow = rows[0];
     const lastRow = rows[rows.length - 1];
     const totalOps = rows.reduce((acc, r) => acc + r.op_count, 0);
-    const decStmt = db.prepare<unknown[]>(
+    const decStmt = db.prepare(
       `UPDATE history_blob SET refcount = CASE WHEN refcount - 1 < 0 THEN 0 ELSE refcount - 1 END WHERE hash = ?`
     );
-    const deleteStmt = db.prepare<unknown[]>('DELETE FROM history_chunk WHERE id = ?');
-    const updateStmt = db.prepare<unknown[]>(
+    const deleteStmt = db.prepare('DELETE FROM history_chunk WHERE id = ?');
+    const updateStmt = db.prepare(
       `UPDATE history_chunk SET version_to = ?, target_blob = ?, op_count = ? WHERE id = ?`
     );
 
-    const apply = db.transaction(() => {
+    runInTx(db, () => {
       // Update the first row to span the full range; decRef every intermediate
       // base + target blob (the first row's base stays referenced, last row's
       // target stays referenced).
@@ -240,7 +258,6 @@ export class HistoryService implements IHistoryService {
         deleteStmt.run(rows[i].id);
       }
     });
-    apply();
     return { merged: rows.length - 1 };
   }
 
@@ -252,7 +269,7 @@ export class HistoryService implements IHistoryService {
     // merge threshold — the row scan stays bounded to "files actually worth
     // merging" instead of every chunk in the DB.
     const groups = db
-      .prepare<unknown[]>(
+      .prepare(
         `SELECT project_id, file_id, COUNT(*) AS cnt
          FROM history_chunk GROUP BY project_id, file_id HAVING cnt > ?`
       )
@@ -304,7 +321,7 @@ export class HistoryService implements IHistoryService {
     const now = Date.now();
     const description = input.description ?? null;
 
-    const apply = this.deps.metaDb.db.transaction(() => {
+    runInTx(this.deps.metaDb.db, () => {
       this.stmts.insertLabel.run(
         id,
         input.projectId,
@@ -320,7 +337,6 @@ export class HistoryService implements IHistoryService {
         this.stmts.incRefBlob.run(blobHash);
       }
     });
-    apply();
 
     return {
       id,
@@ -407,7 +423,7 @@ export class HistoryService implements IHistoryService {
       causesBytes,
     });
 
-    const apply = this.deps.metaDb.db.transaction(() => {
+    runInTx(this.deps.metaDb.db, () => {
       this.stmts.insertStep.run(
         hash,
         parentHash,
@@ -426,7 +442,6 @@ export class HistoryService implements IHistoryService {
         this.stmts.incRefBlob.run(blobHash);
       }
     });
-    apply();
 
     return {
       hash,
@@ -449,7 +464,7 @@ export class HistoryService implements IHistoryService {
   }
 
   async listSessionSteps(sessionId: string, limit = 200): Promise<HistoryStep[]> {
-    const rows = this.stmts.listSessionSteps.all(sessionId, limit) as StepRow[];
+    const rows = this.stmts.listSessionSteps.all(sessionId, limit) as unknown as StepRow[];
     return rows.map(rowToStep);
   }
 

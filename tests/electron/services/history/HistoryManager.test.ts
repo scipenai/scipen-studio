@@ -60,7 +60,10 @@ describe('HistoryManager', () => {
     await mgr.close('p1');
     expect(mgr.has('p1')).toBe(false);
     const b = mgr.getOrCreate('p1');
-    expect(b).not.toBe(a);
+    // Reference comparison: don't pass disposed `a` through expect()'s
+    // pretty-printer (node:sqlite getters throw "statement has been
+    // finalized" when walked post-close).
+    expect(b === a).toBe(false);
   });
 
   it('close on an unknown projectId is a no-op', async () => {

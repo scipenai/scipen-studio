@@ -20,11 +20,14 @@
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type Database from 'better-sqlite3';
+import type { StatementSync } from 'node:sqlite';
 import { createLogger } from '../LoggerService';
 import type { IBlobStore } from './interfaces/IBlobStore';
-import type { MetaDb } from './MetaDb';
+import type { MetaDb, SqliteDatabase } from './MetaDb';
 import type { Hash } from './types';
+
+/** Local alias to keep call-sites readable. */
+type Stmt = StatementSync;
 
 const logger = createLogger('BlobStore');
 
@@ -47,16 +50,14 @@ export class BlobStore implements IBlobStore {
   private tempCounter = 0;
 
   // Prepared statements stay cached on `BlobStore` — keeping them here avoids
-  // polluting MetaDb with domain-specific SQL. Generic `unknown[]` bind tuple
-  // because better-sqlite3's default conditional type otherwise collapses to a
-  // zero-arity signature.
+  // polluting MetaDb with domain-specific SQL.
   private readonly stmts: {
-    insertBlob: Database.Statement<unknown[]>;
-    getBlob: Database.Statement<unknown[]>;
-    getRefCount: Database.Statement<unknown[]>;
-    incRef: Database.Statement<unknown[]>;
-    decRef: Database.Statement<unknown[]>;
-    deleteOrphan: Database.Statement<unknown[]>;
+    insertBlob: Stmt;
+    getBlob: Stmt;
+    getRefCount: Stmt;
+    incRef: Stmt;
+    decRef: Stmt;
+    deleteOrphan: Stmt;
   };
 
   constructor(private readonly opts: BlobStoreOptions) {
@@ -64,22 +65,19 @@ export class BlobStore implements IBlobStore {
     const db = opts.metaDb.db;
     this.stmts = {
       // OR IGNORE: content-addressed → identical inputs collide intentionally.
-      insertBlob: db.prepare<unknown[]>(
+      insertBlob: db.prepare(
         'INSERT OR IGNORE INTO history_blob (hash, bytes, size, refcount, created_at) VALUES (?, ?, ?, 0, ?)'
       ),
-      getBlob: db.prepare<unknown[]>('SELECT bytes, size FROM history_blob WHERE hash = ?'),
-      getRefCount: db.prepare<unknown[]>('SELECT refcount FROM history_blob WHERE hash = ?'),
-      incRef: db.prepare<unknown[]>(
-        'UPDATE history_blob SET refcount = refcount + ? WHERE hash = ?'
-      ),
-      decRef: db.prepare<unknown[]>(
+      getBlob: db.prepare('SELECT bytes, size FROM history_blob WHERE hash = ?'),
+      getRefCount: db.prepare('SELECT refcount FROM history_blob WHERE hash = ?'),
+      incRef: db.prepare('UPDATE history_blob SET refcount = refcount + ? WHERE hash = ?'),
+      decRef: db.prepare(
         // CASE clamps to 0 so a misbalanced caller can't drive refcount negative.
         'UPDATE history_blob SET refcount = CASE WHEN refcount - ? < 0 THEN 0 ELSE refcount - ? END WHERE hash = ?'
       ),
-      deleteOrphan: db.prepare<unknown[]>(
-        'DELETE FROM history_blob WHERE hash = ? AND refcount <= 0'
-      ),
+      deleteOrphan: db.prepare('DELETE FROM history_blob WHERE hash = ? AND refcount <= 0'),
     };
+    void this.opts as unknown as SqliteDatabase; // keep SqliteDatabase typed-imported for downstream consumers
   }
 
   async put(bytes: Uint8Array): Promise<Hash> {
@@ -175,10 +173,10 @@ export class BlobStore implements IBlobStore {
     this.assertAlive();
     const cutoff = Date.now() - minAgeMs;
     const db = this.opts.metaDb.db;
-    const selectStmt = db.prepare<unknown[]>(
+    const selectStmt = db.prepare(
       `SELECT hash, bytes FROM history_blob WHERE refcount <= 0 AND created_at < ?`
     );
-    const deleteStmt = db.prepare<unknown[]>(`DELETE FROM history_blob WHERE hash = ?`);
+    const deleteStmt = db.prepare(`DELETE FROM history_blob WHERE hash = ?`);
     const candidates = selectStmt.all(cutoff) as Array<{ hash: Uint8Array; bytes: Uint8Array | null }>;
 
     let files = 0;

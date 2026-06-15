@@ -12,9 +12,26 @@
  * which column.
  */
 
+import { createRequire } from 'node:module';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import type { DatabaseSync } from 'node:sqlite';
 import { createLogger } from '../LoggerService';
+
+// vite-node's static analyser doesn't yet recognise the `node:sqlite`
+// builtin (Node 22.5+ / Electron 42). Pulling it through `createRequire`
+// keeps the import opaque to the bundler so it lands at runtime as a real
+// Node builtin instead of triggering "Cannot bundle Node.js built-in".
+const _require = createRequire(import.meta.url);
+const sqliteModule = _require('node:sqlite') as typeof import('node:sqlite');
+const DatabaseSyncCtor = sqliteModule.DatabaseSync;
+
+/**
+ * Re-exported alias so consumers (BlobStore / HistoryService) can type
+ * statements without importing `node:sqlite` themselves. Keeps the surface
+ * dependency on the sqlite implementation centralized here — if we ever swap
+ * back to better-sqlite3 or to another driver, only this file changes.
+ */
+export type SqliteDatabase = DatabaseSync;
 
 const logger = createLogger('MetaDb');
 
@@ -117,14 +134,16 @@ export interface MetaDbOptions {
 }
 
 export class MetaDb {
-  readonly db: Database.Database;
+  readonly db: SqliteDatabase;
+  private closed = false;
 
   constructor(opts: MetaDbOptions) {
     const dbPath = path.join(opts.rootDir, 'meta.db');
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('synchronous = NORMAL');
-    this.db.pragma('foreign_keys = ON');
+    this.db = new DatabaseSyncCtor(dbPath);
+    // node:sqlite has no `pragma()` shortcut — run as plain statements.
+    this.db.exec('PRAGMA journal_mode = WAL');
+    this.db.exec('PRAGMA synchronous = NORMAL');
+    this.db.exec('PRAGMA foreign_keys = ON');
     this.bootstrapMigrationTable();
     this.runMigrations();
   }
@@ -155,14 +174,21 @@ export class MetaDb {
     const insertRecord = this.db.prepare(
       'INSERT INTO schema_migration (version, applied_at, description) VALUES (?, ?, ?)'
     );
-    const apply = this.db.transaction(() => {
+    // node:sqlite has no `db.transaction(fn)` helper — wrap manually with the
+    // standard try/catch + ROLLBACK pattern so a half-applied migration set
+    // can never escape.
+    this.db.exec('BEGIN');
+    try {
       for (const m of pending) {
         this.db.exec(m.up);
         insertRecord.run(m.version, Date.now(), m.description);
         logger.info('applied migration', { version: m.version, description: m.description });
       }
-    });
-    apply();
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
   }
 
   /** Current highest applied version. Tests assert on this. */
@@ -175,7 +201,9 @@ export class MetaDb {
   }
 
   close(): void {
-    if (this.db.open) this.db.close();
+    if (this.closed) return;
+    this.closed = true;
+    this.db.close();
   }
 }
 

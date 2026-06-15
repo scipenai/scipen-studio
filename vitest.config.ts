@@ -38,6 +38,23 @@ export default defineConfig({
         },
       },
     },
+    // node:sqlite is a Node 22.5+ built-in; vitest's bundler can't resolve
+    // it on its own. Pass the experimental flag (Node 22 needs it, Node 24
+    // ignores it) and mark it server-external so vite leaves the import
+    // alone.
+    server: {
+      deps: {
+        external: [/^node:sqlite$/],
+      },
+    },
+    poolOptions: {
+      forks: {
+        execArgv: ['--experimental-sqlite'],
+      },
+      threads: {
+        execArgv: ['--experimental-sqlite'],
+      },
+    },
   },
   resolve: {
     alias: {
