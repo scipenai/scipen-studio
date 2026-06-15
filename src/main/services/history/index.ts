@@ -1,5 +1,11 @@
 export { BlobStore, createBlobStore, type BlobStoreOptions } from './BlobStore';
 export {
+  ChunkWriter,
+  createChunkWriter,
+  type ChunkWriterOptions,
+  type RecordEditInput,
+} from './ChunkWriter';
+export {
   HistoryManager,
   createHistoryManager,
   type HistoryManagerOptions,
