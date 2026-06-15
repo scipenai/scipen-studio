@@ -721,16 +721,7 @@
     "compileFailed": "Compile failed",
     "localCompiler": "Local Compiler",
     "selectCompileEngine": "Select Compile Engine",
-    "fastEnglishOnly": "Legacy, fastest",
-    "traditionalLatex": "Legacy compiler",
-    "unicodeSupport": "Unicode support",
-    "unicodeAndLua": "Unicode + Lua scripting",
-    "typstCompiler": "Typst Compiler",
-    "recommendedFullFeatures": "PDF generation only",
-    "officialCliTool": "PDF generation only",
-    "recommendedUnicode": "Unicode + system fonts",
-    "modernCompiler": "Auto-fetch packages",
-    "wasmNoInstall": "No install needed"
+    "typstCompiler": "Typst Compiler"
   },
   "outline": {
     "noFileOpen": "No file open",

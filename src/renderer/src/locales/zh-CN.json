@@ -721,16 +721,7 @@
     "compileFailed": "编译失败",
     "localCompiler": "本地编译器",
     "selectCompileEngine": "选择编译引擎",
-    "fastEnglishOnly": "经典,最快",
-    "traditionalLatex": "传统 LaTeX",
-    "unicodeSupport": "Unicode 支持",
-    "unicodeAndLua": "Unicode + Lua 脚本",
-    "typstCompiler": "Typst 编译器",
-    "recommendedFullFeatures": "仅支持 PDF 生成",
-    "officialCliTool": "仅支持 PDF 生成",
-    "recommendedUnicode": "Unicode + 系统字体",
-    "modernCompiler": "自动取宏包",
-    "wasmNoInstall": "无需安装"
+    "typstCompiler": "Typst 编译器"
   },
   "outline": {
     "noFileOpen": "暂无打开的文件",

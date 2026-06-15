@@ -298,21 +298,9 @@ export const StatusBar: React.FC = () => {
                     {t('statusBar.typstCompiler')}
                   </div>
                   {[
-                    {
-                      value: 'tinymist',
-                      label: getCompilerLabel('tinymist'),
-                      descKey: 'statusBar.recommendedFullFeatures' as const,
-                    },
-                    {
-                      value: 'typst',
-                      label: getCompilerLabel('typst'),
-                      descKey: 'statusBar.officialCliTool' as const,
-                    },
-                    {
-                      value: 'wasm-typst',
-                      label: getCompilerLabel('wasm-typst'),
-                      descKey: 'statusBar.wasmNoInstall' as const,
-                    },
+                    { value: 'tinymist', label: getCompilerLabel('tinymist') },
+                    { value: 'typst', label: getCompilerLabel('typst') },
+                    { value: 'wasm-typst', label: getCompilerLabel('wasm-typst') },
                   ].map((engine) => (
                     <button
                       key={engine.value}
@@ -328,12 +316,7 @@ export const StatusBar: React.FC = () => {
                           : 'text-[var(--color-text-secondary)]'
                       }`}
                     >
-                      <span className="flex flex-col">
-                        <span>{engine.label}</span>
-                        <span className="text-[var(--color-text-muted)] text-[10px]">
-                          {t(engine.descKey)}
-                        </span>
-                      </span>
+                      <span>{engine.label}</span>
                       {compilerSettings.typstEngine === engine.value && <Check size={12} />}
                     </button>
                   ))}
@@ -341,41 +324,13 @@ export const StatusBar: React.FC = () => {
               ) : (
                 <>
                   {[
-                    {
-                      value: 'xelatex',
-                      label: getCompilerLabel('xelatex'),
-                      descKey: 'statusBar.recommendedUnicode' as const,
-                    },
-                    {
-                      value: 'lualatex',
-                      label: getCompilerLabel('lualatex'),
-                      descKey: 'statusBar.unicodeAndLua' as const,
-                    },
-                    {
-                      value: 'pdflatex',
-                      label: getCompilerLabel('pdflatex'),
-                      descKey: 'statusBar.fastEnglishOnly' as const,
-                    },
-                    {
-                      value: 'tectonic',
-                      label: getCompilerLabel('tectonic'),
-                      descKey: 'statusBar.modernCompiler' as const,
-                    },
-                    {
-                      value: 'wasm-xetex',
-                      label: getCompilerLabel('wasm-xetex'),
-                      descKey: 'statusBar.wasmNoInstall' as const,
-                    },
-                    {
-                      value: 'wasm-pdftex',
-                      label: getCompilerLabel('wasm-pdftex'),
-                      descKey: 'statusBar.wasmNoInstall' as const,
-                    },
-                    {
-                      value: 'wasm-lualatex',
-                      label: getCompilerLabel('wasm-lualatex'),
-                      descKey: 'statusBar.wasmNoInstall' as const,
-                    },
+                    { value: 'xelatex', label: getCompilerLabel('xelatex') },
+                    { value: 'lualatex', label: getCompilerLabel('lualatex') },
+                    { value: 'pdflatex', label: getCompilerLabel('pdflatex') },
+                    { value: 'tectonic', label: getCompilerLabel('tectonic') },
+                    { value: 'wasm-xetex', label: getCompilerLabel('wasm-xetex') },
+                    { value: 'wasm-pdftex', label: getCompilerLabel('wasm-pdftex') },
+                    { value: 'wasm-lualatex', label: getCompilerLabel('wasm-lualatex') },
                   ].map((engine) => (
                     <button
                       key={engine.value}
@@ -391,12 +346,7 @@ export const StatusBar: React.FC = () => {
                           : 'text-[var(--color-text-secondary)]'
                       }`}
                     >
-                      <span className="flex flex-col">
-                        <span>{engine.label}</span>
-                        <span className="text-[var(--color-text-muted)] text-[10px]">
-                          {t(engine.descKey)}
-                        </span>
-                      </span>
+                      <span>{engine.label}</span>
                       {compilerSettings.engine === engine.value && <Check size={12} />}
                     </button>
                   ))}
