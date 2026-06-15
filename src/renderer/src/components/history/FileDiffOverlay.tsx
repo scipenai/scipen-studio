@@ -1,6 +1,6 @@
 /**
  * @file FileDiffOverlay - GitHub-style unified diff renderer for a single
- *   `(fileId, before, after)` triple. Mounted on top of BrowseLabelsDialog
+ *   `(fileId, before, after)` triple. Mounted on top of HistoryBrowserDialog
  *   when the user clicks a file row's `View diff` action.
  *
  * Pure React + diff-match-patch — no Monaco diff editor: keeps the bundle
@@ -44,7 +44,7 @@ export function FileDiffOverlay({
     return computeUnifiedDiff(beforeText, afterText);
   }, [beforeText, afterText]);
 
-  // Esc closes the overlay (sits above the BrowseLabelsDialog Esc handler).
+  // Esc closes the overlay (sits above the HistoryBrowserDialog Esc handler).
   const handleKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>): void => {
       if (e.key === 'Escape') {

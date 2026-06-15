@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   FileText,
   FolderOpen,
+  GitCommit,
   HelpCircle,
   MessageSquare,
   Play,
@@ -121,6 +122,20 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
       action: () => {
         onClose();
         historyUIBus.openBrowseLabels();
+      },
+    },
+    {
+      // Sidebar is intentionally a single "History" entry, but the command
+      // palette gets one row per tab so power users can jump straight to the
+      // sessions DAG with `Ctrl+P → session`.
+      id: 'history-browse-sessions',
+      label: t('history.browseSessions'),
+      description: t('history.browseSessionsDesc'),
+      icon: <GitCommit size={16} />,
+      category: 'history',
+      action: () => {
+        onClose();
+        historyUIBus.openBrowseSessions();
       },
     },
     {

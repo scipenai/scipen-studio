@@ -1,7 +1,7 @@
 /**
  * @file lineDiffStats - cheap line-level add/remove counts using diff-match-patch.
  *
- * Reused by BrowseLabelsDialog to surface "what would Restore actually change?"
+ * Reused by HistoryBrowserDialog to surface "what would Restore actually change?"
  * before the user pulls the trigger. Identical inputs short-circuit to `0/0`
  * so projects with a fresh label (no edits since) read as "no-op" instantly.
  */
