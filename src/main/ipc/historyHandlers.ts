@@ -31,6 +31,20 @@ const labelIdSchema = z.string().min(1).max(128);
 const sessionIdSchema = z.string().min(1).max(256);
 const fileIdSchema = z.string().min(1).max(1024);
 
+/**
+ * Hard cap on a single blob upload. 32 MiB covers any plausible LaTeX / Typst
+ * source plus medium-size figures; anything larger should be excluded from a
+ * label by the caller (large binaries belong outside the history).
+ */
+const PUT_BLOB_MAX_BYTES = 32 * 1024 * 1024;
+
+const putBlobSchema = z.object({
+  projectId: projectIdSchema,
+  bytes: z.instanceof(Uint8Array).refine((b) => b.byteLength <= PUT_BLOB_MAX_BYTES, {
+    message: `bytes exceeds ${PUT_BLOB_MAX_BYTES} B cap`,
+  }),
+});
+
 const ensureSessionSchema = z.object({
   projectId: projectIdSchema,
   id: sessionIdSchema,
@@ -87,8 +101,23 @@ function parseOrThrow<T>(schema: z.ZodSchema<T>, value: unknown, label: string):
   return result.data;
 }
 
+function toHex(bytes: Uint8Array): string {
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) out += bytes[i].toString(16).padStart(2, '0');
+  return out;
+}
+
 export function registerHistoryHandlers(deps: HistoryHandlersDeps): void {
   const { historyManager } = deps;
+
+  ipcMain.handle(IpcChannel.History_PutBlob, async (_e, raw: unknown) => {
+    const p = parseOrThrow(putBlobSchema, raw, 'putBlob');
+    // The renderer side doesn't have access to BlobStore directly; this is the
+    // sole sanctioned write path. Returns the hex hash so the caller can pass
+    // it to `createLabel`/`recordStep`.
+    const hash = await historyManager.getOrCreate(p.projectId).putBlob(p.bytes);
+    return { hashHex: toHex(hash), size: p.bytes.byteLength };
+  });
 
   ipcMain.handle(IpcChannel.History_EnsureSession, (_e, raw: unknown) => {
     const p = parseOrThrow(ensureSessionSchema, raw, 'ensureSession');

@@ -442,6 +442,8 @@ export enum IpcChannel {
   Dialog_Message = 'dialog:message',
 
   // ====== History (versioning: blob/chunk/label/step/session) ======
+  /** Upload bytes; returns the content-addressed hash (lowercase hex). */
+  History_PutBlob = 'history:put-blob',
   /** Create or get a session row; required before the first `recordStep`. */
   History_EnsureSession = 'history:ensure-session',
   /** Create a user-named multi-file snapshot label. */

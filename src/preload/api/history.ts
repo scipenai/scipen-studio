@@ -50,7 +50,15 @@ export interface HistoryStepDTO {
   sizeDelta: number;
 }
 
+export interface PutBlobResult {
+  hashHex: string;
+  size: number;
+}
+
 export const historyApi = {
+  putBlob: (input: { projectId: string; bytes: Uint8Array }): Promise<PutBlobResult> =>
+    ipcRenderer.invoke(IpcChannel.History_PutBlob, input),
+
   ensureSession: (input: HistoryEnsureSessionInput): Promise<{ ok: true }> =>
     ipcRenderer.invoke(IpcChannel.History_EnsureSession, input),
 

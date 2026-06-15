@@ -134,6 +134,17 @@ export class HistoryService implements IHistoryService {
     });
   }
 
+  // ===== Blob facade =====
+
+  /**
+   * Put bytes into the project's BlobStore and return the hash. The sole
+   * sanctioned write path for the IPC layer — `BlobStore` itself stays
+   * encapsulated.
+   */
+  putBlob(bytes: Uint8Array): Promise<Hash> {
+    return this.deps.blobStore.put(bytes);
+  }
+
   // ===== L1 =====
 
   async recordChunk(input: RecordChunkInput): Promise<RecordChunkResult> {
