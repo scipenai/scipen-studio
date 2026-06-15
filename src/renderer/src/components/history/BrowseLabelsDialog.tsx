@@ -192,6 +192,13 @@ export function BrowseLabelsDialog(): ReactElement | null {
           </button>
         </div>
 
+        {view.kind === 'list' && (view.labels ?? []).length > 1 && (
+          <TimelineStrip
+            labels={view.labels ?? []}
+            onSelect={(l) => void openDetail(l)}
+          />
+        )}
+
         <div className="flex-1 overflow-y-auto px-3 py-2 text-[12px]">
           {loading && (
             <div className="flex items-center gap-1.5 py-2 text-[11px] text-[var(--color-text-muted)]">
@@ -356,6 +363,63 @@ function LabelDetail({
           {restoring ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
           {restoring ? t('history.restoring') : t('history.restore')}
         </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Horizontal scrubber rendered above the label list when 2+ labels exist.
+ * Each label is a colored dot positioned by its `createdAt` on a linear scale
+ * (oldest at left, newest at right). Clicking a dot opens its detail. Pure
+ * SVG → zero new dep, sharp on hi-DPI. Hover tooltips use the native `title`
+ * attribute to stay accessible-by-default without extra CSS.
+ */
+function TimelineStrip({
+  labels,
+  onSelect,
+}: {
+  labels: HistoryLabelDTO[];
+  onSelect: (l: HistoryLabelDTO) => void;
+}): ReactElement | null {
+  if (labels.length < 2) return null;
+  const sorted = [...labels].sort((a, b) => a.createdAt - b.createdAt);
+  const minTs = sorted[0].createdAt;
+  const maxTs = sorted[sorted.length - 1].createdAt;
+  const span = Math.max(1, maxTs - minTs);
+
+  return (
+    <div className="border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] px-3 py-2">
+      <div className="relative h-6">
+        {/* baseline */}
+        <div
+          aria-hidden
+          className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 bg-[var(--color-border-subtle)]"
+        />
+        {sorted.map((l) => {
+          const pct = ((l.createdAt - minTs) / span) * 100;
+          const color =
+            l.kind === 'manual'
+              ? 'var(--color-accent)'
+              : l.kind === 'milestone'
+                ? 'var(--color-warning)'
+                : 'var(--color-text-muted)';
+          return (
+            <button
+              key={l.id}
+              type="button"
+              onClick={() => onSelect(l)}
+              title={`${l.name} · ${new Date(l.createdAt).toLocaleString()}`}
+              aria-label={l.name}
+              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full p-0 hover:scale-150 focus:scale-150 focus:outline-none"
+              style={{ left: `${pct}%`, width: 8, height: 8, backgroundColor: color }}
+            />
+          );
+        })}
+      </div>
+      <div className="mt-1 flex justify-between text-[9px] text-[var(--color-text-muted)] tabular-nums">
+        <span>{new Date(minTs).toLocaleDateString()}</span>
+        <span>{new Date(maxTs).toLocaleDateString()}</span>
       </div>
     </div>
   );
