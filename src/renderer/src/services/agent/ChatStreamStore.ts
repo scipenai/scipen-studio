@@ -1011,10 +1011,26 @@ function recordToCompletedTurn(r: TurnMetaRecord): ChatTurn {
   // followed by all tools) so the renderer doesn't have to branch on
   // legacy shape — interleaving is lost for those, but order across
   // thinking and tools is best-effort by definition once a turn ends.
-  const events: ChatTimelineEvent[] =
+  const baseEvents: ChatTimelineEvent[] =
     r.events && r.events.length > 0
-      ? r.events
-      : fabricateTimelineFromLegacy(r.thinking, r.toolCalls, r.proposals);
+      ? [...r.events]
+      : fabricateTimelineFromLegacy(r.thinking, r.toolCalls);
+  // Backfill for records written before proposals were threaded into the
+  // timeline: those have `events` populated (thinking+text+tool_ref) but no
+  // 'proposal' entries, while `proposals` still carries the records.
+  // Without this patch the standalone ProposalsList removal would erase
+  // edit cards from every legacy turn on read. Idempotent on new records —
+  // any proposal event already present short-circuits the append.
+  const proposalsInEvents = new Set<string>();
+  for (const ev of baseEvents) {
+    if (ev.kind === 'proposal') proposalsInEvents.add(ev.proposalId);
+  }
+  for (const p of r.proposals) {
+    if (!proposalsInEvents.has(p.proposalId)) {
+      baseEvents.push({ kind: 'proposal', proposalId: p.proposalId });
+    }
+  }
+  const events = baseEvents;
   return {
     turnId: r.turnId,
     origin: r.origin ?? 'chat',
@@ -1035,16 +1051,14 @@ function recordToCompletedTurn(r: TurnMetaRecord): ChatTurn {
 
 function fabricateTimelineFromLegacy(
   thinking: string,
-  toolCalls: ChatTurn['toolCalls'],
-  proposals: ChatProposalRecord[]
+  toolCalls: ChatTurn['toolCalls']
 ): ChatTimelineEvent[] {
+  // Pure thinking+tool reconstruction. Proposals are merged in by the
+  // caller (`recordToCompletedTurn`) so the backfill logic stays in one
+  // place across both the fresh-fabricate and pre-existing-events paths.
   const events: ChatTimelineEvent[] = [];
   if (thinking.length > 0) events.push({ kind: 'thinking', text: thinking });
   for (const tc of toolCalls) events.push({ kind: 'tool_ref', toolCallId: tc.toolCallId });
-  // Best-effort positioning: legacy records have no per-event timestamps, so
-  // proposals trail tool_refs as a single block. Beats the old standalone
-  // ProposalsList that always sat at the very bottom of the turn.
-  for (const p of proposals) events.push({ kind: 'proposal', proposalId: p.proposalId });
   return events;
 }
 
