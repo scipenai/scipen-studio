@@ -9,6 +9,7 @@ import { useEffect, useRef } from 'react';
 import { CommandPalette } from './components/CommandPalette';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { FileConflictModal } from './components/FileConflictModal';
+import { BrowseLabelsDialog } from './components/history/BrowseLabelsDialog';
 import { NewLabelDialog } from './components/history/NewLabelDialog';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { Sidebar } from './components/layout/Sidebar';
@@ -135,6 +136,7 @@ function AppContent() {
       <CommandPalette isOpen={isCommandPaletteOpen} onClose={handleCloseCommandPalette} />
 
       <NewLabelDialog />
+      <BrowseLabelsDialog />
 
       <FileConflictModal />
     </div>

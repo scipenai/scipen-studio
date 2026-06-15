@@ -6,6 +6,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   FileText,
+  FolderOpen,
   HelpCircle,
   MessageSquare,
   Play,
@@ -109,6 +110,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
       action: () => {
         onClose();
         historyUIBus.openCreateLabel();
+      },
+    },
+    {
+      id: 'history-browse-labels',
+      label: t('history.browseLabels'),
+      description: t('history.browseLabelsDesc'),
+      icon: <FolderOpen size={16} />,
+      category: 'history',
+      action: () => {
+        onClose();
+        historyUIBus.openBrowseLabels();
       },
     },
     {
