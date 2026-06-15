@@ -297,6 +297,53 @@ describe('HistoryService - L2 steps', () => {
     expect(blobStore.getRefCount(result.treeHash)).toBe(1);
   });
 
+  it('resolveStepSnapshot returns file → bytes from the step tree', async () => {
+    svc.ensureSession({ id: 's1', projectId: 'p1', chatThreadId: null, parentSession: null });
+    const aHash = await blobStore.put(bytes('alpha contents'));
+    const bHash = await blobStore.put(bytes('bravo contents'));
+    const step = await svc.recordStep({
+      projectId: 'p1',
+      sessionId: 's1',
+      parentStepHashHex: null,
+      tree: [
+        { fileId: 'a.tex', blobHashHex: toHex(aHash) },
+        { fileId: 'b.tex', blobHashHex: toHex(bHash) },
+      ],
+      causes: [],
+      origin: 'human_edit',
+      ts: 1,
+      sizeDelta: 0,
+    });
+    const snap = await svc.resolveStepSnapshot(toHex(step.hash));
+    expect(snap.size).toBe(2);
+    expect(new TextDecoder().decode(snap.get('a.tex')!)).toBe('alpha contents');
+    expect(new TextDecoder().decode(snap.get('b.tex')!)).toBe('bravo contents');
+  });
+
+  it('findStepBeforeTs returns the latest step strictly before the cutoff', async () => {
+    svc.ensureSession({ id: 's1', projectId: 'p1', chatThreadId: null, parentSession: null });
+    const fileHash = await blobStore.put(bytes('x'));
+    const tree = [{ fileId: 'a', blobHashHex: toHex(fileHash) }];
+    for (const ts of [10, 20, 30]) {
+      await svc.recordStep({
+        projectId: 'p1',
+        sessionId: 's1',
+        parentStepHashHex: null,
+        tree,
+        causes: [{ toolName: `t-${ts}` }],
+        origin: 'human_edit',
+        ts,
+        sizeDelta: 0,
+      });
+    }
+    const at25 = await svc.findStepBeforeTs('s1', 25);
+    expect(at25?.ts).toBe(20);
+    const at10 = await svc.findStepBeforeTs('s1', 10);
+    expect(at10).toBeNull();
+    const at100 = await svc.findStepBeforeTs('s1', 100);
+    expect(at100?.ts).toBe(30);
+  });
+
   it('step FK fails if session row absent (transaction rolls back)', async () => {
     const fileHash = await blobStore.put(bytes('content'));
     await expect(

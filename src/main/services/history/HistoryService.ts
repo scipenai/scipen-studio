@@ -70,6 +70,8 @@ export class HistoryService implements IHistoryService {
     insertSession: Database.Statement<unknown[]>;
     /** Inline refcount bump used inside transactions; shares cache with BlobStore. */
     incRefBlob: Database.Statement<unknown[]>;
+    listStepFiles: Database.Statement<unknown[]>;
+    findStepBefore: Database.Statement<unknown[]>;
   };
 
   constructor(private readonly deps: HistoryServiceDeps) {
@@ -127,6 +129,14 @@ export class HistoryService implements IHistoryService {
       ),
       incRefBlob: db.prepare<unknown[]>(
         `UPDATE history_blob SET refcount = refcount + 1 WHERE hash = ?`
+      ),
+      listStepFiles: db.prepare<unknown[]>(
+        `SELECT file_id, blob_hash FROM history_step_file WHERE step_hash = ?`
+      ),
+      findStepBefore: db.prepare<unknown[]>(
+        `SELECT hash, parent_hash, project_id, session_id, tree_hash, causes, origin, ts, size_delta
+         FROM history_step WHERE session_id = ? AND ts < ?
+         ORDER BY ts DESC LIMIT 1`
       ),
     };
     logger.debug('HistoryService constructed', {
@@ -358,6 +368,26 @@ export class HistoryService implements IHistoryService {
   async listSessionSteps(sessionId: string, limit = 200): Promise<HistoryStep[]> {
     const rows = this.stmts.listSessionSteps.all(sessionId, limit) as StepRow[];
     return rows.map(rowToStep);
+  }
+
+  async resolveStepSnapshot(hashHex: HashHex): Promise<Map<string, Uint8Array>> {
+    const hash = fromHex(hashHex);
+    const files = this.stmts.listStepFiles.all(hash) as Array<{
+      file_id: string;
+      blob_hash: Uint8Array;
+    }>;
+    const map = new Map<string, Uint8Array>();
+    for (const row of files) {
+      const bytes = await this.deps.blobStore.get(new Uint8Array(row.blob_hash));
+      if (bytes) map.set(row.file_id, bytes);
+    }
+    return map;
+  }
+
+  async findStepBeforeTs(sessionId: string, beforeTs: number): Promise<HistoryStep | null> {
+    const row = this.stmts.findStepBefore.get(sessionId, beforeTs) as StepRow | undefined;
+    if (!row) return null;
+    return rowToStep(row);
   }
 
   async dispose(): Promise<void> {

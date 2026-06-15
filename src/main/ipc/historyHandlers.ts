@@ -116,6 +116,17 @@ const listSessionStepsSchema = z.object({
   limit: z.number().int().positive().max(2000).optional(),
 });
 
+const resolveStepSnapshotSchema = z.object({
+  projectId: projectIdSchema,
+  hashHex: hashHexSchema,
+});
+
+const findStepBeforeTsSchema = z.object({
+  projectId: projectIdSchema,
+  sessionId: sessionIdSchema,
+  beforeTs: z.number().int().nonnegative(),
+});
+
 function parseOrThrow<T>(schema: z.ZodSchema<T>, value: unknown, label: string): T {
   const result = schema.safeParse(value);
   if (!result.success) {
@@ -206,6 +217,22 @@ export function registerHistoryHandlers(deps: HistoryHandlersDeps): void {
   ipcMain.handle(IpcChannel.History_ListSessionSteps, async (_e, raw: unknown) => {
     const p = parseOrThrow(listSessionStepsSchema, raw, 'listSessionSteps');
     return await historyManager.getOrCreate(p.projectId).listSessionSteps(p.sessionId, p.limit);
+  });
+
+  ipcMain.handle(IpcChannel.History_ResolveStepSnapshot, async (_e, raw: unknown) => {
+    const p = parseOrThrow(resolveStepSnapshotSchema, raw, 'resolveStepSnapshot');
+    const map = await historyManager.getOrCreate(p.projectId).resolveStepSnapshot(p.hashHex);
+    const out: Record<string, Uint8Array> = {};
+    for (const [k, v] of map) out[k] = v;
+    return out;
+  });
+
+  ipcMain.handle(IpcChannel.History_FindStepBeforeTs, async (_e, raw: unknown) => {
+    const p = parseOrThrow(findStepBeforeTsSchema, raw, 'findStepBeforeTs');
+    const step = await historyManager
+      .getOrCreate(p.projectId)
+      .findStepBeforeTs(p.sessionId, p.beforeTs);
+    return step ? { hashHex: toHex(step.hash), ts: step.ts, origin: step.origin } : null;
   });
 
   logger.info('history IPC handlers registered');

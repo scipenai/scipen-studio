@@ -458,6 +458,10 @@ export enum IpcChannel {
   History_GetStep = 'history:get-step',
   /** List steps within a session, ordered by ts asc. */
   History_ListSessionSteps = 'history:list-session-steps',
+  /** Resolve a step's `tree` to a `Map<fileId, bytes>` snapshot. */
+  History_ResolveStepSnapshot = 'history:resolve-step-snapshot',
+  /** Locate the most recent step in a session whose `ts < beforeTs`. */
+  History_FindStepBeforeTs = 'history:find-step-before-ts',
 }
 
 export type IpcChannelType = `${IpcChannel}`;

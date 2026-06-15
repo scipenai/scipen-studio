@@ -200,6 +200,8 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.History_ResolveLabelSnapshot,
   IpcChannel.History_GetStep,
   IpcChannel.History_ListSessionSteps,
+  IpcChannel.History_ResolveStepSnapshot,
+  IpcChannel.History_FindStepBeforeTs,
 
   // ====== Zotero Integration ======
   IpcChannel.Zotero_GetSettings,

@@ -997,6 +997,15 @@ export const history = {
 
   listSessionSteps: (input: { projectId: string; sessionId: string; limit?: number }) =>
     invoke<HistoryStepDTO[]>(IpcChannel.History_ListSessionSteps, input),
+
+  resolveStepSnapshot: (input: { projectId: string; hashHex: string }) =>
+    invoke<Record<string, Uint8Array>>(IpcChannel.History_ResolveStepSnapshot, input),
+
+  findStepBeforeTs: (input: { projectId: string; sessionId: string; beforeTs: number }) =>
+    invoke<{ hashHex: string; ts: number; origin: HistoryStepOriginDTO } | null>(
+      IpcChannel.History_FindStepBeforeTs,
+      input
+    ),
 };
 
 // ==================== Unified exports ====================

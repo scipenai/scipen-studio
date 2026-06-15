@@ -72,6 +72,10 @@ export interface IHistoryService {
   recordStep(input: RecordStepInput): Promise<HistoryStep>;
   getStep(hashHex: HashHex): Promise<HistoryStep | null>;
   listSessionSteps(sessionId: string, limit?: number): Promise<HistoryStep[]>;
+  /** Resolve a step to a `Map<fileId, bytes>` snapshot (mirror of resolveLabelSnapshot but for the Step DAG). */
+  resolveStepSnapshot(hashHex: HashHex): Promise<Map<string, Uint8Array>>;
+  /** Latest step in a session with `ts < beforeTs`, or null if none. Used by "rollback to before this message". */
+  findStepBeforeTs(sessionId: string, beforeTs: number): Promise<HistoryStep | null>;
 
   // ===== Lifecycle =====
 
