@@ -598,34 +598,21 @@ class ChatStreamStoreImpl {
         break;
       }
       case 'done':
-        turn.pending = false;
-        turn.doneReason = evt.reason;
-        // Materialize the assistant message into the persistent log.
-        if (turn.text.trim().length > 0) {
-          this.messages = [
-            ...this.messages,
-            { role: 'assistant', turnId, text: turn.text, ts: Date.now() },
-          ];
-        }
-        // Move turn from "current" to "completed".
-        this.completedTurns.set(turnId, turn);
-        if (this.currentTurn?.turnId === turnId) {
-          this.currentTurn = null;
-        }
-        // Persist the rich meta (thinking / tool calls / proposals / plan
-        // / usage) to IndexedDB so a future hydrate can re-attach it to
-        // SNACA's bare ThreadMessage. Fire-and-forget — IDB failure only
-        // costs us the cards next time, never breaks chat.
-        if (this.activeThreadId) {
-          void this.persistTurnMeta(this.activeThreadId, turn);
-        }
+        this.finalizeTurn(turn, evt.reason);
         break;
       case 'error':
+        // SNACA's turn_engine emits Error WITHOUT a paired Done on engine
+        // failures (e.g. LoopGuardTripped) — different from the llm.rs path
+        // which sends Error+Done. Without finalizing here the turn stays
+        // `pending=true` forever, freezing the chat input behind the stop
+        // button and leaving cancelTurn() with no live turn to abort
+        // (SNACA-side is already gone). Treat error as terminal.
         turn.error = {
           code: evt.code,
           message: evt.message,
           recoverable: evt.recoverable,
         };
+        this.finalizeTurn(turn, 'error');
         break;
       default:
         return;
@@ -656,6 +643,48 @@ class ChatStreamStoreImpl {
       message: evt.message,
       recoverable: !!evt.recoverable,
     };
+    // Top-level chat error channel — same finalize-and-release contract as
+    // a turn_delta 'error' event. Without this the stop-button / busy flag
+    // sticks even when the agent has already given up.
+    this.finalizeTurn(turn, 'error');
+  }
+
+  /**
+   * Terminal state transition for a turn. Idempotent — calling twice on the
+   * same turn (e.g. SNACA sends Error then a stray Done) is a no-op the
+   * second time because pending is already false and the turn has already
+   * been moved to completedTurns.
+   *
+   * Shared by the `done` event, the in-band `error` event, and the
+   * top-level chat error channel. The `error` paths additionally set
+   * `turn.error` *before* calling this so listeners that re-render on
+   * `pending → false` see the error payload in the same tick.
+   */
+  private finalizeTurn(turn: ChatTurn, reason: ChatTurn['doneReason']): void {
+    if (!turn.pending) {
+      // Already finalized — fire to flush whatever lightweight field (e.g.
+      // a late `error` payload) the caller mutated, then return.
+      this.fire();
+      return;
+    }
+    turn.pending = false;
+    turn.doneReason = reason;
+    const turnId = turn.turnId;
+    if (turn.text.trim().length > 0) {
+      this.messages = [
+        ...this.messages,
+        { role: 'assistant', turnId, text: turn.text, ts: Date.now() },
+      ];
+    }
+    this.completedTurns.set(turnId, turn);
+    if (this.currentTurn?.turnId === turnId) {
+      this.currentTurn = null;
+    }
+    // Fire-and-forget IDB persist — failure only costs us the rich meta
+    // on next hydrate, never breaks chat.
+    if (this.activeThreadId) {
+      void this.persistTurnMeta(this.activeThreadId, turn);
+    }
     this.fire();
   }
 
