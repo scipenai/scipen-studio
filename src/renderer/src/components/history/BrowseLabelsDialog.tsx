@@ -10,7 +10,7 @@
 
 import { clsx } from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronLeft, FolderOpen, Loader2, Plus, RotateCcw, Tag, X } from 'lucide-react';
+import { ChevronLeft, Eye, FolderOpen, Loader2, Plus, RotateCcw, Tag, X } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -26,11 +26,16 @@ import { historyUIBus } from '../../services/core/HistoryUIBus';
 import { historyProjectIdOf } from '../../utils/historyProjectId';
 import { applySnapshotToOpenTabs } from '../../utils/historyRestore';
 import { lineDiffStats } from '../../utils/lineDiffStats';
+import { FileDiffOverlay } from './FileDiffOverlay';
 
 interface FileDiff {
   fileId: string;
   /** Per-file line stats vs the current editor tab; `null` if file not open. */
   stats: { added: number; removed: number } | null;
+  /** Snapshot text — kept so View Diff doesn't need a second resolveLabelSnapshot round-trip. */
+  beforeText: string;
+  /** Current tab content;`null` when the file isn't open. */
+  afterText: string | null;
 }
 
 type ViewState =
@@ -54,6 +59,7 @@ export function BrowseLabelsDialog(): ReactElement | null {
   const [view, setView] = useState<ViewState>({ kind: 'list', labels: null, error: null });
   const [loading, setLoading] = useState(false);
   const [restore, setRestore] = useState<RestoreState>({ kind: 'idle' });
+  const [diffViewFile, setDiffViewFile] = useState<FileDiff | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const loadLabels = useCallback(async (): Promise<void> => {
@@ -107,8 +113,15 @@ export function BrowseLabelsDialog(): ReactElement | null {
           const bytes = map[fileId];
           const snapshotText = decoder.decode(bytes);
           const tab = tabs.find((t) => t._id === fileId || t.path === fileId);
-          if (!tab) return { fileId, stats: null };
-          return { fileId, stats: lineDiffStats(snapshotText, tab.content) };
+          if (!tab) {
+            return { fileId, stats: null, beforeText: snapshotText, afterText: null };
+          }
+          return {
+            fileId,
+            stats: lineDiffStats(snapshotText, tab.content),
+            beforeText: snapshotText,
+            afterText: tab.content,
+          };
         });
       setView({ kind: 'detail', label, files, error: null });
     } catch (e) {
@@ -275,12 +288,21 @@ export function BrowseLabelsDialog(): ReactElement | null {
               error={view.error}
               restore={restore}
               onRestore={() => void doRestore(view.label)}
+              onViewDiff={(f) => setDiffViewFile(f)}
               t={t}
             />
           )}
             </div>
           </motion.div>
         </motion.div>
+      )}
+      {diffViewFile && (
+        <FileDiffOverlay
+          fileId={diffViewFile.fileId}
+          beforeText={diffViewFile.beforeText}
+          afterText={diffViewFile.afterText}
+          onClose={() => setDiffViewFile(null)}
+        />
       )}
     </AnimatePresence>
   );
@@ -359,6 +381,7 @@ function LabelDetail({
   error,
   restore,
   onRestore,
+  onViewDiff,
   t,
 }: {
   label: HistoryLabelDTO;
@@ -366,6 +389,7 @@ function LabelDetail({
   error: string | null;
   restore: RestoreState;
   onRestore: () => void;
+  onViewDiff: (f: FileDiff) => void;
   t: T;
 }): ReactElement {
   const restoring = restore.kind === 'restoring';
@@ -401,29 +425,43 @@ function LabelDetail({
         </div>
       )}
       <ul className="max-h-48 space-y-0.5 overflow-y-auto rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] p-1 font-mono text-[10px]">
-        {files.map((f) => (
-          <li
-            key={f.fileId}
-            className="flex items-center gap-1.5 truncate px-1 py-0.5 text-[var(--color-text-primary)]"
-          >
-            <span className="min-w-0 flex-1 truncate">{f.fileId}</span>
-            {f.stats === null ? (
-              <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
-                {t('history.diffStatsClosed')}
-              </span>
-            ) : f.stats.added === 0 && f.stats.removed === 0 ? (
-              <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
-                {t('history.diffStatsNoChange')}
-              </span>
-            ) : (
-              <span className="flex-shrink-0 tabular-nums">
-                <span className="text-[var(--color-success)]">+{f.stats.removed}</span>
-                <span className="px-0.5 text-[var(--color-text-muted)]">/</span>
-                <span className="text-[var(--color-error)]">-{f.stats.added}</span>
-              </span>
-            )}
-          </li>
-        ))}
+        {files.map((f) => {
+          const viewable = f.stats !== null && (f.stats.added > 0 || f.stats.removed > 0);
+          return (
+            <li
+              key={f.fileId}
+              className="group flex items-center gap-1.5 truncate px-1 py-0.5 text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+            >
+              <span className="min-w-0 flex-1 truncate">{f.fileId}</span>
+              {f.stats === null ? (
+                <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
+                  {t('history.diffStatsClosed')}
+                </span>
+              ) : f.stats.added === 0 && f.stats.removed === 0 ? (
+                <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
+                  {t('history.diffStatsNoChange')}
+                </span>
+              ) : (
+                <span className="flex-shrink-0 tabular-nums">
+                  <span className="text-[var(--color-success)]">+{f.stats.removed}</span>
+                  <span className="px-0.5 text-[var(--color-text-muted)]">/</span>
+                  <span className="text-[var(--color-error)]">-{f.stats.added}</span>
+                </span>
+              )}
+              {viewable && (
+                <button
+                  type="button"
+                  onClick={() => onViewDiff(f)}
+                  title={t('history.viewDiff')}
+                  aria-label={t('history.viewDiff')}
+                  className="flex h-5 w-5 flex-shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-accent)] focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] group-hover:opacity-100"
+                >
+                  <Eye size={11} />
+                </button>
+              )}
+            </li>
+          );
+        })}
       </ul>
       {restore.kind === 'done' && (
         <div className="text-[11px] text-[var(--color-success)]" role="status">

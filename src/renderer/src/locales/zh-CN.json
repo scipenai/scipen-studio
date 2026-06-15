@@ -419,7 +419,9 @@
     "restorePreview": "还原差异:",
     "diffStatsHint": "(还原后)",
     "diffStatsClosed": "未打开",
-    "diffStatsNoChange": "无变化"
+    "diffStatsNoChange": "无变化",
+    "viewDiff": "查看变化",
+    "diffOverlayTitle": "{{fileId}} 变化对比"
   },
   "chat": {
     "rename": "重命名",

@@ -419,7 +419,9 @@
     "restorePreview": "Restore diff:",
     "diffStatsHint": "(after restore)",
     "diffStatsClosed": "not open",
-    "diffStatsNoChange": "no change"
+    "diffStatsNoChange": "no change",
+    "viewDiff": "View diff",
+    "diffOverlayTitle": "Diff: {{fileId}}"
   },
   "chat": {
     "rename": "Rename",
