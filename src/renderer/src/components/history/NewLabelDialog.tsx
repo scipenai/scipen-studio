@@ -20,6 +20,7 @@ import { api } from '../../api';
 import { useTranslation } from '../../locales';
 import { getEditorService, getProjectRuntimeContext } from '../../services/core';
 import { historyUIBus } from '../../services/core/HistoryUIBus';
+import { historyProjectIdOf } from '../../utils/historyProjectId';
 
 type SubmitState = 'idle' | 'submitting' | 'error';
 
@@ -60,7 +61,7 @@ export function NewLabelDialog(): ReactElement | null {
     const trimmed = name.trim();
     if (!trimmed || submitState === 'submitting') return;
 
-    const projectId = getProjectRuntimeContext().projectId;
+    const projectId = historyProjectIdOf(getProjectRuntimeContext().rootPath);
     if (!projectId) {
       setSubmitState('error');
       setError(t('history.labelNoProject'));

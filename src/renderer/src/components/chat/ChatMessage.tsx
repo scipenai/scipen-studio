@@ -51,6 +51,7 @@ import {
   getProjectRuntimeContext,
   getUIService,
 } from '../../services/core/ServiceRegistry';
+import { historyProjectIdOf } from '../../utils/historyProjectId';
 import { applySnapshotToOpenTabs } from '../../utils/historyRestore';
 import { MarkdownContent } from './MarkdownContent';
 import { ThinkingRenderer } from './ThinkingRenderer';
@@ -177,7 +178,7 @@ function RollbackBeforeMessageButton({ messageTs }: { messageTs: number }): Reac
   const [busy, setBusy] = useState(false);
   const onClick = useCallback(async () => {
     if (busy) return;
-    const projectId = getProjectRuntimeContext().projectId;
+    const projectId = historyProjectIdOf(getProjectRuntimeContext().rootPath);
     const threadId = chatStreamStore.getActiveThreadId();
     if (!projectId || !threadId) {
       await api.dialog.confirm(t('history.rollbackNoSession'), t('history.rollbackBeforeTitle'));

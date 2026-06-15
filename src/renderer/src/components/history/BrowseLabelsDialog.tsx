@@ -22,6 +22,7 @@ import { api, type HistoryLabelDTO } from '../../api';
 import { useTranslation, type TranslationKey } from '../../locales';
 import { getEditorService, getProjectRuntimeContext } from '../../services/core';
 import { historyUIBus } from '../../services/core/HistoryUIBus';
+import { historyProjectIdOf } from '../../utils/historyProjectId';
 import { applySnapshotToOpenTabs } from '../../utils/historyRestore';
 import { lineDiffStats } from '../../utils/lineDiffStats';
 
@@ -55,7 +56,7 @@ export function BrowseLabelsDialog(): ReactElement | null {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const loadLabels = useCallback(async (): Promise<void> => {
-    const projectId = getProjectRuntimeContext().projectId;
+    const projectId = historyProjectIdOf(getProjectRuntimeContext().rootPath);
     if (!projectId) {
       setView({ kind: 'list', labels: [], error: 'labelNoProject' });
       return;

@@ -787,12 +787,14 @@ class ChatStreamStoreImpl {
     try {
       // Defer-import to keep the historyApi lazy — chat happily streams long
       // before the user ever opens a label dialog, no need to eagerly bind.
-      const [{ api }, { getProjectRuntimeContext, getEditorService }, scheduler] = await Promise.all([
-        import('../../api'),
-        import('../core'),
-        import('../core/AutoLabelScheduler'),
-      ]);
-      const projectId = getProjectRuntimeContext().projectId;
+      const [{ api }, { getProjectRuntimeContext, getEditorService }, scheduler, idHelper] =
+        await Promise.all([
+          import('../../api'),
+          import('../core'),
+          import('../core/AutoLabelScheduler'),
+          import('../../utils/historyProjectId'),
+        ]);
+      const projectId = idHelper.historyProjectIdOf(getProjectRuntimeContext().rootPath);
       const threadId = this.activeThreadId;
       if (!projectId || !threadId) return;
 

@@ -10,6 +10,7 @@
  */
 
 import { api } from '../../api';
+import { historyProjectIdOf } from '../../utils/historyProjectId';
 import { createLogger } from '../LogService';
 import { getCompileServiceAsync } from './CompileService';
 import { getEditorService, getProjectRuntimeContext } from './ServiceRegistry';
@@ -87,7 +88,7 @@ class AutoLabelScheduler {
     if (this.running) return { ok: false, reason: 'busy' };
     this.running = true;
     try {
-      const projectId = getProjectRuntimeContext().projectId;
+      const projectId = historyProjectIdOf(getProjectRuntimeContext().rootPath);
       if (!projectId) return { ok: false, reason: 'no-project' };
       const tabs = getEditorService().tabs;
       if (tabs.length === 0) return { ok: false, reason: 'no-tabs' };
