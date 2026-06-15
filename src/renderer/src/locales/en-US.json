@@ -434,7 +434,8 @@
     "originMerge": "Merge",
     "labelSelectPrompt": "Pick a snapshot on the left to inspect",
     "labelKeyboardHint": "↑/↓ or j/k to navigate · Esc to close",
-    "stepSelectPrompt": "Pick a step on the left to inspect"
+    "stepSelectPrompt": "Pick a step on the left to inspect",
+    "browserTitle": "History browser"
   },
   "chat": {
     "rename": "Rename",

@@ -434,7 +434,8 @@
     "originMerge": "合并",
     "labelSelectPrompt": "从左侧选择一个快照查看详情",
     "labelKeyboardHint": "↑/↓ 或 j/k 切换 · Esc 关闭",
-    "stepSelectPrompt": "从左侧选择一个变更查看详情"
+    "stepSelectPrompt": "从左侧选择一个变更查看详情",
+    "browserTitle": "历史浏览器"
   },
   "chat": {
     "rename": "重命名",

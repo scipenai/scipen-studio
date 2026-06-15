@@ -9,8 +9,7 @@ import { useEffect, useRef } from 'react';
 import { CommandPalette } from './components/CommandPalette';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { FileConflictModal } from './components/FileConflictModal';
-import { BrowseLabelsDialog } from './components/history/BrowseLabelsDialog';
-import { BrowseSessionsDialog } from './components/history/BrowseSessionsDialog';
+import { HistoryBrowserDialog } from './components/history/HistoryBrowserDialog';
 import { NewLabelDialog } from './components/history/NewLabelDialog';
 import { autoLabelScheduler } from './services/core/AutoLabelScheduler';
 import { WelcomeScreen } from './components/WelcomeScreen';
@@ -138,8 +137,7 @@ function AppContent() {
       <CommandPalette isOpen={isCommandPaletteOpen} onClose={handleCloseCommandPalette} />
 
       <NewLabelDialog />
-      <BrowseLabelsDialog />
-      <BrowseSessionsDialog />
+      <HistoryBrowserDialog />
 
       <FileConflictModal />
     </div>

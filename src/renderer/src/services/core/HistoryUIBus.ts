@@ -9,26 +9,31 @@
 
 import { Emitter, type Event } from '../../../../../shared/utils';
 
+export type HistoryBrowserTab = 'labels' | 'sessions';
+
 class HistoryUIBus {
   private readonly _openCreateLabel = new Emitter<void>();
   readonly onOpenCreateLabel: Event<void> = this._openCreateLabel.event;
 
-  private readonly _openBrowseLabels = new Emitter<void>();
-  readonly onOpenBrowseLabels: Event<void> = this._openBrowseLabels.event;
-
-  private readonly _openBrowseSessions = new Emitter<void>();
-  readonly onOpenBrowseSessions: Event<void> = this._openBrowseSessions.event;
+  /**
+   * Unified browser open event — fires with the initially selected tab.
+   * Sidebar entries set `'labels'` or `'sessions'` so the user lands on the
+   * familiar surface; once the dialog is mounted the user can switch tabs
+   * inside without re-emitting.
+   */
+  private readonly _openBrowser = new Emitter<HistoryBrowserTab>();
+  readonly onOpenBrowser: Event<HistoryBrowserTab> = this._openBrowser.event;
 
   openCreateLabel(): void {
     this._openCreateLabel.fire();
   }
 
   openBrowseLabels(): void {
-    this._openBrowseLabels.fire();
+    this._openBrowser.fire('labels');
   }
 
   openBrowseSessions(): void {
-    this._openBrowseSessions.fire();
+    this._openBrowser.fire('sessions');
   }
 }
 
