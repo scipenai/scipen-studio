@@ -440,6 +440,20 @@ export enum IpcChannel {
   // ====== Dialog ======
   Dialog_Confirm = 'dialog:confirm',
   Dialog_Message = 'dialog:message',
+
+  // ====== History (versioning: blob/chunk/label/step/session) ======
+  /** Create or get a session row; required before the first `recordStep`. */
+  History_EnsureSession = 'history:ensure-session',
+  /** Create a user-named multi-file snapshot label. */
+  History_CreateLabel = 'history:create-label',
+  /** List labels for a project, most recent first. */
+  History_ListLabels = 'history:list-labels',
+  /** Resolve a label id to a `Map<fileId, bytes>` via the underlying BlobStore. */
+  History_ResolveLabelSnapshot = 'history:resolve-label-snapshot',
+  /** Fetch a single step by its lowercase-hex hash. */
+  History_GetStep = 'history:get-step',
+  /** List steps within a session, ordered by ts asc. */
+  History_ListSessionSteps = 'history:list-session-steps',
 }
 
 export type IpcChannelType = `${IpcChannel}`;

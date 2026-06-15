@@ -14,6 +14,7 @@ export { selectionApi } from './selection';
 export { overleafLiveApi } from './overleafLive';
 export { agentApi } from './agent';
 export { zoteroApi } from './zotero';
+export { historyApi } from './history';
 
 // Re-export shared utilities for the main preload script
 export {

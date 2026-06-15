@@ -70,6 +70,7 @@ import {
   registerUpdateHandlers,
   registerWindowHandlers,
   registerZoteroHandlers,
+  registerHistoryHandlers,
 } from './ipc';
 import { UpdateService } from './services/UpdateService';
 import { ConfigKeys } from '../../shared/types/config-keys';
@@ -896,6 +897,11 @@ function registerIpcHandlers() {
       config: c.get(ServiceNames.CONFIG),
     });
   }
+
+  // ====== Register History Handlers (per-project blob/chunk/label/step) ======
+  registerHistoryHandlers({
+    historyManager: getServiceContainer().get(ServiceNames.HISTORY_MANAGER),
+  });
 
   // ====== Register Update Handlers ======
   const updateService = new UpdateService();

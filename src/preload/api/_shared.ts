@@ -191,6 +191,14 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Agent_ContextZoteroResponse,
   IpcChannel.Agent_UserQuestionResponse,
 
+  // ====== History (versioning) ======
+  IpcChannel.History_EnsureSession,
+  IpcChannel.History_CreateLabel,
+  IpcChannel.History_ListLabels,
+  IpcChannel.History_ResolveLabelSnapshot,
+  IpcChannel.History_GetStep,
+  IpcChannel.History_ListSessionSteps,
+
   // ====== Zotero Integration ======
   IpcChannel.Zotero_GetSettings,
   IpcChannel.Zotero_SetSettings,

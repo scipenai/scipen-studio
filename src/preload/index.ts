@@ -29,6 +29,7 @@ import {
   windowApi,
   agentApi,
   zoteroApi,
+  historyApi,
 } from './api';
 
 function createElectronApi() {
@@ -97,6 +98,7 @@ function createElectronApi() {
     overleafLive: overleafLiveApi,
     agent: agentApi,
     zotero: zoteroApi,
+    history: historyApi,
 
     // Event listeners
     onMessage: createSafeListener<string>(IpcChannel.Message_FromMain),
