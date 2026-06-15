@@ -579,8 +579,7 @@
   "workspaceSidebar": {
     "imTab": "对话",
     "filesTab": "文件",
-    "historyTab": "快照",
-    "sessionsTab": "会话",
+    "historyTab": "历史",
     "settingsTab": "设置",
     "settingsLoading": "正在加载设置..."
   },

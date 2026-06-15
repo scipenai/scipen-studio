@@ -6,7 +6,7 @@
  */
 
 import { clsx } from 'clsx';
-import { FolderKanban, GitCommit, History, MessageSquare, Settings } from 'lucide-react';
+import { FolderKanban, History, MessageSquare, Settings } from 'lucide-react';
 import type React from 'react';
 import logoS from '../../assets/logo-s.svg';
 import { useTranslation } from '../../locales';
@@ -102,19 +102,16 @@ export const Sidebar: React.FC = () => {
       </nav>
 
       <div className="flex w-full flex-col gap-1 border-t pt-1 border-t-[var(--color-border-subtle)]">
-        {/* History: opens BrowseLabelsDialog (timeline + list + restore + create). Not a tab — overlays without switching the main workspace pane. */}
+        {/*
+         * History: single entry that opens HistoryBrowserDialog. The dialog
+         * internally tabs between Labels (manual snapshots) and Sessions
+         * (AI step DAG). One sidebar button matches the one dialog.
+         */}
         <SidebarNavItem
           icon={<History />}
           label={t('workspaceSidebar.historyTab')}
           active={false}
           onClick={() => historyUIBus.openBrowseLabels()}
-        />
-        {/* Sessions: git-log style view over every AI session's step DAG. */}
-        <SidebarNavItem
-          icon={<GitCommit />}
-          label={t('workspaceSidebar.sessionsTab')}
-          active={false}
-          onClick={() => historyUIBus.openBrowseSessions()}
         />
         <SidebarNavItem
           icon={<Settings />}

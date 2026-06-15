@@ -580,7 +580,6 @@
     "imTab": "Chat",
     "filesTab": "Files",
     "historyTab": "History",
-    "sessionsTab": "Sessions",
     "settingsTab": "Settings",
     "settingsLoading": "Loading settings..."
   },
