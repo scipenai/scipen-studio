@@ -431,7 +431,10 @@
     "sessionLocal": "Local edit",
     "originSnaca": "AI",
     "originHuman": "Human",
-    "originMerge": "Merge"
+    "originMerge": "Merge",
+    "labelSelectPrompt": "Pick a snapshot on the left to inspect",
+    "labelKeyboardHint": "↑/↓ or j/k to navigate · Esc to close",
+    "stepSelectPrompt": "Pick a step on the left to inspect"
   },
   "chat": {
     "rename": "Rename",

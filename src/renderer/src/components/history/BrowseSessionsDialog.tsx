@@ -1,22 +1,28 @@
 /**
- * @file BrowseSessionsDialog — git-log style browser for the L2 Step DAG.
+ * @file BrowseSessionsDialog - split-panel git-log over the L2 Step DAG.
  *
- * Three nested views in one dialog:
- *   sessions   → list every chat thread that recorded ≥1 SNACA-tool step
- *   steps      → for a picked session, list every step (most recent first)
- *   stepDetail → for a picked step, file list + per-file diff stats + Restore
+ * Layout (GitLens-inspired, three structural regions in two physical panes):
+ *   ┌──────────────────────────────────────────────────┐
+ *   │ header              session dropdown ▼      [×]  │
+ *   ├──────────────┬───────────────────────────────────┤
+ *   │ steps list   │ step detail                       │
+ *   │   ~38%       │   ~62%                            │
+ *   │ scroll       │ causes + files + diff + restore   │
+ *   └──────────────┴───────────────────────────────────┘
  *
- * Restore at step level applies that step's `tree` snapshot to currently open
- * tabs (same handshake as label Restore: write + setContentFromExternal +
- * Overleaf sync). The view preserves a back-stack so Esc unwinds one level.
+ * Why this shape, not master-detail-detail (three columns)?
+ * - Most projects have <10 sessions; a dedicated 20% column wastes the
+ *   horizontal real estate that the diff column desperately needs.
+ * - A `<select>` for sessions keeps the switcher one click away and frees
+ *   the canvas for the actual content (steps + detail).
  */
 
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  ArrowLeft,
   Bot,
   Eye,
   GitCommit,
+  Inbox,
   Loader2,
   MessagesSquare,
   RotateCcw,
@@ -27,6 +33,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -57,24 +64,17 @@ interface StepFile {
 }
 
 interface StepCause {
-  /** Stable key for React lists — assigned at parse time. */
   id: string;
   toolName: string;
   argsJson?: string;
   resultSummary?: string;
 }
 
-type View =
-  | { kind: 'sessions'; rows: SessionSummary[] | null; error: string | null }
-  | { kind: 'steps'; session: SessionSummary; rows: HistoryStepDTO[] | null; error: string | null }
-  | {
-      kind: 'stepDetail';
-      session: SessionSummary;
-      step: HistoryStepDTO;
-      files: StepFile[] | null;
-      causes: StepCause[];
-      error: string | null;
-    };
+interface StepDetailData {
+  files: StepFile[];
+  causes: StepCause[];
+  error: string | null;
+}
 
 type RestoreState =
   | { kind: 'idle' }
@@ -87,8 +87,14 @@ type T = (key: TranslationKey, params?: Record<string, string | number>) => stri
 export function BrowseSessionsDialog(): ReactElement | null {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
-  const [view, setView] = useState<View>({ kind: 'sessions', rows: null, error: null });
-  const [loading, setLoading] = useState(false);
+  const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [steps, setSteps] = useState<HistoryStepDTO[] | null>(null);
+  const [stepsLoading, setStepsLoading] = useState(false);
+  const [selectedStepHashHex, setSelectedStepHashHex] = useState<string | null>(null);
+  const [stepDetail, setStepDetail] = useState<StepDetailData | null>(null);
+  const [stepDetailLoading, setStepDetailLoading] = useState(false);
   const [restore, setRestore] = useState<RestoreState>({ kind: 'idle' });
   const [diffViewFile, setDiffViewFile] = useState<StepFile | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -97,23 +103,30 @@ export function BrowseSessionsDialog(): ReactElement | null {
   const loadSessions = useCallback(async (): Promise<void> => {
     const projectId = historyProjectIdOf(getProjectRuntimeContext().rootPath);
     if (!projectId) {
-      setView({ kind: 'sessions', rows: [], error: 'labelNoProject' });
+      setSessions([]);
+      setSessionError('labelNoProject');
       return;
     }
-    setLoading(true);
+    setSessionError(null);
     try {
       const rows = await api.history.listSessions({ projectId, limit: 200 });
-      setView({ kind: 'sessions', rows, error: null });
+      setSessions(rows);
+      if (rows.length > 0 && selectedSessionId === null) {
+        setSelectedSessionId(rows[0].sessionId);
+      }
     } catch (e) {
-      setView({ kind: 'sessions', rows: [], error: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setLoading(false);
+      setSessions([]);
+      setSessionError(e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [selectedSessionId]);
 
   useEffect(() => {
     const disposable = historyUIBus.onOpenBrowseSessions(() => {
       setIsOpen(true);
+      setSelectedSessionId(null);
+      setSelectedStepHashHex(null);
+      setSteps(null);
+      setStepDetail(null);
       setRestore({ kind: 'idle' });
       void loadSessions();
     });
@@ -127,51 +140,70 @@ export function BrowseSessionsDialog(): ReactElement | null {
     }
   }, [isOpen]);
 
-  const close = useCallback(() => setIsOpen(false), []);
-
-  const openSession = useCallback(async (session: SessionSummary): Promise<void> => {
-    setView({ kind: 'steps', session, rows: null, error: null });
-    setLoading(true);
-    try {
-      const projectId = historyProjectIdOf(getProjectRuntimeContext().rootPath);
-      const rows = await api.history.listSessionSteps({
-        projectId,
-        sessionId: session.sessionId,
-        limit: 500,
-      });
-      // Newest-first like git log.
-      rows.sort((a, b) => b.ts - a.ts);
-      setView({ kind: 'steps', session, rows, error: null });
-    } catch (e) {
-      setView({
-        kind: 'steps',
-        session,
-        rows: null,
-        error: e instanceof Error ? e.message : String(e),
-      });
-    } finally {
-      setLoading(false);
+  // Load steps when the selected session changes.
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setSteps(null);
+      setSelectedStepHashHex(null);
+      return;
     }
-  }, []);
-
-  const openStep = useCallback(
-    async (session: SessionSummary, step: HistoryStepDTO): Promise<void> => {
-      setView({
-        kind: 'stepDetail',
-        session,
-        step,
-        files: null,
-        causes: parseCauses(step.causes),
-        error: null,
-      });
-      setLoading(true);
+    let cancelled = false;
+    setSteps(null);
+    setStepsLoading(true);
+    setSelectedStepHashHex(null);
+    setStepDetail(null);
+    (async () => {
       try {
         const projectId = historyProjectIdOf(getProjectRuntimeContext().rootPath);
-        const stepHashHex = bytesToHex(step.hash);
+        const rows = await api.history.listSessionSteps({
+          projectId,
+          sessionId: selectedSessionId,
+          limit: 500,
+        });
+        rows.sort((a, b) => b.ts - a.ts);
+        if (cancelled) return;
+        setSteps(rows);
+        // Auto-select the most recent step so the right pane is never blank.
+        if (rows.length > 0) {
+          setSelectedStepHashHex(bytesToHex(rows[0].hash));
+        }
+      } catch {
+        if (cancelled) return;
+        setSteps([]);
+      } finally {
+        if (!cancelled) setStepsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSessionId]);
+
+  const selectedStep = useMemo<HistoryStepDTO | null>(() => {
+    if (!steps || !selectedStepHashHex) return null;
+    return steps.find((s) => bytesToHex(s.hash) === selectedStepHashHex) ?? null;
+  }, [steps, selectedStepHashHex]);
+
+  // Resolve the selected step's tree → file diffs.
+  useEffect(() => {
+    if (!selectedStep) {
+      setStepDetail(null);
+      setRestore({ kind: 'idle' });
+      return;
+    }
+    let cancelled = false;
+    setStepDetail(null);
+    setStepDetailLoading(true);
+    setRestore({ kind: 'idle' });
+    const causes = parseCauses(selectedStep.causes);
+    (async () => {
+      try {
+        const projectId = historyProjectIdOf(getProjectRuntimeContext().rootPath);
         const snapshot = await api.history.resolveStepSnapshot({
           projectId,
-          hashHex: stepHashHex,
+          hashHex: bytesToHex(selectedStep.hash),
         });
+        if (cancelled) return;
         const tabs = getEditorService().tabs;
         const decoder = new TextDecoder();
         const files: StepFile[] = Object.keys(snapshot)
@@ -188,75 +220,75 @@ export function BrowseSessionsDialog(): ReactElement | null {
               stats: lineDiffStats(beforeText, tab.content),
             };
           });
-        setView({
-          kind: 'stepDetail',
-          session,
-          step,
-          files,
-          causes: parseCauses(step.causes),
-          error: null,
-        });
+        setStepDetail({ files, causes, error: null });
       } catch (e) {
-        setView({
-          kind: 'stepDetail',
-          session,
-          step,
-          files: null,
-          causes: parseCauses(step.causes),
+        if (cancelled) return;
+        setStepDetail({
+          files: [],
+          causes,
           error: e instanceof Error ? e.message : String(e),
         });
       } finally {
-        setLoading(false);
+        if (!cancelled) setStepDetailLoading(false);
       }
-    },
-    []
-  );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedStep]);
 
-  const back = useCallback(() => {
-    if (view.kind === 'stepDetail') {
-      void openSession(view.session);
-      setRestore({ kind: 'idle' });
-    } else if (view.kind === 'steps') {
-      setView({ kind: 'sessions', rows: null, error: null });
-      void loadSessions();
+  const close = useCallback(() => setIsOpen(false), []);
+
+  const doRestoreStep = useCallback(async (): Promise<void> => {
+    if (!selectedStep) return;
+    const ok = await api.dialog.confirm(
+      t('history.rollbackBeforeConfirm'),
+      t('history.rollbackBeforeTitle')
+    );
+    if (!ok) return;
+    setRestore({ kind: 'restoring' });
+    try {
+      const projectId = historyProjectIdOf(getProjectRuntimeContext().rootPath);
+      const snapshot = await api.history.resolveStepSnapshot({
+        projectId,
+        hashHex: bytesToHex(selectedStep.hash),
+      });
+      const { count } = await applySnapshotToOpenTabs(snapshot);
+      setRestore({ kind: 'done', count });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setRestore({
+        kind: 'error',
+        message: msg === 'no open tabs' ? t('history.restoreNoTabs') : msg,
+      });
     }
-  }, [view, openSession, loadSessions]);
-
-  const doRestoreStep = useCallback(
-    async (step: HistoryStepDTO): Promise<void> => {
-      const ok = await api.dialog.confirm(
-        t('history.rollbackBeforeConfirm'),
-        t('history.rollbackBeforeTitle')
-      );
-      if (!ok) return;
-      setRestore({ kind: 'restoring' });
-      try {
-        const projectId = historyProjectIdOf(getProjectRuntimeContext().rootPath);
-        const snapshot = await api.history.resolveStepSnapshot({
-          projectId,
-          hashHex: bytesToHex(step.hash),
-        });
-        const { count } = await applySnapshotToOpenTabs(snapshot);
-        setRestore({ kind: 'done', count });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setRestore({
-          kind: 'error',
-          message: msg === 'no open tabs' ? t('history.restoreNoTabs') : msg,
-        });
-      }
-    },
-    [t]
-  );
+  }, [selectedStep, t]);
 
   const handleKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>): void => {
-      if (e.key !== 'Escape') return;
-      e.preventDefault();
-      if (view.kind === 'sessions') close();
-      else back();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+        return;
+      }
+      if (!steps || steps.length === 0) return;
+      if (e.key === 'j' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const idx = selectedStepHashHex
+          ? steps.findIndex((s) => bytesToHex(s.hash) === selectedStepHashHex)
+          : -1;
+        const next = steps[Math.min(idx + 1, steps.length - 1)];
+        if (next) setSelectedStepHashHex(bytesToHex(next.hash));
+      } else if (e.key === 'k' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const idx = selectedStepHashHex
+          ? steps.findIndex((s) => bytesToHex(s.hash) === selectedStepHashHex)
+          : 0;
+        const next = steps[Math.max(idx - 1, 0)];
+        if (next) setSelectedStepHashHex(bytesToHex(next.hash));
+      }
     },
-    [view.kind, close, back]
+    [close, steps, selectedStepHashHex]
   );
 
   return (
@@ -278,35 +310,44 @@ export function BrowseSessionsDialog(): ReactElement | null {
             tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
             onKeyDown={handleKeyDown}
-            className="flex max-h-[75vh] w-full max-w-xl flex-col overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-lg focus:outline-none"
+            className="flex h-[78vh] w-[min(1040px,95vw)] flex-col overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-xl focus:outline-none"
             initial={{ opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
           >
-            <Header view={view} onBack={back} onClose={close} t={t} />
-            <div className="flex-1 overflow-y-auto px-3 py-2 text-[12px]">
-              {loading && (
-                <div className="flex items-center gap-1.5 py-2 text-[11px] text-[var(--color-text-muted)]">
-                  <Loader2 size={12} className="motion-safe:animate-spin" />
-                  {t('history.labelCreating')}
-                </div>
-              )}
-              {view.kind === 'sessions' && !loading && (
-                <SessionsView view={view} onPick={openSession} t={t} />
-              )}
-              {view.kind === 'steps' && !loading && (
-                <StepsView view={view} onPick={(step) => void openStep(view.session, step)} t={t} />
-              )}
-              {view.kind === 'stepDetail' && !loading && (
-                <StepDetailView
-                  view={view}
-                  restore={restore}
-                  onRestore={() => void doRestoreStep(view.step)}
-                  onViewDiff={(f) => setDiffViewFile(f)}
-                  t={t}
-                />
-              )}
+            <Header
+              sessions={sessions ?? []}
+              selectedSessionId={selectedSessionId}
+              onSelectSession={setSelectedSessionId}
+              onClose={close}
+              t={t}
+            />
+
+            <div className="flex min-h-0 flex-1">
+              <StepListPane
+                steps={steps ?? []}
+                stepsLoading={stepsLoading}
+                sessionError={sessionError}
+                selectedHashHex={selectedStepHashHex}
+                onSelect={(s) => setSelectedStepHashHex(bytesToHex(s.hash))}
+                t={t}
+              />
+              <div className="min-w-0 flex-1 overflow-y-auto border-l border-[var(--color-border-subtle)]">
+                {!selectedStep ? (
+                  <EmptyState t={t} />
+                ) : (
+                  <StepDetailPane
+                    step={selectedStep}
+                    detail={stepDetail}
+                    loading={stepDetailLoading}
+                    restore={restore}
+                    onRestore={() => void doRestoreStep()}
+                    onViewDiff={(f) => setDiffViewFile(f)}
+                    t={t}
+                  />
+                )}
+              </div>
             </div>
           </motion.div>
         </motion.div>
@@ -323,47 +364,58 @@ export function BrowseSessionsDialog(): ReactElement | null {
   );
 }
 
-// ---------- Header ----------
+// ====== Header with session dropdown ======
 
 function Header({
-  view,
-  onBack,
+  sessions,
+  selectedSessionId,
+  onSelectSession,
   onClose,
   t,
 }: {
-  view: View;
-  onBack: () => void;
+  sessions: SessionSummary[];
+  selectedSessionId: string | null;
+  onSelectSession: (id: string) => void;
   onClose: () => void;
   t: T;
 }): ReactElement {
-  const title =
-    view.kind === 'sessions'
-      ? t('history.browseSessions')
-      : view.kind === 'steps'
-        ? sessionLabel(view.session, t)
-        : `${sessionLabel(view.session, t)} · ${stepLabelShort(view.step)}`;
+  const sessionOptions = useMemo(
+    () =>
+      sessions.map((s) => ({
+        id: s.sessionId,
+        label: `${sessionLabel(s, t)} · ${t('history.sessionsStepCount', { count: s.stepCount })} · ${new Date(s.lastTs).toLocaleString()}`,
+      })),
+    [sessions, t]
+  );
   return (
-    <div className="flex items-center gap-1.5 border-b border-[var(--color-border-subtle)] px-3 py-2">
-      {view.kind === 'sessions' ? (
-        <MessagesSquare size={14} className="text-[var(--color-accent)]" />
-      ) : (
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label={t('history.close')}
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
-        >
-          <ArrowLeft size={14} />
-        </button>
-      )}
-      <span className="truncate text-[11px] font-semibold uppercase tracking-wider text-[var(--color-accent)]">
-        {title}
+    <div className="flex items-center gap-2 border-b border-[var(--color-border-subtle)] px-3 py-2">
+      <MessagesSquare size={14} className="flex-shrink-0 text-[var(--color-accent)]" />
+      <span className="flex-shrink-0 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-accent)]">
+        {t('history.browseSessions')}
       </span>
+      {sessions.length > 0 ? (
+        <select
+          aria-label={t('history.browseSessions')}
+          value={selectedSessionId ?? ''}
+          onChange={(e) => onSelectSession(e.target.value)}
+          className="min-w-0 flex-1 cursor-pointer truncate rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1 text-[11px] text-[var(--color-text-primary)] transition-colors focus:border-[var(--color-accent)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
+        >
+          {sessionOptions.map((opt) => (
+            <option key={opt.id} value={opt.id}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <span className="text-[11px] text-[var(--color-text-muted)]">
+          {t('history.sessionsEmpty')}
+        </span>
+      )}
       <button
         type="button"
         onClick={onClose}
         aria-label={t('history.close')}
-        className="ml-auto flex h-6 w-6 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+        className="flex h-6 w-6 flex-shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
       >
         <X size={14} />
       </button>
@@ -371,251 +423,220 @@ function Header({
   );
 }
 
-// ---------- Sessions list ----------
+// ====== Step list pane ======
 
-function SessionsView({
-  view,
-  onPick,
+function StepListPane({
+  steps,
+  stepsLoading,
+  sessionError,
+  selectedHashHex,
+  onSelect,
   t,
 }: {
-  view: Extract<View, { kind: 'sessions' }>;
-  onPick: (s: SessionSummary) => void;
+  steps: HistoryStepDTO[];
+  stepsLoading: boolean;
+  sessionError: string | null;
+  selectedHashHex: string | null;
+  onSelect: (step: HistoryStepDTO) => void;
   t: T;
 }): ReactElement {
-  const rows = view.rows ?? [];
-  if (view.error === 'labelNoProject') {
-    return (
-      <div className="py-4 text-center text-[11px] text-[var(--color-text-muted)]">
-        {t('history.labelNoProject')}
-      </div>
-    );
-  }
-  if (view.error) {
-    return (
-      <div className="py-4 text-center text-[11px] text-[var(--color-error)]" role="alert">
-        {view.error}
-      </div>
-    );
-  }
-  if (rows.length === 0) {
-    return (
-      <div className="py-4 text-center text-[11px] text-[var(--color-text-muted)]">
-        {t('history.sessionsEmpty')}
-      </div>
-    );
-  }
   return (
-    <ul className="space-y-1">
-      {rows.map((s) => (
-        <li key={s.sessionId}>
-          <button
-            type="button"
-            onClick={() => onPick(s)}
-            className="flex w-full cursor-pointer items-start gap-2 rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-left transition-colors hover:border-[var(--color-accent)]/40 hover:bg-[var(--color-bg-hover)] focus:border-[var(--color-accent)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] active:bg-[var(--color-bg-tertiary)]"
-          >
-            {s.chatThreadId ? (
-              <Bot size={11} className="mt-0.5 flex-shrink-0 text-[var(--color-accent)]" />
-            ) : (
-              <Users size={11} className="mt-0.5 flex-shrink-0 text-[var(--color-text-muted)]" />
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[12px] font-medium text-[var(--color-text-primary)]">
-                {sessionLabel(s, t)}
-              </div>
-              <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)] tabular-nums">
-                <span>{t('history.sessionsStepCount', { count: s.stepCount })}</span>
-                <span>·</span>
-                <span>{new Date(s.lastTs).toLocaleString()}</span>
-              </div>
-            </div>
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-// ---------- Steps list ----------
-
-function StepsView({
-  view,
-  onPick,
-  t,
-}: {
-  view: Extract<View, { kind: 'steps' }>;
-  onPick: (step: HistoryStepDTO) => void;
-  t: T;
-}): ReactElement {
-  const rows = view.rows ?? [];
-  if (view.error) {
-    return (
-      <div className="py-4 text-center text-[11px] text-[var(--color-error)]" role="alert">
-        {view.error}
-      </div>
-    );
-  }
-  if (rows.length === 0) {
-    return (
-      <div className="py-4 text-center text-[11px] text-[var(--color-text-muted)]">
-        {t('history.stepsEmpty')}
-      </div>
-    );
-  }
-  return (
-    <ul className="space-y-1">
-      {rows.map((s) => {
-        const causes = parseCauses(s.causes);
-        const primary = causes[0];
-        return (
-          <li key={bytesToHex(s.hash)}>
-            <button
-              type="button"
-              onClick={() => onPick(s)}
-              className="flex w-full cursor-pointer items-start gap-2 rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-left transition-colors hover:border-[var(--color-accent)]/40 hover:bg-[var(--color-bg-hover)] focus:border-[var(--color-accent)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] active:bg-[var(--color-bg-tertiary)]"
-            >
-              <OriginIcon origin={s.origin} />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="truncate text-[12px] font-medium text-[var(--color-text-primary)]">
-                    {primary?.toolName ?? s.origin}
-                  </span>
-                  <OriginChip origin={s.origin} t={t} />
-                </div>
-                {primary?.resultSummary && (
-                  <div className="mt-0.5 truncate text-[10px] text-[var(--color-text-muted)]">
-                    {primary.resultSummary}
+    <div className="flex w-[38%] min-w-[240px] flex-col overflow-y-auto bg-[var(--color-bg-primary)]/40">
+      {stepsLoading && (
+        <div className="flex items-center gap-1.5 px-3 py-2 text-[11px] text-[var(--color-text-muted)]">
+          <Loader2 size={12} className="motion-safe:animate-spin" />
+          {t('history.labelCreating')}
+        </div>
+      )}
+      {sessionError === 'labelNoProject' && (
+        <div className="px-3 py-4 text-center text-[11px] text-[var(--color-text-muted)]">
+          {t('history.labelNoProject')}
+        </div>
+      )}
+      {!stepsLoading && !sessionError && steps.length === 0 && (
+        <div className="px-3 py-4 text-center text-[11px] text-[var(--color-text-muted)]">
+          {t('history.stepsEmpty')}
+        </div>
+      )}
+      <ul className="flex-1">
+        {steps.map((s) => {
+          const hex = bytesToHex(s.hash);
+          const isSelected = hex === selectedHashHex;
+          const causes = parseCauses(s.causes);
+          const primary = causes[0];
+          return (
+            <li key={hex}>
+              <button
+                type="button"
+                onClick={() => onSelect(s)}
+                aria-current={isSelected ? 'true' : undefined}
+                className={
+                  'flex w-full cursor-pointer items-start gap-2 border-l-2 px-3 py-2 text-left transition-colors focus:outline-none ' +
+                  (isSelected
+                    ? 'border-l-[var(--color-accent)] bg-[var(--color-accent-muted)]/40 '
+                    : 'border-l-transparent hover:bg-[var(--color-bg-hover)] focus-visible:bg-[var(--color-bg-hover)]')
+                }
+              >
+                <OriginIcon origin={s.origin} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-[12px] font-medium text-[var(--color-text-primary)]">
+                      {primary?.toolName ?? s.origin}
+                    </span>
+                    <OriginChip origin={s.origin} t={t} />
                   </div>
-                )}
-                <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)] tabular-nums">
-                  <span>{new Date(s.ts).toLocaleString()}</span>
-                  {s.sizeDelta > 0 && (
-                    <>
-                      <span>·</span>
-                      <span>Δ {s.sizeDelta}B</span>
-                    </>
+                  {primary?.resultSummary && (
+                    <div className="mt-0.5 truncate text-[10px] text-[var(--color-text-muted)]">
+                      {primary.resultSummary}
+                    </div>
                   )}
+                  <div className="mt-0.5 text-[10px] text-[var(--color-text-muted)] tabular-nums">
+                    {new Date(s.ts).toLocaleString()}
+                    {s.sizeDelta > 0 && ` · Δ ${s.sizeDelta}B`}
+                  </div>
                 </div>
-              </div>
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
-// ---------- Step detail ----------
+// ====== Empty state ======
 
-function StepDetailView({
-  view,
+function EmptyState({ t }: { t: T }): ReactElement {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+      <Inbox size={32} className="text-[var(--color-text-muted)] opacity-40" />
+      <p className="text-[11px] text-[var(--color-text-muted)]">
+        {t('history.stepSelectPrompt')}
+      </p>
+      <p className="text-[10px] text-[var(--color-text-muted)] opacity-60">
+        {t('history.labelKeyboardHint')}
+      </p>
+    </div>
+  );
+}
+
+// ====== Step detail pane ======
+
+function StepDetailPane({
+  step,
+  detail,
+  loading,
   restore,
   onRestore,
   onViewDiff,
   t,
 }: {
-  view: Extract<View, { kind: 'stepDetail' }>;
+  step: HistoryStepDTO;
+  detail: StepDetailData | null;
+  loading: boolean;
   restore: RestoreState;
   onRestore: () => void;
   onViewDiff: (f: StepFile) => void;
   t: T;
 }): ReactElement {
   const restoring = restore.kind === 'restoring';
-  const files = view.files ?? [];
+  const files = detail?.files ?? [];
+  const causes = detail?.causes ?? [];
+  const totalAdded = files.reduce((acc, f) => acc + (f.stats?.added ?? 0), 0);
+  const totalRemoved = files.reduce((acc, f) => acc + (f.stats?.removed ?? 0), 0);
+  const hasChanges = totalAdded > 0 || totalRemoved > 0;
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-1.5">
-        <OriginChip origin={view.step.origin} t={t} />
-        <span className="text-[10px] text-[var(--color-text-muted)] tabular-nums">
-          {new Date(view.step.ts).toLocaleString()}
-        </span>
-        <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">
-          {t('history.labelFilesCount', { count: files.length })}
-        </span>
+    <div className="flex h-full flex-col">
+      <div className="border-b border-[var(--color-border-subtle)] px-3 py-2">
+        <div className="flex items-center gap-1.5">
+          <OriginIcon origin={step.origin} />
+          <span className="truncate text-[13px] font-semibold text-[var(--color-text-primary)]">
+            {causes[0]?.toolName ?? step.origin}
+          </span>
+          <OriginChip origin={step.origin} t={t} />
+        </div>
+        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)] tabular-nums">
+          <span>{new Date(step.ts).toLocaleString()}</span>
+          <span>·</span>
+          <span>{t('history.labelFilesCount', { count: files.length })}</span>
+          {hasChanges && (
+            <>
+              <span>·</span>
+              <span className="text-[var(--color-success)]">+{totalRemoved}</span>
+              <span>/</span>
+              <span className="text-[var(--color-error)]">-{totalAdded}</span>
+            </>
+          )}
+          {step.sizeDelta > 0 && (
+            <>
+              <span>·</span>
+              <span>Δ {step.sizeDelta}B</span>
+            </>
+          )}
+        </div>
       </div>
-      {view.causes.length > 0 && (
-        <ul className="space-y-1 rounded bg-[var(--color-bg-primary)] p-1.5 text-[11px]">
-          {view.causes.map((c) => (
-            <li key={c.id}>
-              <div className="flex items-center gap-1.5">
-                <Sparkles size={10} className="flex-shrink-0 text-[var(--color-accent)]" />
-                <span className="truncate font-mono text-[11px] text-[var(--color-text-primary)]">
-                  {c.toolName}
-                </span>
-              </div>
-              {c.resultSummary && (
-                <div className="ml-4 text-[10px] text-[var(--color-text-muted)]">
-                  {c.resultSummary}
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 text-[12px]">
+        {loading && (
+          <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)]">
+            <Loader2 size={12} className="motion-safe:animate-spin" />
+            {t('history.labelCreating')}
+          </div>
+        )}
+        {!loading && detail?.error && (
+          <div className="text-[11px] text-[var(--color-error)]" role="alert">
+            {detail.error}
+          </div>
+        )}
+        {!loading && causes.length > 0 && (
+          <ul className="mb-2 space-y-1 rounded bg-[var(--color-bg-primary)] p-1.5 text-[11px]">
+            {causes.map((c) => (
+              <li key={c.id}>
+                <div className="flex items-center gap-1.5">
+                  <Sparkles size={10} className="flex-shrink-0 text-[var(--color-accent)]" />
+                  <span className="truncate font-mono text-[11px] text-[var(--color-text-primary)]">
+                    {c.toolName}
+                  </span>
                 </div>
-              )}
-              {c.argsJson && (
-                <pre className="ml-4 mt-0.5 max-h-16 overflow-y-auto whitespace-pre-wrap break-all rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 font-mono text-[9px] text-[var(--color-text-muted)]">
-                  {c.argsJson}
-                </pre>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {view.error && (
-        <div className="text-[10px] text-[var(--color-error)]" role="alert">
-          {view.error}
-        </div>
-      )}
-      <ul className="max-h-48 space-y-0.5 overflow-y-auto rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] p-1 font-mono text-[10px]">
-        {files.map((f) => {
-          const viewable = f.stats !== null && (f.stats.added > 0 || f.stats.removed > 0);
-          return (
-            <li
-              key={f.fileId}
-              className="group flex items-center gap-1.5 truncate px-1 py-0.5 text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-            >
-              <span className="min-w-0 flex-1 truncate">{f.fileId}</span>
-              {f.stats === null ? (
-                <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
-                  {t('history.diffStatsClosed')}
-                </span>
-              ) : f.stats.added === 0 && f.stats.removed === 0 ? (
-                <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
-                  {t('history.diffStatsNoChange')}
-                </span>
-              ) : (
-                <span className="flex-shrink-0 tabular-nums">
-                  <span className="text-[var(--color-success)]">+{f.stats.removed}</span>
-                  <span className="px-0.5 text-[var(--color-text-muted)]">/</span>
-                  <span className="text-[var(--color-error)]">-{f.stats.added}</span>
-                </span>
-              )}
-              {viewable && (
-                <button
-                  type="button"
-                  onClick={() => onViewDiff(f)}
-                  title={t('history.viewDiff')}
-                  aria-label={t('history.viewDiff')}
-                  className="flex h-5 w-5 flex-shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-accent)] focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] group-hover:opacity-100"
-                >
-                  <Eye size={11} />
-                </button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {restore.kind === 'done' && (
-        <div className="text-[11px] text-[var(--color-success)]" role="status">
-          {t('history.restoreSuccess', { count: restore.count })}
-        </div>
-      )}
-      {restore.kind === 'error' && (
-        <div className="text-[11px] text-[var(--color-error)]" role="alert">
-          {t('history.restoreFailed', { error: restore.message })}
-        </div>
-      )}
-      <div className="flex items-center justify-end gap-1.5 border-t border-[var(--color-border-subtle)] pt-2">
+                {c.resultSummary && (
+                  <div className="ml-4 text-[10px] text-[var(--color-text-muted)]">
+                    {c.resultSummary}
+                  </div>
+                )}
+                {c.argsJson && (
+                  <pre className="ml-4 mt-0.5 max-h-16 overflow-y-auto whitespace-pre-wrap break-all rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 font-mono text-[9px] text-[var(--color-text-muted)]">
+                    {c.argsJson}
+                  </pre>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {!loading && (
+          <ul className="space-y-0.5 font-mono text-[10px]">
+            {files.map((f) => (
+              <FileRow key={f.fileId} file={f} onViewDiff={onViewDiff} t={t} />
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 border-t border-[var(--color-border-subtle)] px-3 py-2">
+        {restore.kind === 'done' && (
+          <span className="text-[11px] text-[var(--color-success)]" role="status">
+            {t('history.restoreSuccess', { count: restore.count })}
+          </span>
+        )}
+        {restore.kind === 'error' && (
+          <span className="text-[11px] text-[var(--color-error)]" role="alert">
+            {t('history.restoreFailed', { error: restore.message })}
+          </span>
+        )}
         <button
           type="button"
           onClick={onRestore}
           disabled={restoring}
-          className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-warning)]/50 bg-[var(--color-warning-muted)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-warning)] transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-warning)] focus-visible:ring-offset-1 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+          className="ml-auto flex cursor-pointer items-center gap-1 rounded border border-[var(--color-warning)]/50 bg-[var(--color-warning-muted)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-warning)] transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-warning)] focus-visible:ring-offset-1 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {restoring ? (
             <Loader2 size={11} className="motion-safe:animate-spin" />
@@ -629,7 +650,50 @@ function StepDetailView({
   );
 }
 
-// ---------- helpers ----------
+function FileRow({
+  file,
+  onViewDiff,
+  t,
+}: {
+  file: StepFile;
+  onViewDiff: (f: StepFile) => void;
+  t: T;
+}): ReactElement {
+  const viewable = file.stats !== null && (file.stats.added > 0 || file.stats.removed > 0);
+  return (
+    <li className="group flex items-center gap-1.5 truncate rounded px-1 py-0.5 text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
+      <span className="min-w-0 flex-1 truncate">{file.fileId}</span>
+      {file.stats === null ? (
+        <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
+          {t('history.diffStatsClosed')}
+        </span>
+      ) : file.stats.added === 0 && file.stats.removed === 0 ? (
+        <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
+          {t('history.diffStatsNoChange')}
+        </span>
+      ) : (
+        <span className="flex-shrink-0 tabular-nums">
+          <span className="text-[var(--color-success)]">+{file.stats.removed}</span>
+          <span className="px-0.5 text-[var(--color-text-muted)]">/</span>
+          <span className="text-[var(--color-error)]">-{file.stats.added}</span>
+        </span>
+      )}
+      {viewable && (
+        <button
+          type="button"
+          onClick={() => onViewDiff(file)}
+          title={t('history.viewDiff')}
+          aria-label={t('history.viewDiff')}
+          className="flex h-5 w-5 flex-shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-accent)] focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] group-hover:opacity-100"
+        >
+          <Eye size={11} />
+        </button>
+      )}
+    </li>
+  );
+}
+
+// ====== Origin helpers ======
 
 function OriginChip({
   origin,
@@ -665,6 +729,8 @@ function OriginIcon({ origin }: { origin: HistoryStepDTO['origin'] }): ReactElem
   return <Users size={11} className="mt-0.5 flex-shrink-0 text-[var(--color-text-muted)]" />;
 }
 
+// ====== Helpers ======
+
 function sessionLabel(s: SessionSummary, t: T): string {
   if (s.chatThreadId) {
     return t('history.sessionChat', { thread: s.chatThreadId.slice(0, 12) });
@@ -672,12 +738,6 @@ function sessionLabel(s: SessionSummary, t: T): string {
   return t('history.sessionLocal');
 }
 
-function stepLabelShort(step: HistoryStepDTO): string {
-  const causes = parseCauses(step.causes);
-  return causes[0]?.toolName ?? step.origin;
-}
-
-/** Decode the `causes` bytes column (JSON-encoded array of {toolName,...}). */
 function parseCauses(bytes: Uint8Array): StepCause[] {
   if (!bytes || bytes.length === 0) return [];
   try {

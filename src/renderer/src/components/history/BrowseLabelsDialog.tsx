@@ -1,19 +1,28 @@
 /**
- * @file BrowseLabelsDialog - read-only label inspector.
+ * @file BrowseLabelsDialog - split-panel label inspector.
  *
- * Lists every snapshot label for the active project and, on selection, shows
- * the per-file blob hashes captured at label time. Restore is intentionally
- * disabled in P1 — the actual file rewrite + OT rebroadcast lives in P2. The
- * "Restore" button is rendered but greyed so the path is visible while we
- * build the underlying machinery.
+ * Layout (GitLens / VSCode source control inspired):
+ *   ┌─────────────────────────────────────────────┐
+ *   │ header                       [+ Create] [×] │
+ *   │ timeline scrubber (≥2 labels)               │
+ *   ├──────────────┬──────────────────────────────┤
+ *   │ labels list  │ detail (files + diff + restore)
+ *   │   ~35%       │   ~65%                       │
+ *   │ scroll       │ empty state when no selection│
+ *   └──────────────┴──────────────────────────────┘
+ *
+ * Why split instead of push/pop views:
+ * - Cursor's modal-with-back-button is criticised for hiding context;
+ *   GitLens' embedded details panel keeps the list visible while inspecting.
+ * - Picking another label instantly updates the right pane — no Esc dance.
  */
 
-import { clsx } from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronLeft, Eye, FolderOpen, Loader2, Plus, RotateCcw, Tag, X } from 'lucide-react';
+import { Eye, FolderOpen, Inbox, Loader2, Plus, RotateCcw, Tag, X } from 'lucide-react';
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -31,22 +40,10 @@ import { FileDiffOverlay } from './FileDiffOverlay';
 
 interface FileDiff {
   fileId: string;
-  /** Per-file line stats vs the current editor tab; `null` if file not open. */
   stats: { added: number; removed: number } | null;
-  /** Snapshot text — kept so View Diff doesn't need a second resolveLabelSnapshot round-trip. */
   beforeText: string;
-  /** Current tab content;`null` when the file isn't open. */
   afterText: string | null;
 }
-
-type ViewState =
-  | { kind: 'list'; labels: HistoryLabelDTO[] | null; error: string | null }
-  | {
-      kind: 'detail';
-      label: HistoryLabelDTO;
-      files: FileDiff[] | null;
-      error: string | null;
-    };
 
 type RestoreState =
   | { kind: 'idle' }
@@ -54,11 +51,22 @@ type RestoreState =
   | { kind: 'done'; count: number }
   | { kind: 'error'; message: string };
 
+type T = (key: TranslationKey, params?: Record<string, string | number>) => string;
+
+interface DetailData {
+  files: FileDiff[];
+  error: string | null;
+}
+
 export function BrowseLabelsDialog(): ReactElement | null {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
-  const [view, setView] = useState<ViewState>({ kind: 'list', labels: null, error: null });
-  const [loading, setLoading] = useState(false);
+  const [labels, setLabels] = useState<HistoryLabelDTO[] | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [listLoading, setListLoading] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<DetailData | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [restore, setRestore] = useState<RestoreState>({ kind: 'idle' });
   const [diffViewFile, setDiffViewFile] = useState<FileDiff | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -67,24 +75,33 @@ export function BrowseLabelsDialog(): ReactElement | null {
   const loadLabels = useCallback(async (): Promise<void> => {
     const projectId = historyProjectIdOf(getProjectRuntimeContext().rootPath);
     if (!projectId) {
-      setView({ kind: 'list', labels: [], error: 'labelNoProject' });
+      setLabels([]);
+      setListError('labelNoProject');
       return;
     }
-    setLoading(true);
+    setListLoading(true);
+    setListError(null);
     try {
-      const labels = await api.history.listLabels({ projectId, limit: 200 });
-      setView({ kind: 'list', labels, error: null });
+      const rows = await api.history.listLabels({ projectId, limit: 200 });
+      setLabels(rows);
+      // Auto-select first label so the right pane is never empty on first open.
+      if (rows.length > 0 && selectedId === null) {
+        setSelectedId(rows[0].id);
+      }
     } catch (e) {
-      setView({ kind: 'list', labels: [], error: e instanceof Error ? e.message : String(e) });
+      setLabels([]);
+      setListError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      setListLoading(false);
     }
-  }, []);
+  }, [selectedId]);
 
   useEffect(() => {
     const disposable = historyUIBus.onOpenBrowseLabels(() => {
       setIsOpen(true);
-      setView({ kind: 'list', labels: null, error: null });
+      setSelectedId(null);
+      setDetail(null);
+      setRestore({ kind: 'idle' });
       void loadLabels();
     });
     return () => disposable.dispose();
@@ -99,74 +116,70 @@ export function BrowseLabelsDialog(): ReactElement | null {
 
   const close = useCallback(() => setIsOpen(false), []);
 
-  const openDetail = useCallback(async (label: HistoryLabelDTO): Promise<void> => {
-    setView({ kind: 'detail', label, files: null, error: null });
-    setLoading(true);
-    try {
-      const map = await api.history.resolveLabelSnapshot({
-        projectId: label.projectId,
-        labelId: label.id,
-      });
-      const tabs = getEditorService().tabs;
-      const decoder = new TextDecoder();
-      const files: FileDiff[] = Object.keys(map)
-        .sort()
-        .map((fileId) => {
-          const bytes = map[fileId];
-          const snapshotText = decoder.decode(bytes);
-          const tab = tabs.find((t) => t._id === fileId || t.path === fileId);
-          if (!tab) {
-            return { fileId, stats: null, beforeText: snapshotText, afterText: null };
-          }
-          return {
-            fileId,
-            stats: lineDiffStats(snapshotText, tab.content),
-            beforeText: snapshotText,
-            afterText: tab.content,
-          };
-        });
-      setView({ kind: 'detail', label, files, error: null });
-    } catch (e) {
-      setView({
-        kind: 'detail',
-        label,
-        files: null,
-        error: e instanceof Error ? e.message : String(e),
-      });
-    } finally {
-      setLoading(false);
+  const selectedLabel = useMemo<HistoryLabelDTO | null>(() => {
+    if (!labels || !selectedId) return null;
+    return labels.find((l) => l.id === selectedId) ?? null;
+  }, [labels, selectedId]);
+
+  // Resolve the selected label's files. Runs whenever the selection changes.
+  useEffect(() => {
+    if (!selectedLabel) {
+      setDetail(null);
+      setRestore({ kind: 'idle' });
+      return;
     }
-  }, []);
-
-  const backToList = useCallback(() => {
-    setView({ kind: 'list', labels: null, error: null });
+    let cancelled = false;
+    setDetail(null);
+    setDetailLoading(true);
     setRestore({ kind: 'idle' });
-    void loadLabels();
-  }, [loadLabels]);
+    (async () => {
+      try {
+        const map = await api.history.resolveLabelSnapshot({
+          projectId: selectedLabel.projectId,
+          labelId: selectedLabel.id,
+        });
+        if (cancelled) return;
+        const tabs = getEditorService().tabs;
+        const decoder = new TextDecoder();
+        const files: FileDiff[] = Object.keys(map)
+          .sort()
+          .map((fileId) => {
+            const bytes = map[fileId];
+            const beforeText = decoder.decode(bytes);
+            const tab = tabs.find((tt) => tt._id === fileId || tt.path === fileId);
+            if (!tab) return { fileId, stats: null, beforeText, afterText: null };
+            return {
+              fileId,
+              stats: lineDiffStats(beforeText, tab.content),
+              beforeText,
+              afterText: tab.content,
+            };
+          });
+        setDetail({ files, error: null });
+      } catch (e) {
+        if (cancelled) return;
+        setDetail({ files: [], error: e instanceof Error ? e.message : String(e) });
+      } finally {
+        if (!cancelled) setDetailLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLabel]);
 
-  /**
-   * P2 minimal restore:
-   * - Resolve the label → file content map.
-   * - For every entry, find the matching open tab (by OT id or absolute path)
-   *   and rewrite both the on-disk file AND the editor tab so the editor
-   *   doesn't fight the new content.
-   * - Files referenced by the label but NOT currently open are skipped — the
-   *   safer default than silently writing to closed files; P3 will add a
-   *   "Restore all (including closed)" affordance with stronger confirmation.
-   * - Undo: every rewrite is one Monaco edit step → Ctrl+Z restores.
-   */
-  const doRestore = useCallback(async (label: HistoryLabelDTO): Promise<void> => {
+  const doRestore = useCallback(async (): Promise<void> => {
+    if (!selectedLabel) return;
     const ok = await api.dialog.confirm(
-      t('history.restoreConfirm', { name: label.name }),
+      t('history.restoreConfirm', { name: selectedLabel.name }),
       t('history.restoreConfirmTitle')
     );
     if (!ok) return;
-
     setRestore({ kind: 'restoring' });
     try {
       const snapshot = await api.history.resolveLabelSnapshot({
-        projectId: label.projectId,
-        labelId: label.id,
+        projectId: selectedLabel.projectId,
+        labelId: selectedLabel.id,
       });
       const { count } = await applySnapshotToOpenTabs(snapshot);
       setRestore({ kind: 'done', count });
@@ -177,17 +190,31 @@ export function BrowseLabelsDialog(): ReactElement | null {
         message: msg === 'no open tabs' ? t('history.restoreNoTabs') : msg,
       });
     }
-  }, [t]);
+  }, [selectedLabel, t]);
 
   const handleKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>): void => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (view.kind === 'detail') backToList();
-        else close();
+        close();
+        return;
+      }
+      // j/k navigate the labels list (vim style); the user is likely on the
+      // dialog body, not inside an input.
+      if (!labels || labels.length === 0) return;
+      if (e.key === 'j' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const idx = selectedId ? labels.findIndex((l) => l.id === selectedId) : -1;
+        const next = labels[Math.min(idx + 1, labels.length - 1)];
+        if (next) setSelectedId(next.id);
+      } else if (e.key === 'k' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const idx = selectedId ? labels.findIndex((l) => l.id === selectedId) : 0;
+        const next = labels[Math.max(idx - 1, 0)];
+        if (next) setSelectedId(next.id);
       }
     },
-    [view.kind, backToList, close]
+    [close, labels, selectedId]
   );
 
   return (
@@ -209,91 +236,54 @@ export function BrowseLabelsDialog(): ReactElement | null {
             tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
             onKeyDown={handleKeyDown}
-            className="flex max-h-[70vh] w-full max-w-lg flex-col overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-lg focus:outline-none"
+            className="flex h-[78vh] w-[min(960px,95vw)] flex-col overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-xl focus:outline-none"
             initial={{ opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
           >
-        <div className="flex items-center gap-1.5 border-b border-[var(--color-border-subtle)] px-3 py-2">
-          {view.kind === 'detail' ? (
-            <button
-              type="button"
-              onClick={backToList}
-              aria-label={t('history.close')}
-              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
-            >
-              <ChevronLeft size={14} />
-            </button>
-          ) : (
-            <FolderOpen size={14} className="text-[var(--color-accent)]" />
-          )}
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-accent)]">
-            {view.kind === 'detail' ? view.label.name : t('history.browseLabels')}
-          </span>
-          {view.kind === 'list' && (
-            <button
-              type="button"
-              onClick={() => {
+            <Header
+              count={labels?.length ?? 0}
+              onCreate={() => {
                 close();
                 historyUIBus.openCreateLabel();
               }}
-              title={t('history.createLabel')}
-              aria-label={t('history.createLabel')}
-              className="ml-auto flex cursor-pointer items-center gap-1 rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-2 py-1 text-[10px] text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)]/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] active:bg-[var(--color-accent)]/30"
-            >
-              <Plus size={11} />
-              {t('history.submit')}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={close}
-            aria-label={t('history.close')}
-            className={clsx(
-              'flex h-6 w-6 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
-              view.kind === 'list' ? '' : 'ml-auto'
+              onClose={close}
+              t={t}
+            />
+
+            {labels && labels.length > 1 && (
+              <TimelineStrip
+                labels={labels}
+                selectedId={selectedId}
+                onSelect={(l) => setSelectedId(l.id)}
+              />
             )}
-          >
-            <X size={14} />
-          </button>
-        </div>
 
-        {view.kind === 'list' && (view.labels ?? []).length > 1 && (
-          <TimelineStrip
-            labels={view.labels ?? []}
-            onSelect={(l) => void openDetail(l)}
-          />
-        )}
-
-        <div className="flex-1 overflow-y-auto px-3 py-2 text-[12px]">
-          {loading && (
-            <div className="flex items-center gap-1.5 py-2 text-[11px] text-[var(--color-text-muted)]">
-              <Loader2 size={12} className="motion-safe:animate-spin" />
-              {t('history.labelCreating')}
-            </div>
-          )}
-
-          {view.kind === 'list' && !loading && (
-            <LabelList
-              labels={view.labels ?? []}
-              errorKey={view.error}
-              onOpen={(l) => void openDetail(l)}
-              t={t}
-            />
-          )}
-
-          {view.kind === 'detail' && !loading && (
-            <LabelDetail
-              label={view.label}
-              files={view.files ?? []}
-              error={view.error}
-              restore={restore}
-              onRestore={() => void doRestore(view.label)}
-              onViewDiff={(f) => setDiffViewFile(f)}
-              t={t}
-            />
-          )}
+            <div className="flex min-h-0 flex-1">
+              <LabelListPane
+                labels={labels ?? []}
+                listError={listError}
+                listLoading={listLoading}
+                selectedId={selectedId}
+                onSelect={(l) => setSelectedId(l.id)}
+                t={t}
+              />
+              <div className="min-w-0 flex-1 overflow-y-auto border-l border-[var(--color-border-subtle)]">
+                {!selectedLabel ? (
+                  <EmptyState t={t} />
+                ) : (
+                  <LabelDetailPane
+                    label={selectedLabel}
+                    detail={detail}
+                    detailLoading={detailLoading}
+                    restore={restore}
+                    onRestore={() => void doRestore()}
+                    onViewDiff={(f) => setDiffViewFile(f)}
+                    t={t}
+                  />
+                )}
+              </div>
             </div>
           </motion.div>
         </motion.div>
@@ -310,206 +300,67 @@ export function BrowseLabelsDialog(): ReactElement | null {
   );
 }
 
-type T = (key: TranslationKey, params?: Record<string, string | number>) => string;
+// ====== Header ======
 
-function LabelList({
-  labels,
-  errorKey,
-  onOpen,
+function Header({
+  count,
+  onCreate,
+  onClose,
   t,
 }: {
-  labels: HistoryLabelDTO[];
-  errorKey: string | null;
-  onOpen: (l: HistoryLabelDTO) => void;
+  count: number;
+  onCreate: () => void;
+  onClose: () => void;
   t: T;
 }): ReactElement {
-  if (errorKey === 'labelNoProject') {
-    return (
-      <div className="py-4 text-center text-[11px] text-[var(--color-text-muted)]">
-        {t('history.labelNoProject')}
-      </div>
-    );
-  }
-  if (errorKey) {
-    return (
-      <div className="py-4 text-center text-[11px] text-[var(--color-error)]" role="alert">
-        {errorKey}
-      </div>
-    );
-  }
-  if (labels.length === 0) {
-    return (
-      <div className="py-4 text-center text-[11px] text-[var(--color-text-muted)]">
-        {t('history.labelEmpty')}
-      </div>
-    );
-  }
   return (
-    <ul className="space-y-1">
-      {labels.map((l) => (
-        <li key={l.id}>
-          <button
-            type="button"
-            onClick={() => onOpen(l)}
-            className="flex w-full cursor-pointer items-start gap-2 rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-left transition-colors hover:border-[var(--color-accent)]/40 hover:bg-[var(--color-bg-hover)] focus:border-[var(--color-accent)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] active:bg-[var(--color-bg-tertiary)]"
-          >
-            <Tag size={11} className="mt-0.5 flex-shrink-0 text-[var(--color-accent)]" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="truncate text-[12px] font-medium text-[var(--color-text-primary)]">
-                  {l.name}
-                </span>
-                <KindChip kind={l.kind} t={t} />
-              </div>
-              {l.description && (
-                <div className="mt-0.5 truncate text-[10px] text-[var(--color-text-muted)]">
-                  {l.description}
-                </div>
-              )}
-              <div className="mt-0.5 text-[10px] text-[var(--color-text-muted)] tabular-nums">
-                {new Date(l.createdAt).toLocaleString()}
-              </div>
-            </div>
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function LabelDetail({
-  label,
-  files,
-  error,
-  restore,
-  onRestore,
-  onViewDiff,
-  t,
-}: {
-  label: HistoryLabelDTO;
-  files: FileDiff[];
-  error: string | null;
-  restore: RestoreState;
-  onRestore: () => void;
-  onViewDiff: (f: FileDiff) => void;
-  t: T;
-}): ReactElement {
-  const restoring = restore.kind === 'restoring';
-  const totalAdded = files.reduce((acc, f) => acc + (f.stats?.added ?? 0), 0);
-  const totalRemoved = files.reduce((acc, f) => acc + (f.stats?.removed ?? 0), 0);
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-1.5">
-        <KindChip kind={label.kind} t={t} />
-        <span className="text-[10px] text-[var(--color-text-muted)] tabular-nums">
-          {new Date(label.createdAt).toLocaleString()}
+    <div className="flex items-center gap-1.5 border-b border-[var(--color-border-subtle)] px-3 py-2">
+      <FolderOpen size={14} className="text-[var(--color-accent)]" />
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-accent)]">
+        {t('history.browseLabels')}
+      </span>
+      {count > 0 && (
+        <span className="rounded-full bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[9px] tabular-nums text-[var(--color-text-muted)]">
+          {count}
         </span>
-        <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">
-          {t('history.labelFilesCount', { count: files.length })}
-        </span>
-      </div>
-      {label.description && (
-        <div className="rounded bg-[var(--color-bg-primary)] px-2 py-1 text-[11px] text-[var(--color-text-muted)]">
-          {label.description}
-        </div>
       )}
-      {(totalAdded > 0 || totalRemoved > 0) && (
-        <div className="flex items-center gap-2 text-[10px] tabular-nums">
-          <span className="text-[var(--color-text-muted)]">{t('history.restorePreview')}</span>
-          <span className="text-[var(--color-success)]">+{totalRemoved}</span>
-          <span className="text-[var(--color-error)]">-{totalAdded}</span>
-          <span className="text-[var(--color-text-muted)]">{t('history.diffStatsHint')}</span>
-        </div>
-      )}
-      {error && (
-        <div className="text-[10px] text-[var(--color-error)]" role="alert">
-          {error}
-        </div>
-      )}
-      <ul className="max-h-48 space-y-0.5 overflow-y-auto rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] p-1 font-mono text-[10px]">
-        {files.map((f) => {
-          const viewable = f.stats !== null && (f.stats.added > 0 || f.stats.removed > 0);
-          return (
-            <li
-              key={f.fileId}
-              className="group flex items-center gap-1.5 truncate px-1 py-0.5 text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-            >
-              <span className="min-w-0 flex-1 truncate">{f.fileId}</span>
-              {f.stats === null ? (
-                <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
-                  {t('history.diffStatsClosed')}
-                </span>
-              ) : f.stats.added === 0 && f.stats.removed === 0 ? (
-                <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
-                  {t('history.diffStatsNoChange')}
-                </span>
-              ) : (
-                <span className="flex-shrink-0 tabular-nums">
-                  <span className="text-[var(--color-success)]">+{f.stats.removed}</span>
-                  <span className="px-0.5 text-[var(--color-text-muted)]">/</span>
-                  <span className="text-[var(--color-error)]">-{f.stats.added}</span>
-                </span>
-              )}
-              {viewable && (
-                <button
-                  type="button"
-                  onClick={() => onViewDiff(f)}
-                  title={t('history.viewDiff')}
-                  aria-label={t('history.viewDiff')}
-                  className="flex h-5 w-5 flex-shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-accent)] focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] group-hover:opacity-100"
-                >
-                  <Eye size={11} />
-                </button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {restore.kind === 'done' && (
-        <div className="text-[11px] text-[var(--color-success)]" role="status">
-          {t('history.restoreSuccess', { count: restore.count })}
-        </div>
-      )}
-      {restore.kind === 'error' && (
-        <div className="text-[11px] text-[var(--color-error)]" role="alert">
-          {t('history.restoreFailed', { error: restore.message })}
-        </div>
-      )}
-      <div className="flex items-center justify-end gap-1.5 border-t border-[var(--color-border-subtle)] pt-2">
-        <button
-          type="button"
-          onClick={onRestore}
-          disabled={restoring}
-          className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-warning)]/50 bg-[var(--color-warning-muted)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-warning)] transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-warning)] focus-visible:ring-offset-1 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {restoring ? (
-            <Loader2 size={11} className="motion-safe:animate-spin" />
-          ) : (
-            <RotateCcw size={11} />
-          )}
-          {restoring ? t('history.restoring') : t('history.restore')}
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={onCreate}
+        title={t('history.createLabel')}
+        aria-label={t('history.createLabel')}
+        className="ml-auto flex cursor-pointer items-center gap-1 rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-2 py-1 text-[10px] text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)]/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] active:bg-[var(--color-accent)]/30"
+      >
+        <Plus size={11} />
+        {t('history.submit')}
+      </button>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label={t('history.close')}
+        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+      >
+        <X size={14} />
+      </button>
     </div>
   );
 }
 
-/**
- * Horizontal scrubber rendered above the label list when 2+ labels exist.
- * Each label is a colored dot positioned by its `createdAt` on a linear scale
- * (oldest at left, newest at right). Clicking a dot opens its detail. Pure
- * SVG → zero new dep, sharp on hi-DPI. Hover tooltips use the native `title`
- * attribute to stay accessible-by-default without extra CSS.
- */
+// ====== Timeline scrubber ======
+
 function TimelineStrip({
   labels,
+  selectedId,
   onSelect,
 }: {
   labels: HistoryLabelDTO[];
+  selectedId: string | null;
   onSelect: (l: HistoryLabelDTO) => void;
-}): ReactElement | null {
-  if (labels.length < 2) return null;
-  const sorted = [...labels].sort((a, b) => a.createdAt - b.createdAt);
+}): ReactElement {
+  const sorted = useMemo(
+    () => [...labels].sort((a, b) => a.createdAt - b.createdAt),
+    [labels]
+  );
   const minTs = sorted[0].createdAt;
   const maxTs = sorted[sorted.length - 1].createdAt;
   const span = Math.max(1, maxTs - minTs);
@@ -517,19 +368,14 @@ function TimelineStrip({
   return (
     <div className="border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] px-3 py-2">
       <div className="relative h-6">
-        {/* baseline */}
         <div
           aria-hidden
           className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 bg-[var(--color-border-subtle)]"
         />
         {sorted.map((l) => {
           const pct = ((l.createdAt - minTs) / span) * 100;
-          const color =
-            l.kind === 'manual'
-              ? 'var(--color-accent)'
-              : l.kind === 'milestone'
-                ? 'var(--color-warning)'
-                : 'var(--color-text-muted)';
+          const color = kindColor(l.kind);
+          const isSelected = l.id === selectedId;
           return (
             <button
               key={l.id}
@@ -537,15 +383,18 @@ function TimelineStrip({
               onClick={() => onSelect(l)}
               title={`${l.name} · ${new Date(l.createdAt).toLocaleString()}`}
               aria-label={l.name}
-              // ring instead of scale: keeps neighbour dots from being shoved
-              // (skill: "Use color/opacity transitions on hover" — not scale)
-              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full p-0 ring-0 ring-offset-2 ring-offset-[var(--color-bg-primary)] transition-shadow hover:ring-2 focus:outline-none focus:ring-2"
+              className={
+                'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full p-0 transition-shadow hover:ring-2 focus:outline-none focus:ring-2 ' +
+                (isSelected ? 'ring-2' : 'ring-0')
+              }
               style={{
                 left: `${pct}%`,
-                width: 10,
-                height: 10,
+                width: isSelected ? 12 : 10,
+                height: isSelected ? 12 : 10,
                 backgroundColor: color,
                 ['--tw-ring-color' as string]: color,
+                ['--tw-ring-offset-color' as string]: 'var(--color-bg-primary)',
+                ['--tw-ring-offset-width' as string]: '2px',
               }}
             />
           );
@@ -559,25 +408,280 @@ function TimelineStrip({
   );
 }
 
-function KindChip({
-  kind,
+// ====== Labels list pane ======
+
+function LabelListPane({
+  labels,
+  listError,
+  listLoading,
+  selectedId,
+  onSelect,
   t,
 }: {
-  kind: HistoryLabelDTO['kind'];
+  labels: HistoryLabelDTO[];
+  listError: string | null;
+  listLoading: boolean;
+  selectedId: string | null;
+  onSelect: (l: HistoryLabelDTO) => void;
   t: T;
 }): ReactElement {
-  const map = {
-    manual: { key: 'history.labelKindManual', color: 'var(--color-accent)' },
-    auto: { key: 'history.labelKindAuto', color: 'var(--color-text-muted)' },
-    milestone: { key: 'history.labelKindMilestone', color: 'var(--color-warning)' },
-  } as const;
-  const entry = map[kind];
+  return (
+    <div className="flex w-[35%] min-w-[220px] flex-col overflow-y-auto bg-[var(--color-bg-primary)]/40">
+      {listLoading && (
+        <div className="flex items-center gap-1.5 px-3 py-2 text-[11px] text-[var(--color-text-muted)]">
+          <Loader2 size={12} className="motion-safe:animate-spin" />
+          {t('history.labelCreating')}
+        </div>
+      )}
+      {listError === 'labelNoProject' && (
+        <div className="px-3 py-4 text-center text-[11px] text-[var(--color-text-muted)]">
+          {t('history.labelNoProject')}
+        </div>
+      )}
+      {listError && listError !== 'labelNoProject' && (
+        <div className="px-3 py-4 text-center text-[11px] text-[var(--color-error)]" role="alert">
+          {listError}
+        </div>
+      )}
+      {!listLoading && !listError && labels.length === 0 && (
+        <div className="px-3 py-4 text-center text-[11px] text-[var(--color-text-muted)]">
+          {t('history.labelEmpty')}
+        </div>
+      )}
+      <ul className="flex-1">
+        {labels.map((l) => {
+          const isSelected = l.id === selectedId;
+          return (
+            <li key={l.id}>
+              <button
+                type="button"
+                onClick={() => onSelect(l)}
+                aria-current={isSelected ? 'true' : undefined}
+                className={
+                  'relative flex w-full cursor-pointer items-start gap-2 border-l-2 px-3 py-2 text-left transition-colors focus:outline-none ' +
+                  (isSelected
+                    ? 'border-l-[var(--color-accent)] bg-[var(--color-accent-muted)]/40 '
+                    : 'border-l-transparent hover:bg-[var(--color-bg-hover)] focus-visible:bg-[var(--color-bg-hover)]')
+                }
+              >
+                <Tag
+                  size={11}
+                  className="mt-0.5 flex-shrink-0"
+                  style={{ color: kindColor(l.kind) }}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="truncate text-[12px] font-medium text-[var(--color-text-primary)]">
+                      {l.name}
+                    </span>
+                    <KindChip kind={l.kind} t={t} />
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-[var(--color-text-muted)] tabular-nums">
+                    {new Date(l.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// ====== Empty state ======
+
+function EmptyState({ t }: { t: T }): ReactElement {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+      <Inbox size={32} className="text-[var(--color-text-muted)] opacity-40" />
+      <p className="text-[11px] text-[var(--color-text-muted)]">
+        {t('history.labelSelectPrompt')}
+      </p>
+      <p className="text-[10px] text-[var(--color-text-muted)] opacity-60">
+        {t('history.labelKeyboardHint')}
+      </p>
+    </div>
+  );
+}
+
+// ====== Label detail pane ======
+
+function LabelDetailPane({
+  label,
+  detail,
+  detailLoading,
+  restore,
+  onRestore,
+  onViewDiff,
+  t,
+}: {
+  label: HistoryLabelDTO;
+  detail: DetailData | null;
+  detailLoading: boolean;
+  restore: RestoreState;
+  onRestore: () => void;
+  onViewDiff: (f: FileDiff) => void;
+  t: T;
+}): ReactElement {
+  const restoring = restore.kind === 'restoring';
+  const files = detail?.files ?? [];
+  const totalAdded = files.reduce((acc, f) => acc + (f.stats?.added ?? 0), 0);
+  const totalRemoved = files.reduce((acc, f) => acc + (f.stats?.removed ?? 0), 0);
+  const hasChanges = totalAdded > 0 || totalRemoved > 0;
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b border-[var(--color-border-subtle)] px-3 py-2">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-[13px] font-semibold text-[var(--color-text-primary)]">
+            {label.name}
+          </span>
+          <KindChip kind={label.kind} t={t} />
+        </div>
+        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)] tabular-nums">
+          <span>{new Date(label.createdAt).toLocaleString()}</span>
+          <span>·</span>
+          <span>{t('history.labelFilesCount', { count: files.length })}</span>
+          {hasChanges && (
+            <>
+              <span>·</span>
+              <span className="text-[var(--color-success)]">+{totalRemoved}</span>
+              <span>/</span>
+              <span className="text-[var(--color-error)]">-{totalAdded}</span>
+            </>
+          )}
+        </div>
+        {label.description && (
+          <div className="mt-1.5 rounded bg-[var(--color-bg-primary)] px-2 py-1 text-[11px] text-[var(--color-text-muted)]">
+            {label.description}
+          </div>
+        )}
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+        {detailLoading && (
+          <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)]">
+            <Loader2 size={12} className="motion-safe:animate-spin" />
+            {t('history.labelCreating')}
+          </div>
+        )}
+        {!detailLoading && detail?.error && (
+          <div className="text-[11px] text-[var(--color-error)]" role="alert">
+            {detail.error}
+          </div>
+        )}
+        {!detailLoading && !detail?.error && (
+          <ul className="space-y-0.5 font-mono text-[10px]">
+            {files.map((f) => (
+              <FileRow key={f.fileId} file={f} onViewDiff={onViewDiff} t={t} />
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 border-t border-[var(--color-border-subtle)] px-3 py-2">
+        {restore.kind === 'done' && (
+          <span className="text-[11px] text-[var(--color-success)]" role="status">
+            {t('history.restoreSuccess', { count: restore.count })}
+          </span>
+        )}
+        {restore.kind === 'error' && (
+          <span className="text-[11px] text-[var(--color-error)]" role="alert">
+            {t('history.restoreFailed', { error: restore.message })}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={onRestore}
+          disabled={restoring}
+          className="ml-auto flex cursor-pointer items-center gap-1 rounded border border-[var(--color-warning)]/50 bg-[var(--color-warning-muted)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-warning)] transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-warning)] focus-visible:ring-offset-1 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {restoring ? (
+            <Loader2 size={11} className="motion-safe:animate-spin" />
+          ) : (
+            <RotateCcw size={11} />
+          )}
+          {restoring ? t('history.restoring') : t('history.restore')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FileRow({
+  file,
+  onViewDiff,
+  t,
+}: {
+  file: FileDiff;
+  onViewDiff: (f: FileDiff) => void;
+  t: T;
+}): ReactElement {
+  const viewable = file.stats !== null && (file.stats.added > 0 || file.stats.removed > 0);
+  return (
+    <li className="group flex items-center gap-1.5 truncate rounded px-1 py-0.5 text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]">
+      <span className="min-w-0 flex-1 truncate">{file.fileId}</span>
+      {file.stats === null ? (
+        <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
+          {t('history.diffStatsClosed')}
+        </span>
+      ) : file.stats.added === 0 && file.stats.removed === 0 ? (
+        <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
+          {t('history.diffStatsNoChange')}
+        </span>
+      ) : (
+        <span className="flex-shrink-0 tabular-nums">
+          <span className="text-[var(--color-success)]">+{file.stats.removed}</span>
+          <span className="px-0.5 text-[var(--color-text-muted)]">/</span>
+          <span className="text-[var(--color-error)]">-{file.stats.added}</span>
+        </span>
+      )}
+      {viewable && (
+        <button
+          type="button"
+          onClick={() => onViewDiff(file)}
+          title={t('history.viewDiff')}
+          aria-label={t('history.viewDiff')}
+          className="flex h-5 w-5 flex-shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-accent)] focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] group-hover:opacity-100"
+        >
+          <Eye size={11} />
+        </button>
+      )}
+    </li>
+  );
+}
+
+// ====== KindChip ======
+
+function KindChip({ kind, t }: { kind: HistoryLabelDTO['kind']; t: T }): ReactElement {
+  const color = kindColor(kind);
+  const key: TranslationKey =
+    kind === 'manual'
+      ? 'history.labelKindManual'
+      : kind === 'milestone'
+        ? 'history.labelKindMilestone'
+        : 'history.labelKindAuto';
   return (
     <span
       className="rounded border px-1 py-0.5 text-[9px] uppercase tracking-wider"
-      style={{ borderColor: `color-mix(in srgb, ${entry.color} 50%, transparent)`, color: entry.color }}
+      style={{
+        borderColor: `color-mix(in srgb, ${color} 50%, transparent)`,
+        color,
+      }}
     >
-      {t(entry.key)}
+      {t(key)}
     </span>
   );
+}
+
+function kindColor(kind: HistoryLabelDTO['kind']): string {
+  switch (kind) {
+    case 'manual':
+      return 'var(--color-accent)';
+    case 'milestone':
+      return 'var(--color-warning)';
+    default:
+      return 'var(--color-text-muted)';
+  }
 }
