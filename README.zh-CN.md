@@ -32,6 +32,7 @@
 - ✏️ **编辑器** — Monaco 编辑器接入 TexLab、Tinymist、Marksman:为 LaTeX、Typst、Markdown 提供补全、诊断、悬浮提示与跳转定义。
 - 📄 **实时 PDF 预览** — 基于 pdf.js,支持 SyncTeX 正反向跳转、KaTeX 行内公式、平滑缩放与 CJK 字形显示。
 - 🤖 **AI Agent(内置)** — SNACA 运行时随应用分发:文件编辑(逐 hunk Diff Review)、联网搜索 / 抓取、向用户发起的多选问题卡、按项目记忆、以及内置学术科研 Skill(paper / reviewer / pipeline / deep-research,源自 [Imbad0202/academic-research-skills](https://github.com/Imbad0202/academic-research-skills))。无需额外起服务。
+- 🕘 **本地历史与恢复** — 自动为项目留痕,无需 Git:手动命名的 label(类似有名字的存档)、编译成功自动 milestone、AI 大改后的 drift 快照、聊天中按用户消息粒度回滚。统一时间线浏览器内可浏览、对比与恢复。
 - ☁️ **Overleaf 同步** — 登录一次,项目下载到本地磁盘,可离线编辑,推送时基于 base / local / remote 进行三方合并。
 
 > [!NOTE]

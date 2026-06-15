@@ -105,6 +105,7 @@ cli_tools/*/pnpm-lock.yaml
 # AI/Dev tools
 .claude/
 .cursorrules
+.cursor/
 
 # Playwright test artifacts
 playwright-report/

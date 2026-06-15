@@ -32,6 +32,7 @@
 - ✏️ **Editor** — Monaco with TexLab, Tinymist, and Marksman: completion, diagnostics, hover, and jump-to-definition for LaTeX, Typst, and Markdown.
 - 📄 **Live PDF preview** — pdf.js renderer with SyncTeX two-way jump, KaTeX inline math, smooth zoom, and CJK glyph rendering.
 - 🤖 **AI agent (built-in)** — SNACA runtime ships with the app: file editing with Diff Review, web search / fetch, interactive multiple-choice questions, per-project memory, and bundled academic-research skills (paper / reviewer / pipeline / deep-research, sourced from [Imbad0202/academic-research-skills](https://github.com/Imbad0202/academic-research-skills)). No separate server to run.
+- 🕘 **Local history & restore** — Background snapshots of your project, no Git required: named labels (manual checkpoints), auto-milestones on successful compile, drift-triggered snapshots after large AI edits, and per-message rollback in chat. Browse, diff, and restore from a unified timeline.
 - ☁️ **Overleaf sync** — Sign in once, projects download to disk, edits stay offline, three-way merge on push.
 
 > [!NOTE]
