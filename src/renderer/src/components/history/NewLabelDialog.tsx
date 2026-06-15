@@ -19,44 +19,11 @@ import {
   type ReactElement,
 } from 'react';
 import { api } from '../../api';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useTranslation } from '../../locales';
 import { getEditorService, getProjectRuntimeContext } from '../../services/core';
 import { historyUIBus } from '../../services/core/HistoryUIBus';
 import { historyProjectIdOf } from '../../utils/historyProjectId';
-
-/**
- * Walk the dialog subtree and cycle Tab focus between first/last interactive
- * descendant so keyboard users cannot escape into the background. Implements
- * the same trap pattern as ApprovalCard / UserQuestionCard.
- */
-function useFocusTrap(
-  containerRef: React.RefObject<HTMLDivElement | null>,
-  active: boolean
-): void {
-  useEffect(() => {
-    if (!active) return;
-    const container = containerRef.current;
-    if (!container) return;
-    const handler = (e: KeyboardEvent): void => {
-      if (e.key !== 'Tab') return;
-      const focusable = container.querySelectorAll<HTMLElement>(
-        'button:not([disabled]),[href],input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'
-      );
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [active, containerRef]);
-}
 
 type SubmitState = 'idle' | 'submitting' | 'error';
 

@@ -33,6 +33,7 @@ import {
   type ReactElement,
 } from 'react';
 import { api, type HistoryStepDTO } from '../../api';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useTranslation, type TranslationKey } from '../../locales';
 import { getEditorService, getProjectRuntimeContext } from '../../services/core';
 import { historyUIBus } from '../../services/core/HistoryUIBus';
@@ -91,6 +92,7 @@ export function BrowseSessionsDialog(): ReactElement | null {
   const [restore, setRestore] = useState<RestoreState>({ kind: 'idle' });
   const [diffViewFile, setDiffViewFile] = useState<StepFile | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(containerRef, isOpen);
 
   const loadSessions = useCallback(async (): Promise<void> => {
     const projectId = historyProjectIdOf(getProjectRuntimeContext().rootPath);
