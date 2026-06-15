@@ -354,15 +354,36 @@ P2 L2 AI 会话级 + Cursor 风格 rollback ✅
 - [x] P2.C.backend resolveStepSnapshot + findStepBeforeTs + 2 新单测
 - [x] P2.C.UI Cursor 风格:用户消息悬停 RotateCcw 按钮 → findStepBeforeTs → confirm → applySnapshot 写盘+setContentFromExternal
 
-P3 Timeline UI + auto labels + diff preview ⏳ 留独立任务
-- [ ] 顶部 timeline slider
-- [ ] 自动 label 触发器(每天 18:00 / 编译成功 / SNACA 影响 >3 文件)
-- [ ] diff preview(read-only)
+P3 Timeline UI + auto labels + diff preview ✅
+- [x] P3.auto-label 每 6h 时间触发器(0ba5970)
+- [x] P3.compile-trigger 编译成功 + 5min 节流触发 milestone label(77fb803)
+- [x] P3.size-tracking SNACA 累积 5KB 阈值触发(ab10538)
+- [x] P3.timeline 顶部时间轴 scrubber(BrowseLabelsDialog 内,4ccac97)
+- [x] P3.diff-preview label detail 每文件 +N/-N 行变化预览(ef74175)
 
-P4 GC + 协同 ⚠ 部分完成
-- [x] P4.GC blob orphan sweep daemon + sweepAll API + 1 测
-- [ ] chunk merge(连续 N chunk 合并大 chunk)— 量到 1000+/file 才有 ROI,留 P5
-- [ ] rollback OT broadcast(协同 rebroadcast)— 跨 ot-server,留 P5+ 独立任务
+P4 GC + chunk merge ✅
+- [x] P4.GC blob orphan sweep daemon + sweepAll API + 1 测(7b2bd9f)
+- [x] P4.chunk-merge 连续 chunk 合并 + 2 测(a5c3a4c)
+- [x] P4.chunk-merge-auto sweepAll 闭环触发 mergeAllChunks + 1 测(6914bc9)
 
-vitest 累计:53/53 全过
+P5 协同 ✅(通过 Overleaf 而非 OT)
+- [x] P5/Overleaf rollback 走 triggerOverleafSyncAfterSave 协同 broadcast(2b39f48)
+  · plan §6 原 OT broadcast 假设与 scipen-studio 实际架构不匹配(已迁 Overleaf local-first)
+  · 修正:rollback 内容写盘后 fire Overleaf sync(non-Overleaf 项目 no-op),冲突走标准对话框
+
+vitest 累计:56/56 全过
 typecheck:all / lint:check / check-no-cjk:全程 baseline 持平
+
+═════════════════════════════════════════════════════════════════
+全部 phase ✅(P0/P1/P2/P3/P4/P5 in scope 完成)
+═════════════════════════════════════════════════════════════════
+
+显式 plan §12 排除的未做项:
+- Git CLI / git-bridge 暴露(学术写作用户非开发者)
+- 替换 OT 为 CRDT(Yjs/Automerge/Loro)— 工作量 6+ 月,ROI 负
+- regent rgt CLI Go 二进制依赖
+- multi-author blame UI
+- 跨项目 history search
+- 分支命名 / branch 合并 UI(session-as-branch 是底层模型,不暴露 git 心智)
+- export to git
+- Peritext / Eg-walker rich-text intent preservation(scipen 是 plain text)
