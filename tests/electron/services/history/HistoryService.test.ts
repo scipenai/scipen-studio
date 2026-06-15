@@ -125,6 +125,41 @@ describe('HistoryService - L1 chunks', () => {
     );
   });
 
+  it('mergeAllChunks targets only files above threshold', async () => {
+    // file A: 3 chunks → above threshold=1
+    let prev = bytes('0');
+    for (let i = 0; i < 3; i++) {
+      const next = bytes(`A-${i + 1}`);
+      await svc.recordChunk({
+        projectId: 'p3',
+        fileId: 'A.tex',
+        versionFrom: i,
+        versionTo: i + 1,
+        baseContent: prev,
+        targetContent: next,
+        opCount: 1,
+        primaryActor: null,
+      });
+      prev = next;
+    }
+    // file B: 1 chunk → below threshold=1, untouched
+    await svc.recordChunk({
+      projectId: 'p3',
+      fileId: 'B.tex',
+      versionFrom: 0,
+      versionTo: 1,
+      baseContent: bytes('b0'),
+      targetContent: bytes('b1'),
+      opCount: 1,
+      primaryActor: null,
+    });
+    const result = await svc.mergeAllChunks(1);
+    expect(result.filesAffected).toBe(1);
+    expect(result.merged).toBe(2);
+    expect((await svc.listChunks('p3', 'A.tex')).length).toBe(1);
+    expect((await svc.listChunks('p3', 'B.tex')).length).toBe(1);
+  });
+
   it('mergeChunks no-ops below the threshold', async () => {
     await svc.recordChunk({
       projectId: 'pm2',

@@ -70,6 +70,11 @@ export interface IHistoryService {
    * — orphan reaping is the GC sweep's job.
    */
   mergeChunks(projectId: string, fileId: string, minChunks?: number): Promise<{ merged: number }>;
+  /**
+   * Run `mergeChunks` against every `(project, file)` whose chunk count
+   * exceeds `minChunks`. Returns the aggregate rows-pruned count.
+   */
+  mergeAllChunks(minChunks?: number): Promise<{ merged: number; filesAffected: number }>;
   createLabel(input: CreateLabelInput): Promise<HistoryLabel>;
   listLabels(projectId: string, limit?: number): Promise<HistoryLabel[]>;
   /** Resolve a label to a file → bytes map by reading the referenced blobs. */

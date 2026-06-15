@@ -115,9 +115,30 @@ export class HistoryManager {
    * Trigger an orphan sweep across every currently-open project. Returns the
    * aggregated counts. Public so tests / admin actions can force a sweep
    * without waiting for the daily timer.
+   *
+   * Also folds long chunk chains via `mergeAllChunks` so the GC cycle does
+   * both cleanups in one pass — chunk merging produces fresh orphan blobs
+   * (intermediate base/target hashes), and the sweep that follows reaps them.
    */
-  async sweepAll(): Promise<{ rows: number; files: number }> {
-    if (this.disposed) return { rows: 0, files: 0 };
+  async sweepAll(): Promise<{ rows: number; files: number; chunksMerged: number }> {
+    if (this.disposed) return { rows: 0, files: 0, chunksMerged: 0 };
+    let chunksMerged = 0;
+    // Merge first, sweep after — merging decRefs intermediate blobs and the
+    // sweep then reaps them within the same cycle.
+    for (const [projectId, _store] of this.blobStores) {
+      const svc = this.services.get(projectId);
+      if (!svc) continue;
+      try {
+        const result = await svc.mergeAllChunks();
+        chunksMerged += result.merged;
+      } catch (err) {
+        logger.warn('mergeAllChunks failed for one project', {
+          projectId,
+          error: (err as Error).message,
+        });
+      }
+      void _store;
+    }
     let rows = 0;
     let files = 0;
     for (const store of this.blobStores.values()) {
@@ -129,7 +150,7 @@ export class HistoryManager {
         logger.warn('sweep failed for one project', { error: (err as Error).message });
       }
     }
-    return { rows, files };
+    return { rows, files, chunksMerged };
   }
 
   private armSweepTimer(): void {

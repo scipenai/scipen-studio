@@ -244,6 +244,31 @@ export class HistoryService implements IHistoryService {
     return { merged: rows.length - 1 };
   }
 
+  async mergeAllChunks(
+    minChunks = 1000
+  ): Promise<{ merged: number; filesAffected: number }> {
+    const db = this.deps.metaDb.db;
+    // Group by (project_id, file_id) and only return groups that exceed the
+    // merge threshold — the row scan stays bounded to "files actually worth
+    // merging" instead of every chunk in the DB.
+    const groups = db
+      .prepare<unknown[]>(
+        `SELECT project_id, file_id, COUNT(*) AS cnt
+         FROM history_chunk GROUP BY project_id, file_id HAVING cnt > ?`
+      )
+      .all(minChunks) as Array<{ project_id: string; file_id: string; cnt: number }>;
+    let merged = 0;
+    let filesAffected = 0;
+    for (const g of groups) {
+      const result = await this.mergeChunks(g.project_id, g.file_id, minChunks);
+      if (result.merged > 0) {
+        merged += result.merged;
+        filesAffected++;
+      }
+    }
+    return { merged, filesAffected };
+  }
+
   async listChunks(projectId: string, fileId: string, limit = 100): Promise<HistoryChunk[]> {
     const rows = this.stmts.listChunks.all(projectId, fileId, limit) as Array<{
       id: number;
