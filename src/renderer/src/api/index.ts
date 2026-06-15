@@ -966,6 +966,17 @@ export const history = {
     parentSession: string | null;
   }) => invoke<{ ok: true }>(IpcChannel.History_EnsureSession, input),
 
+  recordStep: (input: {
+    projectId: string;
+    sessionId: string;
+    parentStepHashHex: string | null;
+    tree: Array<{ fileId: string; blobHashHex: string }>;
+    causes: Array<{ toolName: string; argsJson?: string; resultSummary?: string }>;
+    origin: HistoryStepOriginDTO;
+    ts: number;
+    sizeDelta: number;
+  }) => invoke<{ hashHex: string }>(IpcChannel.History_RecordStep, input),
+
   createLabel: (input: {
     projectId: string;
     name: string;

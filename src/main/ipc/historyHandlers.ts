@@ -52,6 +52,32 @@ const ensureSessionSchema = z.object({
   parentSession: sessionIdSchema.nullable(),
 });
 
+const recordStepSchema = z.object({
+  projectId: projectIdSchema,
+  sessionId: sessionIdSchema,
+  parentStepHashHex: hashHexSchema.nullable(),
+  tree: z
+    .array(
+      z.object({
+        fileId: fileIdSchema,
+        blobHashHex: hashHexSchema,
+      })
+    )
+    .max(4096),
+  causes: z
+    .array(
+      z.object({
+        toolName: z.string().min(1).max(128),
+        argsJson: z.string().max(64 * 1024).optional(),
+        resultSummary: z.string().max(8 * 1024).optional(),
+      })
+    )
+    .max(128),
+  origin: z.enum(['snaca_tool', 'human_edit', 'merge']),
+  ts: z.number().int().nonnegative(),
+  sizeDelta: z.number().int(),
+});
+
 const createLabelSchema = z.object({
   projectId: projectIdSchema,
   name: z.string().min(1).max(256),
@@ -128,6 +154,21 @@ export function registerHistoryHandlers(deps: HistoryHandlersDeps): void {
       parentSession: p.parentSession,
     });
     return { ok: true as const };
+  });
+
+  ipcMain.handle(IpcChannel.History_RecordStep, async (_e, raw: unknown) => {
+    const p = parseOrThrow(recordStepSchema, raw, 'recordStep');
+    const step = await historyManager.getOrCreate(p.projectId).recordStep({
+      projectId: p.projectId,
+      sessionId: p.sessionId,
+      parentStepHashHex: p.parentStepHashHex,
+      tree: p.tree,
+      causes: p.causes,
+      origin: p.origin,
+      ts: p.ts,
+      sizeDelta: p.sizeDelta,
+    });
+    return { hashHex: toHex(step.hash) };
   });
 
   ipcMain.handle(IpcChannel.History_CreateLabel, async (_e, raw: unknown) => {

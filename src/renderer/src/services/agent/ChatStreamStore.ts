@@ -9,6 +9,15 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+function safeStringify(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return undefined;
+  }
+}
+
 import { agentClient, type ThreadMessageDTO } from './AgentClientService';
 import { resolveAgentPath } from './agentPathResolver';
 import {
@@ -740,8 +749,79 @@ class ChatStreamStoreImpl {
       if (a) {
         a.status = 'resolved';
         this.fire();
+        // Best-effort: persist an AI-session-level step so a future user can
+        // see/rollback what this tool did. OT log remains the truth, so any
+        // failure here is logged and swallowed — the chat does not block on
+        // history I/O.
+        void this.recordSnacaToolStep(a);
         return;
       }
+    }
+  }
+
+  /**
+   * Per-session head step cache so each new step parents the previous one
+   * within the same chat thread → builds the Step DAG branch.
+   */
+  private readonly lastStepBySession = new Map<string, string>();
+
+  private async recordSnacaToolStep(approval: ChatApprovalRequest): Promise<void> {
+    try {
+      // Defer-import to keep the historyApi lazy — chat happily streams long
+      // before the user ever opens a label dialog, no need to eagerly bind.
+      const [{ api }, { getProjectRuntimeContext, getEditorService }] = await Promise.all([
+        import('../../api'),
+        import('../core'),
+      ]);
+      const projectId = getProjectRuntimeContext().projectId;
+      const threadId = this.activeThreadId;
+      if (!projectId || !threadId) return;
+
+      // Stable per-chat-thread session id; collisions across reopens are fine
+      // because the underlying SQL row is INSERT OR IGNORE on the id.
+      const sessionId = `chat-${threadId}`;
+      await api.history.ensureSession({
+        projectId,
+        id: sessionId,
+        chatThreadId: threadId,
+        parentSession: null,
+      });
+
+      const tabs = getEditorService().tabs;
+      const tree: Array<{ fileId: string; blobHashHex: string }> = [];
+      const encoder = new TextEncoder();
+      for (const tab of tabs) {
+        const fileId = tab._id ?? tab.path;
+        const bytes = encoder.encode(tab.content);
+        const result = await api.history.putBlob({ projectId, bytes });
+        tree.push({ fileId, blobHashHex: result.hashHex });
+      }
+
+      const parent = this.lastStepBySession.get(sessionId) ?? null;
+      const step = await api.history.recordStep({
+        projectId,
+        sessionId,
+        parentStepHashHex: parent,
+        tree,
+        causes: [
+          {
+            toolName: approval.tool,
+            argsJson: safeStringify(approval.args),
+            resultSummary: approval.summary || undefined,
+          },
+        ],
+        origin: 'snaca_tool',
+        ts: Date.now(),
+        // sizeDelta is computed against the prior step's tree blobs; M6 will
+        // add the diff. Zero now keeps the step row honest about "we don't
+        // know yet" rather than guessing.
+        sizeDelta: 0,
+      });
+      this.lastStepBySession.set(sessionId, step.hashHex);
+    } catch (err) {
+      // Best-effort; do not surface to the user. The card already flipped.
+      // eslint-disable-next-line no-console
+      console.warn('[ChatStreamStore] recordSnacaToolStep failed', err);
     }
   }
 

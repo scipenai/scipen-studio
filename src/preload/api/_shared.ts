@@ -194,6 +194,7 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   // ====== History (versioning) ======
   IpcChannel.History_PutBlob,
   IpcChannel.History_EnsureSession,
+  IpcChannel.History_RecordStep,
   IpcChannel.History_CreateLabel,
   IpcChannel.History_ListLabels,
   IpcChannel.History_ResolveLabelSnapshot,

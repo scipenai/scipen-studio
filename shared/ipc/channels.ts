@@ -446,6 +446,8 @@ export enum IpcChannel {
   History_PutBlob = 'history:put-blob',
   /** Create or get a session row; required before the first `recordStep`. */
   History_EnsureSession = 'history:ensure-session',
+  /** Record one SNACA tool turn / human-edit batch as a Step DAG node. */
+  History_RecordStep = 'history:record-step',
   /** Create a user-named multi-file snapshot label. */
   History_CreateLabel = 'history:create-label',
   /** List labels for a project, most recent first. */
