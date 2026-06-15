@@ -78,6 +78,20 @@ const startedProjects = new Map<string, { sessionId: string; threads: ThreadSumm
 /** Derive a fallback title from the user's first message (used when the LLM is
  * unavailable or fails): take the first line, strip quotes/attachment markers/
  * markdown, then truncate. */
+/**
+ * SNACA's `session.new_thread` returns a non-empty sentinel title when the
+ * caller doesn't supply one (`snaca_editor::session_manager::DEFAULT_THREAD_TITLE`).
+ * Renderer-side we want "no user-assigned title" to read as untitled — both
+ * to (a) actually trigger the LLM-driven topic summarization on the first
+ * user message, and (b) render the localized placeholder in the header
+ * rather than the English sentinel on a Chinese UI. Centralizing the check
+ * keeps the two surfaces in lockstep.
+ */
+const SNACA_DEFAULT_THREAD_TITLE = 'New conversation';
+function isUntitledThread(title: string | null | undefined): boolean {
+  return !title || title === SNACA_DEFAULT_THREAD_TITLE;
+}
+
 function deriveTitleFromText(text: string): string {
   const firstLine =
     text
@@ -315,7 +329,9 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
       const titleThreadId = chatStreamStore.getActiveThreadId();
       const isFirstMessage = chatStreamStore.getMessages().length === 0;
       const existingThread = threadsRef.current.find((th) => th.thread_id === titleThreadId);
-      const needsTitle = Boolean(isFirstMessage && titleThreadId && !existingThread?.title);
+      const needsTitle = Boolean(
+        isFirstMessage && titleThreadId && isUntitledThread(existingThread?.title)
+      );
       try {
         const context = buildChatContext();
         // Resolve `@path` tokens into structured `Mention[]` so the LLM
@@ -433,7 +449,9 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
     }
   }, [startup, t]);
 
-  const threadTitle = activeThread?.title || t('thread.newConversation');
+  const threadTitle = isUntitledThread(activeThread?.title)
+    ? t('thread.newConversation')
+    : (activeThread?.title ?? t('thread.newConversation'));
   const isEmpty = messages.length === 0 && !currentTurn;
 
   // Single composer element: centered hero in empty state, docked at the bottom otherwise.

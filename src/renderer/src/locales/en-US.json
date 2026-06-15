@@ -721,16 +721,16 @@
     "compileFailed": "Compile failed",
     "localCompiler": "Local Compiler",
     "selectCompileEngine": "Select Compile Engine",
-    "fastEnglishOnly": "SyncTeX supported",
+    "fastEnglishOnly": "Legacy, fastest",
     "traditionalLatex": "Legacy compiler",
-    "unicodeSupport": "SyncTeX supported",
-    "unicodeAndLua": "SyncTeX supported",
+    "unicodeSupport": "Unicode support",
+    "unicodeAndLua": "Unicode + Lua scripting",
     "typstCompiler": "Typst Compiler",
     "recommendedFullFeatures": "PDF generation only",
     "officialCliTool": "PDF generation only",
-    "recommendedUnicode": "SyncTeX supported",
-    "modernCompiler": "SyncTeX supported",
-    "wasmNoInstall": "Session-scoped SyncTeX"
+    "recommendedUnicode": "Unicode + system fonts",
+    "modernCompiler": "Auto-fetch packages",
+    "wasmNoInstall": "No install needed"
   },
   "outline": {
     "noFileOpen": "No file open",
