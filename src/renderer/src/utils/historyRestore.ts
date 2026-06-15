@@ -11,6 +11,7 @@
 
 import { api } from '../api';
 import { getEditorService } from '../services/core';
+import { triggerOverleafSyncAfterSave } from './overleaf-sync-helper';
 
 export interface ApplySnapshotResult {
   /** Number of tabs whose content was actually rewritten (skips no-op identical content). */
@@ -19,6 +20,19 @@ export interface ApplySnapshotResult {
   skipped: number;
 }
 
+/**
+ * Apply a `fileId → bytes` snapshot to the currently open editor tabs.
+ *
+ * Three things happen per matched tab, in order:
+ *  1. `api.file.write` rewrites the on-disk file (atomic).
+ *  2. `setContentFromExternal` syncs the in-memory Monaco model.
+ *  3. `triggerOverleafSyncAfterSave` fires the Overleaf push pipeline.
+ *
+ * Step 3 is the rollback's "broadcast" path: scipen-studio doesn't talk OT,
+ * so collaborative sync lives in the Overleaf local-first layer. If the
+ * current project is not connected to Overleaf the trigger is a no-op
+ * (`triggerOverleafSyncAfterSave` short-circuits on `!overleafProjectId`).
+ */
 export async function applySnapshotToOpenTabs(
   snapshot: Record<string, Uint8Array>
 ): Promise<ApplySnapshotResult> {
@@ -38,6 +52,13 @@ export async function applySnapshotToOpenTabs(
     if (tab.content === content) continue;
     await api.file.write(tab.path, content);
     getEditorService().setContentFromExternal(tab.path, content);
+    // Broadcast through Overleaf sync (no-op for non-Overleaf projects).
+    triggerOverleafSyncAfterSave({
+      filePath: tab.path,
+      content,
+      fileName: tab.name,
+      addLog: () => {},
+    });
     count++;
   }
   return { count, skipped };
