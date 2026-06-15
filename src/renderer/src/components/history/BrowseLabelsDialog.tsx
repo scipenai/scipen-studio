@@ -19,13 +19,25 @@ import {
 } from 'react';
 import { api, type HistoryLabelDTO } from '../../api';
 import { useTranslation, type TranslationKey } from '../../locales';
-import { getProjectRuntimeContext } from '../../services/core';
+import { getEditorService, getProjectRuntimeContext } from '../../services/core';
 import { historyUIBus } from '../../services/core/HistoryUIBus';
 import { applySnapshotToOpenTabs } from '../../utils/historyRestore';
+import { lineDiffStats } from '../../utils/lineDiffStats';
+
+interface FileDiff {
+  fileId: string;
+  /** Per-file line stats vs the current editor tab; `null` if file not open. */
+  stats: { added: number; removed: number } | null;
+}
 
 type ViewState =
   | { kind: 'list'; labels: HistoryLabelDTO[] | null; error: string | null }
-  | { kind: 'detail'; label: HistoryLabelDTO; files: string[] | null; error: string | null };
+  | {
+      kind: 'detail';
+      label: HistoryLabelDTO;
+      files: FileDiff[] | null;
+      error: string | null;
+    };
 
 type RestoreState =
   | { kind: 'idle' }
@@ -84,7 +96,18 @@ export function BrowseLabelsDialog(): ReactElement | null {
         projectId: label.projectId,
         labelId: label.id,
       });
-      setView({ kind: 'detail', label, files: Object.keys(map).sort(), error: null });
+      const tabs = getEditorService().tabs;
+      const decoder = new TextDecoder();
+      const files: FileDiff[] = Object.keys(map)
+        .sort()
+        .map((fileId) => {
+          const bytes = map[fileId];
+          const snapshotText = decoder.decode(bytes);
+          const tab = tabs.find((t) => t._id === fileId || t.path === fileId);
+          if (!tab) return { fileId, stats: null };
+          return { fileId, stats: lineDiffStats(snapshotText, tab.content) };
+        });
+      setView({ kind: 'detail', label, files, error: null });
     } catch (e) {
       setView({
         kind: 'detail',
@@ -308,13 +331,15 @@ function LabelDetail({
   t,
 }: {
   label: HistoryLabelDTO;
-  files: string[];
+  files: FileDiff[];
   error: string | null;
   restore: RestoreState;
   onRestore: () => void;
   t: T;
 }): ReactElement {
   const restoring = restore.kind === 'restoring';
+  const totalAdded = files.reduce((acc, f) => acc + (f.stats?.added ?? 0), 0);
+  const totalRemoved = files.reduce((acc, f) => acc + (f.stats?.removed ?? 0), 0);
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
@@ -331,6 +356,14 @@ function LabelDetail({
           {label.description}
         </div>
       )}
+      {(totalAdded > 0 || totalRemoved > 0) && (
+        <div className="flex items-center gap-2 text-[10px] tabular-nums">
+          <span className="text-[var(--color-text-muted)]">{t('history.restorePreview')}</span>
+          <span className="text-[var(--color-success)]">+{totalRemoved}</span>
+          <span className="text-[var(--color-error)]">-{totalAdded}</span>
+          <span className="text-[var(--color-text-muted)]">{t('history.diffStatsHint')}</span>
+        </div>
+      )}
       {error && (
         <div className="text-[10px] text-[var(--color-error)]" role="alert">
           {error}
@@ -338,8 +371,26 @@ function LabelDetail({
       )}
       <ul className="max-h-48 space-y-0.5 overflow-y-auto rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] p-1 font-mono text-[10px]">
         {files.map((f) => (
-          <li key={f} className="truncate px-1 py-0.5 text-[var(--color-text-primary)]">
-            {f}
+          <li
+            key={f.fileId}
+            className="flex items-center gap-1.5 truncate px-1 py-0.5 text-[var(--color-text-primary)]"
+          >
+            <span className="min-w-0 flex-1 truncate">{f.fileId}</span>
+            {f.stats === null ? (
+              <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
+                {t('history.diffStatsClosed')}
+              </span>
+            ) : f.stats.added === 0 && f.stats.removed === 0 ? (
+              <span className="flex-shrink-0 text-[9px] text-[var(--color-text-muted)]">
+                {t('history.diffStatsNoChange')}
+              </span>
+            ) : (
+              <span className="flex-shrink-0 tabular-nums">
+                <span className="text-[var(--color-success)]">+{f.stats.removed}</span>
+                <span className="px-0.5 text-[var(--color-text-muted)]">/</span>
+                <span className="text-[var(--color-error)]">-{f.stats.added}</span>
+              </span>
+            )}
           </li>
         ))}
       </ul>

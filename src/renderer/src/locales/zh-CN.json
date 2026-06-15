@@ -415,7 +415,11 @@
     "rollbackBeforeTitle": "撤回 AI 改动",
     "rollbackBeforeConfirm": "将所有打开文件还原到此消息之前的状态吗?",
     "rollbackNoStep": "此消息之前没有可还原的快照",
-    "rollbackNoSession": "尚未识别到会话或项目"
+    "rollbackNoSession": "尚未识别到会话或项目",
+    "restorePreview": "还原差异:",
+    "diffStatsHint": "(还原后)",
+    "diffStatsClosed": "未打开",
+    "diffStatsNoChange": "无变化"
   },
   "chat": {
     "rename": "重命名",

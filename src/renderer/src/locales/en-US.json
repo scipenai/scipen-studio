@@ -415,7 +415,11 @@
     "rollbackBeforeTitle": "Rollback AI changes",
     "rollbackBeforeConfirm": "Restore every open file to the state right before this message?",
     "rollbackNoStep": "No snapshot exists prior to this message",
-    "rollbackNoSession": "No active session or project"
+    "rollbackNoSession": "No active session or project",
+    "restorePreview": "Restore diff:",
+    "diffStatsHint": "(after restore)",
+    "diffStatsClosed": "not open",
+    "diffStatsNoChange": "no change"
   },
   "chat": {
     "rename": "Rename",
