@@ -129,7 +129,12 @@ describe('ChunkWriter', () => {
       opCount: 1,
       actor: null,
     });
+    // Wait long enough for the idle timer to fire (30ms) + a margin, then
+    // explicitly flush any work that the timer already queued. flushAll
+    // awaits both pending batches and any in-flight writes, eliminating the
+    // setTimeout-vs-async-IO race that made this test flaky.
     await new Promise((r) => setTimeout(r, 80));
+    await writer.flushAll();
     expect(writer.pendingCount()).toBe(0);
     const chunks = await mgr.getOrCreate('p1').listChunks('p1', 'idle.tex');
     expect(chunks.length).toBe(1);

@@ -220,9 +220,16 @@ function RollbackBeforeMessageButton({ messageTs }: { messageTs: number }): Reac
       disabled={busy}
       title={t('history.rollbackBefore')}
       aria-label={t('history.rollbackBefore')}
-      className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] group-hover/user:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+      // h-6 w-6 = 24px (skill: minimum desktop tap target); opacity revealed
+      // on user-message hover, keyboard-focus also reveals so it's reachable
+      // without a mouse.
+      className="flex h-6 w-6 flex-shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] group-hover/user:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
     >
-      {busy ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+      {busy ? (
+        <Loader2 size={12} className="motion-safe:animate-spin" />
+      ) : (
+        <RotateCcw size={12} />
+      )}
     </button>
   );
 }

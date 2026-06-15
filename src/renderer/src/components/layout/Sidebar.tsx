@@ -29,7 +29,7 @@ const SidebarNavItem: React.FC<SidebarNavItemProps> = ({ icon, label, active, on
     aria-label={label}
     aria-current={active ? 'page' : undefined}
     className={clsx(
-      'relative flex w-full flex-col items-center gap-1 rounded-lg px-1 py-2',
+      'relative flex w-full cursor-pointer flex-col items-center gap-1 rounded-lg px-1 py-2',
       'transition-colors focus:outline-none focus-visible:ring-2',
       'focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1',
       '[&>svg]:h-[18px] [&>svg]:w-[18px]',

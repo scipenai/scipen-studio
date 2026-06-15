@@ -7,10 +7,12 @@
  * crossing all of them — atomic on the SQLite side.
  */
 
+import { AnimatePresence, motion } from 'framer-motion';
 import { Loader2, Tag, X } from 'lucide-react';
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -22,6 +24,40 @@ import { getEditorService, getProjectRuntimeContext } from '../../services/core'
 import { historyUIBus } from '../../services/core/HistoryUIBus';
 import { historyProjectIdOf } from '../../utils/historyProjectId';
 
+/**
+ * Walk the dialog subtree and cycle Tab focus between first/last interactive
+ * descendant so keyboard users cannot escape into the background. Implements
+ * the same trap pattern as ApprovalCard / UserQuestionCard.
+ */
+function useFocusTrap(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  active: boolean
+): void {
+  useEffect(() => {
+    if (!active) return;
+    const container = containerRef.current;
+    if (!container) return;
+    const handler = (e: KeyboardEvent): void => {
+      if (e.key !== 'Tab') return;
+      const focusable = container.querySelectorAll<HTMLElement>(
+        'button:not([disabled]),[href],input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [active, containerRef]);
+}
+
 type SubmitState = 'idle' | 'submitting' | 'error';
 
 export function NewLabelDialog(): ReactElement | null {
@@ -32,6 +68,12 @@ export function NewLabelDialog(): ReactElement | null {
   const [submitState, setSubmitState] = useState<SubmitState>('idle');
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Stable ids so the form `label`s and their `input`s wire up correctly even
+  // when multiple dialogs are mounted (test envs).
+  const nameId = useId();
+  const descId = useId();
+  useFocusTrap(containerRef, isOpen);
 
   useEffect(() => {
     const disposable = historyUIBus.onOpenCreateLabel(() => {
@@ -118,96 +160,121 @@ export function NewLabelDialog(): ReactElement | null {
     [close, submit]
   );
 
-  if (!isOpen) return null;
-
   const canSubmit = name.trim().length > 0 && submitState !== 'submitting';
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('history.createLabel')}
-      onKeyDown={handleKeyDown}
-      onClick={close}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-lg"
-      >
-        <div className="flex items-center gap-1.5 border-b border-[var(--color-border-subtle)] px-3 py-2">
-          <Tag size={14} className="text-[var(--color-accent)]" />
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-accent)]">
-            {t('history.createLabel')}
-          </span>
-          <button
-            type="button"
-            onClick={close}
-            disabled={submitState === 'submitting'}
-            aria-label={t('history.close')}
-            className="ml-auto rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] disabled:opacity-40"
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('history.createLabel')}
+          onKeyDown={handleKeyDown}
+          onClick={close}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.12 }}
+        >
+          <motion.div
+            ref={containerRef}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-lg"
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
           >
-            <X size={12} />
-          </button>
-        </div>
-
-        <div className="space-y-2 px-3 py-3 text-[12px]">
-          <div className="text-[11px] text-[var(--color-text-muted)]">
-            {t('history.createLabelDesc')}
-          </div>
-          <input
-            ref={inputRef}
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t('history.labelNamePlaceholder')}
-            maxLength={256}
-            disabled={submitState === 'submitting'}
-            className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1 text-[12px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none disabled:opacity-50"
-          />
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder={t('history.labelDescriptionPlaceholder')}
-            maxLength={2048}
-            rows={2}
-            disabled={submitState === 'submitting'}
-            className="w-full resize-none rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1 text-[12px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none disabled:opacity-50"
-          />
-          {error && (
-            <div className="text-[10px] text-[var(--color-error)]" role="alert">
-              {error}
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 pt-1">
-            <span className="text-[10px] text-[var(--color-text-muted)]">
-              Ctrl+Enter · Esc
-            </span>
-            <div className="ml-auto flex gap-1.5">
+            <div className="flex items-center gap-1.5 border-b border-[var(--color-border-subtle)] px-3 py-2">
+              <Tag size={14} className="text-[var(--color-accent)]" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-accent)]">
+                {t('history.createLabel')}
+              </span>
               <button
                 type="button"
                 onClick={close}
                 disabled={submitState === 'submitting'}
-                className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] disabled:opacity-40"
+                aria-label={t('history.close')}
+                className="ml-auto flex h-6 w-6 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {t('history.cancel')}
-              </button>
-              <button
-                type="button"
-                onClick={() => void submit()}
-                disabled={!canSubmit}
-                className="flex items-center gap-1 rounded border border-[var(--color-accent)]/50 bg-[var(--color-accent)] px-2.5 py-0.5 text-[11px] font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {submitState === 'submitting' && (
-                  <Loader2 size={11} className="animate-spin" />
-                )}
-                {submitState === 'submitting' ? t('history.labelCreating') : t('history.submit')}
+                <X size={14} />
               </button>
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
+
+            <div className="space-y-2 px-3 py-3 text-[12px]">
+              <div className="text-[11px] text-[var(--color-text-muted)]">
+                {t('history.createLabelDesc')}
+              </div>
+              <div>
+                <label htmlFor={nameId} className="sr-only">
+                  {t('history.labelNamePlaceholder')}
+                </label>
+                <input
+                  ref={inputRef}
+                  id={nameId}
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={t('history.labelNamePlaceholder')}
+                  maxLength={256}
+                  disabled={submitState === 'submitting'}
+                  className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1 text-[12px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] transition-colors focus:border-[var(--color-accent)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:opacity-50"
+                />
+              </div>
+              <div>
+                <label htmlFor={descId} className="sr-only">
+                  {t('history.labelDescriptionPlaceholder')}
+                </label>
+                <textarea
+                  id={descId}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder={t('history.labelDescriptionPlaceholder')}
+                  maxLength={2048}
+                  rows={2}
+                  disabled={submitState === 'submitting'}
+                  className="w-full resize-none rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1 text-[12px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] transition-colors focus:border-[var(--color-accent)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:opacity-50"
+                />
+              </div>
+              {error && (
+                <div className="text-[10px] text-[var(--color-error)]" role="alert">
+                  {error}
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 pt-1">
+                <span className="text-[10px] text-[var(--color-text-muted)]">
+                  Ctrl+Enter · Esc
+                </span>
+                <div className="ml-auto flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={close}
+                    disabled={submitState === 'submitting'}
+                    className="cursor-pointer rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2.5 py-1 text-[11px] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] active:bg-[var(--color-bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {t('history.cancel')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void submit()}
+                    disabled={!canSubmit}
+                    className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-accent)]/50 bg-[var(--color-accent)] px-2.5 py-1 text-[11px] font-medium text-white transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {submitState === 'submitting' && (
+                      <Loader2 size={11} className="motion-safe:animate-spin" />
+                    )}
+                    {submitState === 'submitting'
+                      ? t('history.labelCreating')
+                      : t('history.submit')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

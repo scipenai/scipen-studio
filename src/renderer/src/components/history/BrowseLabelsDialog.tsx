@@ -9,6 +9,7 @@
  */
 
 import { clsx } from 'clsx';
+import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronLeft, FolderOpen, Loader2, Plus, RotateCcw, Tag, X } from 'lucide-react';
 import {
   useCallback,
@@ -174,30 +175,38 @@ export function BrowseLabelsDialog(): ReactElement | null {
     [view.kind, backToList, close]
   );
 
-  if (!isOpen) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('history.browseLabels')}
-      onClick={close}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-    >
-      <div
-        ref={containerRef}
-        tabIndex={-1}
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={handleKeyDown}
-        className="flex max-h-[70vh] w-full max-w-lg flex-col overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-lg focus:outline-none"
-      >
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('history.browseLabels')}
+          onClick={close}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.12 }}
+        >
+          <motion.div
+            ref={containerRef}
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={handleKeyDown}
+            className="flex max-h-[70vh] w-full max-w-lg flex-col overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-lg focus:outline-none"
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+          >
         <div className="flex items-center gap-1.5 border-b border-[var(--color-border-subtle)] px-3 py-2">
           {view.kind === 'detail' ? (
             <button
               type="button"
               onClick={backToList}
               aria-label={t('history.close')}
-              className="rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)]"
+              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             >
               <ChevronLeft size={14} />
             </button>
@@ -216,7 +225,7 @@ export function BrowseLabelsDialog(): ReactElement | null {
               }}
               title={t('history.createLabel')}
               aria-label={t('history.createLabel')}
-              className="ml-auto flex items-center gap-1 rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-1.5 py-0.5 text-[10px] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/20"
+              className="ml-auto flex cursor-pointer items-center gap-1 rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-2 py-1 text-[10px] text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)]/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] active:bg-[var(--color-accent)]/30"
             >
               <Plus size={11} />
               {t('history.submit')}
@@ -227,11 +236,11 @@ export function BrowseLabelsDialog(): ReactElement | null {
             onClick={close}
             aria-label={t('history.close')}
             className={clsx(
-              'rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)]',
+              'flex h-6 w-6 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
               view.kind === 'list' ? '' : 'ml-auto'
             )}
           >
-            <X size={12} />
+            <X size={14} />
           </button>
         </div>
 
@@ -245,7 +254,7 @@ export function BrowseLabelsDialog(): ReactElement | null {
         <div className="flex-1 overflow-y-auto px-3 py-2 text-[12px]">
           {loading && (
             <div className="flex items-center gap-1.5 py-2 text-[11px] text-[var(--color-text-muted)]">
-              <Loader2 size={12} className="animate-spin" />
+              <Loader2 size={12} className="motion-safe:animate-spin" />
               {t('history.labelCreating')}
             </div>
           )}
@@ -269,9 +278,11 @@ export function BrowseLabelsDialog(): ReactElement | null {
               t={t}
             />
           )}
-        </div>
-      </div>
-    </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -316,7 +327,7 @@ function LabelList({
           <button
             type="button"
             onClick={() => onOpen(l)}
-            className="flex w-full items-start gap-2 rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-left hover:bg-[var(--color-bg-hover)] focus:border-[var(--color-accent)] focus:outline-none"
+            className="flex w-full cursor-pointer items-start gap-2 rounded border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-left transition-colors hover:border-[var(--color-accent)]/40 hover:bg-[var(--color-bg-hover)] focus:border-[var(--color-accent)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] active:bg-[var(--color-bg-tertiary)]"
           >
             <Tag size={11} className="mt-0.5 flex-shrink-0 text-[var(--color-accent)]" />
             <div className="min-w-0 flex-1">
@@ -429,9 +440,13 @@ function LabelDetail({
           type="button"
           onClick={onRestore}
           disabled={restoring}
-          className="flex items-center gap-1 rounded border border-[var(--color-warning)]/50 bg-[var(--color-warning-muted)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--color-warning)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-warning)]/50 bg-[var(--color-warning-muted)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-warning)] transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-warning)] focus-visible:ring-offset-1 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {restoring ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+          {restoring ? (
+            <Loader2 size={11} className="motion-safe:animate-spin" />
+          ) : (
+            <RotateCcw size={11} />
+          )}
           {restoring ? t('history.restoring') : t('history.restore')}
         </button>
       </div>
@@ -482,8 +497,16 @@ function TimelineStrip({
               onClick={() => onSelect(l)}
               title={`${l.name} · ${new Date(l.createdAt).toLocaleString()}`}
               aria-label={l.name}
-              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full p-0 hover:scale-150 focus:scale-150 focus:outline-none"
-              style={{ left: `${pct}%`, width: 8, height: 8, backgroundColor: color }}
+              // ring instead of scale: keeps neighbour dots from being shoved
+              // (skill: "Use color/opacity transitions on hover" — not scale)
+              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full p-0 ring-0 ring-offset-2 ring-offset-[var(--color-bg-primary)] transition-shadow hover:ring-2 focus:outline-none focus:ring-2"
+              style={{
+                left: `${pct}%`,
+                width: 10,
+                height: 10,
+                backgroundColor: color,
+                ['--tw-ring-color' as string]: color,
+              }}
             />
           );
         })}
