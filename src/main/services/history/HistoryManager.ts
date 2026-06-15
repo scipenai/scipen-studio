@@ -27,6 +27,13 @@ export interface HistoryManagerOptions {
   baseDir: string;
   /** Forwarded to each BlobStore instance the manager creates. */
   inlineMaxBytes: number;
+  /**
+   * If set, schedule an orphan-blob sweep this often (ms) across every open
+   * HistoryService. Defaults to 24h. Set to 0 to disable the timer (tests).
+   */
+  sweepIntervalMs?: number;
+  /** Forwarded to BlobStore.sweepOrphans — min age before a row is reaped. */
+  sweepMinAgeMs?: number;
 }
 
 /**
@@ -38,9 +45,13 @@ const PROJECT_ID_RX = /^[A-Za-z0-9_-]{1,128}$/;
 
 export class HistoryManager {
   private readonly services = new Map<string, HistoryService>();
+  private readonly blobStores = new Map<string, { sweep: () => Promise<{ rows: number; files: number }> }>();
+  private sweepTimer: NodeJS.Timeout | null = null;
   private disposed = false;
 
-  constructor(private readonly opts: HistoryManagerOptions) {}
+  constructor(private readonly opts: HistoryManagerOptions) {
+    this.armSweepTimer();
+  }
 
   /**
    * Lazy: return the existing HistoryService for `projectId` or build one.
@@ -64,6 +75,9 @@ export class HistoryManager {
     });
     const svc = createHistoryService({ metaDb, blobStore });
     this.services.set(projectId, svc);
+    this.blobStores.set(projectId, {
+      sweep: () => blobStore.sweepOrphans(this.opts.sweepMinAgeMs),
+    });
     logger.info('opened HistoryService', { projectId, rootDir });
     return svc;
   }
@@ -77,6 +91,7 @@ export class HistoryManager {
     const svc = this.services.get(projectId);
     if (!svc) return;
     this.services.delete(projectId);
+    this.blobStores.delete(projectId);
     await svc.dispose();
     logger.info('closed HistoryService', { projectId });
   }
@@ -85,10 +100,44 @@ export class HistoryManager {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
     const all = Array.from(this.services.values());
     this.services.clear();
+    this.blobStores.clear();
     await Promise.all(all.map((s) => s.dispose()));
     logger.info('disposed HistoryManager', { closedCount: all.length });
+  }
+
+  /**
+   * Trigger an orphan sweep across every currently-open project. Returns the
+   * aggregated counts. Public so tests / admin actions can force a sweep
+   * without waiting for the daily timer.
+   */
+  async sweepAll(): Promise<{ rows: number; files: number }> {
+    if (this.disposed) return { rows: 0, files: 0 };
+    let rows = 0;
+    let files = 0;
+    for (const store of this.blobStores.values()) {
+      try {
+        const result = await store.sweep();
+        rows += result.rows;
+        files += result.files;
+      } catch (err) {
+        logger.warn('sweep failed for one project', { error: (err as Error).message });
+      }
+    }
+    return { rows, files };
+  }
+
+  private armSweepTimer(): void {
+    const interval = this.opts.sweepIntervalMs ?? 24 * 60 * 60 * 1000;
+    if (interval <= 0) return;
+    this.sweepTimer = setInterval(() => void this.sweepAll(), interval);
+    // Don't keep the event loop alive purely for the sweep timer.
+    if (typeof this.sweepTimer.unref === 'function') this.sweepTimer.unref();
   }
 }
 

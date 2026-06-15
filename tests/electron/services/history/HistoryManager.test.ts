@@ -90,4 +90,26 @@ describe('HistoryManager', () => {
       expect(() => mgr.getOrCreate(bad)).toThrow(/Invalid projectId/);
     }
   });
+
+  it('sweepAll fans out across every open project and reports counts', async () => {
+    const svcA = mgr.getOrCreate('proj_a');
+    const svcB = mgr.getOrCreate('proj_b');
+    // Make a soon-to-be orphan in proj_a: large blob -> on disk + DB row.
+    const big = new TextEncoder().encode('x'.repeat(64));
+    await svcA.putBlob(big);
+    // proj_b stays empty.
+    void svcB;
+
+    // First sweep with default age (24h) — too young, nothing reaped.
+    const fresh = await mgr.sweepAll();
+    expect(fresh.rows).toBe(0);
+
+    // Build a separate manager with zero min-age and sweep again.
+    await mgr.dispose();
+    mgr = createHistoryManager({ baseDir, inlineMaxBytes: 16, sweepMinAgeMs: 0 });
+    const svcA2 = mgr.getOrCreate('proj_a');
+    await svcA2.putBlob(big);
+    const aged = await mgr.sweepAll();
+    expect(aged.rows).toBeGreaterThan(0);
+  });
 });

@@ -151,13 +151,53 @@ export class BlobStore implements IBlobStore {
 
   /**
    * Drop the metadata row for an orphan blob (refcount <= 0). The on-disk file
-   * itself is left to the GC sweep (M4) — production sweeps are batched, but
-   * tests rely on this hook to verify the SQL clamp behaviour.
+   * itself is left to `sweepOrphans` — single-row prune stays cheap for tests
+   * and unit invariants.
    */
   pruneOrphan(hash: Hash): boolean {
     this.assertAlive();
     const result = this.stmts.deleteOrphan.run(hash);
     return result.changes > 0;
+  }
+
+  /**
+   * Batch sweep: drop every blob row whose `refcount <= 0 AND created_at <
+   * cutoff_ms_ago`, then delete the matching on-disk file. The age guard
+   * protects in-flight writes — a freshly inserted blob has refcount=0 between
+   * `put` and the dependent `incRef`, and getting reaped mid-transaction would
+   * lose data.
+   *
+   * Returns how many rows/files were dropped. Best-effort: filesystem unlink
+   * failures are logged and the row is removed regardless (worst case the
+   * file lingers but is unreachable).
+   */
+  async sweepOrphans(minAgeMs = 24 * 60 * 60 * 1000): Promise<{ rows: number; files: number }> {
+    this.assertAlive();
+    const cutoff = Date.now() - minAgeMs;
+    const db = this.opts.metaDb.db;
+    const selectStmt = db.prepare<unknown[]>(
+      `SELECT hash, bytes FROM history_blob WHERE refcount <= 0 AND created_at < ?`
+    );
+    const deleteStmt = db.prepare<unknown[]>(`DELETE FROM history_blob WHERE hash = ?`);
+    const candidates = selectStmt.all(cutoff) as Array<{ hash: Uint8Array; bytes: Uint8Array | null }>;
+
+    let files = 0;
+    for (const row of candidates) {
+      // Inline blobs (bytes != NULL) carry no separate on-disk file.
+      if (!row.bytes) {
+        const hex = toHex(new Uint8Array(row.hash));
+        try {
+          await fs.unlink(this.pathFor(hex));
+          files++;
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+            logger.warn('blob unlink failed', { hex, error: (err as Error).message });
+          }
+        }
+      }
+      deleteStmt.run(row.hash);
+    }
+    return { rows: candidates.length, files };
   }
 
   // ---- internals ----
