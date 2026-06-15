@@ -8,7 +8,7 @@
  * build the underlying machinery.
  */
 
-import { ChevronLeft, FolderOpen, Loader2, Tag, X } from 'lucide-react';
+import { ChevronLeft, FolderOpen, Loader2, RotateCcw, Tag, X } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -19,18 +19,25 @@ import {
 } from 'react';
 import { api, type HistoryLabelDTO } from '../../api';
 import { useTranslation, type TranslationKey } from '../../locales';
-import { getProjectRuntimeContext } from '../../services/core';
+import { getEditorService, getProjectRuntimeContext } from '../../services/core';
 import { historyUIBus } from '../../services/core/HistoryUIBus';
 
 type ViewState =
   | { kind: 'list'; labels: HistoryLabelDTO[] | null; error: string | null }
   | { kind: 'detail'; label: HistoryLabelDTO; files: string[] | null; error: string | null };
 
+type RestoreState =
+  | { kind: 'idle' }
+  | { kind: 'restoring' }
+  | { kind: 'done'; count: number }
+  | { kind: 'error'; message: string };
+
 export function BrowseLabelsDialog(): ReactElement | null {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [view, setView] = useState<ViewState>({ kind: 'list', labels: null, error: null });
   const [loading, setLoading] = useState(false);
+  const [restore, setRestore] = useState<RestoreState>({ kind: 'idle' });
   const containerRef = useRef<HTMLDivElement>(null);
 
   const loadLabels = useCallback(async (): Promise<void> => {
@@ -91,8 +98,55 @@ export function BrowseLabelsDialog(): ReactElement | null {
 
   const backToList = useCallback(() => {
     setView({ kind: 'list', labels: null, error: null });
+    setRestore({ kind: 'idle' });
     void loadLabels();
   }, [loadLabels]);
+
+  /**
+   * P2 minimal restore:
+   * - Resolve the label → file content map.
+   * - For every entry, find the matching open tab (by OT id or absolute path)
+   *   and rewrite both the on-disk file AND the editor tab so the editor
+   *   doesn't fight the new content.
+   * - Files referenced by the label but NOT currently open are skipped — the
+   *   safer default than silently writing to closed files; P3 will add a
+   *   "Restore all (including closed)" affordance with stronger confirmation.
+   * - Undo: every rewrite is one Monaco edit step → Ctrl+Z restores.
+   */
+  const doRestore = useCallback(async (label: HistoryLabelDTO): Promise<void> => {
+    const ok = await api.dialog.confirm(
+      t('history.restoreConfirm', { name: label.name }),
+      t('history.restoreConfirmTitle')
+    );
+    if (!ok) return;
+
+    setRestore({ kind: 'restoring' });
+    try {
+      const snapshot = await api.history.resolveLabelSnapshot({
+        projectId: label.projectId,
+        labelId: label.id,
+      });
+      const tabs = getEditorService().tabs;
+      if (tabs.length === 0) {
+        setRestore({ kind: 'error', message: t('history.restoreNoTabs') });
+        return;
+      }
+      const decoder = new TextDecoder();
+      let count = 0;
+      for (const [fileId, bytes] of Object.entries(snapshot)) {
+        const tab = tabs.find((tt) => tt._id === fileId || tt.path === fileId);
+        if (!tab) continue;
+        const content = decoder.decode(bytes);
+        if (tab.content === content) continue;
+        await api.file.write(tab.path, content);
+        getEditorService().setContentFromExternal(tab.path, content);
+        count++;
+      }
+      setRestore({ kind: 'done', count });
+    } catch (e) {
+      setRestore({ kind: 'error', message: e instanceof Error ? e.message : String(e) });
+    }
+  }, [t]);
 
   const handleKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>): void => {
@@ -170,6 +224,8 @@ export function BrowseLabelsDialog(): ReactElement | null {
               label={view.label}
               files={view.files ?? []}
               error={view.error}
+              restore={restore}
+              onRestore={() => void doRestore(view.label)}
               t={t}
             />
           )}
@@ -250,13 +306,18 @@ function LabelDetail({
   label,
   files,
   error,
+  restore,
+  onRestore,
   t,
 }: {
   label: HistoryLabelDTO;
   files: string[];
   error: string | null;
+  restore: RestoreState;
+  onRestore: () => void;
   t: T;
 }): ReactElement {
+  const restoring = restore.kind === 'restoring';
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
@@ -285,16 +346,25 @@ function LabelDetail({
           </li>
         ))}
       </ul>
-      <div className="flex justify-end gap-1.5 border-t border-[var(--color-border-subtle)] pt-2">
-        {/* Restore wiring lives in P2; the disabled button keeps the path
-            discoverable so users know it's coming. */}
+      {restore.kind === 'done' && (
+        <div className="text-[11px] text-[var(--color-success)]" role="status">
+          {t('history.restoreSuccess', { count: restore.count })}
+        </div>
+      )}
+      {restore.kind === 'error' && (
+        <div className="text-[11px] text-[var(--color-error)]" role="alert">
+          {t('history.restoreFailed', { error: restore.message })}
+        </div>
+      )}
+      <div className="flex items-center justify-end gap-1.5 border-t border-[var(--color-border-subtle)] pt-2">
         <button
           type="button"
-          disabled
-          title="Coming in P2"
-          className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2.5 py-0.5 text-[11px] text-[var(--color-text-muted)] disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={onRestore}
+          disabled={restoring}
+          className="flex items-center gap-1 rounded border border-[var(--color-warning)]/50 bg-[var(--color-warning-muted)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--color-warning)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {t('history.restore')}
+          {restoring ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+          {restoring ? t('history.restoring') : t('history.restore')}
         </button>
       </div>
     </div>

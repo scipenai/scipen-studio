@@ -404,7 +404,13 @@
     "cancel": "取消",
     "close": "关闭",
     "open": "打开",
-    "restore": "还原"
+    "restore": "还原",
+    "restoreConfirm": "确认还原到「{{name}}」吗?当前所有打开文件的内容将被替换为快照时的版本(可通过 Ctrl+Z 撤销)。",
+    "restoreConfirmTitle": "还原快照",
+    "restoring": "还原中…",
+    "restoreSuccess": "已还原 {{count}} 个文件",
+    "restoreFailed": "还原失败: {{error}}",
+    "restoreNoTabs": "没有打开的文件可还原"
   },
   "chat": {
     "rename": "重命名",

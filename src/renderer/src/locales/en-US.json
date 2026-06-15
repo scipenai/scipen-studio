@@ -404,7 +404,13 @@
     "cancel": "Cancel",
     "close": "Close",
     "open": "Open",
-    "restore": "Restore"
+    "restore": "Restore",
+    "restoreConfirm": "Restore to \"{{name}}\"? Every currently open file will be replaced with the snapshot's version (you can undo with Ctrl+Z).",
+    "restoreConfirmTitle": "Restore snapshot",
+    "restoring": "Restoring…",
+    "restoreSuccess": "Restored {{count}} files",
+    "restoreFailed": "Restore failed: {{error}}",
+    "restoreNoTabs": "No open files to restore"
   },
   "chat": {
     "rename": "Rename",
