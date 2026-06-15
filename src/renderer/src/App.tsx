@@ -11,6 +11,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { FileConflictModal } from './components/FileConflictModal';
 import { BrowseLabelsDialog } from './components/history/BrowseLabelsDialog';
 import { NewLabelDialog } from './components/history/NewLabelDialog';
+import { autoLabelScheduler } from './services/core/AutoLabelScheduler';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { Sidebar } from './components/layout/Sidebar';
 import { StatusBar } from './components/layout/StatusBar';
@@ -150,6 +151,8 @@ function AppContent() {
 function App() {
   useEffect(() => {
     logger.info('SciPen Studio started');
+    autoLabelScheduler.start();
+    return () => autoLabelScheduler.stop();
   }, []);
 
   return (
