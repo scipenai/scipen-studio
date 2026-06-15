@@ -8,7 +8,8 @@
  * build the underlying machinery.
  */
 
-import { ChevronLeft, FolderOpen, Loader2, RotateCcw, Tag, X } from 'lucide-react';
+import { clsx } from 'clsx';
+import { ChevronLeft, FolderOpen, Loader2, Plus, RotateCcw, Tag, X } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -205,11 +206,29 @@ export function BrowseLabelsDialog(): ReactElement | null {
           <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-accent)]">
             {view.kind === 'detail' ? view.label.name : t('history.browseLabels')}
           </span>
+          {view.kind === 'list' && (
+            <button
+              type="button"
+              onClick={() => {
+                close();
+                historyUIBus.openCreateLabel();
+              }}
+              title={t('history.createLabel')}
+              aria-label={t('history.createLabel')}
+              className="ml-auto flex items-center gap-1 rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-1.5 py-0.5 text-[10px] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/20"
+            >
+              <Plus size={11} />
+              {t('history.submit')}
+            </button>
+          )}
           <button
             type="button"
             onClick={close}
             aria-label={t('history.close')}
-            className="ml-auto rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)]"
+            className={clsx(
+              'rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)]',
+              view.kind === 'list' ? '' : 'ml-auto'
+            )}
           >
             <X size={12} />
           </button>

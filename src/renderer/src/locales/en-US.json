@@ -563,6 +563,7 @@
   "workspaceSidebar": {
     "imTab": "Chat",
     "filesTab": "Files",
+    "historyTab": "History",
     "settingsTab": "Settings",
     "settingsLoading": "Loading settings..."
   },

@@ -6,10 +6,11 @@
  */
 
 import { clsx } from 'clsx';
-import { FolderKanban, MessageSquare, Settings } from 'lucide-react';
+import { FolderKanban, History, MessageSquare, Settings } from 'lucide-react';
 import type React from 'react';
 import logoS from '../../assets/logo-s.svg';
 import { useTranslation } from '../../locales';
+import { historyUIBus } from '../../services/core/HistoryUIBus';
 import { getUIService } from '../../services/core/ServiceRegistry';
 import { useProjectPath, useSidebarTab } from '../../services/core/hooks';
 
@@ -100,7 +101,14 @@ export const Sidebar: React.FC = () => {
         />
       </nav>
 
-      <div className="w-full border-t pt-1 border-t-[var(--color-border-subtle)]">
+      <div className="flex w-full flex-col gap-1 border-t pt-1 border-t-[var(--color-border-subtle)]">
+        {/* History: opens BrowseLabelsDialog (timeline + list + restore + create). Not a tab — overlays without switching the main workspace pane. */}
+        <SidebarNavItem
+          icon={<History />}
+          label={t('workspaceSidebar.historyTab')}
+          active={false}
+          onClick={() => historyUIBus.openBrowseLabels()}
+        />
         <SidebarNavItem
           icon={<Settings />}
           label={t('workspaceSidebar.settingsTab')}
