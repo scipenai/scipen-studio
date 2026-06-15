@@ -410,7 +410,12 @@
     "restoring": "Restoring…",
     "restoreSuccess": "Restored {{count}} files",
     "restoreFailed": "Restore failed: {{error}}",
-    "restoreNoTabs": "No open files to restore"
+    "restoreNoTabs": "No open files to restore",
+    "rollbackBefore": "Rollback to before this message",
+    "rollbackBeforeTitle": "Rollback AI changes",
+    "rollbackBeforeConfirm": "Restore every open file to the state right before this message?",
+    "rollbackNoStep": "No snapshot exists prior to this message",
+    "rollbackNoSession": "No active session or project"
   },
   "chat": {
     "rename": "Rename",

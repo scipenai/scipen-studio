@@ -19,8 +19,9 @@ import {
 } from 'react';
 import { api, type HistoryLabelDTO } from '../../api';
 import { useTranslation, type TranslationKey } from '../../locales';
-import { getEditorService, getProjectRuntimeContext } from '../../services/core';
+import { getProjectRuntimeContext } from '../../services/core';
 import { historyUIBus } from '../../services/core/HistoryUIBus';
+import { applySnapshotToOpenTabs } from '../../utils/historyRestore';
 
 type ViewState =
   | { kind: 'list'; labels: HistoryLabelDTO[] | null; error: string | null }
@@ -126,25 +127,14 @@ export function BrowseLabelsDialog(): ReactElement | null {
         projectId: label.projectId,
         labelId: label.id,
       });
-      const tabs = getEditorService().tabs;
-      if (tabs.length === 0) {
-        setRestore({ kind: 'error', message: t('history.restoreNoTabs') });
-        return;
-      }
-      const decoder = new TextDecoder();
-      let count = 0;
-      for (const [fileId, bytes] of Object.entries(snapshot)) {
-        const tab = tabs.find((tt) => tt._id === fileId || tt.path === fileId);
-        if (!tab) continue;
-        const content = decoder.decode(bytes);
-        if (tab.content === content) continue;
-        await api.file.write(tab.path, content);
-        getEditorService().setContentFromExternal(tab.path, content);
-        count++;
-      }
+      const { count } = await applySnapshotToOpenTabs(snapshot);
       setRestore({ kind: 'done', count });
     } catch (e) {
-      setRestore({ kind: 'error', message: e instanceof Error ? e.message : String(e) });
+      const msg = e instanceof Error ? e.message : String(e);
+      setRestore({
+        kind: 'error',
+        message: msg === 'no open tabs' ? t('history.restoreNoTabs') : msg,
+      });
     }
   }, [t]);
 

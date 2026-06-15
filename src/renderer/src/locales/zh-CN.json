@@ -410,7 +410,12 @@
     "restoring": "还原中…",
     "restoreSuccess": "已还原 {{count}} 个文件",
     "restoreFailed": "还原失败: {{error}}",
-    "restoreNoTabs": "没有打开的文件可还原"
+    "restoreNoTabs": "没有打开的文件可还原",
+    "rollbackBefore": "撤回到此消息之前",
+    "rollbackBeforeTitle": "撤回 AI 改动",
+    "rollbackBeforeConfirm": "将所有打开文件还原到此消息之前的状态吗?",
+    "rollbackNoStep": "此消息之前没有可还原的快照",
+    "rollbackNoSession": "尚未识别到会话或项目"
   },
   "chat": {
     "rename": "重命名",

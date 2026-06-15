@@ -18,6 +18,7 @@ import {
   FilePen,
   HelpCircle,
   Loader2,
+  RotateCcw,
   ShieldAlert,
   SkipForward,
 } from 'lucide-react';
@@ -44,8 +45,13 @@ import {
 } from '../../services/agent/ChatStreamStore';
 import { agentEditProposalBridge } from '../../services/agent/AgentEditProposalBridge';
 import { useTranslation, type TranslationKey } from '../../locales';
+import { api } from '../../api';
 import { openFileInEditor } from '../../services/core/FileOpenService';
-import { getUIService } from '../../services/core/ServiceRegistry';
+import {
+  getProjectRuntimeContext,
+  getUIService,
+} from '../../services/core/ServiceRegistry';
+import { applySnapshotToOpenTabs } from '../../utils/historyRestore';
 import { MarkdownContent } from './MarkdownContent';
 import { ThinkingRenderer } from './ThinkingRenderer';
 import { CopyButton } from '../ui';
@@ -114,13 +120,14 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
 
   if (message.role === 'user') {
     return (
-      <div className="mb-3 flex gap-2 chat-msg-text leading-[1.6]">
+      <div className="group/user mb-3 flex gap-2 chat-msg-text leading-[1.6]">
         <span aria-hidden="true" className="select-none font-semibold text-[var(--color-accent)]">
           ›
         </span>
         <div className="min-w-0 flex-1 whitespace-pre-wrap break-words font-medium text-[var(--color-text-primary)]">
           {message.text}
         </div>
+        <RollbackBeforeMessageButton messageTs={message.ts} />
       </div>
     );
   }
@@ -155,6 +162,67 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
       )}
       {completedTurn?.usage && <UsageLine turn={completedTurn} />}
     </div>
+  );
+}
+
+/**
+ * Inline icon button shown on hover over every user message. Clicking it
+ * resolves the most recent SNACA-tool step recorded *before* this message in
+ * the active chat thread, confirms with the user, and applies that step's
+ * tree to the currently open tabs (write + setContentFromExternal). If no
+ * step is on file the button surfaces a friendly toast via native dialog.
+ */
+function RollbackBeforeMessageButton({ messageTs }: { messageTs: number }): ReactElement {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  const onClick = useCallback(async () => {
+    if (busy) return;
+    const projectId = getProjectRuntimeContext().projectId;
+    const threadId = chatStreamStore.getActiveThreadId();
+    if (!projectId || !threadId) {
+      await api.dialog.confirm(t('history.rollbackNoSession'), t('history.rollbackBeforeTitle'));
+      return;
+    }
+    setBusy(true);
+    try {
+      const sessionId = `chat-${threadId}`;
+      const step = await api.history.findStepBeforeTs({
+        projectId,
+        sessionId,
+        beforeTs: messageTs,
+      });
+      if (!step) {
+        await api.dialog.confirm(t('history.rollbackNoStep'), t('history.rollbackBeforeTitle'));
+        return;
+      }
+      const ok = await api.dialog.confirm(
+        t('history.rollbackBeforeConfirm'),
+        t('history.rollbackBeforeTitle')
+      );
+      if (!ok) return;
+      const snapshot = await api.history.resolveStepSnapshot({
+        projectId,
+        hashHex: step.hashHex,
+      });
+      await applySnapshotToOpenTabs(snapshot);
+    } catch {
+      // Best-effort; the user can read the dialog and retry.
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, messageTs, t]);
+
+  return (
+    <button
+      type="button"
+      onClick={() => void onClick()}
+      disabled={busy}
+      title={t('history.rollbackBefore')}
+      aria-label={t('history.rollbackBefore')}
+      className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] group-hover/user:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {busy ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+    </button>
   );
 }
 
