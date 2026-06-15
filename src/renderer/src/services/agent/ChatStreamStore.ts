@@ -9,6 +9,14 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+/**
+ * Byte threshold past which a SNACA-driven cumulative diff triggers an
+ * autoLabel snapshot. 5KB is roughly "half a LaTeX page of substantive
+ * edits" — small enough to give the user recoverable checkpoints during a
+ * long agent run, big enough to avoid spamming the label list.
+ */
+const SIZE_TRIGGER_LABEL_BYTES = 5 * 1024;
+
 function safeStringify(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   try {
@@ -765,13 +773,24 @@ class ChatStreamStoreImpl {
    */
   private readonly lastStepBySession = new Map<string, string>();
 
+  /**
+   * Running |diff| size accumulated across SNACA tool turns in the active
+   * thread. Once it crosses `SIZE_TRIGGER_LABEL_BYTES`, autoLabelScheduler
+   * fires a `kind:'auto'` milestone label and the counter resets — gives the
+   * user a recoverable checkpoint before an AI session drifts far from the
+   * last manual save without forcing them to remember to label.
+   */
+  private cumulativeAiSizeBytes = 0;
+  private lastTreeContentByFile = new Map<string, string>();
+
   private async recordSnacaToolStep(approval: ChatApprovalRequest): Promise<void> {
     try {
       // Defer-import to keep the historyApi lazy — chat happily streams long
       // before the user ever opens a label dialog, no need to eagerly bind.
-      const [{ api }, { getProjectRuntimeContext, getEditorService }] = await Promise.all([
+      const [{ api }, { getProjectRuntimeContext, getEditorService }, scheduler] = await Promise.all([
         import('../../api'),
         import('../core'),
+        import('../core/AutoLabelScheduler'),
       ]);
       const projectId = getProjectRuntimeContext().projectId;
       const threadId = this.activeThreadId;
@@ -790,11 +809,21 @@ class ChatStreamStoreImpl {
       const tabs = getEditorService().tabs;
       const tree: Array<{ fileId: string; blobHashHex: string }> = [];
       const encoder = new TextEncoder();
+      let sizeDelta = 0;
       for (const tab of tabs) {
         const fileId = tab._id ?? tab.path;
         const bytes = encoder.encode(tab.content);
         const result = await api.history.putBlob({ projectId, bytes });
         tree.push({ fileId, blobHashHex: result.hashHex });
+
+        // sizeDelta = absolute byte delta since this fileId's last seen tree.
+        // Reasonable proxy for "amount the AI just changed"; not exact (a
+        // pure shuffle would read as 0) but cheap and signal-rich.
+        const prev = this.lastTreeContentByFile.get(fileId);
+        if (prev !== undefined) {
+          sizeDelta += Math.abs(tab.content.length - prev.length);
+        }
+        this.lastTreeContentByFile.set(fileId, tab.content);
       }
 
       const parent = this.lastStepBySession.get(sessionId) ?? null;
@@ -812,12 +841,19 @@ class ChatStreamStoreImpl {
         ],
         origin: 'snaca_tool',
         ts: Date.now(),
-        // sizeDelta is computed against the prior step's tree blobs; M6 will
-        // add the diff. Zero now keeps the step row honest about "we don't
-        // know yet" rather than guessing.
-        sizeDelta: 0,
+        sizeDelta,
       });
       this.lastStepBySession.set(sessionId, step.hashHex);
+
+      // Drift checkpoint: once the AI has changed enough bytes, ask the
+      // autoLabelScheduler to drop a recoverable snapshot. Reset the
+      // counter so we don't fire again until the next batch's worth of
+      // changes accumulates.
+      this.cumulativeAiSizeBytes += sizeDelta;
+      if (this.cumulativeAiSizeBytes >= SIZE_TRIGGER_LABEL_BYTES) {
+        this.cumulativeAiSizeBytes = 0;
+        void scheduler.autoLabelScheduler.runOnce();
+      }
     } catch (err) {
       // Best-effort; do not surface to the user. The card already flipped.
       // eslint-disable-next-line no-console
