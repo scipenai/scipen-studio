@@ -80,9 +80,12 @@ export const Sidebar: React.FC = () => {
         </span>
       </div>
 
-      <nav className="flex w-full flex-1 flex-col gap-1">
+      <nav
+        aria-label={t('workspaceSidebar.navigation')}
+        className="flex w-full flex-1 flex-col gap-1"
+      >
         <SidebarNavItem
-          icon={<MessageSquare />}
+          icon={<MessageSquare aria-hidden="true" />}
           label={t('workspaceSidebar.imTab')}
           active={sidebarTab === 'im'}
           onClick={() => {
@@ -91,7 +94,7 @@ export const Sidebar: React.FC = () => {
           }}
         />
         <SidebarNavItem
-          icon={<FolderKanban />}
+          icon={<FolderKanban aria-hidden="true" />}
           label={t('workspaceSidebar.filesTab')}
           active={sidebarTab === 'files'}
           onClick={() => {
@@ -106,15 +109,15 @@ export const Sidebar: React.FC = () => {
          * History: single entry that opens HistoryBrowserDialog. The dialog
          * internally tabs between Labels (manual snapshots) and Sessions
          * (AI step DAG). One sidebar button matches the one dialog.
-         */}
+        */}
         <SidebarNavItem
-          icon={<History />}
+          icon={<History aria-hidden="true" />}
           label={t('workspaceSidebar.historyTab')}
           active={false}
           onClick={() => historyUIBus.openBrowseLabels()}
         />
         <SidebarNavItem
-          icon={<Settings />}
+          icon={<Settings aria-hidden="true" />}
           label={t('workspaceSidebar.settingsTab')}
           active={sidebarTab === 'settings'}
           onClick={() => uiService.setSidebarTab('settings')}

@@ -48,9 +48,10 @@ const selectClassName =
   'focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]';
 
 const buttonClass =
-  'inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded border ' +
+  'inline-flex cursor-pointer items-center gap-1 px-2.5 py-1 text-xs rounded border ' +
   'border-[var(--color-border)] bg-[var(--color-bg-secondary)] ' +
-  'text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]';
+  'text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] ' +
+  'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]';
 
 export const McpServersSection: React.FC = () => {
   const { t } = useTranslation();
@@ -119,7 +120,7 @@ export const McpServersSection: React.FC = () => {
         {servers.length === 0 && <EmptyState>{t('settingsAgent.mcp.empty')}</EmptyState>}
         {servers.map((server, idx) => (
           <ServerRow
-            key={idx}
+            key={`${server.name || 'unnamed'}-${server.transport}-${server.command ?? server.url ?? idx}`}
             server={server}
             isExpanded={expandedIndex === idx}
             isDuplicateName={servers.findIndex((s) => s.name === server.name) !== idx}
@@ -131,7 +132,7 @@ export const McpServersSection: React.FC = () => {
       </div>
 
       <button type="button" onClick={onAdd} className={buttonClass}>
-        <Plus size={12} />
+        <Plus size={12} aria-hidden="true" />
         {t('settingsAgent.mcp.add')}
       </button>
 
@@ -170,9 +171,15 @@ const ServerRow: React.FC<ServerRowProps> = ({
         <button
           type="button"
           onClick={onToggle}
-          className="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+          aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${server.name || 'unnamed'}`}
+          aria-expanded={isExpanded}
+          className="cursor-pointer rounded p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
         >
-          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          {isExpanded ? (
+            <ChevronDown size={14} aria-hidden="true" />
+          ) : (
+            <ChevronRight size={14} aria-hidden="true" />
+          )}
         </button>
         <span className="text-sm font-medium flex-1 truncate">
           {server.name || <em className="text-[var(--color-text-muted)]">(unnamed)</em>}
@@ -183,10 +190,11 @@ const ServerRow: React.FC<ServerRowProps> = ({
         <button
           type="button"
           onClick={onDelete}
-          className="p-1 text-red-400/80 hover:text-red-400 hover:bg-[var(--color-bg-tertiary)] rounded"
+          aria-label={`${t('settingsAgent.mcp.delete')} ${server.name || 'unnamed'}`}
+          className="cursor-pointer rounded p-1 text-red-400/80 hover:bg-[var(--color-bg-tertiary)] hover:text-red-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
           title={t('settingsAgent.mcp.delete')}
         >
-          <Trash2 size={12} />
+          <Trash2 size={12} aria-hidden="true" />
         </button>
       </div>
 

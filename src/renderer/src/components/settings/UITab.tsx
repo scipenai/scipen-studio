@@ -70,7 +70,7 @@ export const UITab: React.FC = () => {
             value={settings.ui.chatFontSize}
             onChange={(e) => settingsService.updateUI({ chatFontSize: Number(e.target.value) })}
             aria-label={t('settings.chatFontSize')}
-            className="flex-1 cursor-pointer accent-[var(--color-accent)]"
+            className="flex-1 cursor-pointer accent-[var(--color-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
           />
           <span className="w-12 text-right text-sm tabular-nums text-[var(--color-text-secondary)]">
             {settings.ui.chatFontSize}px

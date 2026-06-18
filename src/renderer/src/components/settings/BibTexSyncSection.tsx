@@ -8,7 +8,7 @@
 
 import { FileText, Loader2, RefreshCw } from 'lucide-react';
 import type React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { api } from '../../api';
 import { useTranslation } from '../../locales';
 import { createLogger } from '../../services/LogService';
@@ -29,6 +29,8 @@ const STATUS_POLL_INTERVAL_MS = 2000;
 
 export const BibTexSyncSection: React.FC = () => {
   const { t } = useTranslation();
+  const fileNameId = useId();
+  const translatorId = useId();
   const [config, setConfig] = useState<BibTexSyncConfigDTO | null>(null);
   const [status, setStatus] = useState<BibTexSyncStatusDTO>({ kind: 'idle' });
   const [saving, setSaving] = useState(false);
@@ -124,12 +126,16 @@ export const BibTexSyncSection: React.FC = () => {
       <SettingCard>
         <div className="space-y-3">
           <div>
-            <label className="block text-xs text-[var(--color-text-muted)] mb-1">
+            <label
+              htmlFor={fileNameId}
+              className="block text-xs text-[var(--color-text-muted)] mb-1"
+            >
               {t('zoteroSettings.bibtexSync.fileName')}
             </label>
             <input
+              id={fileNameId}
               type="text"
-              className={inputMonoClassName}
+              className={`${inputMonoClassName} focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]`}
               value={config.fileName}
               onChange={(e) => setConfig({ ...config, fileName: e.target.value })}
               onBlur={() =>
@@ -146,11 +152,15 @@ export const BibTexSyncSection: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs text-[var(--color-text-muted)] mb-1">
+            <label
+              htmlFor={translatorId}
+              className="block text-xs text-[var(--color-text-muted)] mb-1"
+            >
               {t('zoteroSettings.bibtexSync.translator')}
             </label>
             <select
-              className={selectClassName}
+              id={translatorId}
+              className={`${selectClassName} focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]`}
               value={config.translator}
               onChange={(e) => void patchConfig({ translator: e.target.value })}
               disabled={saving || !config.enabled}
@@ -175,9 +185,13 @@ export const BibTexSyncSection: React.FC = () => {
             type="button"
             onClick={() => void handleSyncNow()}
             disabled={syncing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] disabled:opacity-50 flex-shrink-0"
+            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {syncing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+            {syncing ? (
+              <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+            ) : (
+              <RefreshCw size={13} aria-hidden="true" />
+            )}
             {t('zoteroSettings.bibtexSync.syncNow')}
           </button>
         </div>
@@ -225,7 +239,7 @@ const StatusBadge: React.FC<{ status: BibTexSyncStatusDTO }> = ({ status }) => {
     case 'syncing':
       return (
         <span className="flex items-center gap-1.5 text-xs text-[var(--color-accent)]">
-          <Loader2 size={11} className="animate-spin" />
+          <Loader2 size={11} className="animate-spin" aria-hidden="true" />
           {t('zoteroSettings.bibtexSync.status.syncing')}
         </span>
       );
@@ -233,7 +247,7 @@ const StatusBadge: React.FC<{ status: BibTexSyncStatusDTO }> = ({ status }) => {
       return (
         <div className="flex flex-col">
           <span className="flex items-center gap-1.5 text-xs text-[var(--color-success)]">
-            <FileText size={11} />
+            <FileText size={11} aria-hidden="true" />
             {t('zoteroSettings.bibtexSync.status.ok')}
           </span>
           <span className="text-[10px] text-[var(--color-text-muted)] mt-0.5">

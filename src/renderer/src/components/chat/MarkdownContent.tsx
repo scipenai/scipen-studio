@@ -227,7 +227,7 @@ const MarkdownCodeBlock = memo<MarkdownCodeBlockProps>(
             </div>
             <button
               type="button"
-              className="markdown-code-block__copy"
+              className="markdown-code-block__copy cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
               data-copied={copied ? 'true' : 'false'}
               onClick={() => {
                 void handleCopy();

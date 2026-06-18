@@ -51,8 +51,10 @@ function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.Re
     return (
       <button
         type="button"
+        role="tab"
+        aria-selected={active}
         onClick={() => setTab(tab)}
-        className="rounded-md px-3 py-1 text-[13px] font-medium transition-colors"
+        className="cursor-pointer rounded-md px-3 py-1 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
         style={{
           background: active ? 'var(--color-bg-primary)' : 'transparent',
           color: active ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
@@ -73,7 +75,11 @@ function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.Re
         className="flex items-center border-b px-4 py-2"
         style={{ borderBottomColor: 'var(--color-border-subtle)' }}
       >
-        <div className="inline-flex items-center gap-0.5 rounded-lg bg-[var(--color-bg-void)] p-0.5">
+        <div
+          className="inline-flex items-center gap-0.5 rounded-lg bg-[var(--color-bg-void)] p-0.5"
+          role="tablist"
+          aria-label={previewTitle}
+        >
           {tabBtn('preview', previewTitle)}
           {tabBtn('paper', t('mainLayout.paperTab'))}
         </div>

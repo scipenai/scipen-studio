@@ -29,6 +29,12 @@ interface SkillDetail extends SkillSummary {
   body: string;
 }
 
+const toolbarButtonClass =
+  'inline-flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]';
+
+const skillRowBaseClass =
+  'block w-full cursor-pointer border-l-2 px-3 py-2 text-left text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-accent)]';
+
 export const SkillsPane: React.FC = () => {
   const { t } = useTranslation();
   const [skills, setSkills] = useState<SkillSummary[]>([]);
@@ -93,9 +99,9 @@ export const SkillsPane: React.FC = () => {
           <button
             type="button"
             onClick={() => void onReload()}
-            className="inline-flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)]"
+            className={toolbarButtonClass}
           >
-            <RefreshCw size={12} />
+            <RefreshCw size={12} aria-hidden="true" />
             {t('memoryViewer.reload')}
           </button>
         </div>
@@ -103,7 +109,7 @@ export const SkillsPane: React.FC = () => {
         <div className="min-h-0 flex-1 overflow-y-auto">
           {loading && (
             <div className="flex items-center justify-center py-4">
-              <Loader2 size={14} className="animate-spin" />
+              <Loader2 size={14} className="animate-spin" aria-hidden="true" />
             </div>
           )}
           {!loading && skills.length === 0 && (
@@ -116,7 +122,7 @@ export const SkillsPane: React.FC = () => {
               key={`${s.scope}/${s.name}`}
               type="button"
               onClick={() => void onSelect(s.name)}
-              className={`block w-full border-l-2 px-3 py-2 text-left text-xs ${
+              className={`${skillRowBaseClass} ${
                 selected === s.name
                   ? 'border-l-[var(--color-accent)] bg-[var(--color-bg-tertiary)]'
                   : 'border-l-transparent hover:bg-[var(--color-bg-hover)]'
@@ -154,10 +160,11 @@ export const SkillsPane: React.FC = () => {
                 <button
                   type="button"
                   onClick={onReveal}
-                  className="ml-auto inline-flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)]"
+                  className={`ml-auto ${toolbarButtonClass}`}
+                  aria-label={t('memoryViewer.reveal')}
                   title={t('memoryViewer.reveal')}
                 >
-                  <FolderOpen size={12} />
+                  <FolderOpen size={12} aria-hidden="true" />
                 </button>
               )}
             </div>

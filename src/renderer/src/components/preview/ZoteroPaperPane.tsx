@@ -67,7 +67,7 @@ export const ZoteroPaperPane: React.FC = () => {
       <div className="flex h-full flex-col items-center justify-center bg-[var(--color-bg-secondary)]">
         <div className="px-6 text-center">
           <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-[var(--color-bg-tertiary)]">
-            <FileText size={40} className="text-[var(--color-text-disabled)]" />
+            <FileText size={40} className="text-[var(--color-text-disabled)]" aria-hidden="true" />
           </div>
           <p className="font-medium text-[var(--color-text-secondary)]">{t('zoteroPaper.empty')}</p>
         </div>
@@ -134,10 +134,14 @@ export const ZoteroPaperPane: React.FC = () => {
           type="button"
           onClick={() => void startParse()}
           disabled={busy}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-muted)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-60"
           title={t('zoteroPaper.parseButton')}
         >
-          {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+          {busy ? (
+            <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+          ) : (
+            <Sparkles size={13} aria-hidden="true" />
+          )}
           <span>{parseLabel()}</span>
         </button>
       </div>
@@ -150,16 +154,21 @@ export const ZoteroPaperPane: React.FC = () => {
             borderBottomColor: 'var(--color-border-subtle)',
             background: 'var(--color-warning-muted, rgba(234,179,8,0.12))',
             color: 'var(--color-text-secondary)',
-          }}
-        >
-          <AlertTriangle size={13} className="shrink-0 text-[var(--color-warning,#eab308)]" />
+        }}
+      >
+          <AlertTriangle
+            size={13}
+            className="shrink-0 text-[var(--color-warning,#eab308)]"
+            aria-hidden="true"
+          />
           <span className="flex-1">{t('zoteroPaper.qualityPoor')}</span>
           <button
             type="button"
             onClick={() => void startParse()}
             disabled={busy}
-            className="shrink-0 rounded-md px-2 py-1 font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-muted)] disabled:opacity-60"
+            className="flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 py-1 font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-muted)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-60"
           >
+            <Sparkles size={13} aria-hidden="true" />
             {t('zoteroPaper.parseButton')}
           </button>
         </div>
@@ -193,8 +202,9 @@ const SegBtn: React.FC<{
     type="button"
     onClick={onClick}
     disabled={disabled}
+    aria-pressed={active}
     title={title}
-    className="rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+    className="cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
     style={
       active
         ? { background: 'var(--color-bg-elevated)', color: 'var(--color-text-primary)' }

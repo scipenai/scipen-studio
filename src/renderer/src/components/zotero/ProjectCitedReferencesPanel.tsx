@@ -127,14 +127,19 @@ export const ProjectCitedReferencesPanel: React.FC = () => {
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
-        className="flex w-full items-center justify-between px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+        aria-expanded={!collapsed}
+        className="flex w-full cursor-pointer items-center justify-between px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
       >
         <span className="flex items-center gap-1.5">
-          <BookOpen className="h-3 w-3" />
+          <BookOpen className="h-3 w-3" aria-hidden="true" />
           {t('projectCitedReferences.title')}
           <span className="text-[10px] font-normal opacity-70">({cited.length})</span>
         </span>
-        {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        {collapsed ? (
+          <ChevronRight className="h-3 w-3" aria-hidden="true" />
+        ) : (
+          <ChevronDown className="h-3 w-3" aria-hidden="true" />
+        )}
       </button>
 
       {!collapsed && (
@@ -159,7 +164,7 @@ export const ProjectCitedReferencesPanel: React.FC = () => {
                         ? t('projectCitedReferences.firstOf', { n: occurrences.length })
                         : undefined
                     }
-                    className="block w-full px-3 py-1 text-left text-[12px] hover:bg-[var(--color-bg-hover)]"
+                    className="block w-full cursor-pointer px-3 py-1 text-left text-[12px] hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                   >
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="font-mono text-[11px] text-[var(--color-text-primary)]">

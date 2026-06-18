@@ -108,9 +108,11 @@ const TabNavButton: React.FC<{
 }> = ({ tab, label, active, onClick }) => (
   <button
     type="button"
+    role="tab"
+    aria-selected={active}
     onClick={onClick}
     className={clsx(
-      'flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition-colors',
+      'flex w-full cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
       active
         ? 'bg-[var(--color-accent)] text-white shadow-[0_8px_18px_rgba(15,157,223,0.18)]'
         : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
@@ -123,7 +125,9 @@ const TabNavButton: React.FC<{
       if (!active) event.currentTarget.style.background = 'transparent';
     }}
   >
-    <span className="flex h-4 w-4 items-center justify-center">{tab.icon}</span>
+    <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
+      {tab.icon}
+    </span>
     <span className="truncate">{label}</span>
   </button>
 );
@@ -161,7 +165,7 @@ export const SettingsPanel: React.FC = () => {
               >
                 {t(group.titleKey)}
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1" role="tablist" aria-label={t(group.titleKey)}>
                 {group.ids.map((id) => (
                   <TabNavButton
                     key={id}

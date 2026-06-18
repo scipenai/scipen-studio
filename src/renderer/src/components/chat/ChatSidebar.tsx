@@ -19,7 +19,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { Check, Copy, History, Plus } from 'lucide-react';
+import { Bot, Check, Copy, History, MessageCircleQuestion, Plus, Settings2 } from 'lucide-react';
 import type React from 'react';
 import {
   memo,
@@ -149,6 +149,30 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
     [threads, activeThreadId]
   );
 
+  // ---- thread RPC helpers ----
+
+  const refreshThreads = useCallback(async () => {
+    try {
+      const list = await agentClient.listThreads();
+      setThreads(list);
+    } catch (err) {
+      // Non-fatal: keep the stale list.
+      console.warn('[ChatSidebar] listThreads failed', err);
+    }
+  }, []);
+
+  const hydrateThread = useCallback(
+    async (threadId: string) => {
+      try {
+        const { messages: wire } = await agentClient.getMessages(threadId);
+        chatStreamStore.replaceMessages(threadId, wire);
+      } catch (err) {
+        setThreadError(`${t('thread.loadFailed')}: ${extractErrorMessage(err)}`);
+      }
+    },
+    [t]
+  );
+
   // Stick-to-bottom: follow new content only while the view is pinned near the
   // bottom; once the user scrolls up to read, stop yanking them back down.
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -220,7 +244,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
           setStartup({ kind: 'error', message });
         }
       });
-  }, [workspaceRoot, displayName, retryNonce]);
+  }, [workspaceRoot, displayName, retryNonce, refreshThreads, hydrateThread]);
 
   // Auto-recover after the user fills in an API key: when AI config changes
   // while we are stuck on 'needs-config', clear this project's start guard
@@ -245,30 +269,6 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
       disposable.dispose();
     };
   }, [workspaceRoot]);
-
-  // ---- thread RPC helpers ----
-
-  const refreshThreads = useCallback(async () => {
-    try {
-      const list = await agentClient.listThreads();
-      setThreads(list);
-    } catch (err) {
-      // Non-fatal — keep the stale list.
-      console.warn('[ChatSidebar] listThreads failed', err);
-    }
-  }, []);
-
-  const hydrateThread = useCallback(
-    async (threadId: string) => {
-      try {
-        const { messages: wire } = await agentClient.getMessages(threadId);
-        chatStreamStore.replaceMessages(threadId, wire);
-      } catch (err) {
-        setThreadError(`${t('thread.loadFailed')}: ${extractErrorMessage(err)}`);
-      }
-    },
-    [t]
-  );
 
   // ---- inbound prompt injection (Ask-AI buttons → input seed) ----
 
@@ -481,7 +481,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         <div className="flex min-w-0 items-center gap-2">
           <button
             type="button"
-            className="rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:opacity-40"
+            className="cursor-pointer rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
             aria-label={t('thread.historyTitle')}
             aria-expanded={drawerOpen}
             title={t('thread.historyTitle')}
@@ -501,7 +501,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
           <ThreadCopyButton disabled={startup.kind !== 'ready'} />
           <button
             type="button"
-            className="rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:opacity-40"
+            className="cursor-pointer rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
             aria-label={t('thread.newThread')}
             title={t('thread.newThread')}
             onClick={handleCreateThread}
@@ -616,7 +616,7 @@ function ThreadCopyButton({ disabled }: { disabled: boolean }): React.ReactEleme
   return (
     <button
       type="button"
-      className="rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:opacity-40"
+      className="cursor-pointer rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
       aria-label={t('thread.copyThread')}
       title={t('thread.copyThread')}
       onClick={() => void onClick()}
@@ -690,7 +690,9 @@ function NeedsConfigCard({
   return (
     <div className="flex min-h-full flex-col items-center justify-center gap-4 px-6 py-6 text-center">
       <div className="flex flex-col items-center gap-2 text-[var(--color-text-muted)]">
-        <div className="text-[24px]">✦</div>
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)] text-[var(--color-accent)]">
+          <Settings2 size={18} aria-hidden="true" />
+        </div>
         <div className="text-[13px] font-medium text-[var(--color-text-secondary)]">
           {t('chat.needsConfig.title')}
         </div>
@@ -701,7 +703,7 @@ function NeedsConfigCard({
       <button
         type="button"
         onClick={onOpenSettings}
-        className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-4 py-2 text-[12px] font-medium text-[var(--color-text-primary)] transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
+        className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-4 py-2 text-[12px] font-medium text-[var(--color-text-primary)] transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
       >
         {t('chat.needsConfig.openSettings')}
       </button>
@@ -721,7 +723,9 @@ function EmptyState({
   return (
     <div className="flex min-h-full flex-col items-center justify-center gap-4 px-4 py-6 text-center">
       <div className="flex flex-col items-center gap-2 text-[var(--color-text-muted)]">
-        <div className="text-[24px]">✦</div>
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)] text-[var(--color-accent)]">
+          <Bot size={18} aria-hidden="true" />
+        </div>
         <div className="text-[13px] text-[var(--color-text-secondary)]">
           {t('chat.welcomeTitle')}
         </div>
@@ -736,25 +740,30 @@ function EmptyState({
           {t('chat.hintFiles')}
         </span>
         <span className="inline-flex items-center gap-1">
-          <kbd className="rounded bg-[var(--color-bg-hover)] px-1.5 py-0.5 font-mono">⏎</kbd>
+          <kbd className="rounded bg-[var(--color-bg-hover)] px-1.5 py-0.5 font-mono">Enter</kbd>
           {t('chat.hintSend')}
         </span>
         <span className="inline-flex items-center gap-1">
-          <kbd className="rounded bg-[var(--color-bg-hover)] px-1.5 py-0.5 font-mono">⇧⏎</kbd>
+          <kbd className="rounded bg-[var(--color-bg-hover)] px-1.5 py-0.5 font-mono">
+            Shift+Enter
+          </kbd>
           {t('chat.hintNewline')}
         </span>
       </div>
 
       <div className="flex w-full max-w-[280px] flex-col gap-1.5">
         <div className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">
-          {t('chat.tryExamples')}
+          <span className="inline-flex items-center gap-1">
+            <MessageCircleQuestion size={11} aria-hidden="true" />
+            {t('chat.tryExamples')}
+          </span>
         </div>
         {examples.map((ex) => (
           <button
             key={ex}
             type="button"
             onClick={() => onPickExample(ex)}
-            className="rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)] px-3 py-2 text-left text-[12px] text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+            className="cursor-pointer rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)] px-3 py-2 text-left text-[12px] text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
           >
             {ex}
           </button>

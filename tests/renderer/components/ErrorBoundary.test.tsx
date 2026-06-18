@@ -226,6 +226,22 @@ describe('PanelErrorBoundary', () => {
     expect(screen.getByText('Retry')).toBeInTheDocument();
   });
 
+  it('renders retry as a proper focusable action when a panel crashes', () => {
+    render(
+      <PanelErrorBoundary panelName="Preview">
+        <ThrowError />
+      </PanelErrorBoundary>
+    );
+
+    expect(screen.getByText('Preview failed to load')).toBeInTheDocument();
+
+    const retry = screen.getByRole('button', { name: 'Retry' });
+    expect(retry).toHaveAttribute('type', 'button');
+    expect(retry).toHaveClass('cursor-pointer');
+    expect(retry).toHaveClass('focus-visible:ring-2');
+    expect(retry.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+  });
+
   it('clicking retry should call onRetry callback', () => {
     const onRetry = vi.fn();
     render(

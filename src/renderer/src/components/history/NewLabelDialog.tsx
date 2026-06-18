@@ -36,6 +36,7 @@ export function NewLabelDialog(): ReactElement | null {
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   // Stable ids so the form `label`s and their `input`s wire up correctly even
   // when multiple dialogs are mounted (test envs).
   const nameId = useId();
@@ -44,6 +45,8 @@ export function NewLabelDialog(): ReactElement | null {
 
   useEffect(() => {
     const disposable = historyUIBus.onOpenCreateLabel(() => {
+      previouslyFocusedRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setIsOpen(true);
       setSubmitState('idle');
       setError(null);
@@ -59,6 +62,16 @@ export function NewLabelDialog(): ReactElement | null {
       const id = requestAnimationFrame(() => inputRef.current?.focus());
       return () => cancelAnimationFrame(id);
     }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const previouslyFocused = previouslyFocusedRef.current;
+    return () => {
+      previouslyFocused?.focus();
+      previouslyFocusedRef.current = null;
+    };
   }, [isOpen]);
 
   const close = useCallback(() => {
@@ -158,7 +171,7 @@ export function NewLabelDialog(): ReactElement | null {
             transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
           >
             <div className="flex items-center gap-1.5 border-b border-[var(--color-border-subtle)] px-3 py-2">
-              <Tag size={14} className="text-[var(--color-accent)]" />
+              <Tag size={14} aria-hidden="true" className="text-[var(--color-accent)]" />
               <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-accent)]">
                 {t('history.createLabel')}
               </span>
@@ -169,7 +182,7 @@ export function NewLabelDialog(): ReactElement | null {
                 aria-label={t('history.close')}
                 className="ml-auto flex h-6 w-6 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <X size={14} />
+                <X size={14} aria-hidden="true" />
               </button>
             </div>
 
@@ -216,7 +229,7 @@ export function NewLabelDialog(): ReactElement | null {
 
               <div className="flex items-center gap-2 pt-1">
                 <span className="text-[10px] text-[var(--color-text-muted)]">
-                  Ctrl+Enter · Esc
+                  Ctrl+Enter / Esc
                 </span>
                 <div className="ml-auto flex gap-1.5">
                   <button
@@ -234,7 +247,7 @@ export function NewLabelDialog(): ReactElement | null {
                     className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-accent)]/50 bg-[var(--color-accent)] px-2.5 py-1 text-[11px] font-medium text-white transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {submitState === 'submitting' && (
-                      <Loader2 size={11} className="motion-safe:animate-spin" />
+                      <Loader2 size={11} aria-hidden="true" className="motion-safe:animate-spin" />
                     )}
                     {submitState === 'submitting'
                       ? t('history.labelCreating')

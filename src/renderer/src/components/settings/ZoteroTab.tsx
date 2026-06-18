@@ -162,6 +162,7 @@ export const ZoteroTab: React.FC = () => {
             checked={enabled}
             onChange={(next) => void handleToggle(next)}
             disabled={toggling}
+            aria-label={t('zoteroSettings.enableIntegration')}
           />
         </FormRow>
       </FormSection>
@@ -195,9 +196,9 @@ const NotEnabledGuide: React.FC<{ onStart: () => void }> = ({ onStart }) => {
       <button
         type="button"
         onClick={onStart}
-        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[var(--color-accent)] text-white hover:opacity-90 transition-opacity"
+        className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
       >
-        <Sparkles size={14} />
+        <Sparkles size={14} aria-hidden="true" />
         {t('zoteroSettings.startWizard')}
       </button>
     </SettingCard>
@@ -348,9 +349,10 @@ const ActionRow: React.FC<ActionRowProps> = ({ label, desc, icon, busy, onClick 
         onClick={onClick}
         disabled={busy}
         title={label}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] disabled:opacity-50 flex-shrink-0"
+        aria-label={label}
+        className="flex flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {icon}
+        <span aria-hidden="true">{icon}</span>
         <span>{busy ? t('zoteroSettings.busy') : t('zoteroSettings.execute')}</span>
       </button>
     </div>

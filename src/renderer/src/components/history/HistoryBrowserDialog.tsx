@@ -137,12 +137,15 @@ export function HistoryBrowserDialog(): ReactElement | null {
   // invalidation signal.
   const [stepsReloadKey, setStepsReloadKey] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   useFocusTrap(containerRef, isOpen);
 
   // ---- Bus subscription ----
 
   useEffect(() => {
     const disposable = historyUIBus.onOpenBrowser((tab) => {
+      previouslyFocusedRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setIsOpen(true);
       setActiveTab(tab);
     });
@@ -154,6 +157,16 @@ export function HistoryBrowserDialog(): ReactElement | null {
       const id = requestAnimationFrame(() => containerRef.current?.focus());
       return () => cancelAnimationFrame(id);
     }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const previouslyFocused = previouslyFocusedRef.current;
+    return () => {
+      previouslyFocused?.focus();
+      previouslyFocusedRef.current = null;
+    };
   }, [isOpen]);
 
   // ---- Labels tab loader ----
@@ -594,19 +607,27 @@ function TabHeader({
 }): ReactElement {
   return (
     <div className="flex items-center gap-2 border-b border-[var(--color-border-subtle)] px-3 py-2">
-      <div className="flex items-center gap-0.5">
+      <div
+        role="tablist"
+        aria-label={t('history.browserSections')}
+        className="flex items-center gap-0.5"
+      >
         <TabButton
           active={activeTab === 'labels'}
-          icon={<FolderOpen size={12} />}
+          icon={<FolderOpen size={12} aria-hidden="true" />}
           label={t('history.browseLabels')}
           count={labelsCount}
+          tabId="history-tab-labels"
+          panelId="history-panel-labels"
           onClick={() => onSwitch('labels')}
         />
         <TabButton
           active={activeTab === 'sessions'}
-          icon={<MessagesSquare size={12} />}
+          icon={<MessagesSquare size={12} aria-hidden="true" />}
           label={t('history.browseSessions')}
           count={sessionsCount}
+          tabId="history-tab-sessions"
+          panelId="history-panel-sessions"
           onClick={() => onSwitch('sessions')}
         />
       </div>
@@ -620,7 +641,7 @@ function TabHeader({
             aria-label={t('history.createLabel')}
             className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-2 py-1 text-[10px] text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)]/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] active:bg-[var(--color-accent)]/30"
           >
-            <Plus size={11} />
+            <Plus size={11} aria-hidden="true" />
             {t('history.submit')}
           </button>
         )}
@@ -630,7 +651,7 @@ function TabHeader({
           aria-label={t('history.close')}
           className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
         >
-          <X size={14} />
+          <X size={14} aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -642,20 +663,26 @@ function TabButton({
   icon,
   label,
   count,
+  tabId,
+  panelId,
   onClick,
 }: {
   active: boolean;
   icon: ReactElement;
   label: string;
   count: number;
+  tabId: string;
+  panelId: string;
   onClick: () => void;
 }): ReactElement {
   return (
     <button
+      id={tabId}
       type="button"
       onClick={onClick}
       role="tab"
       aria-selected={active}
+      aria-controls={panelId}
       className={
         'flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] ' +
         (active
@@ -730,7 +757,12 @@ function LabelsTab({
   t: T;
 }): ReactElement {
   return (
-    <>
+    <div
+      id="history-panel-labels"
+      role="tabpanel"
+      aria-labelledby="history-tab-labels"
+      className="flex min-h-0 flex-1"
+    >
       <LabelListPane
         labels={state.labels ?? []}
         listError={state.listError}
@@ -754,7 +786,7 @@ function LabelsTab({
           />
         )}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -900,7 +932,12 @@ function SessionsTab({
   t: T;
 }): ReactElement {
   return (
-    <>
+    <div
+      id="history-panel-sessions"
+      role="tabpanel"
+      aria-labelledby="history-tab-sessions"
+      className="flex min-h-0 flex-1"
+    >
       <StepListPane
         steps={state.steps ?? []}
         stepsLoading={state.stepsLoading}
@@ -924,7 +961,7 @@ function SessionsTab({
           />
         )}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1065,7 +1102,11 @@ function CausesList({ causes }: { causes: StepCause[] }): ReactElement {
       {causes.map((c) => (
         <li key={c.id}>
           <div className="flex items-center gap-1.5">
-            <Sparkles size={10} className="flex-shrink-0 text-[var(--color-accent)]" />
+            <Sparkles
+              size={10}
+              aria-hidden="true"
+              className="flex-shrink-0 text-[var(--color-accent)]"
+            />
             <span className="truncate font-mono text-[11px] text-[var(--color-text-primary)]">
               {c.toolName}
             </span>
@@ -1156,7 +1197,11 @@ function TimelineStrip({
 function EmptyState({ promptKey, t }: { promptKey: TranslationKey; t: T }): ReactElement {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <Inbox size={32} className="text-[var(--color-text-muted)] opacity-40" />
+      <Inbox
+        size={32}
+        aria-hidden="true"
+        className="text-[var(--color-text-muted)] opacity-40"
+      />
       <p className="text-[11px] text-[var(--color-text-muted)]">{t(promptKey)}</p>
       <p className="text-[10px] text-[var(--color-text-muted)] opacity-60">
         {t('history.labelKeyboardHint')}
@@ -1168,7 +1213,7 @@ function EmptyState({ promptKey, t }: { promptKey: TranslationKey; t: T }): Reac
 function ListLoading({ t }: { t: T }): ReactElement {
   return (
     <div className="flex items-center gap-1.5 px-3 py-2 text-[11px] text-[var(--color-text-muted)]">
-      <Loader2 size={12} className="motion-safe:animate-spin" />
+      <Loader2 size={12} aria-hidden="true" className="motion-safe:animate-spin" />
       {t('history.labelCreating')}
     </div>
   );
@@ -1177,7 +1222,7 @@ function ListLoading({ t }: { t: T }): ReactElement {
 function InlineLoading({ t }: { t: T }): ReactElement {
   return (
     <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)]">
-      <Loader2 size={12} className="motion-safe:animate-spin" />
+      <Loader2 size={12} aria-hidden="true" className="motion-safe:animate-spin" />
       {t('history.labelCreating')}
     </div>
   );
@@ -1304,9 +1349,9 @@ function DetailFooter({
         className="ml-auto flex cursor-pointer items-center gap-1 rounded border border-[var(--color-warning)]/50 bg-[var(--color-warning-muted)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-warning)] transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-warning)] focus-visible:ring-offset-1 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
       >
         {restoring ? (
-          <Loader2 size={11} className="motion-safe:animate-spin" />
+          <Loader2 size={11} aria-hidden="true" className="motion-safe:animate-spin" />
         ) : (
-          <RotateCcw size={11} />
+          <RotateCcw size={11} aria-hidden="true" />
         )}
         {restoring ? t('history.restoring') : restoreLabel}
       </button>
@@ -1320,7 +1365,7 @@ function DetailFooter({
 
 function listItemClass(isSelected: boolean): string {
   return (
-    'flex w-full cursor-pointer items-start gap-2 border-l-2 px-3 py-2 text-left transition-colors focus:outline-none ' +
+    'flex w-full cursor-pointer items-start gap-2 border-l-2 px-3 py-2 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-inset ' +
     (isSelected
       ? 'border-l-[var(--color-accent)] bg-[var(--color-accent-muted)]/40 '
       : 'border-l-transparent hover:bg-[var(--color-bg-hover)] focus-visible:bg-[var(--color-bg-hover)]')
@@ -1428,10 +1473,28 @@ function Chip({ color, text }: { color: string; text: string }): ReactElement {
 
 function OriginIcon({ origin }: { origin: HistoryStepDTO['origin'] }): ReactElement {
   if (origin === 'snaca_tool')
-    return <Bot size={11} className="mt-0.5 flex-shrink-0 text-[var(--color-accent)]" />;
+    return (
+      <Bot
+        size={11}
+        aria-hidden="true"
+        className="mt-0.5 flex-shrink-0 text-[var(--color-accent)]"
+      />
+    );
   if (origin === 'merge')
-    return <GitCommit size={11} className="mt-0.5 flex-shrink-0 text-[var(--color-warning)]" />;
-  return <Users size={11} className="mt-0.5 flex-shrink-0 text-[var(--color-text-muted)]" />;
+    return (
+      <GitCommit
+        size={11}
+        aria-hidden="true"
+        className="mt-0.5 flex-shrink-0 text-[var(--color-warning)]"
+      />
+    );
+  return (
+    <Users
+      size={11}
+      aria-hidden="true"
+      className="mt-0.5 flex-shrink-0 text-[var(--color-text-muted)]"
+    />
+  );
 }
 
 function kindColor(kind: HistoryLabelDTO['kind']): string {

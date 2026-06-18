@@ -155,6 +155,9 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
       const id = `${entry.level}-${index}`;
       const isExpanded = expandedItems.has(id);
       const hasContent = entry.content && entry.content.trim().length > 0;
+      const fileLabel = entry.file?.startsWith('./') ? entry.file.slice(2) : entry.file;
+      const jumpLabel =
+        fileLabel && entry.line ? `Open ${fileLabel} line ${entry.line}` : (fileLabel ?? '');
 
       return (
         <div
@@ -173,13 +176,19 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
           >
             {hasContent ? (
               <button
+                type="button"
+                aria-label={isExpanded ? 'Collapse log details' : 'Expand log details'}
                 onClick={(e) => {
                   e.stopPropagation();
                   toggleExpand(id);
                 }}
-                className="mt-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+                className="mt-0.5 cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] rounded"
               >
-                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                {isExpanded ? (
+                  <ChevronDown size={14} aria-hidden="true" />
+                ) : (
+                  <ChevronRight size={14} aria-hidden="true" />
+                )}
               </button>
             ) : (
               <span className="w-3.5" />
@@ -191,6 +200,8 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
               <div className="flex items-center gap-2 text-sm">
                 {entry.file && (
                   <button
+                    type="button"
+                    aria-label={jumpLabel}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleJumpToLine(entry);
@@ -198,14 +209,14 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
                     className={clsx(
                       'flex items-center gap-1 text-xs px-1.5 py-0.5 rounded',
                       entry.line
-                        ? 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
-                        : 'bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)]'
+                        ? 'cursor-pointer bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]'
+                        : 'cursor-not-allowed bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)]'
                     )}
                     disabled={!entry.line}
                   >
-                    <FileText size={10} />
+                    <FileText size={10} aria-hidden="true" />
                     <span className="truncate max-w-32">
-                      {entry.file.startsWith('./') ? entry.file.slice(2) : entry.file}
+                      {fileLabel}
                     </span>
                     {entry.line && (
                       <span className="text-[var(--color-accent)]">:{entry.line}</span>
@@ -301,10 +312,12 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
 
           {onClose && (
             <button
+              type="button"
+              aria-label={t('common.close')}
               onClick={onClose}
-              className="p-1 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
+              className="p-1 rounded cursor-pointer hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
             >
-              <X size={14} />
+              <X size={14} aria-hidden="true" />
             </button>
           )}
         </div>
@@ -348,9 +361,11 @@ const FilterButton: React.FC<{
   color?: string;
 }> = ({ active, onClick, count, label, color = 'text-[var(--color-text-muted)]' }) => (
   <button
+    type="button"
+    aria-pressed={active}
     onClick={onClick}
     className={clsx(
-      'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
+      'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]',
       active
         ? 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)]'
         : 'hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)]'

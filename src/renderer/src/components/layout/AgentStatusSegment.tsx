@@ -55,7 +55,7 @@ export const AgentStatusSegment: React.FC = () => {
   if (!activity) {
     statusLabel = t('agentStatus.idle');
   } else if (activity.toolName) {
-    statusLabel = `${t('agentStatus.tool')} · ${activity.toolName}`;
+    statusLabel = `${t('agentStatus.tool')}: ${activity.toolName}`;
   } else if (activity.label === 'queued') {
     statusLabel = t('agentStatus.queued');
   } else {
@@ -85,11 +85,11 @@ export const AgentStatusSegment: React.FC = () => {
         <span>{statusLabel}</span>
       </span>
 
-      {/* Token / cost — hidden until at least one turn has reported usage */}
+      {/* Token / cost: hidden until at least one turn has reported usage. */}
       {hasUsage && (
         <span className="flex items-center gap-2" title={t('agentStatus.usageHint')}>
           <span>
-            ↑ {formatTokens(usage.inputTokens)}
+            In {formatTokens(usage.inputTokens)}
             {usage.cachedInputTokens > 0 && (
               <span style={{ color: 'var(--color-text-muted)', opacity: 0.6 }}>
                 {' '}
@@ -97,20 +97,21 @@ export const AgentStatusSegment: React.FC = () => {
               </span>
             )}
           </span>
-          <span>↓ {formatTokens(usage.outputTokens)}</span>
+          <span>Out {formatTokens(usage.outputTokens)}</span>
           {typeof usage.costUsd === 'number' && <span>{formatCost(usage.costUsd)}</span>}
         </span>
       )}
 
-      {/* Stop — visible only while a turn is in flight */}
+      {/* Stop: visible only while a turn is in flight. */}
       {busy && (
         <button
           type="button"
           onClick={onStop}
-          className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[var(--color-bg-hover)] text-red-400"
+          aria-label={t('agentStatus.stop')}
+          className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-red-400 transition-colors hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
           title={t('agentStatus.stop')}
         >
-          <Square size={9} />
+          <Square size={9} aria-hidden="true" />
           <span>{t('agentStatus.stop')}</span>
         </button>
       )}

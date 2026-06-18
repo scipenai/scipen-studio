@@ -356,7 +356,7 @@ export const AgentTab: React.FC = () => {
           description={t('settingsAgent.memoryDesc')}
         >
           <button type="button" onClick={openMemory} className={secondaryButtonClass}>
-            <Brain size={14} />
+            <Brain size={14} aria-hidden="true" />
             {t('settingsAgent.openMemory')}
           </button>
         </FormRow>
@@ -365,7 +365,7 @@ export const AgentTab: React.FC = () => {
           description={t('settingsAgent.skillsDesc')}
         >
           <button type="button" onClick={openSkills} className={secondaryButtonClass}>
-            <BookOpen size={14} />
+            <BookOpen size={14} aria-hidden="true" />
             {t('settingsAgent.openSkills')}
           </button>
         </FormRow>
@@ -395,9 +395,14 @@ export const AgentTab: React.FC = () => {
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="mb-2 inline-flex items-center gap-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+          aria-expanded={expanded}
+          className="mb-2 inline-flex cursor-pointer items-center gap-1 rounded text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
         >
-          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          {expanded ? (
+            <ChevronDown size={12} aria-hidden="true" />
+          ) : (
+            <ChevronRight size={12} aria-hidden="true" />
+          )}
           {t(expanded ? 'settingsAgent.engine.collapse' : 'settingsAgent.engine.expand')}
         </button>
 

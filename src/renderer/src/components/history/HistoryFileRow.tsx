@@ -71,7 +71,7 @@ export function HistoryFileRow({
           aria-label={t('history.viewDiff')}
           className="flex h-5 w-5 flex-shrink-0 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-accent)] focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] group-hover:opacity-100"
         >
-          <Eye size={11} />
+          <Eye size={11} aria-hidden="true" />
         </button>
       )}
     </li>

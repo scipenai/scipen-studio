@@ -101,12 +101,12 @@ export const EmbeddingRecommendationSection: React.FC = () => {
           </div>
           <div className="mt-3 flex gap-2">
             <SmallButton
-              icon={<KeyRound size={13} />}
+              icon={<KeyRound size={13} aria-hidden="true" />}
               label={t('zoteroEmbedding.configureKey')}
               onClick={() => setDialogOpen(true)}
             />
             <SmallButton
-              icon={<RefreshCw size={13} />}
+              icon={<RefreshCw size={13} aria-hidden="true" />}
               label={t('zoteroEmbedding.rebuild')}
               onClick={() => void api.zotero.rebuildEmbeddingIndex()}
             />
@@ -131,7 +131,7 @@ const SmallButton: React.FC<{ icon: React.ReactNode; label: string; onClick: () 
   <button
     type="button"
     onClick={onClick}
-    className="flex items-center gap-1.5 rounded-lg bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+    className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
   >
     {icon}
     <span>{label}</span>

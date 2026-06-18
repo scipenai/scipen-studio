@@ -15,6 +15,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactElement,
 } from 'react';
@@ -39,6 +40,8 @@ export function FileDiffOverlay({
   onClose,
 }: FileDiffOverlayProps): ReactElement {
   const { t } = useTranslation();
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const lines = useMemo<DiffLine[]>(() => {
     if (afterText === null) return [];
     return computeUnifiedDiff(beforeText, afterText);
@@ -51,6 +54,29 @@ export function FileDiffOverlay({
         e.preventDefault();
         e.stopPropagation();
         onClose();
+        return;
+      }
+
+      if (e.key !== 'Tab') return;
+
+      const focusable = Array.from(
+        overlayRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []
+      );
+      if (focusable.length === 0) {
+        e.preventDefault();
+        overlayRef.current?.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
       }
     },
     [onClose]
@@ -63,6 +89,18 @@ export function FileDiffOverlay({
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prev;
+    };
+  }, []);
+
+  useEffect(() => {
+    previouslyFocusedRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const firstAction = overlayRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    (firstAction ?? overlayRef.current)?.focus();
+
+    return () => {
+      previouslyFocusedRef.current?.focus();
+      previouslyFocusedRef.current = null;
     };
   }, []);
 
@@ -79,11 +117,13 @@ export function FileDiffOverlay({
   return (
     <AnimatePresence>
       <motion.div
+        ref={overlayRef}
         role="dialog"
         aria-modal="true"
         aria-label={t('history.diffOverlayTitle', { fileId })}
         onClick={onClose}
         onKeyDown={handleKeyDown}
+        tabIndex={-1}
         className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -105,7 +145,7 @@ export function FileDiffOverlay({
               aria-label={t('history.close')}
               className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             >
-              <ArrowLeft size={14} />
+              <ArrowLeft size={14} aria-hidden="true" />
             </button>
             <span className="truncate font-mono text-[11px] font-medium text-[var(--color-text-primary)]">
               {fileId}
@@ -123,7 +163,7 @@ export function FileDiffOverlay({
               aria-label={t('history.close')}
               className="ml-auto flex h-6 w-6 cursor-pointer items-center justify-center rounded text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             >
-              <X size={14} />
+              <X size={14} aria-hidden="true" />
             </button>
           </div>
 

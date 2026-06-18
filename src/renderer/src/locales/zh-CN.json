@@ -32,6 +32,8 @@
       "serverUrl": "服务器地址",
       "serverUrlHint": "支持官方服务器或私有部署",
       "cookies": "Cookies",
+      "showCookies": "显示 Cookie",
+      "hideCookies": "隐藏 Cookie",
       "cookiesRequired": "请输入 Overleaf Cookie",
       "howToGetCookie": "如何获取 Cookie？",
       "cookieStep1": "在浏览器中登录 Overleaf",
@@ -435,7 +437,8 @@
     "labelSelectPrompt": "从左侧选择一个快照查看详情",
     "labelKeyboardHint": "↑/↓ 或 j/k 切换 · Esc 关闭",
     "stepSelectPrompt": "从左侧选择一个变更查看详情",
-    "browserTitle": "历史浏览器"
+    "browserTitle": "历史浏览器",
+    "browserSections": "历史分区"
   },
   "chat": {
     "rename": "重命名",
@@ -543,6 +546,7 @@
     "reload": "重新加载"
   },
   "fileExplorerMenu": {
+    "actions": "文件操作",
     "newFile": "新建文件",
     "newFolder": "新建文件夹",
     "rename": "重命名 (F2)",
@@ -577,6 +581,7 @@
     }
   },
   "workspaceSidebar": {
+    "navigation": "工作区导航",
     "imTab": "对话",
     "filesTab": "文件",
     "historyTab": "历史",
@@ -613,6 +618,8 @@
       "title": "配置 MinerU 精解析",
       "tokenLabel": "MinerU API Token",
       "tokenPlaceholder": "粘贴官网申请的 token",
+      "showToken": "显示 Token",
+      "hideToken": "隐藏 Token",
       "privacyTitle": "隐私提示",
       "privacyBody": "精解析会把该 PDF 上传到 MinerU 第三方云服务进行解析。请确认你接受。",
       "consent": "我已了解并同意将 PDF 上传到 MinerU 云解析",
@@ -666,6 +673,8 @@
       "providerLabel": "Embedding 服务商",
       "keyLabel": "API Key",
       "keyPlaceholder": "粘贴所选服务商的 API Key",
+      "showKey": "显示密钥",
+      "hideKey": "隐藏密钥",
       "consent": "我已了解并同意将段落文本发送到所选 embedding 服务商",
       "save": "保存并启用",
       "cancel": "取消"
@@ -835,9 +844,11 @@
     "openSettings": "打开设置"
   },
   "atFileDropdown": {
+    "label": "文件建议",
     "noMatch": "没有匹配的文件"
   },
   "atCiteDropdown": {
+    "label": "引用建议",
     "noMatch": "无匹配文献",
     "prompt": "输入关键词搜索文献"
   },

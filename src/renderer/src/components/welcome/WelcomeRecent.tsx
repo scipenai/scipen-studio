@@ -56,7 +56,7 @@ export const WelcomeRecent: React.FC<WelcomeRecentProps> = ({
       }}
     >
       <div className="mb-4 flex items-center gap-2">
-        <Clock className="h-4 w-4" style={{ color: 'var(--color-accent)' }} />
+        <Clock className="h-4 w-4" style={{ color: 'var(--color-accent)' }} aria-hidden="true" />
         <h2
           className="text-xs font-semibold uppercase tracking-wider"
           style={{ color: 'var(--color-text-primary)' }}
@@ -77,7 +77,7 @@ export const WelcomeRecent: React.FC<WelcomeRecentProps> = ({
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.4 + index * 0.05 }}
               whileHover={isOpeningAnyProject ? undefined : { x: 4 }}
-              className={`group flex w-full items-center gap-3 rounded-xl p-3 text-left transition-all ${
+              className={`group flex w-full items-center gap-3 rounded-xl p-3 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] ${
                 isOpeningAnyProject ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
               }`}
               style={{ background: 'transparent' }}
@@ -91,9 +91,9 @@ export const WelcomeRecent: React.FC<WelcomeRecentProps> = ({
             >
               <div
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors"
-                style={{ background: 'var(--color-accent-muted)' }}
-              >
-                <FileText className="h-4 w-4 text-cyan-400" />
+              style={{ background: 'var(--color-accent-muted)' }}
+            >
+                <FileText className="h-4 w-4 text-cyan-400" aria-hidden="true" />
               </div>
               <div className="min-w-0 flex-1">
                 <p
@@ -107,7 +107,10 @@ export const WelcomeRecent: React.FC<WelcomeRecentProps> = ({
                 </p>
               </div>
               {openingPath === project.path ? (
-                <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[var(--color-text-muted)]" />
+                <Loader2
+                  className="h-3 w-3 shrink-0 animate-spin text-[var(--color-text-muted)]"
+                  aria-hidden="true"
+                />
               ) : (
                 <span className="shrink-0 text-xs" style={{ color: 'var(--color-text-muted)' }}>
                   {formatTimeAgo(project.lastOpened)}
@@ -121,7 +124,11 @@ export const WelcomeRecent: React.FC<WelcomeRecentProps> = ({
               className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl"
               style={{ background: 'var(--color-bg-tertiary)' }}
             >
-              <FileText className="h-8 w-8" style={{ color: 'var(--color-text-disabled)' }} />
+              <FileText
+                className="h-8 w-8"
+                style={{ color: 'var(--color-text-disabled)' }}
+                aria-hidden="true"
+              />
             </div>
             <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
               {t('welcome.noRecentProjects')}

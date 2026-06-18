@@ -69,8 +69,28 @@ bundled CJK fonts), a reworked Settings UI, and a long tail of agent-stability f
   and structured failure when the user closes the card without choosing.
 - **Per-project memory recall** — Quality-gated by self-rated confidence; entries
   below `recall_confidence_floor` (default 0.30) are filtered out.
+- **Accessibility sweep across the renderer.** Framework-level a11y automation in
+  shared UI primitives — `Button` auto-`aria-hidden`s decorative left/right icons,
+  `Modal` uses `useId` to wire `aria-labelledby` / `aria-describedby`, `SettingItem`
+  cloneElements native `input` / `select` / `textarea` children with auto-generated
+  `id` + merged `aria-describedby`. Across the renderer: `cursor-pointer` /
+  `disabled:cursor-not-allowed` on every clickable surface, explicit `type="button"`
+  on icon-only buttons, `focus-visible:ring` on every focusable element, decorative
+  Unicode glyphs (`✦`, `⏎`, `⇧⏎`) replaced by Lucide icons or plain text for
+  cross-platform consistency. Send / Stop in chat composer became square icon-only
+  buttons aligned with mainstream chat UIs. The lint baseline (previously 4
+  warnings) now compiles cleanly.
+- **Component test coverage.** 61 new component specs covering the renderer-level
+  UI (~112 new tests, total goes from 506 to 618). Tests double as a11y contract
+  guards going forward.
 
 ### Fixed
+
+- **Streaming chat timeline re-mount.** `ChatMessage` Timeline list keys were
+  derived from array index, so React re-mounted `ThinkingRenderer` /
+  `MarkdownContent` / `ProposalRow` whenever events streamed in (animation replay,
+  collapse state reset, content flicker). Keys are now derived from a stable hash
+  of the event content plus an occurrence counter for legitimate duplicates.
 
 - **Loop-guard tripped → chat input frozen.** SNACA's `turn_engine` emits Error
   without a paired Done on engine failures (e.g. `LoopGuardTripped`); the

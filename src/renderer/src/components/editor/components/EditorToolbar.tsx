@@ -57,7 +57,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         borderBottom: '1px solid var(--color-border-subtle)',
       }}
     >
-      <div className="flex-1 flex gap-1 overflow-x-auto">
+      <div className="flex-1 flex gap-1 overflow-x-auto" role="tablist">
         {openTabs.map((tab) => {
           const isActive = tab.path === activeTabPath;
           return (
@@ -66,7 +66,16 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             <div
               key={tab.path}
               onClick={() => onTabClick(tab.path)}
-              className="group flex items-center gap-2 rounded-md px-3 py-1 text-sm transition-colors cursor-pointer"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onTabClick(tab.path);
+                }
+              }}
+              role="tab"
+              tabIndex={0}
+              aria-selected={isActive}
+              className="group flex items-center gap-2 rounded-md px-3 py-1 text-sm transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
               style={{
                 background: isActive ? 'var(--color-bg-primary)' : 'transparent',
                 color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
@@ -87,9 +96,14 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 />
               )}
               <span className="truncate max-w-[140px] font-medium">{tab.name}</span>
-              <span
+              <button
+                type="button"
+                aria-label={`${t('common.close')} ${tab.name}`}
                 onClick={(e) => onTabClose(e, tab.path)}
-                className="ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                }}
+                className="ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
                 style={{ background: 'transparent' }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = 'var(--color-bg-hover)';
@@ -98,8 +112,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                   e.currentTarget.style.background = 'transparent';
                 }}
               >
-                <X size={12} />
-              </span>
+                <X size={12} aria-hidden="true" />
+              </button>
             </div>
           );
         })}
@@ -176,10 +190,12 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         )}
 
         <button
+          type="button"
           onClick={onSyncTexJump}
           disabled={!hasPdf}
+          aria-label={t('editorToolbar.jumpToPdf')}
           className={clsx(
-            'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm transition-all',
+            'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm transition-all focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]',
             hasPdf ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'
           )}
           style={{ color: 'var(--color-text-muted)' }}
@@ -195,15 +211,17 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           }}
           title={t('editorToolbar.jumpToPdf')}
         >
-          <Link2 size={15} />
+          <Link2 size={15} aria-hidden="true" />
         </button>
 
         <button
+          type="button"
           data-compile-button
           onClick={onCompile}
           disabled={isCompileDisabled}
+          aria-label={isCompiling ? t('editorToolbar.stopCompile') : t('editorToolbar.compile')}
           className={clsx(
-            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ml-1',
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ml-1 focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]',
             isCompileDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
           )}
           style={{
@@ -234,7 +252,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           }}
           title={isCompiling ? t('editorToolbar.stopCompile') : t('editorToolbar.compile')}
         >
-          {isCompiling ? <X size={14} /> : <Play size={14} />}
+          {isCompiling ? <X size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
           <span className="hidden sm:inline">
             {isCompiling ? t('editorToolbar.stop') : t('editor.compile')}
           </span>

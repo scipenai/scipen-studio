@@ -37,6 +37,8 @@ export function ThreadHistoryDrawer({
   const { t } = useTranslation();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState('');
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   // Most-recently-active first; tolerate missing timestamps from older sidecars.
   const sorted = useMemo(
@@ -53,6 +55,57 @@ export function ThreadHistoryDrawer({
   useEffect(() => {
     if (!open) setRenamingId(null);
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    previouslyFocusedRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const firstAction = drawerRef.current?.querySelector<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled)'
+    );
+
+    (firstAction ?? drawerRef.current)?.focus();
+
+    return () => {
+      previouslyFocusedRef.current?.focus();
+    };
+  }, [open]);
+
+  const handleDrawerKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+
+      const focusable = Array.from(
+        drawerRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)') ??
+          []
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        drawerRef.current?.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    [onClose]
+  );
 
   const beginRename = useCallback((thread: ThreadSummary) => {
     setRenamingId(thread.thread_id);
@@ -77,10 +130,13 @@ export function ThreadHistoryDrawer({
 
   return (
     <div
+      ref={drawerRef}
       className="absolute inset-0 z-30 flex flex-col bg-[var(--color-bg-secondary)]"
       role="dialog"
       aria-modal="true"
       aria-label={t('thread.historyTitle')}
+      tabIndex={-1}
+      onKeyDown={handleDrawerKeyDown}
     >
       <header className="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2">
         <span className="text-[12px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
@@ -89,19 +145,21 @@ export function ThreadHistoryDrawer({
         <div className="flex items-center gap-1">
           <button
             type="button"
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+            className="cursor-pointer rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             title={t('thread.newThread')}
+            aria-label={t('thread.newThread')}
             onClick={onCreate}
           >
-            <Plus size={14} />
+            <Plus size={14} aria-hidden="true" />
           </button>
           <button
             type="button"
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+            className="cursor-pointer rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             title={t('common.cancel')}
+            aria-label={t('common.cancel')}
             onClick={onClose}
           >
-            <X size={14} />
+            <X size={14} aria-hidden="true" />
           </button>
         </div>
       </header>
@@ -126,7 +184,8 @@ export function ThreadHistoryDrawer({
               >
                 <button
                   type="button"
-                  className="min-w-0 flex-1 cursor-pointer text-left"
+                  aria-current={isActive ? 'true' : undefined}
+                  className="min-w-0 flex-1 cursor-pointer rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                   onClick={() => !isRenaming && onSelect(thread.thread_id)}
                   onDoubleClick={() => beginRename(thread)}
                 >
@@ -166,14 +225,15 @@ export function ThreadHistoryDrawer({
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
                     <button
                       type="button"
-                      className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+                      className="cursor-pointer rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                       title={t('thread.rename')}
+                      aria-label={t('thread.rename')}
                       onClick={(e) => {
                         e.stopPropagation();
                         beginRename(thread);
                       }}
                     >
-                      <Pencil size={12} />
+                      <Pencil size={12} aria-hidden="true" />
                     </button>
                     <DeleteButton
                       onConfirm={() => onDelete(thread.thread_id)}
@@ -219,12 +279,14 @@ function DeleteButton({ onConfirm, confirmText, title }: DeleteButtonProps): Rea
   return (
     <button
       type="button"
-      className={`rounded p-1 hover:bg-[var(--color-bg-tertiary)] ${
+      className={`cursor-pointer rounded p-1 hover:bg-[var(--color-bg-tertiary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] ${
         armed
           ? 'text-red-500'
           : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
       }`}
       title={armed ? confirmText : title}
+      aria-label={armed ? confirmText : title}
+      aria-pressed={armed}
       onClick={(e) => {
         e.stopPropagation();
         if (armed) {
@@ -236,7 +298,7 @@ function DeleteButton({ onConfirm, confirmText, title }: DeleteButtonProps): Rea
         }
       }}
     >
-      <Trash2 size={12} />
+      <Trash2 size={12} aria-hidden="true" />
     </button>
   );
 }

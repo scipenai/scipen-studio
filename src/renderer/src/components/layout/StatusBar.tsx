@@ -6,7 +6,7 @@
 
 import { AlertTriangle, Check, ChevronUp, Cpu, HardDrive, Save } from 'lucide-react';
 import type React from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { RunOnceScheduler } from '../../../../../shared/utils';
 import logoS from '../../assets/logo-s.svg';
 import { useClickOutside, useEvent } from '../../hooks';
@@ -40,6 +40,9 @@ export const StatusBar: React.FC = () => {
 
   const [isEngineDropdownOpen, setIsEngineDropdownOpen] = useState(false);
   const engineDropdownRef = useRef<HTMLDivElement>(null);
+  const engineMenuRef = useRef<HTMLDivElement>(null);
+  const engineMenuId = useId();
+  const previouslyFocusedEngineRef = useRef<HTMLElement | null>(null);
 
   // ====== Save Status ======
 
@@ -64,6 +67,75 @@ export const StatusBar: React.FC = () => {
   });
 
   useClickOutside(engineDropdownRef, () => setIsEngineDropdownOpen(false), isEngineDropdownOpen);
+
+  useEffect(() => {
+    if (!isEngineDropdownOpen) return;
+
+    previouslyFocusedEngineRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const selectedItem =
+      engineMenuRef.current?.querySelector<HTMLButtonElement>('[data-selected="true"]') ?? null;
+    const firstItem =
+      engineMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitemradio"]') ?? null;
+
+    (selectedItem ?? firstItem ?? engineMenuRef.current)?.focus();
+
+    return () => {
+      previouslyFocusedEngineRef.current?.focus();
+    };
+  }, [isEngineDropdownOpen]);
+
+  const getEngineMenuItems = (): HTMLButtonElement[] =>
+    Array.from(engineMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? []);
+
+  const focusEngineMenuItem = (offset: number): void => {
+    const items = getEngineMenuItems();
+    if (items.length === 0) return;
+
+    const currentIndex = items.findIndex((item) => item === document.activeElement);
+    const nextIndex = currentIndex === -1 ? 0 : (currentIndex + offset + items.length) % items.length;
+    items[nextIndex]?.focus();
+  };
+
+  const handleEngineMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    switch (event.key) {
+      case 'ArrowDown':
+      case 'ArrowRight':
+        event.preventDefault();
+        focusEngineMenuItem(1);
+        break;
+      case 'ArrowUp':
+      case 'ArrowLeft':
+        event.preventDefault();
+        focusEngineMenuItem(-1);
+        break;
+      case 'Home':
+        event.preventDefault();
+        getEngineMenuItems()[0]?.focus();
+        break;
+      case 'End': {
+        event.preventDefault();
+        const items = getEngineMenuItems();
+        items[items.length - 1]?.focus();
+        break;
+      }
+      case 'Enter':
+      case ' ':
+        if (document.activeElement instanceof HTMLButtonElement) {
+          event.preventDefault();
+          document.activeElement.click();
+        }
+        break;
+      case 'Escape':
+        event.preventDefault();
+        event.stopPropagation();
+        setIsEngineDropdownOpen(false);
+        break;
+      default:
+        break;
+    }
+  };
 
   // ====== Helpers ======
 
@@ -253,15 +325,20 @@ export const StatusBar: React.FC = () => {
           style={{ borderLeft: '1px solid var(--color-border-subtle)' }}
         >
           <button
+            type="button"
             onClick={() => setIsEngineDropdownOpen(!isEngineDropdownOpen)}
-            className="flex items-center gap-1.5 px-3 h-full transition-all cursor-pointer"
+            className="flex h-full cursor-pointer items-center gap-1.5 px-3 transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
             style={{
               color: isTypstFile ? 'var(--color-info)' : 'var(--color-warning)',
               background: isEngineDropdownOpen ? 'var(--color-bg-hover)' : 'transparent',
             }}
             title={t('statusBar.selectCompileEngine')}
+            aria-label={t('statusBar.selectCompileEngine')}
+            aria-expanded={isEngineDropdownOpen}
+            aria-haspopup="menu"
+            aria-controls={isEngineDropdownOpen ? engineMenuId : undefined}
           >
-            <Cpu size={13} className="flex-shrink-0" />
+            <Cpu size={13} className="flex-shrink-0" aria-hidden="true" />
             <span className="max-w-[80px] truncate text-[11px] font-mono font-medium">
               {isTypstFile
                 ? getCompilerLabel(compilerSettings.typstEngine || 'tinymist')
@@ -269,12 +346,19 @@ export const StatusBar: React.FC = () => {
             </span>
             <ChevronUp
               size={11}
+              aria-hidden="true"
               className={`transition-transform flex-shrink-0 ${isEngineDropdownOpen ? '' : 'rotate-180'}`}
             />
           </button>
 
           {isEngineDropdownOpen && (
             <div
+              id={engineMenuId}
+              ref={engineMenuRef}
+              role="menu"
+              aria-label={t('statusBar.localCompiler')}
+              tabIndex={-1}
+              onKeyDown={handleEngineMenuKeyDown}
               className="absolute bottom-full right-0 mb-1 w-52 rounded-xl py-1.5 z-50"
               style={{
                 background: 'var(--color-bg-secondary)',
@@ -303,21 +387,27 @@ export const StatusBar: React.FC = () => {
                     { value: 'wasm-typst', label: getCompilerLabel('wasm-typst') },
                   ].map((engine) => (
                     <button
+                      type="button"
                       key={engine.value}
+                      role="menuitemradio"
+                      aria-checked={compilerSettings.typstEngine === engine.value}
+                      data-selected={compilerSettings.typstEngine === engine.value ? 'true' : undefined}
                       onClick={() => {
                         getSettingsService().updateCompiler({
                           typstEngine: engine.value as TypstEngine,
                         });
                         setIsEngineDropdownOpen(false);
                       }}
-                      className={`w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--color-bg-hover)] flex items-center justify-between ${
+                      className={`flex w-full cursor-pointer items-center justify-between px-3 py-1.5 text-left text-xs hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] ${
                         compilerSettings.typstEngine === engine.value
                           ? 'text-[var(--color-info)]'
                           : 'text-[var(--color-text-secondary)]'
                       }`}
                     >
                       <span>{engine.label}</span>
-                      {compilerSettings.typstEngine === engine.value && <Check size={12} />}
+                      {compilerSettings.typstEngine === engine.value && (
+                        <Check size={12} aria-hidden="true" />
+                      )}
                     </button>
                   ))}
                 </>
@@ -333,21 +423,27 @@ export const StatusBar: React.FC = () => {
                     { value: 'wasm-lualatex', label: getCompilerLabel('wasm-lualatex') },
                   ].map((engine) => (
                     <button
+                      type="button"
                       key={engine.value}
+                      role="menuitemradio"
+                      aria-checked={compilerSettings.engine === engine.value}
+                      data-selected={compilerSettings.engine === engine.value ? 'true' : undefined}
                       onClick={() => {
                         getSettingsService().updateCompiler({
                           engine: engine.value as LaTeXEngine,
                         });
                         setIsEngineDropdownOpen(false);
                       }}
-                      className={`w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--color-bg-hover)] flex items-center justify-between ${
+                      className={`flex w-full cursor-pointer items-center justify-between px-3 py-1.5 text-left text-xs hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] ${
                         compilerSettings.engine === engine.value
                           ? 'text-[var(--color-warning)]'
                           : 'text-[var(--color-text-secondary)]'
                       }`}
                     >
                       <span>{engine.label}</span>
-                      {compilerSettings.engine === engine.value && <Check size={12} />}
+                      {compilerSettings.engine === engine.value && (
+                        <Check size={12} aria-hidden="true" />
+                      )}
                     </button>
                   ))}
                 </>

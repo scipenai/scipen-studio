@@ -23,6 +23,10 @@ import {
  */
 export const SelectionTab: React.FC = () => {
   const { t } = useTranslation();
+  const shortcutInputId = 'selection-shortcut-input';
+  const shortcutDescriptionId = 'selection-shortcut-description';
+  const triggerModeSelectId = 'selection-trigger-mode-select';
+  const triggerModeDescriptionId = 'selection-trigger-mode-description';
   const [config, setConfig] = useState<SelectionConfigDTO>({
     enabled: false,
     triggerMode: 'shortcut',
@@ -160,12 +164,19 @@ export const SelectionTab: React.FC = () => {
 
       <SettingCard
         title={t('selectionSettings.triggerShortcut')}
-        description={t('selectionSettings.triggerShortcutDesc')}
+        description={
+          <span id={shortcutDescriptionId}>{t('selectionSettings.triggerShortcutDesc')}</span>
+        }
       >
         <SettingItem label={t('selectionSettings.shortcut')}>
           <div className="flex items-center gap-3">
-            <Keyboard className="w-4 h-4 text-[var(--color-text-muted)]" />
+            <label htmlFor={shortcutInputId} className="sr-only">
+              {t('selectionSettings.shortcut')}
+            </label>
+            <Keyboard className="w-4 h-4 text-[var(--color-text-muted)]" aria-hidden="true" />
             <input
+              id={shortcutInputId}
+              aria-describedby={shortcutDescriptionId}
               type="text"
               className={inputMonoClassName}
               value={config.shortcutKey}
@@ -192,11 +203,18 @@ export const SelectionTab: React.FC = () => {
 
       <SettingCard
         title={t('selectionSettings.triggerMode')}
-        description={t('selectionSettings.triggerModeDesc')}
+        description={
+          <span id={triggerModeDescriptionId}>{t('selectionSettings.triggerModeDesc')}</span>
+        }
       >
         <div className="flex items-center gap-3">
-          <Settings2 className="w-4 h-4 text-[var(--color-text-muted)]" />
+          <label htmlFor={triggerModeSelectId} className="sr-only">
+            {t('selectionSettings.triggerMode')}
+          </label>
+          <Settings2 className="w-4 h-4 text-[var(--color-text-muted)]" aria-hidden="true" />
           <select
+            id={triggerModeSelectId}
+            aria-describedby={triggerModeDescriptionId}
             className={selectClassName}
             value={config.triggerMode}
             onChange={(e) =>

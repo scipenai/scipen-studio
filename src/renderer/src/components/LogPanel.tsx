@@ -87,13 +87,13 @@ export const LogPanel: React.FC = () => {
   const getIcon = (type: LogEntry['type']) => {
     switch (type) {
       case 'success':
-        return <CheckCircle size={14} className="text-[var(--color-success)]" />;
+        return <CheckCircle size={14} className="text-[var(--color-success)]" aria-hidden="true" />;
       case 'error':
-        return <AlertCircle size={14} className="text-[var(--color-error)]" />;
+        return <AlertCircle size={14} className="text-[var(--color-error)]" aria-hidden="true" />;
       case 'warning':
-        return <AlertTriangle size={14} className="text-[var(--color-warning)]" />;
+        return <AlertTriangle size={14} className="text-[var(--color-warning)]" aria-hidden="true" />;
       default:
-        return <Terminal size={14} className="text-[var(--color-text-muted)]" />;
+        return <Terminal size={14} className="text-[var(--color-text-muted)]" aria-hidden="true" />;
     }
   };
 
@@ -135,21 +135,35 @@ export const LogPanel: React.FC = () => {
     }
   }, [compilationLogs.length, isExpanded]);
 
-  const renderLogItem = (_index: number, log: LogEntry) => (
-    <div
-      key={log.id}
-      onClick={() => log.details && setSelectedLog(log)}
-      className={`flex items-start gap-2 py-0.5 px-1 rounded hover:bg-[var(--color-bg-hover)] ${
-        log.details ? 'cursor-pointer' : ''
-      } ${selectedLog?.id === log.id ? 'bg-[var(--color-bg-tertiary)]' : ''}`}
-    >
-      <span className="text-[var(--color-text-disabled)] flex-shrink-0">
-        [{formatTime(log.timestamp)}]
-      </span>
-      {getIcon(log.type)}
-      <span className={`${getTextClass(log.type)} break-all`}>{log.message}</span>
-    </div>
-  );
+  const renderLogItem = (_index: number, log: LogEntry) => {
+    const content = (
+      <>
+        <span className="text-[var(--color-text-disabled)] flex-shrink-0">
+          [{formatTime(log.timestamp)}]
+        </span>
+        {getIcon(log.type)}
+        <span className={`${getTextClass(log.type)} break-all`}>{log.message}</span>
+      </>
+    );
+    const className = `flex w-full items-start gap-2 rounded px-1 py-0.5 text-left hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] ${
+      log.details ? 'cursor-pointer' : ''
+    } ${selectedLog?.id === log.id ? 'bg-[var(--color-bg-tertiary)]' : ''}`;
+
+    return log.details ? (
+      <button
+        key={log.id}
+        type="button"
+        onClick={() => setSelectedLog(log)}
+        className={className}
+      >
+        {content}
+      </button>
+    ) : (
+      <div key={log.id} className={className}>
+        {content}
+      </div>
+    );
+  };
 
   return (
     <div
@@ -173,7 +187,7 @@ export const LogPanel: React.FC = () => {
         }}
       >
         <div className="flex items-center gap-2">
-          <Terminal size={14} style={{ color: 'var(--color-text-muted)' }} />
+          <Terminal size={14} style={{ color: 'var(--color-text-muted)' }} aria-hidden="true" />
           <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
             {t('logPanel.title')}
           </span>
@@ -205,20 +219,29 @@ export const LogPanel: React.FC = () => {
         </div>
         <div className="flex items-center gap-1">
           <button
+            type="button"
+            aria-label={t('logPanel.clearLog')}
             onClick={clearCompilationLogs}
-            className="p-1 rounded transition-colors cursor-pointer"
+            className="p-1 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
             style={{ color: 'var(--color-text-muted)' }}
             title={t('logPanel.clearLog')}
           >
-            <Trash2 size={12} />
+            <Trash2 size={12} aria-hidden="true" />
           </button>
           <button
+            type="button"
+            aria-label={isExpanded ? t('logPanel.collapse') : t('logPanel.expand')}
+            aria-expanded={isExpanded}
             onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1 rounded transition-colors cursor-pointer"
+            className="p-1 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
             style={{ color: 'var(--color-text-muted)' }}
             title={isExpanded ? t('logPanel.collapse') : t('logPanel.expand')}
           >
-            {isExpanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+            {isExpanded ? (
+              <ChevronDown size={14} aria-hidden="true" />
+            ) : (
+              <ChevronUp size={14} aria-hidden="true" />
+            )}
           </button>
         </div>
       </div>
@@ -278,17 +301,21 @@ export const LogPanel: React.FC = () => {
                       </span>
                       <div className="flex items-center gap-1">
                         <button
+                          type="button"
+                          aria-label={t('logPanel.copy')}
                           onClick={() => copyToClipboard(selectedLog.details || '')}
-                          className="p-1 hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+                          className="p-1 cursor-pointer hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
                           title={t('logPanel.copy')}
                         >
-                          <Copy size={12} />
+                          <Copy size={12} aria-hidden="true" />
                         </button>
                         <button
+                          type="button"
+                          aria-label="Close details"
                           onClick={() => setSelectedLog(null)}
-                          className="p-1 hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+                          className="p-1 cursor-pointer hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
                         >
-                          <X size={12} />
+                          <X size={12} aria-hidden="true" />
                         </button>
                       </div>
                     </div>

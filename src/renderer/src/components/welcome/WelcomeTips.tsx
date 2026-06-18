@@ -9,6 +9,12 @@ import { useTranslation } from '../../locales';
 
 export const WelcomeTips: React.FC = () => {
   const { t } = useTranslation();
+  const shortcut = 'Ctrl+Shift+P';
+  const shortcutMarker = '__SCIPEN_SHORTCUT__';
+  const [tipBeforeShortcut, tipAfterShortcut] = t('welcome.proTipDesc', {
+    shortcut: shortcutMarker,
+  }).split(shortcutMarker);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -34,8 +40,12 @@ export const WelcomeTips: React.FC = () => {
           >
             {t('welcome.proTipTitle')}
           </h3>
-          <p className="text-xs leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
-            {t('welcome.proTipDesc', { shortcut: '' })}
+          <p
+            className="text-xs leading-relaxed"
+            style={{ color: 'var(--color-text-secondary)' }}
+            data-testid="welcome-pro-tip-desc"
+          >
+            {tipBeforeShortcut}
             <kbd
               className="mx-0.5 rounded px-1.5 py-0.5 font-mono text-[10px]"
               style={{
@@ -44,8 +54,9 @@ export const WelcomeTips: React.FC = () => {
                 color: 'var(--color-accent)',
               }}
             >
-              Ctrl+Shift+P
+              {shortcut}
             </kbd>
+            {tipAfterShortcut}
           </p>
         </div>
       </div>

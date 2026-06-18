@@ -28,7 +28,7 @@ export const EditorTab: React.FC = () => {
           onChange={(e) =>
             settingsService.updateEditor({ fontSize: Number.parseInt(e.target.value) })
           }
-          className="w-full accent-[var(--color-accent)]"
+          className="w-full cursor-pointer accent-[var(--color-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
         />
       </SettingItem>
       <SettingItem label={t('editor.settings.fontFamily')}>

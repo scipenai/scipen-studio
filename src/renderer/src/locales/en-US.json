@@ -32,6 +32,8 @@
       "serverUrl": "Server URL",
       "serverUrlHint": "Supports official server or private deployment",
       "cookies": "Cookies",
+      "showCookies": "Show cookies",
+      "hideCookies": "Hide cookies",
       "cookiesRequired": "Please enter Overleaf Cookie",
       "howToGetCookie": "How to get Cookie?",
       "cookieStep1": "Log in to Overleaf in your browser",
@@ -435,7 +437,8 @@
     "labelSelectPrompt": "Pick a snapshot on the left to inspect",
     "labelKeyboardHint": "↑/↓ or j/k to navigate · Esc to close",
     "stepSelectPrompt": "Pick a step on the left to inspect",
-    "browserTitle": "History browser"
+    "browserTitle": "History browser",
+    "browserSections": "History sections"
   },
   "chat": {
     "rename": "Rename",
@@ -543,6 +546,7 @@
     "reload": "Reload"
   },
   "fileExplorerMenu": {
+    "actions": "File actions",
     "newFile": "New File",
     "newFolder": "New Folder",
     "rename": "Rename (F2)",
@@ -577,6 +581,7 @@
     }
   },
   "workspaceSidebar": {
+    "navigation": "Workspace navigation",
     "imTab": "Chat",
     "filesTab": "Files",
     "historyTab": "History",
@@ -613,6 +618,8 @@
       "title": "Configure MinerU Precise Parse",
       "tokenLabel": "MinerU API Token",
       "tokenPlaceholder": "Paste the token from mineru.net",
+      "showToken": "Show token",
+      "hideToken": "Hide token",
       "privacyTitle": "Privacy notice",
       "privacyBody": "Precise parse uploads this PDF to the MinerU third-party cloud service for parsing. Please confirm you accept this.",
       "consent": "I understand and agree to upload the PDF to MinerU cloud parsing",
@@ -666,6 +673,8 @@
       "providerLabel": "Embedding provider",
       "keyLabel": "API Key",
       "keyPlaceholder": "Paste the API key for the chosen provider",
+      "showKey": "Show key",
+      "hideKey": "Hide key",
       "consent": "I understand and agree to send paragraph text to the chosen embedding provider",
       "save": "Save & enable",
       "cancel": "Cancel"
@@ -835,9 +844,11 @@
     "openSettings": "Open Settings"
   },
   "atFileDropdown": {
+    "label": "File suggestions",
     "noMatch": "No matching files"
   },
   "atCiteDropdown": {
+    "label": "Citation suggestions",
     "noMatch": "No matching references",
     "prompt": "Type to search references"
   },

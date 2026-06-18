@@ -16,7 +16,7 @@
  * Each piece is independent; this component only wires data flow.
  */
 
-import { Wrench } from 'lucide-react';
+import { SendHorizontal, Square, Wrench } from 'lucide-react';
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMentionTrigger } from '../../hooks/useMentionTrigger';
@@ -67,6 +67,10 @@ interface AgentChatInputProps {
 }
 
 const DROPDOWN_MAX_ITEMS = 12;
+const FILE_SUGGESTIONS_ID = 'chat-file-suggestions';
+const FILE_SUGGESTION_ID_PREFIX = 'chat-file-suggestion';
+const CITE_SUGGESTIONS_ID = 'chat-cite-suggestions';
+const CITE_SUGGESTION_ID_PREFIX = 'chat-cite-suggestion';
 
 export function AgentChatInput({
   busy,
@@ -163,6 +167,18 @@ export function AgentChatInput({
   useEffect(() => {
     setSelectedIndex(0);
   }, [trigger?.query, candidates.length, citeCandidates.length]);
+
+  const activeDropdownId = fileDropdownActive
+    ? FILE_SUGGESTIONS_ID
+    : citeDropdownActive
+      ? CITE_SUGGESTIONS_ID
+      : undefined;
+  const activeDescendantId =
+    fileDropdownActive && candidates.length > 0
+      ? `${FILE_SUGGESTION_ID_PREFIX}-${selectedIndex}`
+      : citeDropdownActive && citeCandidates.length > 0
+        ? `${CITE_SUGGESTION_ID_PREFIX}-${selectedIndex}`
+        : undefined;
 
   const applyMention = useCallback(
     (path: string) => {
@@ -320,6 +336,10 @@ export function AgentChatInput({
       <div className="relative rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)] shadow-[var(--shadow-md)] focus-within:border-[var(--color-accent)]">
         {fileDropdownActive && (
           <AtFileDropdown
+            id={FILE_SUGGESTIONS_ID}
+            label={t('atFileDropdown.label')}
+            optionIdPrefix={FILE_SUGGESTION_ID_PREFIX}
+            activeId={activeDescendantId}
             items={candidates}
             selectedIndex={selectedIndex}
             onSelect={applyMention}
@@ -328,6 +348,10 @@ export function AgentChatInput({
         )}
         {citeDropdownActive && (
           <AtCiteDropdown
+            id={CITE_SUGGESTIONS_ID}
+            label={t('atCiteDropdown.label')}
+            optionIdPrefix={CITE_SUGGESTION_ID_PREFIX}
+            activeId={activeDescendantId}
             items={citeCandidates}
             selectedIndex={selectedIndex}
             onSelect={applyCiteMention}
@@ -345,6 +369,9 @@ export function AgentChatInput({
           onKeyUp={syncCaret}
           onClick={syncCaret}
           aria-label={t('chat.inputAriaLabel')}
+          aria-autocomplete={activeDropdownId ? 'list' : undefined}
+          aria-controls={activeDropdownId}
+          aria-activedescendant={activeDescendantId}
           placeholder={
             placeholder ?? (disabled ? t('chat.initializing') : t('chat.inputPlaceholder'))
           }
@@ -359,18 +386,21 @@ export function AgentChatInput({
               type="button"
               onClick={onCancel}
               title={t('chat.cancel')}
-              className="rounded-lg bg-[var(--color-bg-secondary)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-primary)] hover:text-[var(--color-text-primary)]"
+              aria-label={t('chat.stop')}
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-bg-secondary)] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-primary)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
             >
-              {t('chat.stop')}
+              <Square size={13} aria-hidden="true" />
             </button>
           ) : (
             <button
               type="button"
               onClick={submit}
               disabled={!value.trim() || disabled}
-              className="rounded-lg bg-[var(--color-accent)] px-2 py-1 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+              title={t('chat.send')}
+              aria-label={t('chat.send')}
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-accent)] text-white transition-colors hover:bg-[var(--color-accent-dim)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {t('chat.send')}
+              <SendHorizontal size={15} aria-hidden="true" />
             </button>
           )}
         </div>

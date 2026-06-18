@@ -68,6 +68,14 @@ export const ResearchWorkspaceShell: React.FC = () => {
     return projectPath.replace(/\\/g, '/').split('/').pop() || null;
   }, [projectPath]);
   const headerTitle = projectName ?? 'SciPenClaw';
+  const headerSubtitle = useMemo(() => {
+    const panels = [
+      chatVisible && t('research.panelChat'),
+      editorVisible && t('research.panelEditor'),
+      previewVisible && t('research.panelPreview'),
+    ].filter((label): label is string => Boolean(label));
+    return panels.join(' / ');
+  }, [chatVisible, editorVisible, previewVisible]);
 
   // On entering the workspace: focus the IM sidebar by default (close the file drawer).
   // shell only mounts once and setSidebarTab is idempotent, so no extra one-shot guard is needed.
@@ -171,6 +179,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
       header={
         <WorkspaceHeader
           title={headerTitle}
+          subtitle={headerSubtitle}
           toolbar={
             <WorkspaceToolbar>
               <IconButton

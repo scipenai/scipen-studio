@@ -794,7 +794,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3">
               <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--color-error-muted)] text-[var(--color-error)]">
-                <AlertCircle size={18} />
+                <AlertCircle size={18} aria-hidden="true" />
               </div>
               <div>
                 <div className="text-sm font-semibold text-[var(--color-text-primary)]">
@@ -810,7 +810,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
               <button
                 type="button"
                 onClick={() => window.dispatchEvent(new CustomEvent('trigger-compile'))}
-                className="rounded-lg border px-3 py-2 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+                className="cursor-pointer rounded-lg border px-3 py-2 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                 style={{
                   borderColor: 'var(--color-border)',
                   background: 'color-mix(in srgb, var(--color-bg-primary) 84%, transparent)',
@@ -835,9 +835,9 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                     rawLog,
                   })
                 }
-                className="flex items-center gap-1.5 rounded-xl bg-[linear-gradient(135deg,#0ea5e9_0%,#2563eb_100%)] px-3.5 py-2 text-xs font-semibold text-white shadow-[0_12px_24px_rgba(37,99,235,0.24)] transition-transform hover:-translate-y-[1px] hover:shadow-[0_16px_28px_rgba(37,99,235,0.28)]"
+                className="flex cursor-pointer items-center gap-1.5 rounded-xl bg-[linear-gradient(135deg,#0ea5e9_0%,#2563eb_100%)] px-3.5 py-2 text-xs font-semibold text-white shadow-[0_12px_24px_rgba(37,99,235,0.24)] transition-transform hover:-translate-y-[1px] hover:shadow-[0_16px_28px_rgba(37,99,235,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
               >
-                <Sparkles size={12} />
+                <Sparkles size={12} aria-hidden="true" />
                 <span>{t('pdfPreview.askAgent')}</span>
               </button>
             </div>
@@ -909,7 +909,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                   onClick={() => {
                     void jumpToCompileLocation(primaryIssue.file!, primaryIssue.line!);
                   }}
-                  className="mt-3 rounded-lg bg-[var(--color-accent-muted)] px-3 py-2 text-xs font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-white"
+                  className="mt-3 cursor-pointer rounded-lg bg-[var(--color-accent-muted)] px-3 py-2 text-xs font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                 >
                   {t('pdfPreview.jumpToError')}
                 </button>
@@ -945,8 +945,9 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                     <button
                       type="button"
                       onClick={() => setFailureLogTab('diagnostics')}
+                      aria-pressed={failureLogTab === 'diagnostics'}
                       className={clsx(
-                        'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                        'cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
                         failureLogTab === 'diagnostics'
                           ? 'bg-[var(--color-accent-muted)] text-[var(--color-accent)]'
                           : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
@@ -964,8 +965,9 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                     <button
                       type="button"
                       onClick={() => setFailureLogTab('raw')}
+                      aria-pressed={failureLogTab === 'raw'}
                       className={clsx(
-                        'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                        'cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
                         failureLogTab === 'raw'
                           ? 'bg-[var(--color-accent-muted)] text-[var(--color-accent)]'
                           : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
@@ -1034,7 +1036,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                       <button
                         type="button"
                         onClick={() => navigator.clipboard.writeText(rawLog)}
-                        className="rounded-lg border px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+                        className="cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                         style={{
                           borderColor: 'var(--color-border)',
                           background:
@@ -1079,45 +1081,60 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
             </div>
             <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
             <button
+              type="button"
               onClick={() => setShowThumbnails(!showThumbnails)}
+              aria-label="Show thumbnails"
+              aria-pressed={showThumbnails}
               className={clsx(
-                'p-1.5 rounded transition-colors',
+                'cursor-pointer rounded p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
                 showThumbnails
                   ? 'bg-[var(--color-accent)] text-white'
                   : 'hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
               )}
               title="Show thumbnails"
             >
-              <Sidebar size={16} />
+              <Sidebar size={16} aria-hidden="true" />
             </button>
             <span className="text-sm text-[var(--color-text-secondary)] min-w-[60px] text-center">
               {currentPage} / {totalPages}
             </span>
             <button
+              type="button"
               onClick={() => goToPage(currentPage - 1)}
               disabled={currentPage <= 1}
-              className="p-1 hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
+              aria-label="Previous page"
+              className={clsx(
+                'rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:opacity-30',
+                currentPage <= 1 ? 'cursor-not-allowed' : 'cursor-pointer'
+              )}
               title="Previous page"
             >
-              <ChevronLeft size={18} />
+              <ChevronLeft size={18} aria-hidden="true" />
             </button>
             <button
+              type="button"
               onClick={() => goToPage(currentPage + 1)}
               disabled={currentPage >= totalPages}
-              className="p-1 hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
+              aria-label="Next page"
+              className={clsx(
+                'rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:opacity-30',
+                currentPage >= totalPages ? 'cursor-not-allowed' : 'cursor-pointer'
+              )}
               title="Next page"
             >
-              <ChevronRight size={18} />
+              <ChevronRight size={18} aria-hidden="true" />
             </button>
           </div>
 
           <div className="flex items-center gap-1">
             <button
+              type="button"
               onClick={zoomOut}
-              className="p-1.5 hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+              aria-label="Zoom out"
+              className="cursor-pointer rounded p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
               title="Zoom out"
             >
-              <ZoomOut size={16} />
+              <ZoomOut size={16} aria-hidden="true" />
             </button>
             <div className="flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1">
               <input
@@ -1149,41 +1166,54 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
               <option value="200">200%</option>
             </select>
             <button
+              type="button"
               onClick={zoomIn}
-              className="p-1.5 hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+              aria-label="Zoom in"
+              className="cursor-pointer rounded p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
               title="Zoom in"
             >
-              <ZoomIn size={16} />
+              <ZoomIn size={16} aria-hidden="true" />
             </button>
             <button
+              type="button"
               onClick={fitToWidth}
-              className="p-1.5 hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+              aria-label="Fit to width"
+              className="cursor-pointer rounded p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
               title="Fit to width"
             >
-              <Maximize2 size={16} />
+              <Maximize2 size={16} aria-hidden="true" />
             </button>
           </div>
 
           <div className="flex items-center gap-1">
             <button
+              type="button"
               onClick={() => setViewMode(viewMode === 'scroll' ? 'single' : 'scroll')}
+              aria-label={viewMode === 'scroll' ? 'Single page mode' : 'Scroll mode'}
+              aria-pressed={viewMode === 'single'}
               className={clsx(
-                'p-1.5 rounded transition-colors',
+                'cursor-pointer rounded p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
                 viewMode === 'single'
                   ? 'bg-[var(--color-accent)] text-white'
                   : 'hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
               )}
               title={viewMode === 'scroll' ? 'Single page mode' : 'Scroll mode'}
             >
-              {viewMode === 'scroll' ? <Grid3X3 size={16} /> : <Columns size={16} />}
+              {viewMode === 'scroll' ? (
+                <Grid3X3 size={16} aria-hidden="true" />
+              ) : (
+                <Columns size={16} aria-hidden="true" />
+              )}
             </button>
             <div className="w-px h-4 bg-[var(--color-border)] mx-1" />
             <button
+              type="button"
               onClick={handleDownload}
-              className="p-1.5 hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+              aria-label="Download PDF"
+              className="cursor-pointer rounded p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
               title="Download PDF"
             >
-              <Download size={16} />
+              <Download size={16} aria-hidden="true" />
             </button>
           </div>
         </div>

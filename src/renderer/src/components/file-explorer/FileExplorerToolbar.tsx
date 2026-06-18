@@ -144,6 +144,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       </div>
       <div className="flex items-center gap-1">
         <button
+          type="button"
           onClick={() => {
             const targetPath =
               selectedNode?.type === 'directory'
@@ -153,13 +154,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   : projectPath;
             onNewFile(targetPath);
           }}
-          className="p-1 rounded transition-colors cursor-pointer"
+          className="cursor-pointer rounded p-1 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
           style={{ color: 'var(--color-text-muted)' }}
           title="New File"
+          aria-label="New File"
         >
-          <Plus size={14} />
+          <Plus size={14} aria-hidden="true" />
         </button>
         <button
+          type="button"
           onClick={() => {
             const targetPath =
               selectedNode?.type === 'directory'
@@ -169,23 +172,26 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   : projectPath;
             onNewFolder(targetPath);
           }}
-          className="p-1 rounded transition-colors cursor-pointer"
+          className="cursor-pointer rounded p-1 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
           style={{ color: 'var(--color-text-muted)' }}
           title="New Folder"
+          aria-label="New Folder"
         >
-          <FolderPlus size={14} />
+          <FolderPlus size={14} aria-hidden="true" />
         </button>
         <button
+          type="button"
           onClick={() => onRefresh('manual')}
           disabled={isRefreshing}
           className={clsx(
-            'p-1 rounded transition-colors cursor-pointer',
-            isRefreshing && 'animate-spin'
+            'rounded p-1 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]',
+            isRefreshing ? 'cursor-wait animate-spin' : 'cursor-pointer'
           )}
           style={{ color: 'var(--color-text-muted)' }}
           title="Refresh"
+          aria-label="Refresh"
         >
-          <RefreshCw size={14} />
+          <RefreshCw size={14} aria-hidden="true" />
         </button>
       </div>
     </div>

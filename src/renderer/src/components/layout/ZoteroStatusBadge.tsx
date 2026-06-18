@@ -10,7 +10,7 @@
  */
 
 import type React from 'react';
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useClickOutside } from '../../hooks';
 import { useZoteroBibMirror } from '../../hooks/useZoteroBibMirror';
@@ -23,6 +23,7 @@ export const ZoteroStatusBadge: React.FC = () => {
   const { state, mirror, enabled } = useZoteroBibMirror();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const popoverId = useId();
 
   useClickOutside(containerRef, () => setOpen(false), open);
 
@@ -41,9 +42,12 @@ export const ZoteroStatusBadge: React.FC = () => {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 px-3 h-full transition-colors cursor-pointer hover:bg-[var(--color-bg-hover)]"
+        className="flex items-center gap-1.5 px-3 h-full transition-colors cursor-pointer hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
         title={tooltip}
         aria-label={tooltip}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-controls={open ? popoverId : undefined}
       >
         {busy ? (
           <Loader2
@@ -66,7 +70,12 @@ export const ZoteroStatusBadge: React.FC = () => {
       </button>
 
       {open && (
-        <ZoteroDiagnosticsPopover state={state} mirror={mirror} onClose={() => setOpen(false)} />
+        <ZoteroDiagnosticsPopover
+          id={popoverId}
+          state={state}
+          mirror={mirror}
+          onClose={() => setOpen(false)}
+        />
       )}
     </div>
   );

@@ -12,6 +12,12 @@ import { useTranslation } from '../../locales';
 import type { UpdateStatus } from '../../../../../shared/ipc/app-contract';
 import { SectionTitle } from './SettingsUI';
 
+const primaryActionClass =
+  'flex cursor-pointer items-center gap-2 rounded px-3 py-1.5 text-sm text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2';
+
+const secondaryActionClass =
+  'flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]';
+
 export const UpdateTab: React.FC = () => {
   const { t } = useTranslation();
   const [status, setStatus] = useState<UpdateStatus>({
@@ -75,16 +81,16 @@ export const UpdateTab: React.FC = () => {
           <button
             type="button"
             onClick={handleCheck}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm rounded bg-[var(--color-accent)] hover:opacity-90 text-white transition-colors"
+            className={`${primaryActionClass} bg-[var(--color-accent)] hover:opacity-90`}
           >
-            <RefreshCw size={14} />
+            <RefreshCw size={14} aria-hidden="true" />
             {t('update.checkUpdate')}
           </button>
         )}
 
         {state === 'checking' && (
           <div className="flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
-            <Loader2 size={14} className="animate-spin" />
+            <Loader2 size={14} className="animate-spin" aria-hidden="true" />
             {t('update.checking')}
           </div>
         )}
@@ -92,15 +98,15 @@ export const UpdateTab: React.FC = () => {
         {state === 'not-available' && (
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
-              <CheckCircle size={14} />
+              <CheckCircle size={14} aria-hidden="true" />
               {t('update.notAvailable')}
             </div>
             <button
               type="button"
               onClick={handleCheck}
-              className="flex items-center gap-1 px-2 py-1 text-xs rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+              className={secondaryActionClass}
             >
-              <RefreshCw size={12} />
+              <RefreshCw size={12} aria-hidden="true" />
               {t('update.retryCheck')}
             </button>
           </div>
@@ -114,9 +120,9 @@ export const UpdateTab: React.FC = () => {
             <button
               type="button"
               onClick={handleDownload}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm rounded bg-[var(--color-accent)] hover:opacity-90 text-white transition-colors"
+              className={`${primaryActionClass} bg-[var(--color-accent)] hover:opacity-90`}
             >
-              <Download size={14} />
+              <Download size={14} aria-hidden="true" />
               {t('update.download')}
             </button>
           </div>
@@ -139,15 +145,15 @@ export const UpdateTab: React.FC = () => {
         {state === 'downloaded' && (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
-              <CheckCircle size={14} />
+              <CheckCircle size={14} aria-hidden="true" />
               {t('update.downloaded')}
             </div>
             <button
               type="button"
               onClick={handleInstall}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm rounded bg-[var(--color-success)] hover:opacity-90 text-white transition-colors"
+              className={`${primaryActionClass} bg-[var(--color-success)] hover:opacity-90`}
             >
-              <RotateCcw size={14} />
+              <RotateCcw size={14} aria-hidden="true" />
               {t('update.installAndRestart')}
             </button>
           </div>
@@ -156,15 +162,15 @@ export const UpdateTab: React.FC = () => {
         {state === 'error' && (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm text-[var(--color-error)]">
-              <AlertCircle size={14} />
+              <AlertCircle size={14} aria-hidden="true" />
               {t('update.error', { error: error || '' })}
             </div>
             <button
               type="button"
               onClick={handleCheck}
-              className="flex items-center gap-1 px-2 py-1 text-xs rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+              className={secondaryActionClass}
             >
-              <RefreshCw size={12} />
+              <RefreshCw size={12} aria-hidden="true" />
               {t('update.retryCheck')}
             </button>
           </div>

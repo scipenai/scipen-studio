@@ -15,7 +15,7 @@
 
 import { Loader2, Sparkles } from 'lucide-react';
 import type React from 'react';
-import { useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import { useClickOutside } from '../../hooks';
 import { useTranslation } from '../../locales';
 import {
@@ -33,6 +33,7 @@ export const ActiveRecommendationSegment: React.FC = () => {
   );
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const popoverId = useId();
 
   useClickOutside(containerRef, () => setOpen(false), open);
 
@@ -51,9 +52,12 @@ export const ActiveRecommendationSegment: React.FC = () => {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 px-3 h-full transition-colors cursor-pointer hover:bg-[var(--color-bg-hover)]"
+        className="flex items-center gap-1.5 px-3 h-full transition-colors cursor-pointer hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
         title={t('zoteroRecommend.title')}
         aria-label={t('zoteroRecommend.title')}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-controls={open ? popoverId : undefined}
       >
         {busy ? (
           <Loader2
@@ -76,11 +80,13 @@ export const ActiveRecommendationSegment: React.FC = () => {
 
       {open && (
         <RecommendationPopover
+          id={popoverId}
           state={state}
           onInsert={(key) => {
             svc.insertCitation(key);
             setOpen(false);
           }}
+          onClose={() => setOpen(false)}
         />
       )}
     </div>
@@ -88,14 +94,70 @@ export const ActiveRecommendationSegment: React.FC = () => {
 };
 
 interface PopoverProps {
+  id?: string;
   state: RecommendationState;
   onInsert: (citationKey: string) => void;
+  onClose?: () => void;
 }
 
-const RecommendationPopover: React.FC<PopoverProps> = ({ state, onInsert }) => {
+const RecommendationPopover: React.FC<PopoverProps> = ({ id, state, onInsert, onClose }) => {
   const { t } = useTranslation();
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    previouslyFocusedRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const firstAction = popoverRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+
+    if (firstAction) {
+      firstAction.focus();
+    } else {
+      popoverRef.current?.focus();
+    }
+
+    return () => {
+      previouslyFocusedRef.current?.focus();
+    };
+  }, []);
+
   return (
     <div
+      ref={popoverRef}
+      id={id}
+      role="dialog"
+      aria-label={t('zoteroRecommend.title')}
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose?.();
+          return;
+        }
+
+        if (event.key !== 'Tab') return;
+
+        const actions = Array.from(
+          popoverRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []
+        );
+        if (actions.length === 0) {
+          event.preventDefault();
+          popoverRef.current?.focus();
+          return;
+        }
+
+        const firstAction = actions[0];
+        const lastAction = actions[actions.length - 1];
+
+        if (event.shiftKey && document.activeElement === firstAction) {
+          event.preventDefault();
+          lastAction.focus();
+        } else if (!event.shiftKey && document.activeElement === lastAction) {
+          event.preventDefault();
+          firstAction.focus();
+        }
+      }}
       className="absolute bottom-full right-0 mb-1 w-72 rounded-xl py-1 z-50 text-[11px]"
       style={{
         background: 'var(--color-bg-secondary)',
@@ -135,7 +197,7 @@ const RecommendationBody: React.FC<PopoverProps> = ({ state, onInsert }) => {
             type="button"
             onClick={() => onInsert(item.citationKey ?? item.itemKey)}
             title={t('zoteroRecommend.insertHint')}
-            className="block w-full px-3 py-1.5 text-left hover:bg-[var(--color-bg-hover)]"
+            className="block w-full cursor-pointer px-3 py-1.5 text-left hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--color-accent)]"
           >
             <div
               className="truncate text-[12px] text-[var(--color-text-primary)]"
