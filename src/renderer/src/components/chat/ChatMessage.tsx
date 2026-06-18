@@ -69,6 +69,37 @@ interface ChatMessageProps {
   completedTurn?: ChatTurn;
 }
 
+function stableTextSegmentKey(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  }
+  return `${text.length}-${hash.toString(36)}`;
+}
+
+function timelineEventBaseKey(ev: ChatTimelineEvent): string {
+  switch (ev.kind) {
+    case 'thinking':
+      return `th-${stableTextSegmentKey(ev.text)}`;
+    case 'text':
+      return `tx-${stableTextSegmentKey(ev.text)}`;
+    case 'proposal':
+      return `pr-${ev.proposalId}`;
+    case 'tool_ref':
+      return `tool-${ev.toolCallId}`;
+  }
+}
+
+function timelineEventKey(
+  ev: ChatTimelineEvent,
+  occurrences: Map<string, number>
+): string {
+  const base = timelineEventBaseKey(ev);
+  const count = occurrences.get(base) ?? 0;
+  occurrences.set(base, count + 1);
+  return count === 0 ? base : `${base}-${count + 1}`;
+}
+
 /**
  * Plan-aware text gating: composer-plan turns stream the plan body as raw
  * JSON, then the host parses it into a structured PlanCard. The raw JSON
@@ -258,12 +289,14 @@ function Timeline({
   suppressText: boolean;
 }): ReactElement | null {
   if (events.length === 0) return null;
+  const keyOccurrences = new Map<string, number>();
   return (
     <div className="mb-2 space-y-1.5">
       {events.map((ev, i) => {
         const isLast = i === events.length - 1;
+        const eventKey = timelineEventKey(ev, keyOccurrences);
         if (ev.kind === 'thinking') {
-          return <ThinkingRenderer key={`th-${i}`} text={ev.text} streaming={isLast && pending} />;
+          return <ThinkingRenderer key={eventKey} text={ev.text} streaming={isLast && pending} />;
         }
         if (ev.kind === 'proposal') {
           const proposal = proposals.find((p) => p.proposalId === ev.proposalId);
@@ -271,13 +304,13 @@ function Timeline({
           // than render a placeholder; the timeline must always reflect
           // currently-existing records.
           if (!proposal) return null;
-          return <ProposalRow key={`pr-${ev.proposalId}`} proposal={proposal} />;
+          return <ProposalRow key={eventKey} proposal={proposal} />;
         }
         if (ev.kind === 'text') {
           if (suppressText) return null;
           const streaming = isLast && pending;
           return (
-            <div key={`tx-${i}`} className="chat-msg-text leading-[1.6]">
+            <div key={eventKey} className="chat-msg-text leading-[1.6]">
               {streaming ? (
                 // Render plain text while streaming to avoid re-parsing the
                 // whole markdown block on every token (causes reflow jitter);
@@ -295,7 +328,7 @@ function Timeline({
         }
         const call = toolCalls.find((t) => t.toolCallId === ev.toolCallId);
         if (!call) return null;
-        return <ToolCallCard key={ev.toolCallId} call={call} />;
+        return <ToolCallCard key={eventKey} call={call} />;
       })}
     </div>
   );
@@ -311,10 +344,11 @@ function ToolCallCard({ call }: { call: ChatTurn['toolCalls'][number] }): ReactE
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 py-0.5 text-left text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-primary)]"
+        className="flex w-full cursor-pointer items-center gap-2 rounded py-0.5 text-left text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
       >
         <ChevronRight
           size={10}
+          aria-hidden="true"
           className={`flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
         />
         <span className={`font-medium ${statusColor(call.status)}`}>
@@ -524,10 +558,11 @@ function PlanCard({ plan, turnId }: { plan: ChatPlan; turnId: string }): ReactEl
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
+        className="flex w-full cursor-pointer items-center gap-2 rounded px-2.5 py-1.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
       >
         <ChevronRight
           size={11}
+          aria-hidden="true"
           className={`flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
         />
         <span className="font-medium text-[var(--color-text-primary)]">{t('chat.planLabel')}</span>
@@ -557,18 +592,22 @@ function PlanCard({ plan, turnId }: { plan: ChatPlan; turnId: string }): ReactEl
                 type="button"
                 disabled={pending !== null}
                 onClick={() => decide('accept')}
-                className="inline-flex items-center gap-1 rounded px-2.5 py-1 text-[11px] font-medium text-white bg-[var(--color-accent)] hover:opacity-90 disabled:opacity-50"
+                className="inline-flex cursor-pointer items-center gap-1 rounded bg-[var(--color-accent)] px-2.5 py-1 text-[11px] font-medium text-white hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {pending === 'accept' && <Loader2 size={11} className="animate-spin" />}
+                {pending === 'accept' && (
+                  <Loader2 size={11} aria-hidden="true" className="animate-spin" />
+                )}
                 {t('chat.planAccept')}
               </button>
               <button
                 type="button"
                 disabled={pending !== null}
                 onClick={() => decide('reject')}
-                className="inline-flex items-center gap-1 rounded border border-[var(--color-border-subtle)] px-2.5 py-1 text-[11px] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)] disabled:opacity-50"
+                className="inline-flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border-subtle)] px-2.5 py-1 text-[11px] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {pending === 'reject' && <Loader2 size={11} className="animate-spin" />}
+                {pending === 'reject' && (
+                  <Loader2 size={11} aria-hidden="true" className="animate-spin" />
+                )}
                 {t('chat.planReject')}
               </button>
             </div>
@@ -584,7 +623,11 @@ function PlanFileRow({ file }: { file: ChatPlanFile }): ReactElement {
   const Icon = planActionIcon(file.action);
   return (
     <li className="flex items-start gap-2 text-[11px]">
-      <Icon size={12} className={`mt-0.5 flex-shrink-0 ${planActionColor(file.action)}`} />
+      <Icon
+        size={12}
+        aria-hidden="true"
+        className={`mt-0.5 flex-shrink-0 ${planActionColor(file.action)}`}
+      />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="truncate font-mono text-[10px] text-[var(--color-text-primary)]">
@@ -594,6 +637,7 @@ function PlanFileRow({ file }: { file: ChatPlanFile }): ReactElement {
             <>
               <CornerDownLeft
                 size={10}
+                aria-hidden="true"
                 className="flex-shrink-0 -rotate-90 text-[var(--color-text-muted)]"
               />
               <span className="truncate font-mono text-[10px] text-[var(--color-text-primary)]">
@@ -806,9 +850,11 @@ function ApprovalActionButton({
       data-decision={decision}
       onClick={onClick}
       disabled={submitState === 'submitting'}
-      className={className}
+      className={`cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed ${className}`}
     >
-      {submitState === 'submitting' && isMine && <Loader2 size={11} className="animate-spin" />}
+      {submitState === 'submitting' && isMine && (
+        <Loader2 size={11} aria-hidden="true" className="animate-spin" />
+      )}
       {label}
     </button>
   );
@@ -938,7 +984,7 @@ function ApprovalCard({ approval }: { approval: ChatApprovalRequest }): ReactEle
       <div className="h-0.5" style={{ backgroundColor: topBarColor }} aria-hidden />
 
       <div className="flex items-center gap-1.5 border-b border-[var(--color-border-subtle)] px-2.5 py-1.5">
-        {showRiskIcon && <Icon size={12} className={riskText(approval.risk)} />}
+        {showRiskIcon && <Icon size={12} aria-hidden="true" className={riskText(approval.risk)} />}
         <span
           className={`text-[10px] font-semibold uppercase tracking-wider ${riskText(approval.risk)}`}
         >
@@ -1010,7 +1056,7 @@ function ApprovalCard({ approval }: { approval: ChatApprovalRequest }): ReactEle
               data-decision="allow"
               onClick={() => void decide('allow')}
               disabled={submitState === 'submitting' || isArming}
-              className={`relative flex items-center gap-1 overflow-hidden rounded border px-2.5 py-0.5 text-[10px] font-medium disabled:cursor-not-allowed disabled:opacity-60 ${
+              className={`relative flex cursor-pointer items-center gap-1 overflow-hidden rounded border px-2.5 py-0.5 text-[10px] font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-60 ${
                 approval.risk === 'high'
                   ? 'border-[var(--color-warning)]/60 bg-[var(--color-warning-muted)] text-[var(--color-warning)] hover:opacity-90'
                   : 'border-[var(--color-accent)]/50 bg-[var(--color-accent)] text-white hover:opacity-90'
@@ -1026,7 +1072,7 @@ function ApprovalCard({ approval }: { approval: ChatApprovalRequest }): ReactEle
                 />
               )}
               {submitState === 'submitting' && lastDecision === 'allow' && (
-                <Loader2 size={11} className="animate-spin" />
+                <Loader2 size={11} aria-hidden="true" className="animate-spin" />
               )}
               <span className="relative tabular-nums">{allowLabel}</span>
             </button>
@@ -1361,7 +1407,10 @@ function UserQuestionCard({ card }: { card: ChatUserQuestion }): ReactElement {
         })}
 
         <div className="mt-2 flex items-center gap-2 border-t border-[var(--color-border-subtle)] pt-2">
-          <span className="hidden truncate text-[10px] text-[var(--color-text-muted)] sm:inline">
+          <span
+            className="hidden truncate text-[10px] text-[var(--color-text-muted)] sm:inline"
+            aria-hidden="true"
+          >
             {t('chat.questionShortcutHint')}
           </span>
           {submitState === 'error' && (
@@ -1374,18 +1423,20 @@ function UserQuestionCard({ card }: { card: ChatUserQuestion }): ReactElement {
               type="button"
               onClick={() => void skip()}
               disabled={submitState === 'submitting'}
-              className="flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-0.5 text-[10px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-0.5 text-[10px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <SkipForward size={11} />
+              <SkipForward size={11} aria-hidden="true" />
               {t('chat.questionSkip')}
             </button>
             <button
               type="button"
               disabled={!canSubmit || submitState === 'submitting'}
               onClick={() => void submit()}
-              className="flex items-center gap-1 rounded border border-[var(--color-accent)]/50 bg-[var(--color-accent)] px-2.5 py-0.5 text-[10px] font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-accent)]/50 bg-[var(--color-accent)] px-2.5 py-0.5 text-[10px] font-medium text-white hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {submitState === 'submitting' && <Loader2 size={11} className="animate-spin" />}
+              {submitState === 'submitting' && (
+                <Loader2 size={11} aria-hidden="true" className="animate-spin" />
+              )}
               {submitLabel}
             </button>
           </div>
