@@ -6,7 +6,7 @@
 import { clsx } from 'clsx';
 import { Check, ChevronDown } from 'lucide-react';
 import type React from 'react';
-import { forwardRef, useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useId, useRef, useState } from 'react';
 
 export interface SelectOption {
   value: string;
@@ -62,8 +62,12 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
   ) => {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
+    const selectId = useId();
+    const triggerId = `${selectId}-trigger`;
+    const listboxId = `${selectId}-listbox`;
 
     const selectedOption = options.find((opt) => opt.value === value);
+    const displayLabel = selectedOption?.label || placeholder;
 
     const sizeStyles = {
       sm: 'h-8 text-xs px-2.5',
@@ -135,21 +139,30 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
     return (
       <div className={clsx(fullWidth ? 'w-full' : 'inline-block', className)} ref={containerRef}>
         {label && (
-          <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
+          <label
+            id={`${selectId}-label`}
+            htmlFor={triggerId}
+            className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5"
+          >
             {label}
           </label>
         )}
         <div className="relative">
           <button
             ref={ref}
+            id={triggerId}
             type="button"
             disabled={disabled}
+            aria-label={label ? `${label}: ${displayLabel}` : displayLabel}
+            aria-haspopup="listbox"
+            aria-expanded={isOpen}
+            aria-controls={isOpen ? listboxId : undefined}
             onClick={() => !disabled && setIsOpen(!isOpen)}
             onKeyDown={handleKeyDown}
             className={clsx(
               'w-full flex items-center justify-between gap-2 rounded-lg border',
               'bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)]',
-              'focus:border-[var(--color-accent)] focus:shadow-[0_0_0_3px_var(--color-accent-muted)] focus:outline-none',
+              'cursor-pointer focus:border-[var(--color-accent)] focus:shadow-[0_0_0_3px_var(--color-accent-muted)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
               'disabled:cursor-not-allowed disabled:opacity-50',
               'transition-colors duration-200',
               sizeStyles[size],
@@ -159,12 +172,14 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
                   ? 'border-[var(--color-accent)]'
                   : 'border-[var(--color-border)]'
             )}
-          >
+            >
             <span className={clsx('truncate', !selectedOption && 'text-[var(--color-text-muted)]')}>
               {selectedOption?.icon && (
-                <span className="mr-2 inline-flex">{selectedOption.icon}</span>
+                <span className="mr-2 inline-flex" aria-hidden="true">
+                  {selectedOption.icon}
+                </span>
               )}
-              {selectedOption?.label || placeholder}
+              {displayLabel}
             </span>
             <ChevronDown
               size={iconSizes[size]}
@@ -177,6 +192,9 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
 
           {isOpen && (
             <div
+              id={listboxId}
+              role="listbox"
+              aria-label={label}
               className={clsx(
                 'absolute z-50 mt-1 w-full rounded-lg border',
                 'bg-[var(--color-bg-elevated)] border-[var(--color-border)]',
@@ -189,6 +207,8 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
                 <button
                   key={option.value}
                   type="button"
+                  role="option"
+                  aria-selected={option.value === value}
                   disabled={option.disabled}
                   onClick={() => !option.disabled && handleSelect(option.value)}
                   className={clsx(
@@ -201,12 +221,17 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
                     size === 'sm' ? 'text-xs' : size === 'lg' ? 'text-base' : 'text-sm'
                   )}
                 >
-                  {option.icon && <span className="flex-shrink-0">{option.icon}</span>}
+                  {option.icon && (
+                    <span className="flex-shrink-0" aria-hidden="true">
+                      {option.icon}
+                    </span>
+                  )}
                   <span className="flex-1 truncate">{option.label}</span>
                   {option.value === value && (
                     <Check
                       size={iconSizes[size]}
                       className="text-[var(--color-accent)] flex-shrink-0"
+                      aria-hidden="true"
                     />
                   )}
                 </button>

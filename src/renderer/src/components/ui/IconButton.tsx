@@ -44,6 +44,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
     },
     ref
   ) => {
+    const ariaLabel = props['aria-label'] ?? tooltip;
     const sizeStyles = {
       sm: 'w-7 h-7',
       md: 'w-8 h-8',
@@ -94,9 +95,10 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         title={tooltip}
         className={clsx(
           'relative inline-flex items-center justify-center',
+          'cursor-pointer disabled:cursor-not-allowed',
           'transition-all duration-200',
           'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2',
-          'disabled:pointer-events-none disabled:opacity-50',
+          'disabled:opacity-50',
           shapeStyles,
           active
             ? activeTone === 'subtle'
@@ -106,6 +108,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
           loading && 'cursor-wait',
           className
         )}
+        aria-label={ariaLabel}
         {...props}
       >
         {loading ? (

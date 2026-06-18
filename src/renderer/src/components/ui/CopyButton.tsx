@@ -41,7 +41,7 @@ export const CopyButton: React.FC<CopyButtonProps> = ({ text, className, label }
         void handleCopy();
       }}
       className={clsx(
-        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors',
+        'inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
         'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]',
         className
       )}

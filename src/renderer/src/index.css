@@ -1649,6 +1649,16 @@ input, textarea, [contenteditable], .monaco-editor * {
 .diff-review-hunk-inline__preview:hover {
   background: rgba(255, 255, 255, 0.94);
 }
+.diff-review-hunk-inline__preview:focus-visible,
+.diff-review-hunk-inline__btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.diff-review-hunk-inline__preview:disabled,
+.diff-review-hunk-inline__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
 .diff-review-hunk-inline__type {
   font-weight: 700;
   font-size: 11px;
