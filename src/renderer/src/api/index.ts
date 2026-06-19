@@ -350,6 +350,10 @@ interface CompileResult {
 export const compile = {
   latex: (content: string, options?: LaTeXOptions) =>
     invoke<CompileResult>(IpcChannel.Compile_LaTeX, content, options),
+  getLaTeXCapabilities: () =>
+    invoke<import('../../../../shared/ipc/compile-contract').LaTeXCapabilities>(
+      IpcChannel.LaTeX_GetCapabilities,
+    ),
   typst: (content: string, options?: TypstCompileOptions) =>
     invoke<CompileResult>(IpcChannel.Compile_Typst, content, options),
   checkTypst: () => invoke<{ available: boolean; version?: string }>(IpcChannel.Typst_Available),

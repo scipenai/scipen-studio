@@ -27,6 +27,53 @@ import path from 'node:path';
 
 const logger = createLogger('CompileHandlers');
 
+function unavailableLatexCapabilities() {
+  const unavailable = { available: false, version: null as string | null };
+  return {
+    cli: {
+      pdflatex: { ...unavailable },
+      xelatex: { ...unavailable },
+      lualatex: { ...unavailable },
+      tectonic: { ...unavailable },
+    },
+    wasm: {
+      pdftex: { ...unavailable },
+      xetex: { ...unavailable },
+      lualatex: { ...unavailable },
+    },
+  };
+}
+
+async function getBusyTexWasmCapability(): Promise<{
+  available: boolean;
+  version: string | null;
+}> {
+  try {
+    const busytexRoot = path.join(resolveWasmRoot(), 'busytex');
+    const manifestPath = path.join(busytexRoot, 'manifest.json');
+    const raw = await fs.readFile(manifestPath, 'utf-8');
+    const parsed = JSON.parse(raw) as {
+      version?: string;
+      preload?: unknown;
+      catalog?: unknown;
+    };
+
+    if (!Array.isArray(parsed.preload) || !Array.isArray(parsed.catalog)) {
+      return { available: false, version: null };
+    }
+
+    await Promise.all(
+      ['busytex.js', 'busytex.wasm', 'busytex_worker.js', 'busytex_pipeline.js'].map((file) =>
+        fs.access(path.join(busytexRoot, file))
+      )
+    );
+
+    return { available: true, version: parsed.version ?? null };
+  } catch {
+    return { available: false, version: null };
+  }
+}
+
 function toParsedLogEntries(
   messages: CompileMessage[] | undefined,
   level: 'error' | 'warning' | 'info'
@@ -215,6 +262,36 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
         await fs.writeFile(pdfPath, Buffer.from(pdfBuffer));
         await fs.writeFile(synctexPath, Buffer.from(synctexBuffer));
         return { pdfPath, synctexPath };
+      },
+
+      [IpcChannel.LaTeX_GetCapabilities]: async () => {
+        const caps = unavailableLatexCapabilities();
+
+        try {
+          const latexCompiler = CompilerRegistry.get('latex-local') as LaTeXCompiler | undefined;
+          if (latexCompiler) {
+            const engines = await latexCompiler.getAvailableEngines();
+            const byName = new Map(engines.map((engine) => [engine.engine, engine]));
+            for (const engine of ['pdflatex', 'xelatex', 'lualatex', 'tectonic'] as const) {
+              const capability = byName.get(engine);
+              caps.cli[engine] = {
+                available: capability?.available ?? false,
+                version: capability?.version ?? null,
+              };
+            }
+          }
+        } catch (error) {
+          logger.warn(`[LaTeX_GetCapabilities] CLI probe failed: ${String(error)}`);
+        }
+
+        const busytex = await getBusyTexWasmCapability();
+        caps.wasm = {
+          pdftex: { ...busytex },
+          xetex: { ...busytex },
+          lualatex: { ...busytex },
+        };
+
+        return caps;
       },
 
       // Typst compilation via CompilerRegistry (lazy instantiation)

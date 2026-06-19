@@ -60,6 +60,12 @@ export enum IpcChannel {
    * `synctex` CLI can parse them the same way as a CLI-compiled result.
    */
   Compile_WriteWasmArtifacts = 'compile-write-wasm-artifacts',
+  /**
+   * Probe LaTeX engine capabilities: local CLI binaries
+   * (pdflatex/xelatex/lualatex/tectonic) plus bundled BusyTeX WASM assets.
+   * UI uses the result to hide engines that cannot run on this machine.
+   */
+  LaTeX_GetCapabilities = 'latex:get-capabilities',
   Typst_Available = 'typst-available',
   /**
    * Probe Typst engine capabilities: CLI binaries (tinymist / typst) AND

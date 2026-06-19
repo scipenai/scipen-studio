@@ -20,6 +20,7 @@ export const compileApi = {
   // LaTeX compilation
   compileLatex: (content: string, options?: unknown) =>
     ipcRenderer.invoke(IpcChannel.Compile_LaTeX, content, options),
+  getLaTeXCapabilities: () => ipcRenderer.invoke(IpcChannel.LaTeX_GetCapabilities),
 
   // Typst compilation
   compileTypst: (

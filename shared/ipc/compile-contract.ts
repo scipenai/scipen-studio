@@ -27,6 +27,32 @@ export interface TypstEngineCapability {
   version: string | null;
 }
 
+/** Availability + version for a single LaTeX-family engine. */
+export interface LaTeXEngineCapability {
+  available: boolean;
+  /** Version/banner string when available, null otherwise. */
+  version: string | null;
+}
+
+/**
+ * Combined LaTeX capability snapshot. `cli.*` is probed by spawning each
+ * binary with `--version`; `wasm.*` is true when the bundled BusyTeX assets
+ * are present on disk.
+ */
+export interface LaTeXCapabilities {
+  cli: {
+    pdflatex: LaTeXEngineCapability;
+    xelatex: LaTeXEngineCapability;
+    lualatex: LaTeXEngineCapability;
+    tectonic: LaTeXEngineCapability;
+  };
+  wasm: {
+    pdftex: LaTeXEngineCapability;
+    xetex: LaTeXEngineCapability;
+    lualatex: LaTeXEngineCapability;
+  };
+}
+
 /**
  * Combined capability snapshot. `cli.*` is probed by spawning each binary
  * with `--version`; `wasm.available` is true when the bundled WASM assets
@@ -101,6 +127,10 @@ export interface IPCCompileContract {
   [IpcChannel.Compile_WriteWasmArtifacts]: {
     args: [pdfBuffer: Uint8Array, synctexBuffer: Uint8Array, baseName?: string];
     result: CompileWasmArtifactsResult;
+  };
+  [IpcChannel.LaTeX_GetCapabilities]: {
+    args: [];
+    result: LaTeXCapabilities;
   };
   [IpcChannel.Typst_Available]: {
     args: [];

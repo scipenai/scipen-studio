@@ -73,6 +73,7 @@ function createElectronApi() {
     // ====== Compilation ======
     compileLatex: compileApi.compileLatex,
     compileTypst: compileApi.compileTypst,
+    getLaTeXCapabilities: compileApi.getLaTeXCapabilities,
     getTypstAvailability: compileApi.getTypstAvailability,
     synctexForward: compileApi.synctexForward,
     synctexBackward: compileApi.synctexBackward,

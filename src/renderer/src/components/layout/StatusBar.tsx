@@ -6,9 +6,14 @@
 
 import { AlertTriangle, Check, ChevronUp, Cpu, HardDrive, Save } from 'lucide-react';
 import type React from 'react';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import type {
+  LaTeXCapabilities,
+  TypstCapabilities,
+} from '../../../../../shared/ipc/compile-contract';
 import { RunOnceScheduler } from '../../../../../shared/utils';
 import logoS from '../../assets/logo-s.svg';
+import { api } from '../../api';
 import { useClickOutside, useEvent } from '../../hooks';
 import { getLanguageForFile } from '../../utils';
 import { AgentStatusSegment } from './AgentStatusSegment';
@@ -26,6 +31,39 @@ import {
 import { useTranslation } from '../../locales';
 import type { LaTeXEngine, TypstEngine } from '../../types';
 
+type CompileEngineOption = {
+  value: LaTeXEngine | TypstEngine;
+  label: string;
+};
+
+function unavailableLatexCaps(): LaTeXCapabilities {
+  const unavailable = { available: false, version: null };
+  return {
+    cli: {
+      pdflatex: { ...unavailable },
+      xelatex: { ...unavailable },
+      lualatex: { ...unavailable },
+      tectonic: { ...unavailable },
+    },
+    wasm: {
+      pdftex: { ...unavailable },
+      xetex: { ...unavailable },
+      lualatex: { ...unavailable },
+    },
+  };
+}
+
+function unavailableTypstCaps(): TypstCapabilities {
+  const unavailable = { available: false, version: null };
+  return {
+    cli: {
+      tinymist: { ...unavailable },
+      typst: { ...unavailable },
+    },
+    wasm: { ...unavailable },
+  };
+}
+
 export const StatusBar: React.FC = () => {
   const { t } = useTranslation();
   const projectPath = useProjectPath();
@@ -39,6 +77,8 @@ export const StatusBar: React.FC = () => {
   const isTypstFile = activeTab?.name?.endsWith('.typ') || false;
 
   const [isEngineDropdownOpen, setIsEngineDropdownOpen] = useState(false);
+  const [latexCaps, setLatexCaps] = useState<LaTeXCapabilities | null>(null);
+  const [typstCaps, setTypstCaps] = useState<TypstCapabilities | null>(null);
   const engineDropdownRef = useRef<HTMLDivElement>(null);
   const engineMenuRef = useRef<HTMLDivElement>(null);
   const engineMenuId = useId();
@@ -65,6 +105,32 @@ export const StatusBar: React.FC = () => {
     setSaveStatus('saved');
     hideStatusScheduler.schedule();
   });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    api.compile
+      .getLaTeXCapabilities()
+      .then((caps) => {
+        if (!cancelled) setLatexCaps(caps);
+      })
+      .catch(() => {
+        if (!cancelled) setLatexCaps(unavailableLatexCaps());
+      });
+
+    api.compile
+      .getTypstCapabilities()
+      .then((caps) => {
+        if (!cancelled) setTypstCaps(caps);
+      })
+      .catch(() => {
+        if (!cancelled) setTypstCaps(unavailableTypstCaps());
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useClickOutside(engineDropdownRef, () => setIsEngineDropdownOpen(false), isEngineDropdownOpen);
 
@@ -149,7 +215,7 @@ export const StatusBar: React.FC = () => {
     return activeTabPath.split(/[/\\]/).pop() || '';
   };
 
-  const getCompilerLabel = (engine: string): string => {
+  const getCompilerLabel = useCallback((engine: string): string => {
     switch (engine) {
       case 'pdflatex':
         return t('compiler.pdflatex');
@@ -176,7 +242,83 @@ export const StatusBar: React.FC = () => {
       default:
         return engine;
     }
-  };
+  }, [t]);
+
+  const latexEngineOptions = useMemo<CompileEngineOption[]>(() => {
+    if (!latexCaps) {
+      return [
+        { value: 'xelatex', label: getCompilerLabel('xelatex') },
+        { value: 'lualatex', label: getCompilerLabel('lualatex') },
+        { value: 'pdflatex', label: getCompilerLabel('pdflatex') },
+        { value: 'tectonic', label: getCompilerLabel('tectonic') },
+        { value: 'wasm-xetex', label: getCompilerLabel('wasm-xetex') },
+        { value: 'wasm-pdftex', label: getCompilerLabel('wasm-pdftex') },
+        { value: 'wasm-lualatex', label: getCompilerLabel('wasm-lualatex') },
+      ];
+    }
+
+    const options: CompileEngineOption[] = [];
+    if (latexCaps.cli.xelatex.available) {
+      options.push({ value: 'xelatex', label: getCompilerLabel('xelatex') });
+    }
+    if (latexCaps.cli.lualatex.available) {
+      options.push({ value: 'lualatex', label: getCompilerLabel('lualatex') });
+    }
+    if (latexCaps.cli.pdflatex.available) {
+      options.push({ value: 'pdflatex', label: getCompilerLabel('pdflatex') });
+    }
+    if (latexCaps.cli.tectonic.available) {
+      options.push({ value: 'tectonic', label: getCompilerLabel('tectonic') });
+    }
+    if (latexCaps.wasm.xetex.available) {
+      options.push({ value: 'wasm-xetex', label: getCompilerLabel('wasm-xetex') });
+    }
+    if (latexCaps.wasm.pdftex.available) {
+      options.push({ value: 'wasm-pdftex', label: getCompilerLabel('wasm-pdftex') });
+    }
+    if (latexCaps.wasm.lualatex.available) {
+      options.push({ value: 'wasm-lualatex', label: getCompilerLabel('wasm-lualatex') });
+    }
+    return options;
+  }, [getCompilerLabel, latexCaps]);
+
+  const typstEngineOptions = useMemo<CompileEngineOption[]>(() => {
+    if (!typstCaps) {
+      return [
+        { value: 'tinymist', label: getCompilerLabel('tinymist') },
+        { value: 'typst', label: getCompilerLabel('typst') },
+        { value: 'wasm-typst', label: getCompilerLabel('wasm-typst') },
+      ];
+    }
+
+    const options: CompileEngineOption[] = [];
+    if (typstCaps.cli.tinymist.available) {
+      options.push({ value: 'tinymist', label: getCompilerLabel('tinymist') });
+    }
+    if (typstCaps.cli.typst.available) {
+      options.push({ value: 'typst', label: getCompilerLabel('typst') });
+    }
+    if (typstCaps.wasm.available) {
+      options.push({ value: 'wasm-typst', label: getCompilerLabel('wasm-typst') });
+    }
+    return options;
+  }, [getCompilerLabel, typstCaps]);
+
+  useEffect(() => {
+    if (!latexCaps || latexEngineOptions.length === 0) return;
+    if (latexEngineOptions.some((engine) => engine.value === compilerSettings.engine)) return;
+
+    const next = latexEngineOptions[0].value;
+    getSettingsService().updateCompiler({ engine: next as LaTeXEngine });
+  }, [compilerSettings.engine, latexCaps, latexEngineOptions]);
+
+  useEffect(() => {
+    if (!typstCaps || typstEngineOptions.length === 0) return;
+    if (typstEngineOptions.some((engine) => engine.value === compilerSettings.typstEngine)) return;
+
+    const next = typstEngineOptions[0].value;
+    getSettingsService().updateCompiler({ typstEngine: next as TypstEngine });
+  }, [compilerSettings.typstEngine, typstCaps, typstEngineOptions]);
 
   const getLanguageType = () => {
     const fileName = getCurrentFileName();
@@ -381,11 +523,7 @@ export const StatusBar: React.FC = () => {
                   <div className="px-3 py-1 text-xs text-[var(--color-info)] border-b border-editor-border">
                     {t('statusBar.typstCompiler')}
                   </div>
-                  {[
-                    { value: 'tinymist', label: getCompilerLabel('tinymist') },
-                    { value: 'typst', label: getCompilerLabel('typst') },
-                    { value: 'wasm-typst', label: getCompilerLabel('wasm-typst') },
-                  ].map((engine) => (
+                  {typstEngineOptions.map((engine) => (
                     <button
                       type="button"
                       key={engine.value}
@@ -413,15 +551,7 @@ export const StatusBar: React.FC = () => {
                 </>
               ) : (
                 <>
-                  {[
-                    { value: 'xelatex', label: getCompilerLabel('xelatex') },
-                    { value: 'lualatex', label: getCompilerLabel('lualatex') },
-                    { value: 'pdflatex', label: getCompilerLabel('pdflatex') },
-                    { value: 'tectonic', label: getCompilerLabel('tectonic') },
-                    { value: 'wasm-xetex', label: getCompilerLabel('wasm-xetex') },
-                    { value: 'wasm-pdftex', label: getCompilerLabel('wasm-pdftex') },
-                    { value: 'wasm-lualatex', label: getCompilerLabel('wasm-lualatex') },
-                  ].map((engine) => (
+                  {latexEngineOptions.map((engine) => (
                     <button
                       type="button"
                       key={engine.value}

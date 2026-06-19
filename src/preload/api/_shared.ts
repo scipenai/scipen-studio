@@ -71,6 +71,7 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Compile_Cancel,
   IpcChannel.Compile_GetStatus,
   IpcChannel.Compile_WriteWasmArtifacts,
+  IpcChannel.LaTeX_GetCapabilities,
   IpcChannel.Typst_Available,
   IpcChannel.Typst_GetCapabilities,
 

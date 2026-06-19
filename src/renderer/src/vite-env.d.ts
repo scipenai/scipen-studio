@@ -81,6 +81,7 @@ interface ElectronAPI {
 
   // ============ LaTeX Compilation ============
   compileLatex: (content: string, options?: LaTeXCompileOptions) => Promise<LaTeXCompileResult>;
+  getLaTeXCapabilities: () => Promise<import('../shared/ipc/compile-contract').LaTeXCapabilities>;
 
   // ============ Typst Compilation ============
   compileTypst: (content: string, options?: {

@@ -264,6 +264,9 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
     ]),
   ],
   [IpcChannel.Compile_Cancel, z.tuple([z.enum(['latex', 'typst']).optional()])],
+  [IpcChannel.LaTeX_GetCapabilities, z.tuple([])],
+  [IpcChannel.Typst_GetCapabilities, z.tuple([])],
+  [IpcChannel.Typst_Available, z.tuple([])],
   [
     IpcChannel.Compile_WriteWasmArtifacts,
     z.tuple([
