@@ -270,11 +270,7 @@ const FileTreeRow = memo<{
         <div className="flex-shrink-0 flex items-center justify-center">
           {isDirectory ? (
             isExpanded ? (
-              <FolderOpen
-                size={16}
-                className="text-[var(--color-warning)]"
-                aria-hidden="true"
-              />
+              <FolderOpen size={16} className="text-[var(--color-warning)]" aria-hidden="true" />
             ) : (
               <Folder size={16} className="text-[var(--color-warning)]/80" aria-hidden="true" />
             )

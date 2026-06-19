@@ -55,10 +55,7 @@ describe('EmbeddingSetupDialog', () => {
     );
 
     expect(screen.getByRole('radiogroup', { name: 'Embedding provider' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Zhipu' })).toHaveAttribute(
-      'aria-checked',
-      'true'
-    );
+    expect(screen.getByRole('radio', { name: 'Zhipu' })).toHaveAttribute('aria-checked', 'true');
     const openai = screen.getByRole('radio', { name: 'OpenAI' });
     expect(openai).toHaveClass('cursor-pointer');
     expect(openai).toHaveClass('focus-visible:ring-2');
@@ -92,11 +89,7 @@ describe('EmbeddingSetupDialog', () => {
           <button type="button" onClick={() => setOpen(true)}>
             Configure recommendations
           </button>
-          <EmbeddingSetupDialog
-            open={open}
-            onClose={() => setOpen(false)}
-            onConfirmed={vi.fn()}
-          />
+          <EmbeddingSetupDialog open={open} onClose={() => setOpen(false)} onConfirmed={vi.fn()} />
         </>
       );
     }
@@ -122,7 +115,9 @@ describe('EmbeddingSetupDialog', () => {
 
     fireEvent.keyDown(dialog, { key: 'Escape' });
 
-    expect(screen.queryByRole('dialog', { name: 'Set up recommendations' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('dialog', { name: 'Set up recommendations' })
+    ).not.toBeInTheDocument();
     expect(opener).toHaveFocus();
   });
 });

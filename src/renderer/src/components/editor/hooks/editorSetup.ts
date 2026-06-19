@@ -186,22 +186,28 @@ function performLocalSyncTeX(
 
   const syncTeXService = getSyncTeXService();
   syncTeXService
-    .forward(currentPath, lineNumber, column, synctexPath, uiService.synctexProjectRoot ?? undefined)
+    .forward(
+      currentPath,
+      lineNumber,
+      column,
+      synctexPath,
+      uiService.synctexProjectRoot ?? undefined
+    )
     .then((result) => {
-    if (result) {
-      uiService.setPdfHighlight({
-        page: result.page || 1,
-        x: result.x || 0,
-        y: result.y || 0,
-        width: result.width || 50,
-        height: result.height || 20,
-      });
-      uiService.addCompilationLog({
-        type: 'info',
-        message: t('syncTeX.jumpToPage', { page: String(result.page) }),
-      });
-    }
-  });
+      if (result) {
+        uiService.setPdfHighlight({
+          page: result.page || 1,
+          x: result.x || 0,
+          y: result.y || 0,
+          width: result.width || 50,
+          height: result.height || 20,
+        });
+        uiService.addCompilationLog({
+          type: 'info',
+          message: t('syncTeX.jumpToPage', { page: String(result.page) }),
+        });
+      }
+    });
 }
 
 export function setupSyncTexClick(editor: Editor): void {

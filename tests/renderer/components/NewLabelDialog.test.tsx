@@ -98,9 +98,7 @@ describe('NewLabelDialog', () => {
       for (const handler of openCreateLabelHandlers) handler();
     });
 
-    expect(
-      screen.getByRole('dialog', { name: 'Create snapshot label' })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Create snapshot label' })).toBeInTheDocument();
     expect(screen.getByLabelText('Label name')).toHaveClass('focus-visible:ring-1');
     expect(screen.getByLabelText('Description')).toHaveClass('focus-visible:ring-1');
 

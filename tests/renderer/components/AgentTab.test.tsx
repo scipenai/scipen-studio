@@ -126,9 +126,10 @@ describe('AgentTab', () => {
     expect(advanced.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
 
     fireEvent.click(advanced);
-    expect(
-      screen.getByRole('button', { name: 'Hide advanced engine settings' })
-    ).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Hide advanced engine settings' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
     expect(screen.getByText('Advanced runtime settings')).toBeInTheDocument();
   });
 });

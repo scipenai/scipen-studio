@@ -80,14 +80,8 @@ describe('DiffReviewInlineWidget', () => {
     expect(preview).toHaveAttribute('aria-expanded', 'false');
     expect(preview).toHaveAttribute('aria-controls', 'diff-review-hunk-popover-hunk-1');
 
-    expect(screen.getByRole('button', { name: 'Accept' })).toHaveAttribute(
-      'aria-label',
-      'Accept'
-    );
-    expect(screen.getByRole('button', { name: 'Reject' })).toHaveAttribute(
-      'aria-label',
-      'Reject'
-    );
+    expect(screen.getByRole('button', { name: 'Accept' })).toHaveAttribute('aria-label', 'Accept');
+    expect(screen.getByRole('button', { name: 'Reject' })).toHaveAttribute('aria-label', 'Reject');
 
     fireEvent.click(preview);
 

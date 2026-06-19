@@ -11,9 +11,12 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ChunkWriter, createChunkWriter } from '../../../../src/main/services/history/ChunkWriter';
 import {
-  HistoryManager,
+  type ChunkWriter,
+  createChunkWriter,
+} from '../../../../src/main/services/history/ChunkWriter';
+import {
+  type HistoryManager,
   createHistoryManager,
 } from '../../../../src/main/services/history/HistoryManager';
 

@@ -91,7 +91,9 @@ export const LogPanel: React.FC = () => {
       case 'error':
         return <AlertCircle size={14} className="text-[var(--color-error)]" aria-hidden="true" />;
       case 'warning':
-        return <AlertTriangle size={14} className="text-[var(--color-warning)]" aria-hidden="true" />;
+        return (
+          <AlertTriangle size={14} className="text-[var(--color-warning)]" aria-hidden="true" />
+        );
       default:
         return <Terminal size={14} className="text-[var(--color-text-muted)]" aria-hidden="true" />;
     }
@@ -150,12 +152,7 @@ export const LogPanel: React.FC = () => {
     } ${selectedLog?.id === log.id ? 'bg-[var(--color-bg-tertiary)]' : ''}`;
 
     return log.details ? (
-      <button
-        key={log.id}
-        type="button"
-        onClick={() => setSelectedLog(log)}
-        className={className}
-      >
+      <button key={log.id} type="button" onClick={() => setSelectedLog(log)} className={className}>
         {content}
       </button>
     ) : (

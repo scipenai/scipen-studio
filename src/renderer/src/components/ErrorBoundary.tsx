@@ -366,10 +366,7 @@ export class PanelErrorBoundary extends Component<
     if (hasError) {
       return (
         <div className="flex flex-col items-center justify-center h-full p-4 bg-[var(--color-bg-primary)]/50">
-          <AlertTriangle
-            aria-hidden="true"
-            className="w-8 h-8 text-[var(--color-warning)] mb-3"
-          />
+          <AlertTriangle aria-hidden="true" className="w-8 h-8 text-[var(--color-warning)] mb-3" />
           <p className="text-sm text-[var(--color-text-secondary)] mb-1">
             {t('errorBoundary.panelLoadFailed', { name: panelName })}
           </p>

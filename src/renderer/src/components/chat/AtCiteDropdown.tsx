@@ -64,7 +64,11 @@ export const AtCiteDropdown: React.FC<AtCiteDropdownProps> = ({
         const active = idx === selectedIndex;
         const item = hit.item;
         const keyLabel = item.citationKey ?? item.itemKey;
-        const optionId = optionIdPrefix ? `${optionIdPrefix}-${idx}` : active ? activeId : undefined;
+        const optionId = optionIdPrefix
+          ? `${optionIdPrefix}-${idx}`
+          : active
+            ? activeId
+            : undefined;
         const meta = [item.creatorsLabel, item.year].filter(Boolean).join(' · ');
         return (
           <li

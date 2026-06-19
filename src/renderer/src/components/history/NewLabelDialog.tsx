@@ -228,9 +228,7 @@ export function NewLabelDialog(): ReactElement | null {
               )}
 
               <div className="flex items-center gap-2 pt-1">
-                <span className="text-[10px] text-[var(--color-text-muted)]">
-                  Ctrl+Enter / Esc
-                </span>
+                <span className="text-[10px] text-[var(--color-text-muted)]">Ctrl+Enter / Esc</span>
                 <div className="ml-auto flex gap-1.5">
                   <button
                     type="button"

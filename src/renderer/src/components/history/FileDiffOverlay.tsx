@@ -95,7 +95,8 @@ export function FileDiffOverlay({
   useEffect(() => {
     previouslyFocusedRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const firstAction = overlayRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    const firstAction =
+      overlayRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
     (firstAction ?? overlayRef.current)?.focus();
 
     return () => {
@@ -212,14 +213,13 @@ function DiffLinesView({ lines }: { lines: DiffLine[] }): ReactElement {
               {l.newLineNo ?? ''}
             </td>
             <td
-              className={
-                'w-4 select-none px-1 text-center text-[10px] ' +
-                (l.kind === 'added'
+              className={`w-4 select-none px-1 text-center text-[10px] ${
+                l.kind === 'added'
                   ? 'text-[var(--color-success)]'
                   : l.kind === 'removed'
                     ? 'text-[var(--color-error)]'
-                    : 'text-[var(--color-text-muted)]')
-              }
+                    : 'text-[var(--color-text-muted)]'
+              }`}
             >
               {l.kind === 'added' ? '+' : l.kind === 'removed' ? '-' : ' '}
             </td>

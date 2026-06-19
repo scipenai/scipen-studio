@@ -68,8 +68,14 @@ const recordStepSchema = z.object({
     .array(
       z.object({
         toolName: z.string().min(1).max(128),
-        argsJson: z.string().max(64 * 1024).optional(),
-        resultSummary: z.string().max(8 * 1024).optional(),
+        argsJson: z
+          .string()
+          .max(64 * 1024)
+          .optional(),
+        resultSummary: z
+          .string()
+          .max(8 * 1024)
+          .optional(),
       })
     )
     .max(128),

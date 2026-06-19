@@ -141,13 +141,7 @@ export interface IPCCompileContract {
     result: TypstCapabilities;
   };
   [IpcChannel.SyncTeX_Forward]: {
-    args: [
-      texFile: string,
-      line: number,
-      column: number,
-      pdfFile: string,
-      projectRoot?: string,
-    ];
+    args: [texFile: string, line: number, column: number, pdfFile: string, projectRoot?: string];
     result: SyncTeXForwardResult | null;
   };
   [IpcChannel.SyncTeX_Backward]: {

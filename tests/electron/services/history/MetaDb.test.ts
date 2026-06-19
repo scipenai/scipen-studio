@@ -6,7 +6,11 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MetaDb, MIGRATIONS, createMetaDb } from '../../../../src/main/services/history/MetaDb';
+import {
+  type MetaDb,
+  MIGRATIONS,
+  createMetaDb,
+} from '../../../../src/main/services/history/MetaDb';
 
 let tmpRoot: string;
 let metaDb: MetaDb;

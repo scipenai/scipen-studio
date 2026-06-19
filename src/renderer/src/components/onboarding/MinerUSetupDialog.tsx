@@ -74,8 +74,9 @@ export const MinerUSetupDialog: React.FC<Props> = ({ open, onClose, onConfirmed 
       if (event.key !== 'Tab') return;
 
       const focusable = Array.from(
-        dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)') ??
-          []
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled)'
+        ) ?? []
       );
       if (focusable.length === 0) {
         event.preventDefault();
@@ -126,7 +127,10 @@ export const MinerUSetupDialog: React.FC<Props> = ({ open, onClose, onConfirmed 
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between">
-              <div id={titleId} className="text-base font-semibold text-[var(--color-text-primary)]">
+              <div
+                id={titleId}
+                className="text-base font-semibold text-[var(--color-text-primary)]"
+              >
                 {t('zoteroMineru.dialog.title')}
               </div>
               <button

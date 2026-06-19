@@ -13,7 +13,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '../LoggerService';
 import { createBlobStore } from './BlobStore';
-import { createHistoryService, HistoryService } from './HistoryService';
+import { createHistoryService, type HistoryService } from './HistoryService';
 import { createMetaDb } from './MetaDb';
 
 const logger = createLogger('HistoryManager');
@@ -45,7 +45,10 @@ const PROJECT_ID_RX = /^[A-Za-z0-9_-]{1,128}$/;
 
 export class HistoryManager {
   private readonly services = new Map<string, HistoryService>();
-  private readonly blobStores = new Map<string, { sweep: () => Promise<{ rows: number; files: number }> }>();
+  private readonly blobStores = new Map<
+    string,
+    { sweep: () => Promise<{ rows: number; files: number }> }
+  >();
   private sweepTimer: NodeJS.Timeout | null = null;
   private disposed = false;
 

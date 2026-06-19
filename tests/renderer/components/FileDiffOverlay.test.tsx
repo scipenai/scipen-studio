@@ -99,12 +99,7 @@ describe('FileDiffOverlay', () => {
 
   it('keeps tab focus cycling inside overlay controls', () => {
     render(
-      <FileDiffOverlay
-        fileId="src/main.tex"
-        beforeText="one"
-        afterText="two"
-        onClose={vi.fn()}
-      />
+      <FileDiffOverlay fileId="src/main.tex" beforeText="one" afterText="two" onClose={vi.fn()} />
     );
 
     const dialog = screen.getByRole('dialog', { name: 'Diff for src/main.tex' });

@@ -467,7 +467,11 @@ export function HistoryBrowserDialog(): ReactElement | null {
           e.preventDefault();
           moveLabelSelection(labelsState, setLabelsState, -1);
         }
-      } else if (activeTab === 'sessions' && sessionsState.steps && sessionsState.steps.length > 0) {
+      } else if (
+        activeTab === 'sessions' &&
+        sessionsState.steps &&
+        sessionsState.steps.length > 0
+      ) {
         if (e.key === 'j' || e.key === 'ArrowDown') {
           e.preventDefault();
           moveStepSelection(sessionsState, setSessionsState, +1);
@@ -525,9 +529,7 @@ export function HistoryBrowserDialog(): ReactElement | null {
                   <SessionDropdown
                     sessions={sessionsState.sessions ?? []}
                     selectedSessionId={sessionsState.selectedSessionId}
-                    onSelect={(id) =>
-                      setSessionsState((s) => ({ ...s, selectedSessionId: id }))
-                    }
+                    onSelect={(id) => setSessionsState((s) => ({ ...s, selectedSessionId: id }))}
                     t={t}
                   />
                 ) : null
@@ -683,12 +685,11 @@ function TabButton({
       role="tab"
       aria-selected={active}
       aria-controls={panelId}
-      className={
-        'flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] ' +
-        (active
+      className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] ${
+        active
           ? 'bg-[var(--color-accent-muted)] text-[var(--color-accent)]'
-          : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]')
-      }
+          : 'text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'
+      }`}
     >
       {icon}
       <span>{label}</span>
@@ -728,8 +729,7 @@ function SessionDropdown({
     >
       {sessions.map((s) => (
         <option key={s.sessionId} value={s.sessionId}>
-          {sessionLabel(s, t)} ·{' '}
-          {t('history.sessionsStepCount', { count: s.stepCount })} ·{' '}
+          {sessionLabel(s, t)} · {t('history.sessionsStepCount', { count: s.stepCount })} ·{' '}
           {new Date(s.lastTs).toLocaleString()}
         </option>
       ))}
@@ -882,12 +882,7 @@ function LabelDetailPane({
           </span>
           <KindChip kind={label.kind} t={t} />
         </div>
-        <DetailMetaLine
-          time={label.createdAt}
-          fileCount={files.length}
-          totals={totals}
-          t={t}
-        />
+        <DetailMetaLine time={label.createdAt} fileCount={files.length} totals={totals} t={t} />
         {label.description && (
           <div className="mt-1.5 rounded bg-[var(--color-bg-primary)] px-2 py-1 text-[11px] text-[var(--color-text-muted)]">
             {label.description}
@@ -1112,9 +1107,7 @@ function CausesList({ causes }: { causes: StepCause[] }): ReactElement {
             </span>
           </div>
           {c.resultSummary && (
-            <div className="ml-4 text-[10px] text-[var(--color-text-muted)]">
-              {c.resultSummary}
-            </div>
+            <div className="ml-4 text-[10px] text-[var(--color-text-muted)]">{c.resultSummary}</div>
           )}
           {c.argsJson && (
             <pre className="ml-4 mt-0.5 max-h-16 overflow-y-auto whitespace-pre-wrap break-all rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 font-mono text-[9px] text-[var(--color-text-muted)]">
@@ -1140,10 +1133,7 @@ function TimelineStrip({
   selectedId: string | null;
   onSelect: (l: HistoryLabelDTO) => void;
 }): ReactElement {
-  const sorted = useMemo(
-    () => [...labels].sort((a, b) => a.createdAt - b.createdAt),
-    [labels]
-  );
+  const sorted = useMemo(() => [...labels].sort((a, b) => a.createdAt - b.createdAt), [labels]);
   const minTs = sorted[0].createdAt;
   const maxTs = sorted[sorted.length - 1].createdAt;
   const span = Math.max(1, maxTs - minTs);
@@ -1165,10 +1155,7 @@ function TimelineStrip({
               onClick={() => onSelect(l)}
               title={`${l.name} · ${new Date(l.createdAt).toLocaleString()}`}
               aria-label={l.name}
-              className={
-                'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full p-0 transition-shadow hover:ring-2 focus:outline-none focus:ring-2 ' +
-                (isSelected ? 'ring-2' : 'ring-0')
-              }
+              className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full p-0 transition-shadow hover:ring-2 focus:outline-none focus:ring-2 ${isSelected ? 'ring-2' : 'ring-0'}`}
               style={{
                 left: `${pct}%`,
                 width: isSelected ? 12 : 10,
@@ -1197,11 +1184,7 @@ function TimelineStrip({
 function EmptyState({ promptKey, t }: { promptKey: TranslationKey; t: T }): ReactElement {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <Inbox
-        size={32}
-        aria-hidden="true"
-        className="text-[var(--color-text-muted)] opacity-40"
-      />
+      <Inbox size={32} aria-hidden="true" className="text-[var(--color-text-muted)] opacity-40" />
       <p className="text-[11px] text-[var(--color-text-muted)]">{t(promptKey)}</p>
       <p className="text-[10px] text-[var(--color-text-muted)] opacity-60">
         {t('history.labelKeyboardHint')}
@@ -1237,10 +1220,7 @@ function ListMessage({
 }): ReactElement {
   return (
     <div
-      className={
-        'px-3 py-4 text-center text-[11px] ' +
-        (tone === 'error' ? 'text-[var(--color-error)]' : 'text-[var(--color-text-muted)]')
-      }
+      className={`px-3 py-4 text-center text-[11px] ${tone === 'error' ? 'text-[var(--color-error)]' : 'text-[var(--color-text-muted)]'}`}
       role={tone === 'error' ? 'alert' : undefined}
     >
       {children}
@@ -1364,12 +1344,11 @@ function DetailFooter({
 // =============================================================
 
 function listItemClass(isSelected: boolean): string {
-  return (
-    'flex w-full cursor-pointer items-start gap-2 border-l-2 px-3 py-2 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-inset ' +
-    (isSelected
+  return `flex w-full cursor-pointer items-start gap-2 border-l-2 px-3 py-2 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-inset ${
+    isSelected
       ? 'border-l-[var(--color-accent)] bg-[var(--color-accent-muted)]/40 '
-      : 'border-l-transparent hover:bg-[var(--color-bg-hover)] focus-visible:bg-[var(--color-bg-hover)]')
-  );
+      : 'border-l-transparent hover:bg-[var(--color-bg-hover)] focus-visible:bg-[var(--color-bg-hover)]'
+  }`;
 }
 
 function snapshotToFiles(map: Record<string, Uint8Array>): HistoryFileSnapshot[] {

@@ -147,18 +147,16 @@ export class ChunkWriter {
 
     const work = (async (): Promise<void> => {
       try {
-        await this.opts.historyManager
-          .getOrCreate(batch.projectId)
-          .recordChunk({
-            projectId: batch.projectId,
-            fileId: batch.fileId,
-            versionFrom: batch.baseVersion,
-            versionTo: batch.headVersion,
-            baseContent: batch.baseContent,
-            targetContent: batch.headContent,
-            opCount: batch.opCount,
-            primaryActor: batch.actor,
-          });
+        await this.opts.historyManager.getOrCreate(batch.projectId).recordChunk({
+          projectId: batch.projectId,
+          fileId: batch.fileId,
+          versionFrom: batch.baseVersion,
+          versionTo: batch.headVersion,
+          baseContent: batch.baseContent,
+          targetContent: batch.headContent,
+          opCount: batch.opCount,
+          primaryActor: batch.actor,
+        });
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         if (this.opts.onError) {

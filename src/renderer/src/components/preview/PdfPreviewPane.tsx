@@ -1286,9 +1286,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                   scale={scale}
                   isVisible={true}
                   highlight={
-                    activeHighlight && activeHighlight.page === currentPage
-                      ? activeHighlight
-                      : null
+                    activeHighlight && activeHighlight.page === currentPage ? activeHighlight : null
                   }
                   onPageClick={handlePageClick}
                 />

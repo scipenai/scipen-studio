@@ -197,5 +197,5 @@ function capByBytes(s: string, maxBytes: number): string {
       hi = mid - 1;
     }
   }
-  return s.slice(0, lo) + '\n… (truncated)';
+  return `${s.slice(0, lo)}\n… (truncated)`;
 }

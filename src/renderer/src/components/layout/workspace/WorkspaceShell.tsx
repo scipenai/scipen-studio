@@ -24,10 +24,7 @@ export interface WorkspaceShellProps {
 export const WorkspaceShell: React.FC<WorkspaceShellProps> = ({ header, children, className }) => {
   return (
     <div
-      className={clsx(
-        'flex h-full flex-col overflow-hidden bg-[var(--color-bg-void)]',
-        className
-      )}
+      className={clsx('flex h-full flex-col overflow-hidden bg-[var(--color-bg-void)]', className)}
     >
       {header}
       <div className="relative flex-1 min-h-0 overflow-hidden">{children}</div>

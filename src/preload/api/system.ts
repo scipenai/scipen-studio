@@ -37,12 +37,7 @@ export const compileApi = {
 
   // BusyTeX WASM artifact persistence (pdf + .synctex.gz → temp paths)
   writeWasmArtifacts: (pdfBuffer: Uint8Array, synctexBuffer: Uint8Array, baseName?: string) =>
-    ipcRenderer.invoke(
-      IpcChannel.Compile_WriteWasmArtifacts,
-      pdfBuffer,
-      synctexBuffer,
-      baseName
-    ),
+    ipcRenderer.invoke(IpcChannel.Compile_WriteWasmArtifacts, pdfBuffer, synctexBuffer, baseName),
 
   // SyncTeX
   synctexForward: (
@@ -51,15 +46,9 @@ export const compileApi = {
     column: number,
     pdfFile: string,
     projectRoot?: string
-  ) =>
-    ipcRenderer.invoke(IpcChannel.SyncTeX_Forward, texFile, line, column, pdfFile, projectRoot),
-  synctexBackward: (
-    pdfFile: string,
-    page: number,
-    x: number,
-    y: number,
-    projectRoot?: string
-  ) => ipcRenderer.invoke(IpcChannel.SyncTeX_Backward, pdfFile, page, x, y, projectRoot),
+  ) => ipcRenderer.invoke(IpcChannel.SyncTeX_Forward, texFile, line, column, pdfFile, projectRoot),
+  synctexBackward: (pdfFile: string, page: number, x: number, y: number, projectRoot?: string) =>
+    ipcRenderer.invoke(IpcChannel.SyncTeX_Backward, pdfFile, page, x, y, projectRoot),
 };
 
 // ====== App Info ======

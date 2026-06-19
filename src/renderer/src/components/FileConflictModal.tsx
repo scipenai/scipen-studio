@@ -77,7 +77,8 @@ export const FileConflictModal: React.FC = () => {
   useEffect(() => {
     if (!fileConflict) return;
 
-    const firstAction = dialogRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    const firstAction =
+      dialogRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
     (firstAction ?? dialogRef.current)?.focus();
   }, [fileConflict]);
 

@@ -236,10 +236,7 @@ const DiffReviewHunkInline: React.FC<DiffReviewHunkInlineProps> = ({
   }, [isExpanded]);
 
   return (
-    <div
-      className="diff-review-hunk-inline"
-      style={{ top: position.top, left: position.left }}
-    >
+    <div className="diff-review-hunk-inline" style={{ top: position.top, left: position.left }}>
       <button
         ref={previewButtonRef}
         type="button"

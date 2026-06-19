@@ -154,8 +154,8 @@ export const ZoteroPaperPane: React.FC = () => {
             borderBottomColor: 'var(--color-border-subtle)',
             background: 'var(--color-warning-muted, rgba(234,179,8,0.12))',
             color: 'var(--color-text-secondary)',
-        }}
-      >
+          }}
+        >
           <AlertTriangle
             size={13}
             className="shrink-0 text-[var(--color-warning,#eab308)]"

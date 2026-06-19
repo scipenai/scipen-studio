@@ -10,9 +10,12 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BlobStore, createBlobStore } from '../../../../src/main/services/history/BlobStore';
-import { HistoryService, createHistoryService } from '../../../../src/main/services/history/HistoryService';
-import { MetaDb, createMetaDb } from '../../../../src/main/services/history/MetaDb';
+import { type BlobStore, createBlobStore } from '../../../../src/main/services/history/BlobStore';
+import {
+  type HistoryService,
+  createHistoryService,
+} from '../../../../src/main/services/history/HistoryService';
+import { type MetaDb, createMetaDb } from '../../../../src/main/services/history/MetaDb';
 
 let tmpRoot: string;
 let metaDb: MetaDb;
@@ -350,7 +353,7 @@ describe('HistoryService - L2 steps', () => {
         sessionId: 's1',
         parentStepHashHex: null,
         tree,
-        causes: [{ toolName: 'ts-' + ts }],
+        causes: [{ toolName: `ts-${ts}` }],
         origin: 'human_edit',
         ts,
         sizeDelta: 0,
@@ -411,16 +414,34 @@ describe('HistoryService - L2 steps', () => {
     const f = await blobStore.put(bytes('x'));
     const tree = [{ fileId: 'a', blobHashHex: toHex(f) }];
     await svc.recordStep({
-      projectId: 'pls', sessionId: 'sA', parentStepHashHex: null,
-      tree, causes: [], origin: 'human_edit', ts: 100, sizeDelta: 0,
+      projectId: 'pls',
+      sessionId: 'sA',
+      parentStepHashHex: null,
+      tree,
+      causes: [],
+      origin: 'human_edit',
+      ts: 100,
+      sizeDelta: 0,
     });
     await svc.recordStep({
-      projectId: 'pls', sessionId: 'sA', parentStepHashHex: null,
-      tree, causes: [], origin: 'human_edit', ts: 200, sizeDelta: 0,
+      projectId: 'pls',
+      sessionId: 'sA',
+      parentStepHashHex: null,
+      tree,
+      causes: [],
+      origin: 'human_edit',
+      ts: 200,
+      sizeDelta: 0,
     });
     await svc.recordStep({
-      projectId: 'pls', sessionId: 'sB', parentStepHashHex: null,
-      tree, causes: [], origin: 'snaca_tool', ts: 50, sizeDelta: 0,
+      projectId: 'pls',
+      sessionId: 'sB',
+      parentStepHashHex: null,
+      tree,
+      causes: [],
+      origin: 'snaca_tool',
+      ts: 50,
+      sizeDelta: 0,
     });
     const sessions = await svc.listSessions('pls');
     expect(sessions.length).toBe(2);
@@ -477,6 +498,6 @@ describe('HistoryService - L2 steps', () => {
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   return out;
 }

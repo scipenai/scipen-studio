@@ -54,7 +54,8 @@ vi.mock('../../../src/renderer/src/locales', () => ({
         'fileConflict.deletedDesc': 'This file has been deleted from disk.',
         'fileConflict.unsavedChanges': 'You have unsaved changes.',
         'fileConflict.modifiedDesc': 'This file has been modified in an external editor.',
-        'fileConflict.unsavedWillLose': 'You have unsaved changes, reloading will lose these changes.',
+        'fileConflict.unsavedWillLose':
+          'You have unsaved changes, reloading will lose these changes.',
         'fileConflict.saveAs': 'Save As New File',
         'fileConflict.closeFile': 'Close File',
         'fileConflict.keepMyChanges': 'Keep My Changes',

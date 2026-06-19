@@ -33,10 +33,7 @@ describe('Select', () => {
     const listbox = screen.getByRole('listbox', { name: 'Provider' });
     expect(trigger).toHaveAttribute('aria-controls', listbox.id);
 
-    expect(screen.getByRole('option', { name: 'OpenAI' })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    );
+    expect(screen.getByRole('option', { name: 'OpenAI' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('option', { name: 'Anthropic' })).toHaveAttribute(
       'aria-selected',
       'false'

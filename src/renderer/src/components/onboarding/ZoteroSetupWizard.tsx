@@ -49,7 +49,8 @@ export const ZoteroSetupWizard: React.FC<ZoteroSetupWizardProps> = ({ controller
 
     previouslyFocusedRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const firstAction = dialogRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    const firstAction =
+      dialogRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
     (firstAction ?? dialogRef.current)?.focus();
 
     return () => {

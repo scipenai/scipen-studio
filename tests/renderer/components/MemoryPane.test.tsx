@@ -12,7 +12,9 @@ const agentClientMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@monaco-editor/react', () => ({
-  default: ({ value }: { value: string }) => <textarea readOnly value={value} aria-label="Memory content" />,
+  default: ({ value }: { value: string }) => (
+    <textarea readOnly value={value} aria-label="Memory content" />
+  ),
 }));
 
 vi.mock('../../../src/renderer/src/services/agent/AgentClientService', () => ({
@@ -93,7 +95,9 @@ describe('MemoryPane', () => {
     expect(entry).toHaveClass('focus-visible:ring-2');
     fireEvent.click(entry);
 
-    await waitFor(() => expect(agentClientMocks.memoryGet).toHaveBeenCalledWith('user', 'writing_style'));
+    await waitFor(() =>
+      expect(agentClientMocks.memoryGet).toHaveBeenCalledWith('user', 'writing_style')
+    );
 
     const save = screen.getByRole('button', { name: 'Save' });
     expect(save).toBeDisabled();

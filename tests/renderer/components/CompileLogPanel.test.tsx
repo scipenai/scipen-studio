@@ -66,13 +66,7 @@ describe('CompileLogPanel', () => {
   it('labels close, expand, and source-jump actions for keyboard users', () => {
     const onClose = vi.fn();
     const onJumpToLine = vi.fn();
-    render(
-      <CompileLogPanel
-        errors={[errorEntry]}
-        onClose={onClose}
-        onJumpToLine={onJumpToLine}
-      />
-    );
+    render(<CompileLogPanel errors={[errorEntry]} onClose={onClose} onJumpToLine={onJumpToLine} />);
 
     const close = screen.getByRole('button', { name: 'Close' });
     expect(close).toHaveClass('cursor-pointer');

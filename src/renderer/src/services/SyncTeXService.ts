@@ -44,13 +44,7 @@ export class SyncTeXService {
     if (!synctexPath) return null;
 
     try {
-      const result = await api.synctex.forward(
-        sourcePath,
-        line,
-        column,
-        synctexPath,
-        projectRoot
-      );
+      const result = await api.synctex.forward(sourcePath, line, column, synctexPath, projectRoot);
       return result || null;
     } catch (error) {
       logger.error('SyncTeX forward failed', { error });

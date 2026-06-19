@@ -229,9 +229,7 @@ export const AITab: React.FC = () => {
 
   if (!provider) {
     return (
-      <div className="text-sm text-[var(--color-text-muted)] py-4">
-        {t('aiSettings.provider')}…
-      </div>
+      <div className="text-sm text-[var(--color-text-muted)] py-4">{t('aiSettings.provider')}…</div>
     );
   }
 

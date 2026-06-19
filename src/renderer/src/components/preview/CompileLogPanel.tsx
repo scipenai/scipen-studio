@@ -215,9 +215,7 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
                     disabled={!entry.line}
                   >
                     <FileText size={10} aria-hidden="true" />
-                    <span className="truncate max-w-32">
-                      {fileLabel}
-                    </span>
+                    <span className="truncate max-w-32">{fileLabel}</span>
                     {entry.line && (
                       <span className="text-[var(--color-accent)]">:{entry.line}</span>
                     )}

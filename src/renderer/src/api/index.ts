@@ -5,7 +5,7 @@
  */
 
 import { IpcChannel } from '../../../../shared/ipc/channels';
-import { type UpdateStatus } from '../../../../shared/ipc/app-contract';
+import type { UpdateStatus } from '../../../../shared/ipc/app-contract';
 import {
   eventSchemas,
   invokeResultSchemas,
@@ -152,10 +152,7 @@ function onEvent<T>(channel: IpcChannel, callback: (data: T) => void): () => voi
     if (schema) {
       const result = schema.safeParse(raw);
       if (!result.success) {
-        console.warn(
-          `[onEvent] dropped malformed payload on '${channel}':`,
-          result.error.format()
-        );
+        console.warn(`[onEvent] dropped malformed payload on '${channel}':`, result.error.format());
         return;
       }
       callback(result.data as T);
@@ -352,7 +349,7 @@ export const compile = {
     invoke<CompileResult>(IpcChannel.Compile_LaTeX, content, options),
   getLaTeXCapabilities: () =>
     invoke<import('../../../../shared/ipc/compile-contract').LaTeXCapabilities>(
-      IpcChannel.LaTeX_GetCapabilities,
+      IpcChannel.LaTeX_GetCapabilities
     ),
   typst: (content: string, options?: TypstCompileOptions) =>
     invoke<CompileResult>(IpcChannel.Compile_Typst, content, options),
@@ -366,7 +363,7 @@ export const compile = {
    */
   getTypstCapabilities: () =>
     invoke<import('../../../../shared/ipc/compile-contract').TypstCapabilities>(
-      IpcChannel.Typst_GetCapabilities,
+      IpcChannel.Typst_GetCapabilities
     ),
   cancel: (type?: 'latex' | 'typst') =>
     invoke<{ success: boolean; cancelled: number }>(IpcChannel.Compile_Cancel, type),
@@ -412,13 +409,7 @@ export const synctex = {
    * BusyTeX WASM engine (records relative paths). The main process
    * rebases `texFile` against `projectRoot` before invoking `synctex`.
    */
-  forward: (
-    texFile: string,
-    line: number,
-    column: number,
-    pdfFile: string,
-    projectRoot?: string
-  ) =>
+  forward: (texFile: string, line: number, column: number, pdfFile: string, projectRoot?: string) =>
     invoke<ForwardSyncResult | null>(
       IpcChannel.SyncTeX_Forward,
       texFile,
@@ -428,14 +419,7 @@ export const synctex = {
       projectRoot
     ),
   backward: (pdfFile: string, page: number, x: number, y: number, projectRoot?: string) =>
-    invoke<InverseSyncResult | null>(
-      IpcChannel.SyncTeX_Backward,
-      pdfFile,
-      page,
-      x,
-      y,
-      projectRoot
-    ),
+    invoke<InverseSyncResult | null>(IpcChannel.SyncTeX_Backward, pdfFile, page, x, y, projectRoot),
 };
 
 // ==================== AI API ====================

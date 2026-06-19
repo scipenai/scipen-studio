@@ -153,14 +153,17 @@ export const StatusBar: React.FC = () => {
   }, [isEngineDropdownOpen]);
 
   const getEngineMenuItems = (): HTMLButtonElement[] =>
-    Array.from(engineMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? []);
+    Array.from(
+      engineMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? []
+    );
 
   const focusEngineMenuItem = (offset: number): void => {
     const items = getEngineMenuItems();
     if (items.length === 0) return;
 
     const currentIndex = items.findIndex((item) => item === document.activeElement);
-    const nextIndex = currentIndex === -1 ? 0 : (currentIndex + offset + items.length) % items.length;
+    const nextIndex =
+      currentIndex === -1 ? 0 : (currentIndex + offset + items.length) % items.length;
     items[nextIndex]?.focus();
   };
 
@@ -215,34 +218,37 @@ export const StatusBar: React.FC = () => {
     return activeTabPath.split(/[/\\]/).pop() || '';
   };
 
-  const getCompilerLabel = useCallback((engine: string): string => {
-    switch (engine) {
-      case 'pdflatex':
-        return t('compiler.pdflatex');
-      case 'xelatex':
-        return t('compiler.xelatexRecommended');
-      case 'lualatex':
-        return t('compiler.lualatex');
-      case 'tectonic':
-        return t('compiler.tectonic');
-      case 'wasm-pdftex':
-        return t('compiler.wasmPdftex');
-      case 'wasm-xetex':
-        return t('compiler.wasmXetex');
-      case 'wasm-lualatex':
-        return t('compiler.wasmLualatex');
-      case 'latex':
-        return 'LaTeX';
-      case 'tinymist':
-        return t('compiler.tinymist');
-      case 'typst':
-        return t('compiler.typstCli');
-      case 'wasm-typst':
-        return t('compiler.typstWasm');
-      default:
-        return engine;
-    }
-  }, [t]);
+  const getCompilerLabel = useCallback(
+    (engine: string): string => {
+      switch (engine) {
+        case 'pdflatex':
+          return t('compiler.pdflatex');
+        case 'xelatex':
+          return t('compiler.xelatexRecommended');
+        case 'lualatex':
+          return t('compiler.lualatex');
+        case 'tectonic':
+          return t('compiler.tectonic');
+        case 'wasm-pdftex':
+          return t('compiler.wasmPdftex');
+        case 'wasm-xetex':
+          return t('compiler.wasmXetex');
+        case 'wasm-lualatex':
+          return t('compiler.wasmLualatex');
+        case 'latex':
+          return 'LaTeX';
+        case 'tinymist':
+          return t('compiler.tinymist');
+        case 'typst':
+          return t('compiler.typstCli');
+        case 'wasm-typst':
+          return t('compiler.typstWasm');
+        default:
+          return engine;
+      }
+    },
+    [t]
+  );
 
   const latexEngineOptions = useMemo<CompileEngineOption[]>(() => {
     if (!latexCaps) {
@@ -529,7 +535,9 @@ export const StatusBar: React.FC = () => {
                       key={engine.value}
                       role="menuitemradio"
                       aria-checked={compilerSettings.typstEngine === engine.value}
-                      data-selected={compilerSettings.typstEngine === engine.value ? 'true' : undefined}
+                      data-selected={
+                        compilerSettings.typstEngine === engine.value ? 'true' : undefined
+                      }
                       onClick={() => {
                         getSettingsService().updateCompiler({
                           typstEngine: engine.value as TypstEngine,

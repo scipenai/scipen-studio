@@ -61,7 +61,12 @@ const LATEX_COMMANDS: CompletionItem[] = [
     insertText: '\\usepackage{${1:package}}',
     detail: 'Package',
   },
-  { label: '\\title', kind: 'command', insertText: '\\title{${1:title}}', detail: 'Document title' },
+  {
+    label: '\\title',
+    kind: 'command',
+    insertText: '\\title{${1:title}}',
+    detail: 'Document title',
+  },
   { label: '\\author', kind: 'command', insertText: '\\author{${1:author}}', detail: 'Author' },
   { label: '\\date', kind: 'command', insertText: '\\date{${1:\\today}}', detail: 'Date' },
   { label: '\\maketitle', kind: 'command', insertText: '\\maketitle', detail: 'Render title' },
@@ -108,7 +113,12 @@ const LATEX_COMMANDS: CompletionItem[] = [
   // Formatting
   { label: '\\textbf', kind: 'command', insertText: '\\textbf{${1:text}}', detail: 'Bold' },
   { label: '\\textit', kind: 'command', insertText: '\\textit{${1:text}}', detail: 'Italic' },
-  { label: '\\underline', kind: 'command', insertText: '\\underline{${1:text}}', detail: 'Underline' },
+  {
+    label: '\\underline',
+    kind: 'command',
+    insertText: '\\underline{${1:text}}',
+    detail: 'Underline',
+  },
   { label: '\\emph', kind: 'command', insertText: '\\emph{${1:text}}', detail: 'Emphasis' },
 
   // Figures and tables
@@ -304,11 +314,26 @@ const TYPST_COMMANDS: CompletionItem[] = [
   },
   { label: '#strong', kind: 'command', insertText: '#strong[${1:text}]', detail: 'Strong' },
   { label: '#emph', kind: 'command', insertText: '#emph[${1:text}]', detail: 'Emphasis' },
-  { label: '#underline', kind: 'command', insertText: '#underline[${1:text}]', detail: 'Underline' },
+  {
+    label: '#underline',
+    kind: 'command',
+    insertText: '#underline[${1:text}]',
+    detail: 'Underline',
+  },
   { label: '#strike', kind: 'command', insertText: '#strike[${1:text}]', detail: 'Strikethrough' },
-  { label: '#smallcaps', kind: 'command', insertText: '#smallcaps[${1:text}]', detail: 'Small caps' },
+  {
+    label: '#smallcaps',
+    kind: 'command',
+    insertText: '#smallcaps[${1:text}]',
+    detail: 'Small caps',
+  },
   { label: '#raw', kind: 'command', insertText: '#raw("${1:code}")', detail: 'Raw text/code' },
-  { label: '#link', kind: 'command', insertText: '#link("${1:url}")[${2:text}]', detail: 'Hyperlink' },
+  {
+    label: '#link',
+    kind: 'command',
+    insertText: '#link("${1:url}")[${2:text}]',
+    detail: 'Hyperlink',
+  },
 
   // Page and layout
   {
@@ -1087,7 +1112,8 @@ IMPORTANT RULES:
 
     // Natural language characters: debounced trigger
     // allow-cjk: regex literal must accept CJK input from user keystrokes
-    if (/[a-zA-Z0-9一-龥]/.test(char)) { // allow-cjk: regex literal
+    if (/[a-zA-Z0-9一-龥]/.test(char)) {
+      // allow-cjk: regex literal
       return 'debounced';
     }
 

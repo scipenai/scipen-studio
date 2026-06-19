@@ -420,7 +420,9 @@ export const EditorPane: React.FC = React.memo(() => {
           <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] shadow-[var(--shadow-sm)]">
             <span className="text-[24px] font-semibold text-[var(--color-text-disabled)]">S</span>
           </div>
-          <p className="text-sm font-medium text-[var(--color-text-secondary)]">{t('editor.noFileOpen')}</p>
+          <p className="text-sm font-medium text-[var(--color-text-secondary)]">
+            {t('editor.noFileOpen')}
+          </p>
           <p className="mt-2 text-xs leading-6 text-[var(--color-text-disabled)]">
             {t('editor.selectFileHint')}
           </p>

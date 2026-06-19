@@ -401,7 +401,7 @@ export class TypstWasmEngine {
 
   private request<T extends WorkerMessage>(
     type: string,
-    payload: Record<string, unknown>,
+    payload: Record<string, unknown>
   ): Promise<T> {
     if (!this.worker) {
       return Promise.reject(new Error('Typst WASM engine has no worker'));
@@ -452,8 +452,7 @@ async function loadManifest(): Promise<TypstManifest> {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(
-      `Typst manifest fetch failed (HTTP ${response.status}) at ${url}. ` +
-        `Run "pnpm download:typst-wasm" to (re)generate the WASM assets.`,
+      `Typst manifest fetch failed (HTTP ${response.status}) at ${url}. Run "pnpm download:typst-wasm" to (re)generate the WASM assets.`
     );
   }
   const data = (await response.json()) as Partial<TypstManifest>;

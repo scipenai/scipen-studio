@@ -195,9 +195,7 @@ describe('PdfPreviewPane', () => {
     expect(screen.getByRole('button', { name: 'Zoom out' })).toHaveClass('cursor-pointer');
     expect(screen.getByRole('button', { name: 'Zoom in' })).toHaveClass('cursor-pointer');
     expect(screen.getByRole('button', { name: 'Fit to width' })).toHaveClass('cursor-pointer');
-    expect(screen.getByRole('button', { name: 'Single page mode' })).toHaveClass(
-      'cursor-pointer'
-    );
+    expect(screen.getByRole('button', { name: 'Single page mode' })).toHaveClass('cursor-pointer');
     expect(screen.getByRole('button', { name: 'Download PDF' })).toHaveClass('cursor-pointer');
   });
 });

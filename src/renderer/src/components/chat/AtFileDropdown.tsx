@@ -72,7 +72,11 @@ export const AtFileDropdown: React.FC<AtFileDropdownProps> = ({
         const dir = sepIdx >= 0 ? path.slice(0, sepIdx + 1) : '';
         const name = sepIdx >= 0 ? path.slice(sepIdx + 1) : path;
         const active = idx === selectedIndex;
-        const optionId = optionIdPrefix ? `${optionIdPrefix}-${idx}` : active ? activeId : undefined;
+        const optionId = optionIdPrefix
+          ? `${optionIdPrefix}-${idx}`
+          : active
+            ? activeId
+            : undefined;
         return (
           <li
             id={optionId}

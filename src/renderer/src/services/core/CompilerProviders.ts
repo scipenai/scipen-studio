@@ -213,10 +213,7 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
       // Hit the recycle threshold → close engine before the next compile
       // re-inits. Doing this BEFORE the lazy-init check below means the
       // cold-start path is taken automatically.
-      if (
-        this.engine &&
-        this.compileCount >= TypstWasmCompilerProvider.RECYCLE_THRESHOLD
-      ) {
+      if (this.engine && this.compileCount >= TypstWasmCompilerProvider.RECYCLE_THRESHOLD) {
         logger.info('Typst WASM engine recycled (compileCount threshold reached)', {
           threshold: TypstWasmCompilerProvider.RECYCLE_THRESHOLD,
         });
@@ -272,7 +269,7 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
       const log = [
         ...output.diagnostics.map(
           (d) =>
-            `${d.severity === 1 ? 'error' : d.severity === 2 ? 'warning' : 'info'}: ${d.message}`,
+            `${d.severity === 1 ? 'error' : d.severity === 2 ? 'warning' : 'info'}: ${d.message}`
         ),
         ...(fontHint ? [fontHint] : []),
       ].join('\n');
@@ -322,13 +319,9 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
    * Returns the localised hint string, or null when no font diagnostic
    * is present.
    */
-  private buildFontHint(
-    diagnostics: { severity: number; message: string }[],
-  ): string | null {
+  private buildFontHint(diagnostics: { severity: number; message: string }[]): string | null {
     if (!this.engine) return null;
-    const fontMentioned = diagnostics.some(
-      (d) => d.severity === 1 && /font/i.test(d.message),
-    );
+    const fontMentioned = diagnostics.some((d) => d.severity === 1 && /font/i.test(d.message));
     if (!fontMentioned) return null;
     const ctx = this.engine.fontContext;
     if (!ctx.endpointConfigured) {
@@ -349,7 +342,7 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
   private async stageProjectSources(
     currentFilePath: string,
     content: string,
-    options: CompilerOptions,
+    options: CompilerOptions
   ): Promise<void> {
     const engine = this.engine!;
     const projectPath = options.projectPath;

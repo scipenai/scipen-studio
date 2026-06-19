@@ -439,7 +439,7 @@ function createWindow(options?: {
   } else {
     newWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), { hash: hash || undefined });
     // Prod diagnostic escape hatch: SCIPEN_DEVTOOLS=1 auto-opens DevTools detached
-  // at launch so it does not crowd the main window.
+    // at launch so it does not crowd the main window.
     if (process.env.SCIPEN_DEVTOOLS === '1' && !isViewer) {
       newWindow.webContents.openDevTools({ mode: 'detach' });
     }

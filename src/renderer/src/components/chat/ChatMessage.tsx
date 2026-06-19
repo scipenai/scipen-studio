@@ -47,10 +47,7 @@ import { agentEditProposalBridge } from '../../services/agent/AgentEditProposalB
 import { useTranslation, type TranslationKey } from '../../locales';
 import { api } from '../../api';
 import { openFileInEditor } from '../../services/core/FileOpenService';
-import {
-  getProjectRuntimeContext,
-  getUIService,
-} from '../../services/core/ServiceRegistry';
+import { getProjectRuntimeContext, getUIService } from '../../services/core/ServiceRegistry';
 import { historyProjectIdOf } from '../../utils/historyProjectId';
 import { applySnapshotToOpenTabs } from '../../utils/historyRestore';
 import { MarkdownContent } from './MarkdownContent';
@@ -90,10 +87,7 @@ function timelineEventBaseKey(ev: ChatTimelineEvent): string {
   }
 }
 
-function timelineEventKey(
-  ev: ChatTimelineEvent,
-  occurrences: Map<string, number>
-): string {
+function timelineEventKey(ev: ChatTimelineEvent, occurrences: Map<string, number>): string {
   const base = timelineEventBaseKey(ev);
   const count = occurrences.get(base) ?? 0;
   occurrences.set(base, count + 1);
@@ -265,11 +259,7 @@ function RollbackBeforeMessageButton({ messageTs }: { messageTs: number }): Reac
         selectionActive ? 'pointer-events-none opacity-0' : ''
       }`}
     >
-      {busy ? (
-        <Loader2 size={12} className="motion-safe:animate-spin" />
-      ) : (
-        <RotateCcw size={12} />
-      )}
+      {busy ? <Loader2 size={12} className="motion-safe:animate-spin" /> : <RotateCcw size={12} />}
     </button>
   );
 }

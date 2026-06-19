@@ -109,7 +109,7 @@ export const Sidebar: React.FC = () => {
          * History: single entry that opens HistoryBrowserDialog. The dialog
          * internally tabs between Labels (manual snapshots) and Sessions
          * (AI step DAG). One sidebar button matches the one dialog.
-        */}
+         */}
         <SidebarNavItem
           icon={<History aria-hidden="true" />}
           label={t('workspaceSidebar.historyTab')}

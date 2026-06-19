@@ -96,11 +96,7 @@ export const SkillsPane: React.FC = () => {
         style={{ borderRightColor: 'var(--color-border)' }}
       >
         <div className="flex shrink-0 gap-2 p-2">
-          <button
-            type="button"
-            onClick={() => void onReload()}
-            className={toolbarButtonClass}
-          >
+          <button type="button" onClick={() => void onReload()} className={toolbarButtonClass}>
             <RefreshCw size={12} aria-hidden="true" />
             {t('memoryViewer.reload')}
           </button>

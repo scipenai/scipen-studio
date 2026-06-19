@@ -205,9 +205,7 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
         try {
           const safeTexFile = assertPathSecurity(texFile, 'read');
           const safePdfFile = assertPathSecurity(pdfFile, 'read');
-          const safeProjectRoot = projectRoot
-            ? assertPathSecurity(projectRoot, 'read')
-            : undefined;
+          const safeProjectRoot = projectRoot ? assertPathSecurity(projectRoot, 'read') : undefined;
 
           const result = await syncTeXService.forwardSync(
             safePdfFile,
@@ -227,17 +225,9 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
       [IpcChannel.SyncTeX_Backward]: async (pdfFile, page, x, y, projectRoot) => {
         try {
           const safePdfFile = assertPathSecurity(pdfFile, 'read');
-          const safeProjectRoot = projectRoot
-            ? assertPathSecurity(projectRoot, 'read')
-            : undefined;
+          const safeProjectRoot = projectRoot ? assertPathSecurity(projectRoot, 'read') : undefined;
 
-          const result = await syncTeXService.inverseSync(
-            safePdfFile,
-            page,
-            x,
-            y,
-            safeProjectRoot
-          );
+          const result = await syncTeXService.inverseSync(safePdfFile, page, x, y, safeProjectRoot);
           return result;
         } catch (error) {
           console.error('SyncTeX backward sync failed:', error);
@@ -250,12 +240,8 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
       // same code path as a CLI-compiled result. Buffer is the renderer's
       // Uint8Array — it crosses the IPC boundary as a Node Buffer.
       [IpcChannel.Compile_WriteWasmArtifacts]: async (pdfBuffer, synctexBuffer, baseName) => {
-        const safeName =
-          baseName && /^[A-Za-z0-9_.-]+$/.test(baseName) ? baseName : 'main';
-        const tempDir = path.join(
-          os.tmpdir(),
-          `scipen-wasm-${randomBytes(8).toString('hex')}`
-        );
+        const safeName = baseName && /^[A-Za-z0-9_.-]+$/.test(baseName) ? baseName : 'main';
+        const tempDir = path.join(os.tmpdir(), `scipen-wasm-${randomBytes(8).toString('hex')}`);
         await fs.mkdir(tempDir, { recursive: true });
         const pdfPath = path.join(tempDir, `${safeName}.pdf`);
         const synctexPath = path.join(tempDir, `${safeName}.synctex.gz`);

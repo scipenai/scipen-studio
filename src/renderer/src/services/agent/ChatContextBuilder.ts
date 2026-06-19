@@ -179,7 +179,7 @@ function toRelative(absPath: string, projectPath: string | null): string {
   if (!projectPath) return normalizedAbs;
   const normalizedRoot = normalize(projectPath);
   if (normalizedAbs === normalizedRoot) return '';
-  const withSep = normalizedRoot.endsWith('/') ? normalizedRoot : normalizedRoot + '/';
+  const withSep = normalizedRoot.endsWith('/') ? normalizedRoot : `${normalizedRoot}/`;
   return normalizedAbs.startsWith(withSep) ? normalizedAbs.slice(withSep.length) : normalizedAbs;
 }
 

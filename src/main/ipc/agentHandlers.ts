@@ -876,8 +876,8 @@ function uuidV4ish(input: string): string {
   return [
     part(h1, 8),
     part(h2, 4),
-    '4' + part(h1 ^ h2, 3),
-    '8' + part(h2 ^ h1, 3),
+    `4${part(h1 ^ h2, 3)}`,
+    `8${part(h2 ^ h1, 3)}`,
     part(h1 + h2, 8) + part(h2 - h1, 4),
   ].join('-');
 }

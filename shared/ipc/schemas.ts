@@ -88,10 +88,9 @@ export const updateStatusSchema = z.object({
  * - **字符串 / 数字 / void payload** — 注册与否皆可(destructure 不会崩)。
  * - **高频推送通道**(状态机驱动 UI)— 建议注册,避免单帧 race 把组件 state 顶坏。
  */
-export const eventSchemas: ReadonlyMap<IpcChannel, z.ZodSchema> = new Map<
-  IpcChannel,
-  z.ZodSchema
->([[IpcChannel.App_UpdateStatus, updateStatusSchema]]);
+export const eventSchemas: ReadonlyMap<IpcChannel, z.ZodSchema> = new Map<IpcChannel, z.ZodSchema>([
+  [IpcChannel.App_UpdateStatus, updateStatusSchema],
+]);
 
 // ============================================================================
 // Invoke result registry — 校验 main → renderer invoke 返回值

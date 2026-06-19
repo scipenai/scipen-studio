@@ -55,15 +55,60 @@ interface TabMeta {
 const SETTINGS_PANEL_TAB_KEY = 'ui.settingsPanelTab';
 
 const TAB_META: Record<SettingsTab, TabMeta> = {
-  ai: { id: 'ai', labelKey: 'settings.tabs.ai', icon: <Sparkles size={14} />, summaryKey: 'settingsPanel.summaries.ai' },
-  agent: { id: 'agent', labelKey: 'settings.tabs.agent', icon: <Brain size={14} />, summaryKey: 'settingsPanel.summaries.agent' },
-  ui: { id: 'ui', labelKey: 'settings.tabs.ui', icon: <Palette size={14} />, summaryKey: 'settingsPanel.summaries.ui' },
-  shortcuts: { id: 'shortcuts', labelKey: 'settings.tabs.shortcuts', icon: <Keyboard size={14} />, summaryKey: 'settingsPanel.summaries.shortcuts' },
-  editor: { id: 'editor', labelKey: 'settings.tabs.editor', icon: <Code size={14} />, summaryKey: 'settingsPanel.summaries.editor' },
-  zotero: { id: 'zotero', labelKey: 'settings.tabs.zotero', icon: <BookMarked size={14} />, summaryKey: 'settingsPanel.summaries.zotero' },
-  selection: { id: 'selection', labelKey: 'settings.tabs.selection', icon: <Hand size={14} />, summaryKey: 'settingsPanel.summaries.selection' },
-  compiler: { id: 'compiler', labelKey: 'settings.tabs.compiler', icon: <FileText size={14} />, summaryKey: 'settingsPanel.summaries.compiler' },
-  update: { id: 'update', labelKey: 'settings.tabs.update', icon: <RefreshCw size={14} />, summaryKey: 'settingsPanel.summaries.update' },
+  ai: {
+    id: 'ai',
+    labelKey: 'settings.tabs.ai',
+    icon: <Sparkles size={14} />,
+    summaryKey: 'settingsPanel.summaries.ai',
+  },
+  agent: {
+    id: 'agent',
+    labelKey: 'settings.tabs.agent',
+    icon: <Brain size={14} />,
+    summaryKey: 'settingsPanel.summaries.agent',
+  },
+  ui: {
+    id: 'ui',
+    labelKey: 'settings.tabs.ui',
+    icon: <Palette size={14} />,
+    summaryKey: 'settingsPanel.summaries.ui',
+  },
+  shortcuts: {
+    id: 'shortcuts',
+    labelKey: 'settings.tabs.shortcuts',
+    icon: <Keyboard size={14} />,
+    summaryKey: 'settingsPanel.summaries.shortcuts',
+  },
+  editor: {
+    id: 'editor',
+    labelKey: 'settings.tabs.editor',
+    icon: <Code size={14} />,
+    summaryKey: 'settingsPanel.summaries.editor',
+  },
+  zotero: {
+    id: 'zotero',
+    labelKey: 'settings.tabs.zotero',
+    icon: <BookMarked size={14} />,
+    summaryKey: 'settingsPanel.summaries.zotero',
+  },
+  selection: {
+    id: 'selection',
+    labelKey: 'settings.tabs.selection',
+    icon: <Hand size={14} />,
+    summaryKey: 'settingsPanel.summaries.selection',
+  },
+  compiler: {
+    id: 'compiler',
+    labelKey: 'settings.tabs.compiler',
+    icon: <FileText size={14} />,
+    summaryKey: 'settingsPanel.summaries.compiler',
+  },
+  update: {
+    id: 'update',
+    labelKey: 'settings.tabs.update',
+    icon: <RefreshCw size={14} />,
+    summaryKey: 'settingsPanel.summaries.update',
+  },
 };
 
 // AI-first grouping: AI engine on top, then basics → research workflow →

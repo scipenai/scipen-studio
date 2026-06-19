@@ -6,13 +6,12 @@
 import React, { cloneElement, isValidElement, useId } from 'react';
 import { Toggle as UIToggle } from '../ui';
 
-type NativeFieldElement =
-  React.ReactElement<
-    React.HTMLAttributes<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement> & {
-      id?: string;
-    },
-    'input' | 'select' | 'textarea'
-  >;
+type NativeFieldElement = React.ReactElement<
+  React.HTMLAttributes<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement> & {
+    id?: string;
+  },
+  'input' | 'select' | 'textarea'
+>;
 
 function isNativeFieldElement(child: React.ReactNode): child is NativeFieldElement {
   return isValidElement(child) && ['input', 'select', 'textarea'].includes(String(child.type));

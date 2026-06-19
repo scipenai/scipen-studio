@@ -52,8 +52,9 @@ export const SettingsPage: React.FC<{ onClose: () => void }> = ({ onClose }) => 
       if (event.key !== 'Tab') return;
 
       const focusable = Array.from(
-        dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])') ??
-          []
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'
+        ) ?? []
       );
       if (focusable.length === 0) {
         event.preventDefault();

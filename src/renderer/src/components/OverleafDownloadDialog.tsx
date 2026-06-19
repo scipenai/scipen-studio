@@ -72,7 +72,8 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
         'button:not(:disabled), [href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'
       )
     ).filter(
-      (element) => !element.hasAttribute('disabled') && element.getAttribute('aria-disabled') !== 'true'
+      (element) =>
+        !element.hasAttribute('disabled') && element.getAttribute('aria-disabled') !== 'true'
     );
   }, []);
 
@@ -334,7 +335,10 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
                   <Cloud className="h-5 w-5" aria-hidden="true" />
                 </div>
                 <div>
-                  <h2 id={titleId} className="text-lg font-semibold text-[var(--color-text-primary)]">
+                  <h2
+                    id={titleId}
+                    className="text-lg font-semibold text-[var(--color-text-primary)]"
+                  >
                     {t('welcome.remoteDialog.title')}
                   </h2>
                   <p className="text-xs text-[var(--color-text-muted)]">
@@ -431,9 +435,15 @@ export const OverleafDownloadDialog: React.FC<OverleafDownloadDialogProps> = ({
                       className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded-xl p-1.5 hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                     >
                       {showCookies ? (
-                        <EyeOff className="h-4 w-4 text-[var(--color-text-muted)]" aria-hidden="true" />
+                        <EyeOff
+                          className="h-4 w-4 text-[var(--color-text-muted)]"
+                          aria-hidden="true"
+                        />
                       ) : (
-                        <Eye className="h-4 w-4 text-[var(--color-text-muted)]" aria-hidden="true" />
+                        <Eye
+                          className="h-4 w-4 text-[var(--color-text-muted)]"
+                          aria-hidden="true"
+                        />
                       )}
                     </button>
                   </div>

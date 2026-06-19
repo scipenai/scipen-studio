@@ -47,9 +47,7 @@ export const CompilerTab: FC = () => {
    * paste; commit happens onBlur. The effect below re-syncs from external
    * settings changes (other panel, multi-window).
    */
-  const [fontEndpointDraft, setFontEndpointDraft] = useState(
-    settings.compiler.typstFontEndpoint,
-  );
+  const [fontEndpointDraft, setFontEndpointDraft] = useState(settings.compiler.typstFontEndpoint);
   useEffect(() => {
     setFontEndpointDraft(settings.compiler.typstFontEndpoint);
   }, [settings.compiler.typstFontEndpoint]);
@@ -193,9 +191,7 @@ export const CompilerTab: FC = () => {
             {t('compiler.latexProbing')}
           </span>
         ) : latexOptions.length === 0 ? (
-          <span className="text-xs text-[var(--color-warning)]">
-            {t('compiler.latexNoEngine')}
-          </span>
+          <span className="text-xs text-[var(--color-warning)]">{t('compiler.latexNoEngine')}</span>
         ) : (
           <select
             value={currentLatexEngine}
@@ -240,9 +236,7 @@ export const CompilerTab: FC = () => {
             {t('compiler.typstProbing')}
           </span>
         ) : typstOptions.length === 0 ? (
-          <span className="text-xs text-[var(--color-warning)]">
-            {t('compiler.typstNoEngine')}
-          </span>
+          <span className="text-xs text-[var(--color-warning)]">{t('compiler.typstNoEngine')}</span>
         ) : (
           <select
             value={currentTypstEngine}

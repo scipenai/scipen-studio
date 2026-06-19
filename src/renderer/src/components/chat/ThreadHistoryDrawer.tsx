@@ -84,8 +84,9 @@ export function ThreadHistoryDrawer({
       if (event.key !== 'Tab') return;
 
       const focusable = Array.from(
-        drawerRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)') ??
-          []
+        drawerRef.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled)'
+        ) ?? []
       );
       if (focusable.length === 0) {
         event.preventDefault();

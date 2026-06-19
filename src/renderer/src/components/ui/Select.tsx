@@ -172,7 +172,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
                   ? 'border-[var(--color-accent)]'
                   : 'border-[var(--color-border)]'
             )}
-            >
+          >
             <span className={clsx('truncate', !selectedOption && 'text-[var(--color-text-muted)]')}>
               {selectedOption?.icon && (
                 <span className="mr-2 inline-flex" aria-hidden="true">

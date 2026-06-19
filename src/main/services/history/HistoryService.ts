@@ -114,7 +114,7 @@ export class HistoryService implements IHistoryService {
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       ),
       insertLabelFile: db.prepare(
-        `INSERT INTO history_label_file (label_id, file_id, blob_hash, version) VALUES (?, ?, ?, ?)`
+        'INSERT INTO history_label_file (label_id, file_id, blob_hash, version) VALUES (?, ?, ?, ?)'
       ),
       listLabels: db.prepare(
         `SELECT id, project_id, name, description, kind, created_at, created_by
@@ -122,7 +122,7 @@ export class HistoryService implements IHistoryService {
          ORDER BY created_at DESC LIMIT ?`
       ),
       listLabelFiles: db.prepare(
-        `SELECT file_id, blob_hash, version FROM history_label_file WHERE label_id = ?`
+        'SELECT file_id, blob_hash, version FROM history_label_file WHERE label_id = ?'
       ),
       insertStep: db.prepare(
         `INSERT OR IGNORE INTO history_step
@@ -130,7 +130,7 @@ export class HistoryService implements IHistoryService {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ),
       insertStepFile: db.prepare(
-        `INSERT OR IGNORE INTO history_step_file (step_hash, file_id, blob_hash) VALUES (?, ?, ?)`
+        'INSERT OR IGNORE INTO history_step_file (step_hash, file_id, blob_hash) VALUES (?, ?, ?)'
       ),
       getStep: db.prepare(
         `SELECT hash, parent_hash, project_id, session_id, tree_hash, causes, origin, ts, size_delta
@@ -146,11 +146,9 @@ export class HistoryService implements IHistoryService {
          (id, project_id, chat_thread_id, head_step_hash, parent_session, created_at, closed_at)
          VALUES (?, ?, ?, ?, ?, ?, NULL)`
       ),
-      incRefBlob: db.prepare(
-        `UPDATE history_blob SET refcount = refcount + 1 WHERE hash = ?`
-      ),
+      incRefBlob: db.prepare('UPDATE history_blob SET refcount = refcount + 1 WHERE hash = ?'),
       listStepFiles: db.prepare(
-        `SELECT file_id, blob_hash FROM history_step_file WHERE step_hash = ?`
+        'SELECT file_id, blob_hash FROM history_step_file WHERE step_hash = ?'
       ),
       findStepBefore: db.prepare(
         `SELECT hash, parent_hash, project_id, session_id, tree_hash, causes, origin, ts, size_delta
@@ -231,11 +229,11 @@ export class HistoryService implements IHistoryService {
     const lastRow = rows[rows.length - 1];
     const totalOps = rows.reduce((acc, r) => acc + r.op_count, 0);
     const decStmt = db.prepare(
-      `UPDATE history_blob SET refcount = CASE WHEN refcount - 1 < 0 THEN 0 ELSE refcount - 1 END WHERE hash = ?`
+      'UPDATE history_blob SET refcount = CASE WHEN refcount - 1 < 0 THEN 0 ELSE refcount - 1 END WHERE hash = ?'
     );
     const deleteStmt = db.prepare('DELETE FROM history_chunk WHERE id = ?');
     const updateStmt = db.prepare(
-      `UPDATE history_chunk SET version_to = ?, target_blob = ?, op_count = ? WHERE id = ?`
+      'UPDATE history_chunk SET version_to = ?, target_blob = ?, op_count = ? WHERE id = ?'
     );
 
     runInTx(db, () => {
@@ -261,9 +259,7 @@ export class HistoryService implements IHistoryService {
     return { merged: rows.length - 1 };
   }
 
-  async mergeAllChunks(
-    minChunks = 1000
-  ): Promise<{ merged: number; filesAffected: number }> {
+  async mergeAllChunks(minChunks = 1000): Promise<{ merged: number; filesAffected: number }> {
     const db = this.deps.metaDb.db;
     // Group by (project_id, file_id) and only return groups that exceed the
     // merge threshold — the row scan stays bounded to "files actually worth
@@ -491,7 +487,9 @@ export class HistoryService implements IHistoryService {
   async listSessions(
     projectId: string,
     limit = 50
-  ): Promise<Array<{ sessionId: string; chatThreadId: string | null; stepCount: number; lastTs: number }>> {
+  ): Promise<
+    Array<{ sessionId: string; chatThreadId: string | null; stepCount: number; lastTs: number }>
+  > {
     // Aggregate from history_step + join session row for chat_thread_id.
     // Sessions without any step are skipped — they exist only as FK targets.
     const rows = this.deps.metaDb.db
@@ -578,7 +576,7 @@ function fromHex(hex: HashHex): Uint8Array {
   if (hex.length % 2 !== 0) throw new Error('hex length must be even');
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++) {
-    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
   return out;
 }

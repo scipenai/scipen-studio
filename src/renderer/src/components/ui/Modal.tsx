@@ -155,10 +155,7 @@ export const Modal: React.FC<ModalProps> = ({
           <div className="flex items-start justify-between p-4 border-b border-[var(--color-border)]">
             <div className="flex-1 min-w-0 pr-4">
               {title && (
-                <h2
-                  id={titleId}
-                  className="text-lg font-semibold text-[var(--color-text-primary)]"
-                >
+                <h2 id={titleId} className="text-lg font-semibold text-[var(--color-text-primary)]">
                   {title}
                 </h2>
               )}

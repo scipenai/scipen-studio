@@ -101,11 +101,7 @@ export const UpdateTab: React.FC = () => {
               <CheckCircle size={14} aria-hidden="true" />
               {t('update.notAvailable')}
             </div>
-            <button
-              type="button"
-              onClick={handleCheck}
-              className={secondaryActionClass}
-            >
+            <button type="button" onClick={handleCheck} className={secondaryActionClass}>
               <RefreshCw size={12} aria-hidden="true" />
               {t('update.retryCheck')}
             </button>
@@ -165,11 +161,7 @@ export const UpdateTab: React.FC = () => {
               <AlertCircle size={14} aria-hidden="true" />
               {t('update.error', { error: error || '' })}
             </div>
-            <button
-              type="button"
-              onClick={handleCheck}
-              className={secondaryActionClass}
-            >
+            <button type="button" onClick={handleCheck} className={secondaryActionClass}>
               <RefreshCw size={12} aria-hidden="true" />
               {t('update.retryCheck')}
             </button>

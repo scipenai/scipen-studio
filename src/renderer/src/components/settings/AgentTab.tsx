@@ -207,7 +207,12 @@ const BOOL_FIELDS: Array<{
 const ENGINE_GROUPS: Array<{ titleKey: string; keys: NumberKey[] }> = [
   {
     titleKey: 'settingsAgent.engine.groupExecution',
-    keys: ['max_iterations', 'loop_guard_max_repeats', 'concurrent_tool_limit', 'turn_timeout_secs'],
+    keys: [
+      'max_iterations',
+      'loop_guard_max_repeats',
+      'concurrent_tool_limit',
+      'turn_timeout_secs',
+    ],
   },
   {
     titleKey: 'settingsAgent.engine.groupContext',
@@ -351,19 +356,13 @@ export const AgentTab: React.FC = () => {
 
       {/* ---------- Memory & tools: Memory / Skills viewer ---------- */}
       <FormSection title={t('settingsAgent.sectionMemoryTools')}>
-        <FormRow
-          title={t('settingsAgent.memoryLabel')}
-          description={t('settingsAgent.memoryDesc')}
-        >
+        <FormRow title={t('settingsAgent.memoryLabel')} description={t('settingsAgent.memoryDesc')}>
           <button type="button" onClick={openMemory} className={secondaryButtonClass}>
             <Brain size={14} aria-hidden="true" />
             {t('settingsAgent.openMemory')}
           </button>
         </FormRow>
-        <FormRow
-          title={t('settingsAgent.skillsLabel')}
-          description={t('settingsAgent.skillsDesc')}
-        >
+        <FormRow title={t('settingsAgent.skillsLabel')} description={t('settingsAgent.skillsDesc')}>
           <button type="button" onClick={openSkills} className={secondaryButtonClass}>
             <BookOpen size={14} aria-hidden="true" />
             {t('settingsAgent.openSkills')}
@@ -408,79 +407,79 @@ export const AgentTab: React.FC = () => {
 
         {expanded && (
           <>
-          <p className="text-xs text-[var(--color-text-muted)] mb-3">
-            {t('settingsAgent.engine.desc')}
-          </p>
+            <p className="text-xs text-[var(--color-text-muted)] mb-3">
+              {t('settingsAgent.engine.desc')}
+            </p>
 
-          {ENGINE_GROUPS.map((grp) => (
-            <Fragment key={grp.titleKey}>
-              <SectionTitle>{t(grp.titleKey as never)}</SectionTitle>
-              {grp.keys.map((k) => {
-                const field = NUMBER_FIELD_MAP[k];
-                const value = engine[field.key];
-                const allowZero = field.allowZero ?? false;
-                return (
-                  <SettingItem
-                    key={field.key}
-                    label={t(field.labelKey as never)}
-                    description={t(field.descKey as never)}
-                  >
-                    <input
-                      type="number"
-                      min={allowZero ? 0 : 1}
-                      value={typeof value === 'number' ? value : ''}
-                      placeholder={field.placeholder}
-                      onChange={(e) => updateNumber(field.key, e.target.value, allowZero)}
-                      className={inputClassName}
-                    />
-                  </SettingItem>
-                );
-              })}
-            </Fragment>
-          ))}
+            {ENGINE_GROUPS.map((grp) => (
+              <Fragment key={grp.titleKey}>
+                <SectionTitle>{t(grp.titleKey as never)}</SectionTitle>
+                {grp.keys.map((k) => {
+                  const field = NUMBER_FIELD_MAP[k];
+                  const value = engine[field.key];
+                  const allowZero = field.allowZero ?? false;
+                  return (
+                    <SettingItem
+                      key={field.key}
+                      label={t(field.labelKey as never)}
+                      description={t(field.descKey as never)}
+                    >
+                      <input
+                        type="number"
+                        min={allowZero ? 0 : 1}
+                        value={typeof value === 'number' ? value : ''}
+                        placeholder={field.placeholder}
+                        onChange={(e) => updateNumber(field.key, e.target.value, allowZero)}
+                        className={inputClassName}
+                      />
+                    </SettingItem>
+                  );
+                })}
+              </Fragment>
+            ))}
 
-          <SectionTitle>{t('settingsAgent.engine.groupSwitches' as never)}</SectionTitle>
-          {BOOL_FIELDS.map((field) => {
-            // Unset persisted value → show the engine default so the UI
-            // reflects what's actually happening. Any user interaction
-            // then writes an explicit boolean.
-            const effective = engine[field.key] ?? field.engineDefault;
-            return (
-              <SettingItem
-                key={field.key}
-                label={t(field.labelKey as never)}
-                description={t(field.descKey as never)}
-              >
-                <select
-                  value={effective ? 'true' : 'false'}
-                  onChange={(e) => updateBool(field.key, e.target.value === 'true')}
-                  className={selectClassName}
+            <SectionTitle>{t('settingsAgent.engine.groupSwitches' as never)}</SectionTitle>
+            {BOOL_FIELDS.map((field) => {
+              // Unset persisted value → show the engine default so the UI
+              // reflects what's actually happening. Any user interaction
+              // then writes an explicit boolean.
+              const effective = engine[field.key] ?? field.engineDefault;
+              return (
+                <SettingItem
+                  key={field.key}
+                  label={t(field.labelKey as never)}
+                  description={t(field.descKey as never)}
                 >
-                  <option value="true">{t('settingsAgent.engine.boolOn' as never)}</option>
-                  <option value="false">{t('settingsAgent.engine.boolOff' as never)}</option>
-                </select>
-              </SettingItem>
-            );
-          })}
+                  <select
+                    value={effective ? 'true' : 'false'}
+                    onChange={(e) => updateBool(field.key, e.target.value === 'true')}
+                    className={selectClassName}
+                  >
+                    <option value="true">{t('settingsAgent.engine.boolOn' as never)}</option>
+                    <option value="false">{t('settingsAgent.engine.boolOff' as never)}</option>
+                  </select>
+                </SettingItem>
+              );
+            })}
 
-          <SettingItem
-            label={t('settingsAgent.engine.memoryExtractorModel' as never)}
-            description={t('settingsAgent.engine.memoryExtractorModelDesc' as never)}
-          >
-            <input
-              type="text"
-              value={engine.memory_extractor_model ?? ''}
-              placeholder="deepseek-chat"
-              onChange={(e) => updateString('memory_extractor_model', e.target.value)}
-              className={inputMonoClassName}
-            />
-          </SettingItem>
+            <SettingItem
+              label={t('settingsAgent.engine.memoryExtractorModel' as never)}
+              description={t('settingsAgent.engine.memoryExtractorModelDesc' as never)}
+            >
+              <input
+                type="text"
+                value={engine.memory_extractor_model ?? ''}
+                placeholder="deepseek-chat"
+                onChange={(e) => updateString('memory_extractor_model', e.target.value)}
+                className={inputMonoClassName}
+              />
+            </SettingItem>
 
-          <p className="text-[11px] text-amber-400/80 mt-2">
-            {t('settingsAgent.engine.restartHint')}
-          </p>
-        </>
-      )}
+            <p className="text-[11px] text-amber-400/80 mt-2">
+              {t('settingsAgent.engine.restartHint')}
+            </p>
+          </>
+        )}
       </FormSection>
     </div>
   );

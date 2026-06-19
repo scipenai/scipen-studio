@@ -73,8 +73,7 @@ function createEnvMarker(
   const extraLen = type === 'begin' ? 8 : 6; // "\\begin{" or "\\end{"
   return {
     severity,
-    messageKey:
-      type === 'begin' ? 'editor.syntax.unmatchedEnd' : 'editor.syntax.unmatchedBegin',
+    messageKey: type === 'begin' ? 'editor.syntax.unmatchedEnd' : 'editor.syntax.unmatchedBegin',
     messageArgs: { name: env.name },
     startLineNumber: env.line + 1,
     startColumn: env.col + 1,

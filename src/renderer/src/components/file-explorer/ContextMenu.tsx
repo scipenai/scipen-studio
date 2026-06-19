@@ -91,9 +91,7 @@ export const ContextMenu = memo<ContextMenuProps>(
 
         const currentIndex = items.findIndex((item) => item === document.activeElement);
         const nextIndex =
-          currentIndex === -1
-            ? 0
-            : (currentIndex + direction + items.length) % items.length;
+          currentIndex === -1 ? 0 : (currentIndex + direction + items.length) % items.length;
         items[nextIndex]?.focus();
       },
       [getEnabledMenuItems]

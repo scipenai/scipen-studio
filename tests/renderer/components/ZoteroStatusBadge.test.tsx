@@ -92,7 +92,9 @@ describe('ZoteroStatusBadge', () => {
     expect(close).toHaveFocus();
 
     fireEvent.keyDown(close, { key: 'Escape' });
-    expect(screen.queryByRole('dialog', { name: 'Zotero index diagnostics' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('dialog', { name: 'Zotero index diagnostics' })
+    ).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
   });
 

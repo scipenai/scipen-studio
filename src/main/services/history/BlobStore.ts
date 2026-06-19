@@ -109,7 +109,9 @@ export class BlobStore implements IBlobStore {
 
   async get(hash: Hash): Promise<Uint8Array | null> {
     this.assertAlive();
-    const row = this.stmts.getBlob.get(hash) as { bytes: Uint8Array | null; size: number } | undefined;
+    const row = this.stmts.getBlob.get(hash) as
+      | { bytes: Uint8Array | null; size: number }
+      | undefined;
     if (!row) return null;
     if (row.bytes) return new Uint8Array(row.bytes);
     try {
@@ -174,10 +176,13 @@ export class BlobStore implements IBlobStore {
     const cutoff = Date.now() - minAgeMs;
     const db = this.opts.metaDb.db;
     const selectStmt = db.prepare(
-      `SELECT hash, bytes FROM history_blob WHERE refcount <= 0 AND created_at < ?`
+      'SELECT hash, bytes FROM history_blob WHERE refcount <= 0 AND created_at < ?'
     );
-    const deleteStmt = db.prepare(`DELETE FROM history_blob WHERE hash = ?`);
-    const candidates = selectStmt.all(cutoff) as Array<{ hash: Uint8Array; bytes: Uint8Array | null }>;
+    const deleteStmt = db.prepare('DELETE FROM history_blob WHERE hash = ?');
+    const candidates = selectStmt.all(cutoff) as Array<{
+      hash: Uint8Array;
+      bytes: Uint8Array | null;
+    }>;
 
     let files = 0;
     for (const row of candidates) {

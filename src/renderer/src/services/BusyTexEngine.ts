@@ -480,8 +480,7 @@ async function loadManifest(): Promise<BusyTexManifest> {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(
-      `BusyTeX manifest fetch failed (HTTP ${response.status}) at ${url}. ` +
-        `Run "pnpm download:busytex" to (re)generate the WASM assets.`
+      `BusyTeX manifest fetch failed (HTTP ${response.status}) at ${url}. Run "pnpm download:busytex" to (re)generate the WASM assets.`
     );
   }
   const data = (await response.json()) as Partial<BusyTexManifest>;

@@ -287,7 +287,10 @@ export class EmbeddingIndexService {
       this.setState('ready');
     } catch (err) {
       logger.warn('build failed', { error: String(err) });
-      const msg = err instanceof EmbeddingAuthError ? 'API key invalid' : 'Build failed (network or service error)';
+      const msg =
+        err instanceof EmbeddingAuthError
+          ? 'API key invalid'
+          : 'Build failed (network or service error)';
       this.setState('error', msg);
     }
   }

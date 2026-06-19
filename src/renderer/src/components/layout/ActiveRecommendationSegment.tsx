@@ -108,7 +108,8 @@ const RecommendationPopover: React.FC<PopoverProps> = ({ id, state, onInsert, on
   useEffect(() => {
     previouslyFocusedRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const firstAction = popoverRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    const firstAction =
+      popoverRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
 
     if (firstAction) {
       firstAction.focus();

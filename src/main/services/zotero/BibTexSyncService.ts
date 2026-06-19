@@ -242,7 +242,8 @@ export class BibTexSyncService {
           this.status = {
             kind: 'conflict',
             filePath,
-            reason: 'External modification detected on references.bib; not overwriting to prevent data loss',
+            reason:
+              'External modification detected on references.bib; not overwriting to prevent data loss',
           };
           return this.status;
         }
@@ -329,7 +330,7 @@ export class BibTexSyncService {
     const next =
       existing.length === 0
         ? `${SCIPEN_GITIGNORE_MARKER}\n`
-        : `${existing.endsWith('\n') ? existing : existing + '\n'}${SCIPEN_GITIGNORE_MARKER}\n`;
+        : `${existing.endsWith('\n') ? existing : `${existing}\n`}${SCIPEN_GITIGNORE_MARKER}\n`;
     await this.fileIO.writeFile(gitignorePath, next, 'utf-8');
   }
 
