@@ -140,15 +140,9 @@ export const StatusBar: React.FC = () => {
     previouslyFocusedEngineRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
-    const selectedItem =
-      engineMenuRef.current?.querySelector<HTMLButtonElement>('[data-selected="true"]') ?? null;
-    const firstItem =
-      engineMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitemradio"]') ?? null;
-
-    (selectedItem ?? firstItem ?? engineMenuRef.current)?.focus();
-
     return () => {
       previouslyFocusedEngineRef.current?.focus();
+      previouslyFocusedEngineRef.current = null;
     };
   }, [isEngineDropdownOpen]);
 
@@ -252,15 +246,7 @@ export const StatusBar: React.FC = () => {
 
   const latexEngineOptions = useMemo<CompileEngineOption[]>(() => {
     if (!latexCaps) {
-      return [
-        { value: 'xelatex', label: getCompilerLabel('xelatex') },
-        { value: 'lualatex', label: getCompilerLabel('lualatex') },
-        { value: 'pdflatex', label: getCompilerLabel('pdflatex') },
-        { value: 'tectonic', label: getCompilerLabel('tectonic') },
-        { value: 'wasm-xetex', label: getCompilerLabel('wasm-xetex') },
-        { value: 'wasm-pdftex', label: getCompilerLabel('wasm-pdftex') },
-        { value: 'wasm-lualatex', label: getCompilerLabel('wasm-lualatex') },
-      ];
+      return [];
     }
 
     const options: CompileEngineOption[] = [];
@@ -290,11 +276,7 @@ export const StatusBar: React.FC = () => {
 
   const typstEngineOptions = useMemo<CompileEngineOption[]>(() => {
     if (!typstCaps) {
-      return [
-        { value: 'tinymist', label: getCompilerLabel('tinymist') },
-        { value: 'typst', label: getCompilerLabel('typst') },
-        { value: 'wasm-typst', label: getCompilerLabel('wasm-typst') },
-      ];
+      return [];
     }
 
     const options: CompileEngineOption[] = [];
@@ -311,6 +293,17 @@ export const StatusBar: React.FC = () => {
   }, [getCompilerLabel, typstCaps]);
 
   useEffect(() => {
+    if (!isEngineDropdownOpen) return;
+
+    const selectedItem =
+      engineMenuRef.current?.querySelector<HTMLButtonElement>('[data-selected="true"]') ?? null;
+    const firstItem =
+      engineMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitemradio"]') ?? null;
+
+    (selectedItem ?? firstItem ?? engineMenuRef.current)?.focus();
+  }, [isEngineDropdownOpen, isTypstFile, latexEngineOptions, typstEngineOptions]);
+
+  useEffect(() => {
     if (!latexCaps || latexEngineOptions.length === 0) return;
     if (latexEngineOptions.some((engine) => engine.value === compilerSettings.engine)) return;
 
@@ -325,6 +318,32 @@ export const StatusBar: React.FC = () => {
     const next = typstEngineOptions[0].value;
     getSettingsService().updateCompiler({ typstEngine: next as TypstEngine });
   }, [compilerSettings.typstEngine, typstCaps, typstEngineOptions]);
+
+  const currentCompilerLabel = useMemo(() => {
+    if (isTypstFile) {
+      if (!typstCaps) return t('compiler.typstProbing');
+      return (
+        typstEngineOptions.find((engine) => engine.value === compilerSettings.typstEngine)?.label ??
+        getCompilerLabel(compilerSettings.typstEngine || 'tinymist')
+      );
+    }
+
+    if (!latexCaps) return t('compiler.latexProbing');
+    return (
+      latexEngineOptions.find((engine) => engine.value === compilerSettings.engine)?.label ??
+      getCompilerLabel(compilerSettings.engine)
+    );
+  }, [
+    compilerSettings.engine,
+    compilerSettings.typstEngine,
+    getCompilerLabel,
+    isTypstFile,
+    latexCaps,
+    latexEngineOptions,
+    t,
+    typstCaps,
+    typstEngineOptions,
+  ]);
 
   const getLanguageType = () => {
     const fileName = getCurrentFileName();
@@ -488,9 +507,7 @@ export const StatusBar: React.FC = () => {
           >
             <Cpu size={13} className="flex-shrink-0" aria-hidden="true" />
             <span className="max-w-[80px] truncate text-[11px] font-mono font-medium">
-              {isTypstFile
-                ? getCompilerLabel(compilerSettings.typstEngine || 'tinymist')
-                : getCompilerLabel(compilerSettings.engine)}
+              {currentCompilerLabel}
             </span>
             <ChevronUp
               size={11}
@@ -529,6 +546,16 @@ export const StatusBar: React.FC = () => {
                   <div className="px-3 py-1 text-xs text-[var(--color-info)] border-b border-editor-border">
                     {t('statusBar.typstCompiler')}
                   </div>
+                  {!typstCaps && (
+                    <div className="px-3 py-2 text-xs text-[var(--color-text-muted)]">
+                      {t('compiler.typstProbing')}
+                    </div>
+                  )}
+                  {typstCaps && typstEngineOptions.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-[var(--color-text-muted)]">
+                      {t('compiler.typstNoEngine')}
+                    </div>
+                  )}
                   {typstEngineOptions.map((engine) => (
                     <button
                       type="button"
@@ -559,6 +586,16 @@ export const StatusBar: React.FC = () => {
                 </>
               ) : (
                 <>
+                  {!latexCaps && (
+                    <div className="px-3 py-2 text-xs text-[var(--color-text-muted)]">
+                      {t('compiler.latexProbing')}
+                    </div>
+                  )}
+                  {latexCaps && latexEngineOptions.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-[var(--color-text-muted)]">
+                      {t('compiler.latexNoEngine')}
+                    </div>
+                  )}
                   {latexEngineOptions.map((engine) => (
                     <button
                       type="button"

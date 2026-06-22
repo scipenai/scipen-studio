@@ -74,6 +74,10 @@ vi.mock('../../../src/renderer/src/locales', () => ({
         'compiler.tinymist': 'Tinymist',
         'compiler.typstCli': 'Typst CLI',
         'compiler.typstWasm': 'Typst',
+        'compiler.latexProbing': 'Probing LaTeX engines',
+        'compiler.typstProbing': 'Probing Typst engines',
+        'compiler.latexNoEngine': 'No LaTeX engines detected',
+        'compiler.typstNoEngine': 'No Typst engines detected',
         'statusBar.typstCompiler': 'Typst compiler',
       };
       return values[key] ?? key;
@@ -122,7 +126,7 @@ describe('StatusBar', () => {
     });
   });
 
-  it('exposes the compiler selector as an accessible expandable control', () => {
+  it('exposes the compiler selector as an accessible expandable control', async () => {
     render(<StatusBar />);
 
     const selector = screen.getByRole('button', { name: 'Select compile engine' });
@@ -135,23 +139,24 @@ describe('StatusBar', () => {
     expect(selector).toHaveAttribute('aria-expanded', 'true');
     const menu = screen.getByRole('menu', { name: 'Local compiler' });
     expect(selector).toHaveAttribute('aria-controls', menu.id);
-    expect(screen.getByRole('menuitemradio', { name: 'LuaLaTeX' })).toHaveClass('cursor-pointer');
+    const luaLatex = await screen.findByRole('menuitemradio', { name: 'LuaLaTeX' });
+    expect(luaLatex).toHaveClass('cursor-pointer');
     expect(screen.getByRole('menuitemradio', { name: 'LuaLaTeX' })).toHaveClass(
       'focus-visible:ring-1'
     );
   });
 
-  it('updates the compiler and closes the menu when an engine is picked', () => {
+  it('updates the compiler and closes the menu when an engine is picked', async () => {
     render(<StatusBar />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Select compile engine' }));
-    fireEvent.click(screen.getByRole('menuitemradio', { name: 'LuaLaTeX' }));
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'LuaLaTeX' }));
 
     expect(mocks.updateCompiler).toHaveBeenCalledWith({ engine: 'lualatex' });
     expect(screen.queryByRole('menuitemradio', { name: 'LuaLaTeX' })).not.toBeInTheDocument();
   });
 
-  it('moves focus into the compiler menu and restores it when Escape closes', () => {
+  it('moves focus into the compiler menu and restores it when Escape closes', async () => {
     render(<StatusBar />);
 
     const selector = screen.getByRole('button', { name: 'Select compile engine' });
@@ -159,7 +164,7 @@ describe('StatusBar', () => {
     fireEvent.click(selector);
 
     const menu = screen.getByRole('menu', { name: 'Local compiler' });
-    expect(screen.getByRole('menuitemradio', { name: 'XeLaTeX' })).toHaveFocus();
+    expect(await screen.findByRole('menuitemradio', { name: 'XeLaTeX' })).toHaveFocus();
 
     fireEvent.keyDown(menu, { key: 'Escape' });
 
@@ -167,13 +172,13 @@ describe('StatusBar', () => {
     expect(selector).toHaveFocus();
   });
 
-  it('supports arrow-key navigation inside the compiler menu', () => {
+  it('supports arrow-key navigation inside the compiler menu', async () => {
     render(<StatusBar />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Select compile engine' }));
 
     const menu = screen.getByRole('menu', { name: 'Local compiler' });
-    const xelatex = screen.getByRole('menuitemradio', { name: 'XeLaTeX' });
+    const xelatex = await screen.findByRole('menuitemradio', { name: 'XeLaTeX' });
     const lualatex = screen.getByRole('menuitemradio', { name: 'LuaLaTeX' });
     const wasmLua = screen.getByRole('menuitemradio', { name: 'WASM LuaTeX' });
 
@@ -219,6 +224,24 @@ describe('StatusBar', () => {
     await waitFor(() => {
       expect(mocks.updateCompiler).toHaveBeenCalledWith({ engine: 'pdflatex' });
     });
+  });
+
+  it('does not show stale LaTeX engines while capability probing is pending', () => {
+    mocks.getLaTeXCapabilities.mockReturnValueOnce(new Promise(() => undefined));
+    mocks.getTypstCapabilities.mockReturnValueOnce(new Promise(() => undefined));
+
+    render(<StatusBar />);
+
+    expect(screen.getByText('Probing LaTeX engines')).toBeInTheDocument();
+    expect(screen.queryByText('XeLaTeX')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select compile engine' }));
+
+    expect(screen.getAllByText('Probing LaTeX engines')).toHaveLength(2);
+    expect(screen.queryByRole('menuitemradio', { name: 'XeLaTeX' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitemradio', { name: 'LuaLaTeX' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitemradio', { name: 'pdfLaTeX' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitemradio', { name: 'Tectonic' })).not.toBeInTheDocument();
   });
 
   it('hides unavailable Typst engines from the compiler menu', async () => {
