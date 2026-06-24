@@ -20,25 +20,24 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "baseUrl": ".",
     "paths": {
       "@/*": [
-        "src/renderer/src/*"
+        "./src/renderer/src/*"
       ],
       "@components/*": [
-        "src/renderer/src/components/*"
+        "./src/renderer/src/components/*"
       ],
       "@services/*": [
-        "src/renderer/src/services/*"
+        "./src/renderer/src/services/*"
       ],
       "@store/*": [
-        "src/renderer/src/store/*"
+        "./src/renderer/src/store/*"
       ],
       "@utils/*": [
-        "src/renderer/src/utils/*"
+        "./src/renderer/src/utils/*"
       ],
       "@shared/*": [
-        "shared/*"
+        "./shared/*"
       ]
     }
   },

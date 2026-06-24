@@ -23,6 +23,7 @@
  *   log line:   {print: msg}
  */
 
+import { type CjkFontBinary, fetchCjkFontBinaries } from './cjkFontRegistry';
 import { createLogger } from './LogService';
 
 const logger = createLogger('BusyTexEngine');
@@ -164,6 +165,23 @@ export class BusyTexEngine {
   private mainFile = 'main.tex';
   private files: StagedFile[] = [];
   private remoteEndpoint: string | undefined;
+  /**
+   * CJK font binaries kept *outside* the {@link files} array because they
+   * survive across compiles. {@link flushWorkDir} only clears project
+   * sources; fonts are loaded once per engine lifetime and re-staged into
+   * the fresh per-compile VFS by {@link buildFilePayload}. ~52 MB total.
+   *
+   * `null` = never attempted; empty array would mean "loaded but no fonts
+   * found" which we don't allow — {@link mountCjkFonts} throws on failure.
+   */
+  private cjkFonts: CjkFontBinary[] | null = null;
+  /**
+   * In-flight mount promise — dedupe concurrent {@link mountCjkFonts}
+   * calls (a user toggling engines fast, or two compiles racing on first
+   * paint). Without it, multiple compiles would each fetch the 52 MB
+   * font set in parallel.
+   */
+  private cjkMountInflight: Promise<void> | null = null;
 
   get ready(): boolean {
     return this._ready;
@@ -352,9 +370,19 @@ export class BusyTexEngine {
       };
 
       this.worker!.addEventListener('message', handler);
-      // Files are wrapped to BusyTeX's `{path, contents}` shape.
+      // Files are wrapped to BusyTeX's `{path, contents}` shape. Project
+      // sources first, then the (optional) CJK font set — order is irrelevant
+      // to the worker, but putting fonts last keeps the staging logs readable.
+      const stagedFiles: Array<{ path: string; contents: string | Uint8Array }> = this.files.map(
+        (f) => ({ path: f.path, contents: f.contents })
+      );
+      if (this.cjkFonts) {
+        for (const font of this.cjkFonts) {
+          stagedFiles.push({ path: font.vfsPath, contents: font.bytes });
+        }
+      }
       const payload = {
-        files: this.files.map((f) => ({ path: f.path, contents: f.contents })),
+        files: stagedFiles,
         main_tex_path: this.mainFile,
         // Auto-detect: pipeline resolves bibtex/makeindex/rerun from the
         // document — `null` is the documented "decide for me" sentinel,
@@ -375,9 +403,58 @@ export class BusyTexEngine {
   /**
    * Clear staged user files. BusyTeX builds a fresh in-memory FS for every
    * `compile()` call, so there is nothing else to reset between runs.
+   *
+   * Does NOT drop {@link cjkFonts} — fonts are an engine-lifetime asset,
+   * re-fetching ~52 MB between compiles would dominate wall-clock.
    */
   flushWorkDir(): void {
     this.files = [];
+  }
+
+  /**
+   * Load the bundled Simplified Chinese font set into the engine, idempotent.
+   * After this resolves, every subsequent {@link compile} call will stage the
+   * fonts under `fonts/<name>.otf` in the per-compile VFS, where user
+   * documents can pick them up via:
+   *
+   *     \usepackage{fontspec}
+   *     \setCJKmainfont[Path=fonts/]{NotoSerifSC-Regular.otf}
+   *
+   * Caller (the WASM provider) is responsible for deciding *when* to mount —
+   * pdftex doesn't speak Unicode and would just waste 52 MB / first-compile
+   * latency, so we don't auto-mount in {@link loadEngine}.
+   *
+   * Failure of the underlying fetch (font assets missing from the build)
+   * propagates — callers should catch and degrade gracefully rather than
+   * hard-failing the whole compile.
+   */
+  async mountCjkFonts(): Promise<void> {
+    if (this.cjkFonts) return;
+    // Single-flight: parallel callers share the same fetch round-trip.
+    if (this.cjkMountInflight) return this.cjkMountInflight;
+
+    const t0 = performance.now();
+    this.cjkMountInflight = (async () => {
+      try {
+        const fonts = await fetchCjkFontBinaries();
+        this.cjkFonts = fonts;
+        logger.info('CJK fonts mounted', {
+          count: fonts.length,
+          totalBytes: fonts.reduce((sum, f) => sum + f.bytes.byteLength, 0),
+          loadMs: Math.round(performance.now() - t0),
+        });
+      } finally {
+        // Release inflight slot regardless of outcome so a transient
+        // failure can be retried by the next compile.
+        this.cjkMountInflight = null;
+      }
+    })();
+    return this.cjkMountInflight;
+  }
+
+  /** Whether {@link mountCjkFonts} has succeeded at least once. */
+  hasCjkFonts(): boolean {
+    return this.cjkFonts !== null && this.cjkFonts.length > 0;
   }
 
   close(): void {
@@ -387,6 +464,10 @@ export class BusyTexEngine {
       this._ready = false;
     }
     this.files = [];
+    // Drop fonts too: a new worker instance gets a fresh VFS, and the
+    // 52 MB sitting in memory is only useful while the worker is alive.
+    this.cjkFonts = null;
+    this.cjkMountInflight = null;
   }
 
   // ====== Internal ======

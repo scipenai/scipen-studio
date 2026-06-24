@@ -16,13 +16,12 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "baseUrl": ".",
     "paths": {
       "@main/*": [
-        "src/main/*"
+        "./src/main/*"
       ],
       "@shared/*": [
-        "shared/*"
+        "./shared/*"
       ]
     }
   },

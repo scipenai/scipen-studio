@@ -25,7 +25,8 @@
  */
 
 import * as path from 'path';
-import { app, net, protocol } from 'electron';
+import { fileURLToPath } from 'url';
+import { net, protocol } from 'electron';
 import { createLogger } from './LoggerService';
 
 const logger = createLogger('WasmAssetProtocol');
@@ -60,15 +61,34 @@ export function registerWasmAssetSchemePrivileged(): void {
  * main-side modules (e.g. capability probes that fs.read manifests
  * outside the protocol handler) share one source of truth for the path.
  *
+ * Why `import.meta.url` and NOT `app.getAppPath()`:
+ *   - `app.getAppPath()` resolves to whichever directory holds the
+ *     nearest `package.json` to the main script. In packaged builds
+ *     (`app.asar`) it points at the asar root and the join works. In
+ *     dev / e2e launches (`electron out/main/index.js` with no
+ *     `package.json` next to the script), Electron falls back to
+ *     `path.dirname(mainScript) = out/main/`, and the join produces
+ *     `out/main/out/renderer/wasm` — which doesn't exist. Every wasm
+ *     asset request then 500s.
+ *   - `import.meta.url` is the URL of THIS module wherever it ends up.
+ *     The main bundle lives at `<root>/out/main/index.js` in dev and at
+ *     `<asar>/out/main/index.js` in prod (electron-builder preserves
+ *     this layout). Going up one dir and into `renderer/wasm` is the
+ *     correct path in both cases, and the `asarUnpack` rule in
+ *     electron-builder.json5 ensures `out/renderer/wasm/**` ends up at
+ *     the same relative location inside `app.asar.unpacked/` — Electron
+ *     transparently redirects the read.
+ *
  * Layout (kept in sync with electron-vite + electron-builder.json5):
- *   dev   : <repoRoot>/out/renderer/wasm/   (electron-vite outputs here)
- *   prod  : <appPath>/out/renderer/wasm/    (electron-builder packs out/
- *           into app.asar; the `asarUnpack` rule extracts `wasm/**` to
- *           app.asar.unpacked, but Electron's path APIs hide that — we
- *           just join against app.getAppPath() and it resolves correctly)
+ *   dev   : <repoRoot>/out/main/index.js  →  <repoRoot>/out/renderer/wasm/
+ *   prod  : <asar>/out/main/index.js      →  <asar>/out/renderer/wasm/
+ *                                            (asarUnpack redirects to
+ *                                             app.asar.unpacked/out/renderer/wasm/)
  */
 export function resolveWasmRoot(): string {
-  return path.join(app.getAppPath(), 'out', 'renderer', 'wasm');
+  const thisDir = path.dirname(fileURLToPath(import.meta.url));
+  // thisDir = .../out/main  →  .../out/renderer/wasm
+  return path.resolve(thisDir, '..', 'renderer', 'wasm');
 }
 
 /**

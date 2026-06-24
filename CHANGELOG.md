@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] — 2026-06-24
+
+WASM LaTeX engine learns Chinese. A user document containing CJK characters now
+compiles end-to-end through `wasm-xetex` with zero extra `\usepackage` lines —
+the source on disk stays portable to other LaTeX environments.
+
+### Added
+
+- **CJK rendering for `wasm-xetex` / `wasm-lualatex`** — BusyTeX engine now mounts
+  the bundled Noto CJK SC font set (5 fonts, ~54 MB) into its in-memory VFS on
+  the first Unicode-capable compile of each provider lifecycle. Font binaries
+  are reused from `public/wasm/typst-ts/fonts/` so we don't ship 54 MB twice.
+  `pdftex` skips the mount (can't speak Unicode, would just waste memory).
+  Single-flight dedupe in `mountCjkFonts()` survives parallel compile races.
+- **`scipencjk.sty` shim** — A tiny `.sty` file shipped alongside the fonts
+  hides `Path=fonts/` and individual font filenames behind one
+  `\usepackage{scipencjk}` line. Loaded from the VFS root via kpathsea's CWD
+  search; users get to either explicitly `\usepackage{scipencjk}` for control
+  or rely on the auto-injection below.
+- **Transparent CJK preamble auto-injection** — `WASMCompilerProvider` detects
+  CJK Unified Ideographs (U+3400–U+9FFF) in the main file and splices
+  `\usepackage{scipencjk}` directly after `\documentclass{...}` on the same
+  line. **The on-disk source is never modified** — only the in-memory copy fed
+  to BusyTeX. Same-line placement preserves SyncTeX line numbers.
+  Skip rules: pdftex/lualatex engines, no CJK in source, user already loaded
+  `ctex`/`xeCJK`/`scipencjk`/`luatexja`, or no `\documentclass` found.
+  A `[CompilerProviders] Auto-injected scipencjk for CJK content` info log
+  fires on every injection so the behavior is visible in the renderer console.
+
+### Fixed
+
+- **WASM asset resolution under dev/e2e launches** — `WasmAssetProtocol`
+  resolved the wasm root via `app.getAppPath()`, which works in packaged builds
+  but returns `out/main` (the entrypoint dir, not the project root) when
+  launched as `electron out/main/index.js`. Every `scipen-wasm://` request then
+  500'd. Switched to `import.meta.url`-based resolution that's correct in both
+  dev and prod layouts.
+- **`uuid` direct dependency bumped to ^11.1.1** — closes
+  [GHSA-w5hq-g745-h8pq](https://github.com/advisories/GHSA-w5hq-g745-h8pq).
+  Repo only uses v4 (random) so no behavioral impact, but it clears the audit
+  noise on the direct dependency line.
+- **TypeScript `baseUrl` deprecation warning** — `baseUrl` is removed from
+  `tsconfig.json` and `tsconfig.node.json` (deprecated in TS 6.0, will error in
+  7.0). All `paths` entries rewritten with explicit `./` prefixes that resolve
+  relative to the tsconfig file itself (the modern `paths` semantics).
+
 ## [0.3.0] — 2026-06-16
 
 First non-pre `0.3.x` release. Highlights: a full local history / restore system, a
