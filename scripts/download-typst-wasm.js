@@ -72,20 +72,33 @@ const COMPILER_TARBALL_URL =
 const FONTS_RAW_BASE = `https://raw.githubusercontent.com/typst/typst-assets/${FONTS_TAG}/files/fonts`;
 
 /**
- * Noto CJK SubsetOTF base. jsdelivr proxies GitHub raw files with strong
- * caching + CDN — same source `typst.app` uses for its bundled CJK.
+ * Noto CJK bases as ordered fallback lists. Primary is jsdelivr (strong
+ * caching + CDN, same source `typst.app` uses); secondary is raw GitHub.
+ *
+ * Why dual hosts instead of just `--retry-all-errors`? Observed on the
+ * v0.3.0 release build: jsdelivr edge nodes occasionally 404 on cold
+ * cache-pull (returns 200 on retest minutes later, so origin is fine).
+ * curl `--retry` only re-tries 5xx / transient errors — sticky 4xx from
+ * a bad edge keeps failing. A different host bypasses the bad edge
+ * immediately and turns "release build red" into a 1-line retry.
  */
-const NOTO_CJK_SERIF_SC_BASE =
-  `https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@${NOTO_CJK_REF}/Serif/SubsetOTF/SC`;
-const NOTO_CJK_SANS_SC_BASE =
-  `https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@${NOTO_CJK_REF}/Sans/SubsetOTF/SC`;
+const NOTO_CJK_SERIF_SC_BASES = [
+  `https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@${NOTO_CJK_REF}/Serif/SubsetOTF/SC`,
+  `https://raw.githubusercontent.com/notofonts/noto-cjk/${NOTO_CJK_REF}/Serif/SubsetOTF/SC`,
+];
+const NOTO_CJK_SANS_SC_BASES = [
+  `https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@${NOTO_CJK_REF}/Sans/SubsetOTF/SC`,
+  `https://raw.githubusercontent.com/notofonts/noto-cjk/${NOTO_CJK_REF}/Sans/SubsetOTF/SC`,
+];
 /**
  * Mono CJK lives at the top of the Mono tree (not under SubsetOTF) — only
  * full OTFs are published. Used for code-block / table alignment in CJK
  * documents.
  */
-const NOTO_CJK_SANS_MONO_SC_BASE =
-  `https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@${NOTO_CJK_REF}/Sans/Mono`;
+const NOTO_CJK_SANS_MONO_SC_BASES = [
+  `https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@${NOTO_CJK_REF}/Sans/Mono`,
+  `https://raw.githubusercontent.com/notofonts/noto-cjk/${NOTO_CJK_REF}/Sans/Mono`,
+];
 
 const DEST_DIR = path.resolve(__dirname, '..', 'public', 'wasm', 'typst-ts');
 const FONTS_DEST_DIR = path.join(DEST_DIR, 'fonts');
@@ -164,11 +177,11 @@ const CORE_FONTS = [
  * the extra weight.
  */
 const CJK_FONTS = [
-  ['NotoSerifSC-Regular.otf', NOTO_CJK_SERIF_SC_BASE],
-  ['NotoSerifSC-Bold.otf', NOTO_CJK_SERIF_SC_BASE],
-  ['NotoSansSC-Regular.otf', NOTO_CJK_SANS_SC_BASE],
-  ['NotoSansSC-Bold.otf', NOTO_CJK_SANS_SC_BASE],
-  ['NotoSansMonoCJKsc-Regular.otf', NOTO_CJK_SANS_MONO_SC_BASE],
+  ['NotoSerifSC-Regular.otf', NOTO_CJK_SERIF_SC_BASES],
+  ['NotoSerifSC-Bold.otf', NOTO_CJK_SERIF_SC_BASES],
+  ['NotoSansSC-Regular.otf', NOTO_CJK_SANS_SC_BASES],
+  ['NotoSansSC-Bold.otf', NOTO_CJK_SANS_SC_BASES],
+  ['NotoSansMonoCJKsc-Regular.otf', NOTO_CJK_SANS_MONO_SC_BASES],
 ];
 
 // ====== Argument Parsing ======
@@ -220,10 +233,12 @@ const includeCjk = args.includes('--cjk');
   if (!noFonts) {
     // Combined work-list: core (typst-assets, ~600 KB each) + optional CJK
     // (notofonts/noto-cjk via jsdelivr, ~8-12 MB each). Pre-resolved URLs
-    // keep the download loop a single homogeneous flow.
+    // keep the download loop a single homogeneous flow. `bases` is always
+    // an array so `downloadFile` can fall back across hosts uniformly —
+    // core has a single typst-assets host; CJK has jsdelivr → raw.gh.
     const plan = [
-      ...CORE_FONTS.map((name) => ({ name, base: FONTS_RAW_BASE })),
-      ...(includeCjk ? CJK_FONTS.map(([name, base]) => ({ name, base })) : []),
+      ...CORE_FONTS.map((name) => ({ name, bases: [FONTS_RAW_BASE] })),
+      ...(includeCjk ? CJK_FONTS.map(([name, bases]) => ({ name, bases })) : []),
     ];
     const missing = plan.filter(({ name }) =>
       force || !fs.existsSync(path.join(FONTS_DEST_DIR, name))
@@ -235,8 +250,9 @@ const includeCjk = args.includes('--cjk');
       // Sequential — keeps the upstream hosts happy and the progress
       // output readable. CJK files are 8-12 MB each; parallelising would
       // hammer jsdelivr without meaningful speedup over a typical link.
-      for (const { name, base } of missing) {
-        await downloadFile(`${base}/${name}`, path.join(FONTS_DEST_DIR, name), `font ${name}`);
+      for (const { name, bases } of missing) {
+        const urls = bases.map((b) => `${b}/${name}`);
+        await downloadFileWithFallback(urls, path.join(FONTS_DEST_DIR, name), `font ${name}`);
       }
     }
     for (const { name } of plan) fontFiles.push(name);
@@ -267,6 +283,10 @@ function downloadFile(url, destPath, label) {
       '--silent',
       '--show-error',
       '--retry', '3',
+      // `--retry-all-errors` (curl 7.71+, present on all 3 GH runners) makes
+      // `--retry` cover 4xx too. Without it, a sticky 404 from a bad CDN
+      // edge fails immediately — exactly how the v0.3.0 release build died.
+      '--retry-all-errors',
       '--retry-delay', '2',
       '--connect-timeout', '30',
       '--max-time', '600',
@@ -293,6 +313,29 @@ function downloadFile(url, destPath, label) {
       }
     });
   });
+}
+
+/**
+ * Try each URL in order until one succeeds. Used for sources mirrored
+ * across multiple hosts (e.g. Noto CJK on jsdelivr + raw GitHub) so a
+ * single bad CDN edge doesn't fail the entire build. Each attempt keeps
+ * `downloadFile`'s own retry policy; only after curl exhausts retries on
+ * url[i] do we move to url[i+1].
+ */
+async function downloadFileWithFallback(urls, destPath, label) {
+  let lastErr;
+  for (let i = 0; i < urls.length; i++) {
+    try {
+      await downloadFile(urls[i], destPath, i === 0 ? label : `${label} (fallback ${i})`);
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (i < urls.length - 1) {
+        console.warn(`    ⚠ ${urls[i]} failed, trying next mirror`);
+      }
+    }
+  }
+  throw lastErr;
 }
 
 /**
