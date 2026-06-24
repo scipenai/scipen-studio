@@ -13,6 +13,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # Node 22+ required: history system (src/main/services/history/MetaDb.ts)
+  # imports the `node:sqlite` builtin, which only exists on Node ≥ 22.5.
+  # Keep aligned with build.yml's NODE_VERSION.
+  NODE_VERSION: '22'
   SKIP_CLI_BUILD: 'true'
   SKIP_LSP_DOWNLOAD: 'true'
 
@@ -28,7 +32,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Install dependencies
@@ -72,7 +76,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Install dependencies
@@ -111,7 +115,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Install dependencies
@@ -151,7 +155,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
       - name: Install dependencies
