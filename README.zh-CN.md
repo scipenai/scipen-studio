@@ -28,14 +28,16 @@
 
 ## 功能特性
 
-- 🧩 **内置编译器** — WebAssembly pdfTeX / XeTeX,无需本地安装 TeX 发行版;若本地有 Tectonic 或 TeX Live 会自动识别。
+- 🧩 **内置编译器** — [BusyTeX](https://github.com/busytex/busytex)(pdfTeX / XeTeX / LuaLaTeX,WebAssembly)与 [typst.ts](https://github.com/Myriad-Dreamin/typst.ts) 随应用分发,无需本地安装 TeX 发行版;若本地有 Tectonic、TeX Live 或系统 Typst CLI 会自动识别。
 - ✏️ **编辑器** — Monaco 编辑器接入 TexLab、Tinymist、Marksman:为 LaTeX、Typst、Markdown 提供补全、诊断、悬浮提示与跳转定义。
 - 📄 **实时 PDF 预览** — 基于 pdf.js,支持 SyncTeX 正反向跳转、KaTeX 行内公式、平滑缩放与 CJK 字形显示。
 - 🤖 **AI Agent(内置)** — SNACA 运行时随应用分发:文件编辑(逐 hunk Diff Review)、联网搜索 / 抓取、向用户发起的多选问题卡、按项目记忆、以及内置学术科研 Skill(paper / reviewer / pipeline / deep-research,源自 [Imbad0202/academic-research-skills](https://github.com/Imbad0202/academic-research-skills))。无需额外起服务。
+- 📚 **Zotero 集成** — 连接到本机运行的 Zotero(通过 Better BibTeX 插件),应用内浏览文献库、拖拽附件入文、`@cite` 从实时 BibTeX 自动补全,以及通过本地 embedding 索引对附件 PDF 做语义检索。
+- 🕘 **本地历史与恢复** — 自动为项目留痕,无需 Git:手动命名的 label(类似有名字的存档)、编译成功自动 milestone、AI 大改后的 drift 快照、聊天中按用户消息粒度回滚。统一时间线浏览器内可浏览、对比与恢复。
 - ☁️ **Overleaf 同步** — 登录一次,项目下载到本地磁盘,可离线编辑,推送时基于 base / local / remote 进行三方合并。
 
 > [!NOTE]
-> **当前状态:0.3.0-pre.1 — pre-1.0。** 编辑、编译、预览、AI Agent 与 Overleaf 同步流程已稳定;部分设置项与 API 在 1.0 之前可能仍有调整,破坏性变更会在 [CHANGELOG.md](CHANGELOG.md) 中标注。
+> **当前状态:0.3.0 — pre-1.0。** 编辑、编译、预览、AI Agent、Zotero、历史与 Overleaf 同步流程已稳定;部分设置项与 API 在 1.0 之前可能仍有调整,破坏性变更会在 [CHANGELOG.md](CHANGELOG.md) 中标注。
 
 ## 安装
 
@@ -56,8 +58,13 @@ AI 助手与 Overleaf 同步是可选项,首次启动不需要任何配置就能
 
 ```bash
 git clone https://github.com/scipenai/scipen-studio.git
-cd scipen-studio && npm run setup && npm run dev
+cd scipen-studio
+npm install
+npm run prebuild   # 下载 LSP / BusyTeX / Typst WASM,构建 SNACA,拷贝 Skills(约 1 GB)
+npm run dev
 ```
+
+`prebuild` 是首次启动前的一次性引导,必须在 `dev` 之前跑过 —— `npm run setup` 仅下载 LSP 二进制,不足以独立启动。引导完成后日常入口就是 `npm run dev`。
 
 需要 **Node.js 20+** 与 **npm 10+**。完整开发说明(测试、IPC 契约、打本地安装包 `build:win` / `build:mac` / `build:linux`、架构约定)见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
@@ -83,10 +90,13 @@ SciPen Studio 构建在以下开源项目之上:
 
 - [Electron](https://www.electronjs.org/) 与 [electron-vite](https://electron-vite.org/) — 桌面运行时与构建链
 - [Monaco Editor](https://microsoft.github.io/monaco-editor/) — 编辑器内核
+- [BusyTeX](https://github.com/busytex/busytex) — 内置的 WebAssembly TeX 引擎(pdfTeX / XeTeX / LuaLaTeX)
+- [typst.ts](https://github.com/Myriad-Dreamin/typst.ts) — 内置的 WebAssembly Typst 引擎
 - [TexLab](https://github.com/latex-lsp/texlab)、[Tinymist](https://github.com/Myriad-Dreamin/tinymist)、[Marksman](https://github.com/artempyanykh/marksman) — LaTeX / Typst / Markdown 语言服务器
 - [pdf.js](https://github.com/mozilla/pdf.js) — PDF 渲染与 CMap 支持
 - [KaTeX](https://katex.org/) — 行内公式预览
 - [diff-match-patch](https://github.com/google/diff-match-patch) — AI Diff Review 的逐块比对
+- [Better BibTeX](https://retorque.re/zotero-better-bibtex/) — 应用与 Zotero 库联通的 Zotero 插件
 - [academic-research-skills](https://github.com/Imbad0202/academic-research-skills) — 内置的 SNACA Skill 内容(`academic-paper`、`academic-paper-reviewer`、`academic-pipeline`、`deep-research`)
 - [Tectonic](https://tectonic-typesetting.github.io/) 与 [TeX Live](https://www.tug.org/texlive/) — 可选的完整 TeX 发行版
 

@@ -150,13 +150,17 @@ export const MemoryPane: React.FC = () => {
         <div
           className="flex shrink-0 gap-1 border-b p-2"
           style={{ borderBottomColor: 'var(--color-border)' }}
+          role="tablist"
+          aria-label={t('memoryViewer.tabMemory')}
         >
           {SCOPES.map((s) => (
             <button
               key={s}
               type="button"
+              role="tab"
+              aria-selected={scope === s}
               onClick={() => setScope(s)}
-              className={`flex-1 rounded px-2 py-1 text-xs ${
+              className={`flex-1 cursor-pointer rounded px-2 py-1 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] ${
                 scope === s
                   ? 'bg-[var(--color-accent)] text-white'
                   : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'
@@ -171,25 +175,27 @@ export const MemoryPane: React.FC = () => {
           <button
             type="button"
             onClick={() => setShowNew(true)}
-            className="inline-flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)]"
+            className="inline-flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
           >
-            <Plus size={12} /> {t('memoryViewer.newEntry')}
+            <Plus size={12} aria-hidden="true" /> {t('memoryViewer.newEntry')}
           </button>
           <button
             type="button"
             onClick={() => void refresh()}
-            className="inline-flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)]"
+            aria-label={t('memoryViewer.reload')}
+            className="inline-flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             title={t('memoryViewer.reload')}
           >
-            <RefreshCw size={12} />
+            <RefreshCw size={12} aria-hidden="true" />
           </button>
           <button
             type="button"
             onClick={onReveal}
-            className="inline-flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)]"
+            aria-label={t('memoryViewer.reveal')}
+            className="inline-flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             title={t('memoryViewer.reveal')}
           >
-            <FolderOpen size={12} />
+            <FolderOpen size={12} aria-hidden="true" />
           </button>
         </div>
 
@@ -228,7 +234,7 @@ export const MemoryPane: React.FC = () => {
               key={`${entry.scope}/${entry.name}`}
               type="button"
               onClick={() => onSelect(entry)}
-              className={`block w-full border-l-2 px-3 py-2 text-left text-xs ${
+              className={`block w-full cursor-pointer border-l-2 px-3 py-2 text-left text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-accent)] ${
                 selected?.scope === entry.scope && selected?.name === entry.name
                   ? 'border-l-[var(--color-accent)] bg-[var(--color-bg-tertiary)]'
                   : 'border-l-transparent hover:bg-[var(--color-bg-hover)]'
@@ -265,17 +271,21 @@ export const MemoryPane: React.FC = () => {
                 type="button"
                 onClick={onSave}
                 disabled={saving || draftContent === (detail?.content ?? '')}
-                className="inline-flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1 text-xs hover:bg-[var(--color-bg-tertiary)] disabled:opacity-40"
+                className="inline-flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1 text-xs hover:bg-[var(--color-bg-tertiary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                {saving ? (
+                  <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+                ) : (
+                  <Save size={12} aria-hidden="true" />
+                )}
                 {saving ? t('memoryViewer.saving') : t('memoryViewer.save')}
               </button>
               <button
                 type="button"
                 onClick={onDelete}
-                className="inline-flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs text-red-400 hover:bg-[var(--color-bg-tertiary)]"
+                className="inline-flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs text-red-400 hover:bg-[var(--color-bg-tertiary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
               >
-                <Trash2 size={12} />
+                <Trash2 size={12} aria-hidden="true" />
                 {t('memoryViewer.delete')}
               </button>
             </div>

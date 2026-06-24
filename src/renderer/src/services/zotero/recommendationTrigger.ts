@@ -1,8 +1,9 @@
 /**
- * @file recommendationTrigger —— Monaco model → 段落上下文 的薄胶水层。
+ * @file recommendationTrigger -- thin glue from Monaco model to paragraph context.
  *
- * 把 monaco 特有的取行/取语言隔离在此,核心边界识别复用 shared 纯函数
- * (sectionExtract),便于 ActiveRecommendationService 单测时注入假 model。
+ * Isolates monaco-specific line/language access here; core boundary detection
+ * reuses the shared pure functions (sectionExtract), so ActiveRecommendationService
+ * unit tests can inject a fake model.
  */
 
 import type { DocLang } from '../../../../../shared/types/zotero-embedding';
@@ -12,20 +13,21 @@ import {
   hashParagraph,
 } from '../../../../../shared/utils/sectionExtract';
 
-/** 抽出当前段落所需的 model 最小接口(便于测试注入)。 */
+/** Minimal model interface needed to extract the current paragraph (eases test injection). */
 export interface MinimalModel {
   getLinesContent(): string[];
   getLanguageId(): string;
 }
 
-/** monaco languageId → DocLang。 */
+/** monaco languageId -> DocLang. */
 export function detectParagraphLang(languageId: string): DocLang {
   return detectDocLang(languageId);
 }
 
 /**
- * 从 model + 光标行抽出当前段落文本与 hash。段落过短(空段且回退后仍 <30 字符)
- * 返回 null —— 调用方据此跳过查询。
+ * Extracts current paragraph text and hash from model + cursor line. Returns
+ * null when the paragraph is too short (empty paragraph and fallback still
+ * <30 chars) -- caller skips the query in that case.
  */
 export function extractFromEditor(
   model: MinimalModel,

@@ -20,36 +20,46 @@ export const compileApi = {
   // LaTeX compilation
   compileLatex: (content: string, options?: unknown) =>
     ipcRenderer.invoke(IpcChannel.Compile_LaTeX, content, options),
+  getLaTeXCapabilities: () => ipcRenderer.invoke(IpcChannel.LaTeX_GetCapabilities),
 
   // Typst compilation
   compileTypst: (
     content: string,
-    options?: { engine?: 'typst' | 'tinymist'; mainFile?: string; projectPath?: string }
+    options?: {
+      engine?: 'typst' | 'tinymist' | 'wasm-typst';
+      mainFile?: string;
+      projectPath?: string;
+    }
   ) => ipcRenderer.invoke(IpcChannel.Compile_Typst, content, options),
   getTypstAvailability: () => ipcRenderer.invoke(IpcChannel.Typst_Available),
+  getTypstCapabilities: () => ipcRenderer.invoke(IpcChannel.Typst_GetCapabilities),
   cancelCompile: (type?: 'latex' | 'typst') => ipcRenderer.invoke(IpcChannel.Compile_Cancel, type),
 
+  // BusyTeX WASM artifact persistence (pdf + .synctex.gz → temp paths)
+  writeWasmArtifacts: (pdfBuffer: Uint8Array, synctexBuffer: Uint8Array, baseName?: string) =>
+    ipcRenderer.invoke(IpcChannel.Compile_WriteWasmArtifacts, pdfBuffer, synctexBuffer, baseName),
+
   // SyncTeX
-  synctexForward: (texFile: string, line: number, column: number, pdfFile: string) =>
-    ipcRenderer.invoke(IpcChannel.SyncTeX_Forward, texFile, line, column, pdfFile),
-  synctexBackward: (pdfFile: string, page: number, x: number, y: number) =>
-    ipcRenderer.invoke(IpcChannel.SyncTeX_Backward, pdfFile, page, x, y),
+  synctexForward: (
+    texFile: string,
+    line: number,
+    column: number,
+    pdfFile: string,
+    projectRoot?: string
+  ) => ipcRenderer.invoke(IpcChannel.SyncTeX_Forward, texFile, line, column, pdfFile, projectRoot),
+  synctexBackward: (pdfFile: string, page: number, x: number, y: number, projectRoot?: string) =>
+    ipcRenderer.invoke(IpcChannel.SyncTeX_Backward, pdfFile, page, x, y, projectRoot),
 };
 
 // ====== App Info ======
+// Note: auto-update channels (checkUpdate / downloadUpdate / installUpdate / onUpdateStatus)
+// are wired from the renderer through the generic `window.electron.ipcRenderer` bridge
+// (adapted with boundary validation by `renderer/src/api/index.ts`) — not exposed here on appApi.
 export const appApi = {
   openExternal: (url: string) => ipcRenderer.invoke(IpcChannel.App_OpenExternal, url),
   getAppVersion: () => ipcRenderer.invoke(IpcChannel.App_GetVersion),
   getHomeDir: () => ipcRenderer.invoke(IpcChannel.App_GetHomeDir),
   getAppDataDir: () => ipcRenderer.invoke(IpcChannel.App_GetAppDataDir),
-  checkUpdate: () => ipcRenderer.invoke(IpcChannel.App_CheckUpdate),
-  downloadUpdate: () => ipcRenderer.invoke(IpcChannel.App_DownloadUpdate),
-  installUpdate: () => ipcRenderer.invoke(IpcChannel.App_InstallUpdate),
-  onUpdateStatus: (callback: (status: unknown) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, status: unknown) => callback(status);
-    ipcRenderer.on(IpcChannel.App_UpdateStatus, handler);
-    return () => ipcRenderer.removeListener(IpcChannel.App_UpdateStatus, handler);
-  },
 };
 
 // ====== Logging API ======

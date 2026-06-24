@@ -1,6 +1,7 @@
 /**
  * @file AITab.tsx - AI Agent Settings Tab
- * @description Single section. The user picks a protocol family (OpenAI-
+ * @description Two sections: basic connection + model routing. The user
+ *   picks a protocol family (OpenAI-
  *   compatible or Anthropic-compatible) and points it at whichever base
  *   URL their provider exposes — SNACA and Ctrl+K both use the same
  *   credentials. Brand-level provider names (DeepSeek, SiliconFlow, …)
@@ -16,15 +17,24 @@ import type { AIProviderDTO, SelectedModels } from '../../api';
 import { useTranslation } from '../../locales';
 import { getSettingsService } from '../../services/core/ServiceRegistry';
 import type { ProviderId } from '../../types/provider';
-import { SectionTitle, SettingItem, inputClassName } from './SettingsUI';
+import {
+  FormField,
+  FormSection,
+  inputMonoClassName,
+  secondaryButtonClass,
+  selectClassName,
+} from './SettingsUI';
 
 type ModelSelection = NonNullable<SelectedModels['chat']>;
 
 interface ProviderOption {
   /** ProviderId stored in settings. */
   id: ProviderId;
-  /** Label shown in the dropdown. */
-  label: string;
+  /** i18n key for the label shown in the dropdown. */
+  labelKey: string;
+  /** Fallback name written into the provider DTO when no translation is
+   *  available (e.g. on first save before locales hydrate). */
+  fallbackName: string;
   /** Placeholder used as a UX hint when the host field is empty. */
   defaultHost: string;
   /** Two short examples of common upstream endpoints under this protocol. */
@@ -36,7 +46,8 @@ interface ProviderOption {
 const PROVIDER_OPTIONS: ProviderOption[] = [
   {
     id: 'openai',
-    label: 'OpenAI 兼容',
+    labelKey: 'aiSettings.providerOpenAICompat',
+    fallbackName: 'OpenAI Compatible',
     defaultHost: 'https://api.openai.com/v1',
     // Studio AIService auto-appends `/v1` if missing, so both bare host and
     // `/v1` form work — show both to make the convention obvious.
@@ -44,20 +55,18 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
   },
   {
     id: 'anthropic',
-    label: 'Anthropic 兼容',
+    labelKey: 'aiSettings.providerAnthropicCompat',
+    fallbackName: 'Anthropic Compatible',
     defaultHost: 'https://api.anthropic.com',
     hostExamples: ['https://api.anthropic.com', 'https://api.deepseek.com/anthropic'],
   },
 ];
 
-const selectClassName =
-  'w-full px-3 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]';
-
 function makeProvider(id: ProviderId): AIProviderDTO {
   const opt = PROVIDER_OPTIONS.find((o) => o.id === id);
   return {
     id,
-    name: opt?.label ?? id,
+    name: opt?.fallbackName ?? id,
     apiKey: '',
     apiHost: opt?.defaultHost ?? '',
     defaultApiHost: opt?.defaultHost ?? '',
@@ -220,91 +229,89 @@ export const AITab: React.FC = () => {
 
   if (!provider) {
     return (
-      <div className="text-sm text-[var(--color-text-muted)] py-4">
-        {t('aiSettings.chatProvider')}...
-      </div>
+      <div className="text-sm text-[var(--color-text-muted)] py-4">{t('aiSettings.provider')}…</div>
     );
   }
 
   return (
-    <>
-      <SectionTitle>{t('aiSettings.chatProvider')}</SectionTitle>
-      <p className="text-xs text-[var(--color-text-muted)] mb-3 -mt-1">
-        {t('aiSettings.chatProviderDesc')}
-      </p>
+    <div>
+      <FormSection title={t('aiSettings.sectionConnection')} first>
+        <FormField title={t('aiSettings.provider')} description={t('aiSettings.providerDesc')}>
+          <select
+            value={provider.id}
+            onChange={(e) => changeProvider(e.target.value as ProviderId)}
+            className={selectClassName}
+          >
+            {PROVIDER_OPTIONS.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {t(opt.labelKey as never)}
+              </option>
+            ))}
+          </select>
+        </FormField>
 
-      <SettingItem label={t('aiSettings.provider')} description={t('aiSettings.providerDesc')}>
-        <select
-          value={provider.id}
-          onChange={(e) => changeProvider(e.target.value as ProviderId)}
-          className={selectClassName}
-        >
-          {PROVIDER_OPTIONS.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </SettingItem>
+        <FormField title={t('aiSettings.apiKey')} description={t('aiSettings.apiKeyDesc')}>
+          <input
+            type="password"
+            value={provider.apiKey}
+            onChange={(e) => updateProvider({ apiKey: e.target.value })}
+            placeholder="sk-..."
+            className={inputMonoClassName}
+          />
+        </FormField>
 
-      <SettingItem label={t('aiSettings.apiKey')} description={t('aiSettings.apiKeyDesc')}>
-        <input
-          type="password"
-          value={provider.apiKey}
-          onChange={(e) => updateProvider({ apiKey: e.target.value })}
-          placeholder="sk-..."
-          className={inputClassName}
-        />
-      </SettingItem>
+        <FormField title={t('aiSettings.baseUrl')} description={t('aiSettings.baseUrlDesc')}>
+          <input
+            type="text"
+            value={provider.apiHost}
+            onChange={(e) => updateProvider({ apiHost: e.target.value })}
+            placeholder={hostPlaceholder}
+            className={inputMonoClassName}
+          />
+          <div className="mt-3 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleTestConnection}
+              disabled={testing || !provider.apiKey}
+              className={secondaryButtonClass}
+            >
+              {testing && <Loader2 size={14} className="animate-spin" />}
+              {t('aiSettings.testConnection')}
+            </button>
+            {testResult && (
+              <span
+                className={`text-xs ${testResult.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}
+              >
+                {testResult.msg}
+              </span>
+            )}
+          </div>
+        </FormField>
+      </FormSection>
 
-      <SettingItem label={t('aiSettings.baseUrl')} description={t('aiSettings.baseUrlDesc')}>
-        <input
-          type="text"
-          value={provider.apiHost}
-          onChange={(e) => updateProvider({ apiHost: e.target.value })}
-          placeholder={hostPlaceholder}
-          className={inputClassName}
-        />
-      </SettingItem>
+      <FormSection title={t('aiSettings.sectionModelRouting')}>
+        <FormField title={t('aiSettings.chatModel')} description={t('aiSettings.chatModelDesc')}>
+          <input
+            type="text"
+            value={chatModel}
+            onChange={(e) => setChatModel(e.target.value)}
+            onBlur={() => commitChatModel(chatModel)}
+            placeholder="deepseek-chat"
+            className={inputMonoClassName}
+          />
+        </FormField>
 
-      <SettingItem label={t('aiSettings.chatModel')} description={t('aiSettings.chatModelDesc')}>
-        <input
-          type="text"
-          value={chatModel}
-          onChange={(e) => setChatModel(e.target.value)}
-          onBlur={() => commitChatModel(chatModel)}
-          placeholder="deepseek-chat"
-          className={inputClassName}
-        />
-      </SettingItem>
-
-      <SettingItem label={t('aiSettings.model')} description={t('aiSettings.modelDesc')}>
-        <input
-          type="text"
-          value={completionModel}
-          onChange={(e) => setCompletionModel(e.target.value)}
-          onBlur={() => commitCompletionModel(completionModel)}
-          placeholder={chatModel || 'gpt-4o-mini'}
-          className={inputClassName}
-        />
-      </SettingItem>
-
-      <div className="mt-4 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleTestConnection}
-          disabled={testing || !provider.apiKey}
-          className="px-3 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] disabled:opacity-50 flex items-center gap-1.5"
-        >
-          {testing && <Loader2 size={14} className="animate-spin" />}
-          {t('aiSettings.testConnection')}
-        </button>
-        {testResult && (
-          <span className={`text-xs ${testResult.ok ? 'text-green-500' : 'text-red-500'}`}>
-            {testResult.msg}
-          </span>
-        )}
-      </div>
-    </>
+        <FormField title={t('aiSettings.model')} description={t('aiSettings.modelDesc')}>
+          <input
+            type="text"
+            value={completionModel}
+            onChange={(e) => setCompletionModel(e.target.value)}
+            onBlur={() => commitCompletionModel(completionModel)}
+            placeholder={chatModel || 'gpt-4o-mini'}
+            className={inputMonoClassName}
+          />
+        </FormField>
+      </FormSection>
+    </div>
   );
 };

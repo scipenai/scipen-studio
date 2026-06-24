@@ -33,14 +33,14 @@ import {
 import { PANEL_DEFAULT_SIZE, WorkspaceResizeHandle } from './researchWorkspaceHelpers';
 import { PreviewPanel, usePreviewTitle } from './PreviewPanel';
 
-// 加载策略说明:
-// - FileExplorer:静态导入(见顶部 import)—— 文件抽屉是高频热路径轻量 UI,直接进主 chunk。
-// - EditorPane / ProjectCitedReferencesPanel / 预览 / 设置:改用 useLazyModule(组件内,见下)。
-//   原因:React.lazy + Suspense 在本应用「首次 resolve 不提交挂载」(诊断实测:chunk 已解析但
-//   组件直到下次交互才 mount = 用户感知的「点两次才出现」)。useLazyModule 走「import→setState」
-//   默认优先级,提交可靠,且保留 code-split。
+// Loading strategy notes:
+// - FileExplorer: static import (see top of file) — file drawer is a hot-path lightweight UI, ships in main chunk.
+// - EditorPane / ProjectCitedReferencesPanel / preview / settings: use useLazyModule (in-component, see below).
+//   Reason: React.lazy + Suspense in this app "fails to commit on first resolve" (diagnosed: chunk resolves but
+//   the component does not mount until next interaction = user-perceived "have to click twice"). useLazyModule
+//   uses "import -> setState" at default priority, commits reliably, and preserves code-split.
 
-/** 面板在 PanelGroup 中的固定顺序(react-resizable-panels 靠 order 跨增删保持次序)。 */
+/** Fixed order of panels in PanelGroup (react-resizable-panels relies on `order` to keep ordering across add/remove). */
 const PANEL_ORDER: Record<PanelId, number> = { chat: 1, editor: 2, preview: 3 };
 
 export const ResearchWorkspaceShell: React.FC = () => {
@@ -53,8 +53,9 @@ export const ResearchWorkspaceShell: React.FC = () => {
   const previewVisible = usePreviewVisible();
   const previewTitle = usePreviewTitle();
 
-  // 动态加载(替代 lazy+Suspense,提交可靠)。hook 无条件调用 = shell 挂载即后台 warm,
-  // 配合下方 idle 预加载,用户开面板时已就绪。
+  // Dynamic loading (replaces lazy+Suspense, commits reliably). Hook is called unconditionally =
+  // shell mount kicks off background warm; combined with the idle preload below, the module is
+  // ready by the time the user opens the panel.
   const EditorPane = useLazyModule(() => import('../editor/EditorPane').then((m) => m.EditorPane));
   const ProjectCitedReferencesPanel = useLazyModule(() =>
     import('../zotero/ProjectCitedReferencesPanel').then((m) => m.ProjectCitedReferencesPanel)
@@ -67,14 +68,22 @@ export const ResearchWorkspaceShell: React.FC = () => {
     return projectPath.replace(/\\/g, '/').split('/').pop() || null;
   }, [projectPath]);
   const headerTitle = projectName ?? 'SciPenClaw';
+  const headerSubtitle = useMemo(() => {
+    const panels = [
+      chatVisible && t('research.panelChat'),
+      editorVisible && t('research.panelEditor'),
+      previewVisible && t('research.panelPreview'),
+    ].filter((label): label is string => Boolean(label));
+    return panels.join(' / ');
+  }, [chatVisible, editorVisible, previewVisible]);
 
-  // 进入工作台:默认聚焦 IM 侧栏(关掉文件抽屉)。shell 仅挂载一次,
-  // setSidebarTab 幂等,无需额外一次性守卫。
+  // On entering the workspace: focus the IM sidebar by default (close the file drawer).
+  // shell only mounts once and setSidebarTab is idempotent, so no extra one-shot guard is needed.
   useEffect(() => {
     uiService.setSidebarTab('im');
   }, [uiService]);
 
-  // 全局选区文本 → 预填 SNACA 输入(经 ChatSidebar 的 seed 监听)。
+  // Global selected text -> prefill SNACA input (via ChatSidebar's seed listener).
   useEffect(() => {
     const dispose = api.selection.onTextCaptured((data) => {
       if (data.text?.trim()) {
@@ -84,7 +93,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
     return dispose;
   }, [uiService]);
 
-  // 切换编辑面板:打开时若有选中文件则确保其在编辑器内。
+  // Toggle the editor panel: when opening, ensure the currently selected file is loaded into the editor.
   const toggleEditor = useCallback(async () => {
     if (!editorVisible && activeTabPath) {
       await openFileInEditor(activeTabPath);
@@ -92,7 +101,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
     uiService.setEditorVisible(!editorVisible);
   }, [editorVisible, activeTabPath, uiService]);
 
-  // Ctrl/Cmd + \ 折叠/展开聊天 —— 专注写作预览。
+  // Ctrl/Cmd + \ collapses/expands chat — focus mode for writing/preview.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
@@ -104,14 +113,17 @@ export const ResearchWorkspaceShell: React.FC = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, [uiService]);
 
-  // 预加载重 chunk(idle):把 EditorPane / 预览 / cited-refs / 设置面板的代码在你首次开面板
-  // 「之前」warm 进模块缓存,使首开即命中、瞬时挂载;从根上消除「首开等 chunk 下载 + 关闭即
-  // 丢弃 in-flight import」这一族问题。仅 warm 代码、不挂载组件,故不引入 keep-alive 的主线程常驻代价。
+  // Preload heavy chunks at idle: warm EditorPane / preview / cited-refs / settings panel code into
+  // the module cache *before* the user first opens those panels, so first-open hits cache and mounts
+  // instantly. This eliminates the whole class of "first-open waits for chunk download + closing
+  // discards the in-flight import" bugs. We only warm code, not mount components, so this avoids
+  // the main-thread cost of a keep-alive approach.
   useEffect(() => {
     scheduleIdleTask(
       () => {
-        // 预加载「整条 lazy 链」—— 预览是 3 层嵌套(PreviewController → PdfPreviewPane 等),
-        // 只 warm 顶层会漏掉真正画 PDF 的第二层 leaf,导致首开预览仍现加载第二层 chunk。
+        // Preload the entire lazy chain — preview is 3 levels nested (PreviewController -> PdfPreviewPane etc.).
+        // Warming only the top level would miss the second-level leaf that actually renders the PDF, so the
+        // first preview open would still hit a chunk download for the second level.
         void import('../editor/EditorPane');
         void import('../preview/PreviewController');
         void import('../preview/PdfPreviewPane');
@@ -128,11 +140,13 @@ export const ResearchWorkspaceShell: React.FC = () => {
     };
   }, []);
 
-  // 焦点描边改用纯 CSS(.panel-focus-edge:focus-within,见 index.css)—— 零 React 重渲,
-  // 取代原 activePanel state(每次面板点击/聚焦都重渲整 shell,且会饿死低优先级工作)。
+  // Focus outline uses pure CSS (.panel-focus-edge:focus-within, see index.css) — zero React re-renders,
+  // replacing the old activePanel state (which re-rendered the whole shell on every panel click/focus and
+  // starved low-priority work).
 
-  // 唯一真相源:布尔 → 可见面板列表。布局完全由此声明式推导,
-  // 只挂可见面板 + 可见面板之间的分隔条 —— 无 ref / 无命令式折叠 / 无回写竞态。
+  // Single source of truth: booleans -> visible-panel list. The layout is derived declaratively from this,
+  // mounting only visible panels plus the resize handles between them — no refs, no imperative collapse,
+  // no write-back race conditions.
   const visiblePanels = (
     [chatVisible && 'chat', editorVisible && 'editor', previewVisible && 'preview'] as const
   ).filter((p): p is PanelId => Boolean(p));
@@ -152,26 +166,12 @@ export const ResearchWorkspaceShell: React.FC = () => {
     }
   };
 
-  // 各面板的 Panel 级属性(背景/边框/尺寸约束)。
-  const panelProps: Record<
-    PanelId,
-    { minSize: number; maxSize?: number; style?: React.CSSProperties; className: string }
-  > = {
+  // Panel-level size constraints for each panel. Background/border/radius all live on the inner card
+  // div below (floating-card layout: the three panels feel consistent, each floating above the canvas).
+  const panelProps: Record<PanelId, { minSize: number; maxSize?: number; className: string }> = {
     chat: { minSize: 20, className: 'min-h-0 min-w-0' },
-    editor: {
-      minSize: 28,
-      className: 'min-w-0 overflow-hidden',
-      style: { background: 'var(--color-bg-primary)' },
-    },
-    preview: {
-      minSize: 22,
-      maxSize: 60,
-      className: 'min-w-0 overflow-hidden border-l',
-      style: {
-        borderLeftColor: 'var(--color-border-subtle)',
-        background: 'var(--color-bg-secondary)',
-      },
-    },
+    editor: { minSize: 28, className: 'min-w-0' },
+    preview: { minSize: 22, maxSize: 60, className: 'min-w-0' },
   };
 
   return (
@@ -179,6 +179,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
       header={
         <WorkspaceHeader
           title={headerTitle}
+          subtitle={headerSubtitle}
           toolbar={
             <WorkspaceToolbar>
               <IconButton
@@ -233,39 +234,44 @@ export const ResearchWorkspaceShell: React.FC = () => {
         closeAriaLabel={t('research.closeFileDrawer')}
       >
         <div className="flex h-full flex-col">
-          {/* FileExplorer 静态渲染,无 Suspense gating —— 抽屉打开即出文件树 */}
+          {/* FileExplorer renders statically with no Suspense gating — file tree shows as soon as the drawer opens. */}
           <div className="flex-1 overflow-y-auto">
             <FileExplorer />
           </div>
-          {/* cited-refs 动态加载(useLazyModule),绝不阻塞上方文件树 */}
+          {/* cited-refs is dynamically loaded (useLazyModule) and must never block the file tree above. */}
           {ProjectCitedReferencesPanel ? <ProjectCitedReferencesPanel /> : null}
         </div>
       </WorkspaceDrawer>
 
-      <PanelGroup direction="horizontal" autoSaveId="research-workspace-v6" className="h-full">
-        {visiblePanels.flatMap((panel, index) => {
-          const cfg = panelProps[panel];
-          const nodes: React.ReactNode[] = [];
-          // 分隔条只出现在两个可见面板之间(声明式 → 与面板增删天然一致)。
-          if (index > 0) nodes.push(<WorkspaceResizeHandle key={`handle-${panel}`} />);
-          nodes.push(
-            // key 用面板身份 → 切换其它面板时本面板实例原地保留,不重挂载。
-            <Panel
-              key={panel}
-              id={`research-${panel}`}
-              order={PANEL_ORDER[panel]}
-              defaultSize={PANEL_DEFAULT_SIZE[panel]}
-              minSize={cfg.minSize}
-              maxSize={cfg.maxSize}
-              className={cfg.className}
-              style={cfg.style}
-            >
-              <div className="panel-focus-edge h-full">{renderPanelBody(panel)}</div>
-            </Panel>
-          );
-          return nodes;
-        })}
-      </PanelGroup>
+      {/* p-3 = outer gap between cards and the canvas edge (matches the w-3 inner gap on resize handles, ~12px on all sides). */}
+      <div className="h-full p-3">
+        <PanelGroup direction="horizontal" autoSaveId="research-workspace-v6" className="h-full">
+          {visiblePanels.flatMap((panel, index) => {
+            const cfg = panelProps[panel];
+            const nodes: React.ReactNode[] = [];
+            // Resize handle only appears between two visible panels (declarative -> stays consistent as panels are added/removed).
+            if (index > 0) nodes.push(<WorkspaceResizeHandle key={`handle-${panel}`} />);
+            nodes.push(
+              // Key is the panel identity -> when other panels toggle, this panel's instance stays in place and is not remounted.
+              <Panel
+                key={panel}
+                id={`research-${panel}`}
+                order={PANEL_ORDER[panel]}
+                defaultSize={PANEL_DEFAULT_SIZE[panel]}
+                minSize={cfg.minSize}
+                maxSize={cfg.maxSize}
+                className={cfg.className}
+              >
+                {/* Floating card: rounded + thin border + light shadow, floats above the canvas. */}
+                <div className="panel-focus-edge h-full overflow-hidden rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)] shadow-[var(--shadow-sm)]">
+                  {renderPanelBody(panel)}
+                </div>
+              </Panel>
+            );
+            return nodes;
+          })}
+        </PanelGroup>
+      </div>
     </WorkspaceShell>
   );
 };

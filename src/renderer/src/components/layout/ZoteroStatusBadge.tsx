@@ -1,15 +1,16 @@
 /**
- * @file ZoteroStatusBadge.tsx — StatusBar 中的 Zotero 索引状态徽章
- * @description 左侧小圆点(颜色映射 BibStatus)+ 鼠标悬停 tooltip 显示 "Zotero: ${status}"。
- *              点击展开 <ZoteroDiagnosticsPopover>(itemCount / lastSyncedAt /
- *              数据源健康度 / 手动刷新按钮)。若用户尚未启用 Zotero 集成
- *              (`integrationEnabled=false`),返回 null —— 不占位、不留痕。
+ * @file ZoteroStatusBadge.tsx — Zotero index status badge in the StatusBar
+ * @description A small colored dot on the left (color mapped from BibStatus) + a hover tooltip
+ *              showing "Zotero: ${status}". Clicking opens <ZoteroDiagnosticsPopover>
+ *              (itemCount / lastSyncedAt / data-source health / manual refresh button).
+ *              When the user has not enabled Zotero integration
+ *              (`integrationEnabled=false`), returns null — no placeholder, no trace.
  *
- *              数据来自 useZoteroBibMirror(订阅 main 进程 canonical 索引)。
+ *              Data comes from useZoteroBibMirror (subscribed to the main-process canonical index).
  */
 
 import type React from 'react';
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useClickOutside } from '../../hooks';
 import { useZoteroBibMirror } from '../../hooks/useZoteroBibMirror';
@@ -22,6 +23,7 @@ export const ZoteroStatusBadge: React.FC = () => {
   const { state, mirror, enabled } = useZoteroBibMirror();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const popoverId = useId();
 
   useClickOutside(containerRef, () => setOpen(false), open);
 
@@ -40,9 +42,12 @@ export const ZoteroStatusBadge: React.FC = () => {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 px-3 h-full transition-colors cursor-pointer hover:bg-[var(--color-bg-hover)]"
+        className="flex items-center gap-1.5 px-3 h-full transition-colors cursor-pointer hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
         title={tooltip}
         aria-label={tooltip}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-controls={open ? popoverId : undefined}
       >
         {busy ? (
           <Loader2
@@ -65,7 +70,12 @@ export const ZoteroStatusBadge: React.FC = () => {
       </button>
 
       {open && (
-        <ZoteroDiagnosticsPopover state={state} mirror={mirror} onClose={() => setOpen(false)} />
+        <ZoteroDiagnosticsPopover
+          id={popoverId}
+          state={state}
+          mirror={mirror}
+          onClose={() => setOpen(false)}
+        />
       )}
     </div>
   );

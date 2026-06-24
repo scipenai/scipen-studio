@@ -24,6 +24,8 @@ export interface ToggleProps {
   description?: string;
   /** Custom class name */
   className?: string;
+  /** Accessible name for icon-only or externally-labelled switches. */
+  'aria-label'?: string;
 }
 
 /**
@@ -40,6 +42,7 @@ export const Toggle = forwardRef<HTMLButtonElement, ToggleProps>(
       labelPosition = 'right',
       description,
       className,
+      'aria-label': ariaLabel,
     },
     ref
   ) => {
@@ -83,11 +86,13 @@ export const Toggle = forwardRef<HTMLButtonElement, ToggleProps>(
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={ariaLabel ?? label}
         disabled={disabled}
         onClick={handleClick}
         onKeyDown={handleKeyDown}
         className={clsx(
           'relative inline-flex items-center rounded-full transition-colors duration-200',
+          'cursor-pointer',
           'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--color-accent)]',
           'disabled:cursor-not-allowed disabled:opacity-50',
           sizes[size].track,

@@ -41,15 +41,17 @@ export const MemoryViewerApp: React.FC = () => {
         className="flex h-12 shrink-0 items-center gap-4 border-b px-4"
         style={{ borderBottomColor: 'var(--color-border)' }}
       >
-        <Brain size={18} />
+        <Brain size={18} aria-hidden="true" />
         <h1 className="text-sm font-semibold">{t('memoryViewer.title')}</h1>
-        <div className="ml-4 flex gap-1">
+        <div className="ml-4 flex gap-1" role="tablist" aria-label={t('memoryViewer.title')}>
           {(['memory', 'skills'] as const).map((tab) => (
             <button
               key={tab}
               type="button"
+              role="tab"
+              aria-selected={activeTab === tab}
               onClick={() => setActiveTab(tab)}
-              className={`rounded px-3 py-1 text-xs ${
+              className={`cursor-pointer rounded px-3 py-1 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] ${
                 activeTab === tab
                   ? 'bg-[var(--color-accent)] text-white'
                   : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'

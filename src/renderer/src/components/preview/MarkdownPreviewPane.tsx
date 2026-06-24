@@ -48,7 +48,7 @@ export const MarkdownPreviewPane: React.FC = memo(() => {
   const containerRef = useRef<HTMLDivElement>(null);
   const delayerRef = useRef<Delayer<void> | null>(null);
   const requestIdRef = useRef(0);
-  // scroll-spy:上报当前章节给 AI 上下文(rendered 变则重建 observer)。
+  // scroll-spy: report the current section to the AI context (rebuilds the observer when rendered changes).
   useMarkdownSectionSpy(containerRef, [rendered]);
   const frontmatterTitle = useMemo(
     () =>
@@ -163,10 +163,9 @@ export const MarkdownPreviewPane: React.FC = memo(() => {
         const encoded = copyButton.getAttribute('data-copy-code') || '';
         if (encoded) {
           await navigator.clipboard.writeText(decodeURIComponent(encoded));
-          copyButton.textContent = t('markdownPreview.copied');
+          // Icon-only button: just toggle data-copied; the icon (copy<->check) is swapped via CSS mask.
           copyButton.setAttribute('data-copied', 'true');
           window.setTimeout(() => {
-            copyButton.textContent = t('markdownPreview.copyCode');
             copyButton.setAttribute('data-copied', 'false');
           }, 1400);
         }
@@ -219,7 +218,7 @@ export const MarkdownPreviewPane: React.FC = memo(() => {
         el = el.parentElement;
       }
     },
-    [openLocalFile, t]
+    [openLocalFile]
   );
 
   if (!content) {

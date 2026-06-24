@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import { ConfigKeys } from '../../../shared/types/config-keys';
 import type { AIProviderDTO, ModelSelection } from '../../../shared/ipc/types';
+import { AGENT_NOT_CONFIGURED_MARKER } from '../../../shared/ipc/types';
 import type { IEditorProtocolClient } from '../services/agent/interfaces/IEditorProtocolClient';
 import type {
   ISnacaSidecarService,
@@ -263,6 +264,14 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
     if (initPromise) return initPromise;
 
     initPromise = (async () => {
+      // "LLM not configured" is the expected initial state, not an error — short-circuit here
+      // before spawning the sidecar so we avoid an empty subprocess and don't pollute the log
+      // with a doomed 401. The renderer reads this marker and shows the onboarding card (not a
+      // red error). The finally clause in `initIfNeeded` clears `initPromise` on failure, so a
+      // retry triggered after the user fills in their key can re-run the full init.
+      if (!isChatConfigured(config)) {
+        throw new Error(AGENT_NOT_CONFIGURED_MARKER);
+      }
       if (sidecar.state.kind !== 'running') {
         await sidecar.start();
       }
@@ -308,6 +317,11 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
         if (state.inflightTurn?.turnId === e.turn_id) {
           state.inflightTurn = null;
         }
+        // Reclaim any pending reverse-RPC entries for this turn so the
+        // long-running `ask_user_question` (600 s) doesn't park promises
+        // after the turn is over. Cheap no-op for turns without pending
+        // entries.
+        contextRequest.cancelTurn(e.turn_id);
       }
       broadcast(IpcChannel.Agent_TurnDelta, e);
     })
@@ -643,6 +657,11 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
 
   ipcMain.handle(IpcChannel.Agent_CancelTurn, async (_e, rawTurnId: unknown) => {
     const turnId = parseOrThrow(turnIdSchema, rawTurnId, 'cancelTurn turnId');
+    // Reclaim pending reverse-RPC entries before notifying SNACA. There's a
+    // ~tens-of-ms gap between sending `turn.cancel` and receiving the
+    // terminal `turn.delta done`; reclaiming up front closes that window so
+    // the user-visible question card disappears immediately on Cancel.
+    contextRequest.cancelTurn(turnId);
     await client.turnCancel({ turn_id: turnId });
     return { ok: true } as const;
   });
@@ -857,8 +876,8 @@ function uuidV4ish(input: string): string {
   return [
     part(h1, 8),
     part(h2, 4),
-    '4' + part(h1 ^ h2, 3),
-    '8' + part(h2 ^ h1, 3),
+    `4${part(h1 ^ h2, 3)}`,
+    `8${part(h2 ^ h1, 3)}`,
     part(h1 + h2, 8) + part(h2 - h1, 4),
   ].join('-');
 }
@@ -1022,6 +1041,21 @@ function resolveChatProvider(config: IConfigManager): ResolvedChatProvider | nul
     baseUrl: provider.apiHost?.trim() || undefined,
     apiKey: provider.apiKey ?? '',
   };
+}
+
+/**
+ * Single source of truth: decide whether the chat agent has a usable LLM config.
+ *
+ * Ready = provider + model selected (`resolveChatProvider` non-null) AND an API key is available.
+ * Key resolution mirrors `buildSnacaSidecarEnv` exactly: settings key wins, with
+ * `process.env.SNACA_API_KEY` as a developer-only fallback — count env in so we don't
+ * misclassify the "only env var, settings empty" developer scenario (renderer can't see env,
+ * so this check must live in main, not the front end).
+ */
+function isChatConfigured(config: IConfigManager): boolean {
+  const resolved = resolveChatProvider(config);
+  if (!resolved) return false;
+  return Boolean(resolved.apiKey?.trim() || process.env.SNACA_API_KEY?.trim());
 }
 
 /**

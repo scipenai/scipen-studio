@@ -5,6 +5,13 @@
  */
 
 import { IpcChannel } from '../../../../shared/ipc/channels';
+import type { UpdateStatus } from '../../../../shared/ipc/app-contract';
+import {
+  eventSchemas,
+  invokeResultSchemas,
+  IpcResultValidationError,
+} from '../../../../shared/ipc/schemas';
+import { t as translate } from '../locales';
 
 const IPC_BATCH_LIMIT = 100;
 
@@ -117,12 +124,42 @@ function getIpcRenderer(): IpcRenderer {
 }
 
 async function invoke<T>(channel: IpcChannel, ...args: unknown[]): Promise<T> {
-  return getIpcRenderer().invoke(channel, ...args) as Promise<T>;
+  const raw = await getIpcRenderer().invoke(channel, ...args);
+  // Central validation: if invokeResultSchemas has an entry → safeParse; on mismatch throw
+  // IpcResultValidationError (consumers can treat it like a generic network error). No entry → pass through
+  // (progressive migration). Paired with the main-process channelSchemas guarding inbound args, this forms the RPC two-way boundary.
+  const schema = invokeResultSchemas.get(channel);
+  if (schema) {
+    const result = schema.safeParse(raw);
+    if (!result.success) {
+      throw new IpcResultValidationError(channel, result.error.format());
+    }
+    return result.data as T;
+  }
+  return raw as T;
 }
 
 function onEvent<T>(channel: IpcChannel, callback: (data: T) => void): () => void {
   const ipc = getIpcRenderer();
-  const handler = (...args: unknown[]) => callback(args[1] as T);
+  const schema = eventSchemas.get(channel);
+  // Central validation: if schemas has an entry → safeParse; on mismatch drop + warn, only forward when valid.
+  // No entry → pass through (progressive migration).
+  //
+  // Note: the `window.api.xxx.onYyy` (preload wrapper bridge) path has its own guard — see
+  // `preload/api/_shared.ts:createSafeListener`, which shares `eventSchemas` with this entry point.
+  const handler = (...args: unknown[]) => {
+    const raw = args[1];
+    if (schema) {
+      const result = schema.safeParse(raw);
+      if (!result.success) {
+        console.warn(`[onEvent] dropped malformed payload on '${channel}':`, result.error.format());
+        return;
+      }
+      callback(result.data as T);
+      return;
+    }
+    callback(raw as T);
+  };
   return ipc.on(channel, handler);
 }
 
@@ -310,9 +347,24 @@ interface CompileResult {
 export const compile = {
   latex: (content: string, options?: LaTeXOptions) =>
     invoke<CompileResult>(IpcChannel.Compile_LaTeX, content, options),
+  getLaTeXCapabilities: () =>
+    invoke<import('../../../../shared/ipc/compile-contract').LaTeXCapabilities>(
+      IpcChannel.LaTeX_GetCapabilities
+    ),
   typst: (content: string, options?: TypstCompileOptions) =>
     invoke<CompileResult>(IpcChannel.Compile_Typst, content, options),
   checkTypst: () => invoke<{ available: boolean; version?: string }>(IpcChannel.Typst_Available),
+  /**
+   * Probe Typst engine capabilities (CLI binaries + bundled WASM).
+   * Settings UI uses this to render only the engines actually available
+   * on the host. Result is intentionally read-once (not cached) so a user
+   * who installs `tinymist` mid-session sees it after the next settings
+   * panel open.
+   */
+  getTypstCapabilities: () =>
+    invoke<import('../../../../shared/ipc/compile-contract').TypstCapabilities>(
+      IpcChannel.Typst_GetCapabilities
+    ),
   cancel: (type?: 'latex' | 'typst') =>
     invoke<{ success: boolean; cancelled: number }>(IpcChannel.Compile_Cancel, type),
   getStatus: () =>
@@ -320,6 +372,17 @@ export const compile = {
       latex: { isCompiling: boolean; queueLength: number; currentTaskId: string | null };
       typst: { isCompiling: boolean };
     }>(IpcChannel.Compile_GetStatus),
+  /**
+   * Persist a BusyTeX WASM compile result to a temp dir on disk so the
+   * main-process `synctex` CLI can read it. Returns the on-disk paths.
+   */
+  writeWasmArtifacts: (pdfBuffer: Uint8Array, synctexBuffer: Uint8Array, baseName?: string) =>
+    invoke<{ pdfPath: string; synctexPath: string }>(
+      IpcChannel.Compile_WriteWasmArtifacts,
+      pdfBuffer,
+      synctexBuffer,
+      baseName
+    ),
 };
 
 // ==================== SyncTeX API ====================
@@ -339,10 +402,24 @@ interface InverseSyncResult {
 }
 
 export const synctex = {
-  forward: (texFile: string, line: number, column: number, pdfFile: string) =>
-    invoke<ForwardSyncResult | null>(IpcChannel.SyncTeX_Forward, texFile, line, column, pdfFile),
-  backward: (pdfFile: string, page: number, x: number, y: number) =>
-    invoke<InverseSyncResult | null>(IpcChannel.SyncTeX_Backward, pdfFile, page, x, y),
+  /**
+   * Forward sync: source location → PDF position.
+   *
+   * `projectRoot` is required when the .synctex.gz was produced by the
+   * BusyTeX WASM engine (records relative paths). The main process
+   * rebases `texFile` against `projectRoot` before invoking `synctex`.
+   */
+  forward: (texFile: string, line: number, column: number, pdfFile: string, projectRoot?: string) =>
+    invoke<ForwardSyncResult | null>(
+      IpcChannel.SyncTeX_Forward,
+      texFile,
+      line,
+      column,
+      pdfFile,
+      projectRoot
+    ),
+  backward: (pdfFile: string, page: number, x: number, y: number, projectRoot?: string) =>
+    invoke<InverseSyncResult | null>(IpcChannel.SyncTeX_Backward, pdfFile, page, x, y, projectRoot),
 };
 
 // ==================== AI API ====================
@@ -353,6 +430,8 @@ export const ai = {
   updateConfig: (config: AIConfig) => invoke<void>(IpcChannel.AI_UpdateConfig, config),
   isConfigured: () => invoke<boolean>(IpcChannel.AI_IsConfigured),
   completion: (context: string) => invoke<AIResult>(IpcChannel.AI_Completion, context),
+  generateTitle: (userMessage: string) =>
+    invoke<AIResult>(IpcChannel.AI_GenerateTitle, userMessage),
   chatStream: (messages: AIMessage[]) => invoke<AIResult>(IpcChannel.AI_ChatStream, messages),
   testConnection: () => invoke<{ success: boolean; message: string }>(IpcChannel.AI_TestConnection),
   stopGeneration: () => invoke<void>(IpcChannel.AI_StopGeneration),
@@ -638,24 +717,46 @@ export const app = {
     const w = window as unknown as { electron?: { platform?: NodeJS.Platform } };
     return w.electron?.platform ?? 'linux';
   },
-  checkUpdate: () =>
-    invoke<import('../../../../shared/ipc/app-contract').UpdateStatus>(IpcChannel.App_CheckUpdate),
+  // `invoke<T>` already validates return values centrally via `invokeResultSchemas`, throwing
+  // IpcResultValidationError on mismatch. A single-line pass-through is enough here.
+  checkUpdate: () => invoke<UpdateStatus>(IpcChannel.App_CheckUpdate),
   downloadUpdate: () => invoke<void>(IpcChannel.App_DownloadUpdate),
   installUpdate: () => invoke<void>(IpcChannel.App_InstallUpdate),
-  onUpdateStatus: (
-    callback: (status: import('../../../../shared/ipc/app-contract').UpdateStatus) => void
-  ): (() => void) => {
-    return onEvent(IpcChannel.App_UpdateStatus, callback);
-  },
+  // `onEvent` already centrally validates `App_UpdateStatus`; a single-line pass-through is enough here.
+  onUpdateStatus: (callback: (status: UpdateStatus) => void): (() => void) =>
+    onEvent<UpdateStatus>(IpcChannel.App_UpdateStatus, callback),
 };
 
 // ==================== Dialog API ====================
 
+// Default button labels are filled at this boundary using the renderer's
+// current locale (via the module-level `t()` from `../locales`, which reads
+// `currentLocale` at call time — no React hook needed). Callsites can
+// override per-call by passing `options.confirmText` / `cancelText` / `okText`.
 export const dialog = {
-  confirm: (message: string, title?: string) =>
-    invoke<boolean>(IpcChannel.Dialog_Confirm, { message, title }),
-  message: (message: string, type?: 'info' | 'warning' | 'error', title?: string) =>
-    invoke<void>(IpcChannel.Dialog_Message, { message, type, title }),
+  confirm: (
+    message: string,
+    title?: string,
+    options?: { confirmText?: string; cancelText?: string }
+  ) =>
+    invoke<boolean>(IpcChannel.Dialog_Confirm, {
+      message,
+      title,
+      confirmText: options?.confirmText ?? translate('common.confirm'),
+      cancelText: options?.cancelText ?? translate('common.cancel'),
+    }),
+  message: (
+    message: string,
+    type?: 'info' | 'warning' | 'error',
+    title?: string,
+    options?: { okText?: string }
+  ) =>
+    invoke<void>(IpcChannel.Dialog_Message, {
+      message,
+      type,
+      title,
+      okText: options?.okText ?? translate('common.ok'),
+    }),
 };
 
 // ==================== Config API ====================
@@ -815,6 +916,96 @@ export const zotero = {
     on(IpcChannel.Zotero_EmbeddingProgress, (data) => callback(data as EmbeddingIndexStatusDTO)),
 };
 
+// ==================== History API ====================
+
+export type HistoryLabelKindDTO = 'manual' | 'auto' | 'milestone';
+export type HistoryStepOriginDTO = 'snaca_tool' | 'human_edit' | 'merge';
+
+export interface HistoryLabelDTO {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string | null;
+  kind: HistoryLabelKindDTO;
+  createdAt: number;
+  createdBy: string;
+}
+
+export interface HistoryStepDTO {
+  hash: Uint8Array;
+  parentHash: Uint8Array | null;
+  projectId: string;
+  sessionId: string;
+  treeHash: Uint8Array;
+  causes: Uint8Array;
+  origin: HistoryStepOriginDTO;
+  ts: number;
+  sizeDelta: number;
+}
+
+export const history = {
+  putBlob: (input: { projectId: string; bytes: Uint8Array }) =>
+    invoke<{ hashHex: string; size: number }>(IpcChannel.History_PutBlob, input),
+
+  ensureSession: (input: {
+    projectId: string;
+    id: string;
+    chatThreadId: string | null;
+    parentSession: string | null;
+  }) => invoke<{ ok: true }>(IpcChannel.History_EnsureSession, input),
+
+  recordStep: (input: {
+    projectId: string;
+    sessionId: string;
+    parentStepHashHex: string | null;
+    tree: Array<{ fileId: string; blobHashHex: string }>;
+    causes: Array<{ toolName: string; argsJson?: string; resultSummary?: string }>;
+    origin: HistoryStepOriginDTO;
+    ts: number;
+    sizeDelta: number;
+  }) => invoke<{ hashHex: string }>(IpcChannel.History_RecordStep, input),
+
+  createLabel: (input: {
+    projectId: string;
+    name: string;
+    description?: string;
+    kind: HistoryLabelKindDTO;
+    createdBy: string;
+    files: Array<{ fileId: string; blobHashHex: string; version: number }>;
+  }) => invoke<HistoryLabelDTO>(IpcChannel.History_CreateLabel, input),
+
+  listLabels: (input: { projectId: string; limit?: number }) =>
+    invoke<HistoryLabelDTO[]>(IpcChannel.History_ListLabels, input),
+
+  resolveLabelSnapshot: (input: { projectId: string; labelId: string }) =>
+    invoke<Record<string, Uint8Array>>(IpcChannel.History_ResolveLabelSnapshot, input),
+
+  getStep: (input: { projectId: string; hashHex: string }) =>
+    invoke<HistoryStepDTO | null>(IpcChannel.History_GetStep, input),
+
+  listSessionSteps: (input: { projectId: string; sessionId: string; limit?: number }) =>
+    invoke<HistoryStepDTO[]>(IpcChannel.History_ListSessionSteps, input),
+
+  resolveStepSnapshot: (input: { projectId: string; hashHex: string }) =>
+    invoke<Record<string, Uint8Array>>(IpcChannel.History_ResolveStepSnapshot, input),
+
+  findStepBeforeTs: (input: { projectId: string; sessionId: string; beforeTs: number }) =>
+    invoke<{ hashHex: string; ts: number; origin: HistoryStepOriginDTO } | null>(
+      IpcChannel.History_FindStepBeforeTs,
+      input
+    ),
+
+  listSessions: (input: { projectId: string; limit?: number }) =>
+    invoke<
+      Array<{
+        sessionId: string;
+        chatThreadId: string | null;
+        stepCount: number;
+        lastTs: number;
+      }>
+    >(IpcChannel.History_ListSessions, input),
+};
+
 // ==================== Unified exports ====================
 
 export const api = {
@@ -836,6 +1027,7 @@ export const api = {
   fileWatcher,
   selection,
   zotero,
+  history,
 };
 
 export default api;

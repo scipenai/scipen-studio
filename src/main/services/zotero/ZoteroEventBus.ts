@@ -1,11 +1,13 @@
 /**
- * @file ZoteroEventBus —— 主进程 bib 事件总线
- * @description Orchestrator emit 事件后 (a) 广播到每个 renderer window
- *              (Zotero_Event 通道),(b) 触发 main 内部 listener。后者让
- *              BibTexSyncService 这种主进程组件无需 IPC round-trip 就能听到
- *              index 变化。
+ * @file ZoteroEventBus — main-process bib event bus
+ * @description After the orchestrator emits an event, the bus (a)
+ *              broadcasts it to every renderer window (Zotero_Event
+ *              channel) and (b) fires main-process listeners. The latter
+ *              lets components like BibTexSyncService listen for index
+ *              changes without an IPC round-trip.
  *
- *              `Broadcaster` 是测试 seam:生产环境 fan-out 到所有活 BrowserWindow。
+ *              `Broadcaster` is a test seam: in production it fans out to
+ *              every live BrowserWindow.
  */
 
 import { BrowserWindow } from 'electron';
@@ -37,14 +39,15 @@ export class ZoteroEventBus {
       try {
         listener(event);
       } catch (err) {
-        // 单个订阅者炸不能拖垮总线;打到 stderr 就够,这里不引 LoggerService 依赖。
+        // One throwing subscriber must not take down the bus; stderr is
+        // enough here — avoid pulling in LoggerService.
         // eslint-disable-next-line no-console
         console.error('[ZoteroEventBus] in-process listener threw', err);
       }
     }
   }
 
-  /** 注册 main 内部 listener;返回取订函数。 */
+  /** Register a main-process listener; returns the unsubscribe function. */
   on(listener: Listener): () => void {
     this.listeners.add(listener);
     return () => {

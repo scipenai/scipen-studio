@@ -1,9 +1,10 @@
 /**
- * @file CitePreviewService —— `\cite{key}` hover 预览。用自定义 Monaco
- *   IContentWidget(而非原生 hover 的 IMarkdownString,后者渲 data: 图不可靠)
- *   显示 标题/作者/年 + 摘要 + 论文截图。截图异步(CiteShotService),靠
- *   currentItemKey 守卫防重建/串台,debounce 防快速划过触发 loadPdf。
- *   生命周期照搬 MathPreviewService。
+ * @file CitePreviewService — `\cite{key}` hover preview. Uses a custom Monaco
+ *   IContentWidget (not the native hover's IMarkdownString, which can't reliably
+ *   render data: images) to show title/authors/year + abstract + paper screenshot.
+ *   Screenshot is async (CiteShotService), guarded by currentItemKey to prevent
+ *   rebuild/race; debounce avoids triggering loadPdf on quick mouseover.
+ *   Lifecycle mirrors MathPreviewService.
  */
 
 import type * as Monaco from 'monaco-editor';
@@ -110,7 +111,7 @@ class CiteHoverWidget implements Monaco.editor.IContentWidget {
     return this.position !== null;
   }
 
-  /** 渲染卡片正文(标题/作者/摘要)+ 截图区初始 loading,并定位显示。 */
+  /** Render card body (title/authors/abstract) + initial loading state for shot, then position and show. */
   showFor(position: Monaco.IPosition, entry: ZoteroItemDTO): void {
     this.metaEl.innerHTML = buildMetaHtml(entry);
     this.shotEl.innerHTML = loadingShotHtml();
@@ -118,7 +119,7 @@ class CiteHoverWidget implements Monaco.editor.IContentWidget {
     this.domNode.style.opacity = '1';
   }
 
-  /** 截图 resolve 后只替换截图子节点,不重建整卡。 */
+  /** After shot resolves, replace only the shot child node, not the whole card. */
   setShot(html: string): void {
     this.shotEl.innerHTML = html;
   }
@@ -181,7 +182,7 @@ export class CitePreviewService {
   }
 
   private showFor(position: Monaco.IPosition, entry: ZoteroItemDTO): void {
-    if (entry.itemKey === this.currentItemKey) return; // 同篇:已显示,不重建/不重启截图
+    if (entry.itemKey === this.currentItemKey) return; // same paper: already shown, don't rebuild/restart shot
     this.currentItemKey = entry.itemKey;
     this.widget!.showFor(position, entry);
     this.editor!.layoutContentWidget(this.widget!);
@@ -207,7 +208,7 @@ export class CitePreviewService {
   }
 
   private hideWidget(): void {
-    if (this.currentItemKey === null) return; // 已隐藏,避免每次 mousemove 重复 layout
+    if (this.currentItemKey === null) return; // already hidden, avoid layout thrash on every mousemove
     this.currentItemKey = null;
     this.clearTimer();
     this.widget?.hide();

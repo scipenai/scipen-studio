@@ -1,14 +1,18 @@
 /**
- * @file ActiveRecommendationService —— M3 标尺5 渲染侧推荐编排单例。
+ * @file ActiveRecommendationService -- M3 ruler-5 renderer-side recommendation
+ * orchestration singleton.
  *
- * 职责:持有当前 Monaco editor 引用,监听编辑/光标变化 → debounce 1.5s →
- * 抽当前段落 → 段落 hash 守卫(没变不发)→ IPC 查询 main(embed+cosine+rerank)
- * → turnId 丢弃过期响应 → 通过 useSyncExternalStore 暴露给**叶子**面板。
+ * Responsibilities: holds the current Monaco editor reference, listens for
+ * edit/cursor changes -> debounce 1.5s -> extracts current paragraph ->
+ * paragraph-hash guard (skip if unchanged) -> IPC query to main
+ * (embed+cosine+rerank) -> turnId discards stale responses -> exposes state to
+ * **leaf** panels via useSyncExternalStore.
  *
- * 卡顿红线([[project-studio-zotero-active-jank]]):监听独立于高频
- * setupContentChangeTracking;debounce + hash 守卫保证空闲/无变化时零 IPC;
- * 状态订阅只放叶子组件,绝不在 App 顶层。仅当 embedding 索引 state==='ready'
- * 时才发查询(disabled/no-key/building 时静默)。
+ * Jank red line ([[project-studio-zotero-active-jank]]): listeners are
+ * independent of high-frequency setupContentChangeTracking; debounce + hash
+ * guard ensure zero IPC when idle / unchanged; state subscription lives only
+ * in leaf components, never at the App root. Only fires a query when the
+ * embedding index state==='ready' (silent under disabled/no-key/building).
  */
 
 import type * as monaco from 'monaco-editor';
@@ -23,11 +27,11 @@ import type {
 
 const logger = createLogger('ActiveRecommendation');
 
-/** 编辑停顿多久后才查询(防打字途中刷 API)。 */
+/** How long the editor must idle before we query (prevents thrashing the API mid-typing). */
 const DEBOUNCE_MS = 1500;
 
 export interface RecommendationState {
-  /** embedding 索引状态,驱动面板提示(配置 / 建库中 / 就绪)。 */
+  /** Embedding index state; drives panel hints (configuring / building / ready). */
   indexState: EmbeddingIndexState;
   items: ZoteroEmbeddingResultItemDTO[];
   loading: boolean;
@@ -46,7 +50,7 @@ export class ActiveRecommendationService {
   private indexState: EmbeddingIndexState = 'disabled';
   private items: ZoteroEmbeddingResultItemDTO[] = [];
   private loading = false;
-  /** 当前段落对全库可引用文献的相关度分(citationKey → score),供 @cite 下拉语义重排。 */
+  /** Relevance scores of current paragraph against all citable refs (citationKey -> score), feeds @cite dropdown semantic reranking. */
   private citationScores: Map<string, number> | null = null;
 
   private listeners = new Set<Listener>();
@@ -58,10 +62,10 @@ export class ActiveRecommendationService {
   private unsubProgress: (() => void) | null = null;
 
   // ============================================================
-  // 生命周期
+  // Lifecycle
   // ============================================================
 
-  /** 编辑器挂载时调用(EditorPane handleEditorMount)。注册监听 + 拉初始状态。 */
+  /** Called when the editor mounts (EditorPane handleEditorMount). Registers listeners + pulls initial state. */
   attachEditor(editor: Editor): void {
     this.editor = editor;
     this.disposers.push(
@@ -78,16 +82,19 @@ export class ActiveRecommendationService {
   }
 
   /**
-   * 索引状态变化的统一入口。**翻转到 ready** 意味着索引内容刚重建/更新(手动
-   * 重建 / provider / key 变更都经此),renderer 缓存的「上次查过的段落 hash」
-   * 与「全库相关度分」已失效——必须清 lastHash 放行去重守卫,并主动补一次查询,
-   * 否则光标停在同段不动时 runQuery 会因 hash 未变永久早退,推荐再不刷新。
+   * Unified entry for index-state changes. **Flipping to ready** means the
+   * index was just rebuilt/updated (manual rebuild / provider / key change all
+   * route through here); the renderer-cached "last queried paragraph hash"
+   * and "library-wide relevance scores" are stale -- must clear lastHash to
+   * release the dedup guard and proactively re-fire one query, otherwise if
+   * the cursor stays in the same paragraph runQuery will early-exit forever
+   * on the unchanged hash and recommendations never refresh.
    */
   private onIndexState(state: EmbeddingIndexState): void {
     const becameReady = state === 'ready' && this.indexState !== 'ready';
     this.indexState = state;
     if (becameReady) {
-      this.lastHash = ''; // 失效去重守卫:同段落也要按新索引重查
+      this.lastHash = ''; // Invalidate dedup guard: same paragraph must re-query against the new index
       this.scheduleQuery();
     }
     this.bump();
@@ -104,11 +111,11 @@ export class ActiveRecommendationService {
   }
 
   // ============================================================
-  // 触发链路
+  // Trigger pipeline
   // ============================================================
 
   private scheduleQuery(): void {
-    // 索引未就绪时连 debounce 都不挂,彻底零开销。
+    // When the index isn't ready, don't even arm the debounce -- truly zero overhead.
     if (this.indexState !== 'ready') {
       logger.info('scheduleQuery skip: index not ready', { indexState: this.indexState });
       return;
@@ -127,7 +134,7 @@ export class ActiveRecommendationService {
 
     const extracted = extractFromEditor(model, editor.getPosition()?.lineNumber ?? 1);
     if (!extracted) {
-      // 诊断:段落抽取返回 null(trim 后 <30 字符)→ 不查。脱敏:只打行数/光标行。
+      // Diagnostic: paragraph extraction returned null (trimmed <30 chars) -> skip. Sanitized: only log line counts / cursor line.
       logger.info('runQuery skip: paragraph too short', {
         lang: model.getLanguageId(),
         lineCount: model.getLineCount(),
@@ -152,7 +159,7 @@ export class ActiveRecommendationService {
         lang: detectParagraphLang(model.getLanguageId()),
         filePath: model.uri.path,
       });
-      // 过期响应(用户已移到新段落)丢弃。
+      // Stale response (user already moved to a new paragraph) -- discard.
       if (turn !== this.turnId || res.paragraphHash !== this.lastHash) {
         logger.info('runQuery drop stale', {
           staleTurn: turn !== this.turnId,
@@ -165,7 +172,7 @@ export class ActiveRecommendationService {
         scores: res.scores?.length ?? 0,
         degraded: res.degraded ?? 'none',
       });
-      // 仅在本次带回 scores 时更新缓存,查询失败/无 scores 保留上次,@cite 下拉不瞬间失序。
+      // Only update cache when this turn carried scores; on query failure / no scores keep prior so @cite dropdown doesn't suddenly lose ordering.
       if (res.scores) {
         this.citationScores = new Map(res.scores.map((s) => [s.citationKey, s.score]));
       }
@@ -182,7 +189,7 @@ export class ActiveRecommendationService {
   }
 
   // ============================================================
-  // 插入引用(面板点击)—— 复用 citationKeyScan 的语法真相源
+  // Insert citation (panel click) -- reuse citationKeyScan as the syntax source of truth
   // ============================================================
 
   insertCitation(citationKey: string): void {
@@ -208,7 +215,7 @@ export class ActiveRecommendationService {
   }
 
   // ============================================================
-  // 订阅(useSyncExternalStore 友好)
+  // Subscription (useSyncExternalStore friendly)
   // ============================================================
 
   subscribe(listener: Listener): () => void {
@@ -221,9 +228,11 @@ export class ActiveRecommendationService {
   }
 
   /**
-   * @cite 补全下拉的语义重排数据:当前段落对全库可引用文献的相关度分
-   * (citationKey → score)。复用 标尺5 最近一次段落嵌入,键入热路径纯内存
-   * 同步读、零 IPC。null(未开 / 未 ready / 尚未嵌段)→ 下拉回落现状排序。
+   * Semantic reranking data for the @cite completion dropdown: relevance of
+   * current paragraph against all citable library refs (citationKey -> score).
+   * Reuses the most recent paragraph embedding from ruler-5; the keystroke hot
+   * path reads pure in-memory, zero IPC. null (disabled / not ready / no
+   * paragraph yet embedded) -> dropdown falls back to its existing ordering.
    */
   getCitationRanking(): Map<string, number> | null {
     return this.citationScores;

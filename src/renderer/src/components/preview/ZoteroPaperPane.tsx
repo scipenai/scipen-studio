@@ -1,8 +1,8 @@
 /**
- * @file ZoteroPaperPane —— 右栏「论文」tab。展示 Zotero 论文 PDF,并提供:
- *   ① 「精解析」按钮触发 MinerU 云解析(无 token 先弹配置框),进度内联显示;
- *   ② [原始PDF | 解析MD] 切换 —— 解析后可看结构化 markdown。
- *   PDF 由 Ctrl+Click \cite{} 经 UIService.loadZoteroPaper 注入。
+ * @file ZoteroPaperPane — right-pane "Paper" tab. Displays the Zotero paper PDF and provides:
+ *   (1) a "Deep Parse" button that triggers MinerU cloud parsing (opens the setup dialog first if no token), progress shown inline;
+ *   (2) [Raw PDF | Parsed MD] toggle — once parsed, the structured markdown becomes viewable.
+ *   The PDF is injected via Ctrl+Click on \cite{} through UIService.loadZoteroPaper.
  */
 
 import type React from 'react';
@@ -28,10 +28,10 @@ export const ZoteroPaperPane: React.FC = () => {
   const [hasMd, setHasMd] = useState(false);
   const [status, setStatus] = useState<MinerUParseStatusDTO | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  // 档1 抽取质量:'poor' 时提示用户精解析(数据来自 getFullText,有缓存)。
+  // Tier-1 extraction quality: when 'poor', nudge the user to run deep parse (data comes from getFullText, cached).
   const [quality, setQuality] = useState<'good' | 'poor' | null>(null);
 
-  // 探测当前条目是否已有解析产物(决定 MD 切换是否可用),并订阅进度。
+  // Probe whether the current item already has a parsed artifact (decides if the MD toggle is enabled) and subscribe to progress.
   useEffect(() => {
     if (!itemKey) {
       setHasMd(false);
@@ -44,7 +44,7 @@ export const ZoteroPaperPane: React.FC = () => {
     void api.zotero.getParsedMarkdown(itemKey).then((r) => {
       if (!cancelled) setHasMd(r !== null);
     });
-    // 探测档1 抽取质量(命中缓存不重跑 pdf-parse),poor 时显提示条。
+    // Probe tier-1 extraction quality (cache hit avoids re-running pdf-parse); show the hint banner when poor.
     void api.zotero.getFullText(itemKey).then((r) => {
       if (!cancelled) setQuality(r.quality ?? null);
     });
@@ -67,7 +67,7 @@ export const ZoteroPaperPane: React.FC = () => {
       <div className="flex h-full flex-col items-center justify-center bg-[var(--color-bg-secondary)]">
         <div className="px-6 text-center">
           <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-[var(--color-bg-tertiary)]">
-            <FileText size={40} className="text-[var(--color-text-disabled)]" />
+            <FileText size={40} className="text-[var(--color-text-disabled)]" aria-hidden="true" />
           </div>
           <p className="font-medium text-[var(--color-text-secondary)]">{t('zoteroPaper.empty')}</p>
         </div>
@@ -112,7 +112,7 @@ export const ZoteroPaperPane: React.FC = () => {
         className="flex items-center gap-2 border-b px-3 py-2"
         style={{ borderBottomColor: 'var(--color-border-subtle)' }}
       >
-        {/* PDF / MD 切换 */}
+        {/* PDF / MD toggle */}
         <div className="flex items-center gap-1 rounded-lg bg-[var(--color-bg-tertiary)] p-0.5">
           <SegBtn active={viewMode === 'pdf'} onClick={() => setViewMode('pdf')}>
             {t('zoteroPaper.viewPdf')}
@@ -129,20 +129,24 @@ export const ZoteroPaperPane: React.FC = () => {
 
         <div className="flex-1" />
 
-        {/* 精解析 */}
+        {/* Deep parse */}
         <button
           type="button"
           onClick={() => void startParse()}
           disabled={busy}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-muted)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-60"
           title={t('zoteroPaper.parseButton')}
         >
-          {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+          {busy ? (
+            <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+          ) : (
+            <Sparkles size={13} aria-hidden="true" />
+          )}
           <span>{parseLabel()}</span>
         </button>
       </div>
 
-      {/* 档1 质量差提示:仅 PDF 视图、未解析时出现,引导精解析。 */}
+      {/* Tier-1 quality warning: only shown in PDF view when no parsed artifact exists; guides the user to deep parse. */}
       {quality === 'poor' && viewMode === 'pdf' && !hasMd && (
         <div
           className="flex items-center gap-2 border-b px-3 py-2 text-xs"
@@ -152,14 +156,19 @@ export const ZoteroPaperPane: React.FC = () => {
             color: 'var(--color-text-secondary)',
           }}
         >
-          <AlertTriangle size={13} className="shrink-0 text-[var(--color-warning,#eab308)]" />
+          <AlertTriangle
+            size={13}
+            className="shrink-0 text-[var(--color-warning,#eab308)]"
+            aria-hidden="true"
+          />
           <span className="flex-1">{t('zoteroPaper.qualityPoor')}</span>
           <button
             type="button"
             onClick={() => void startParse()}
             disabled={busy}
-            className="shrink-0 rounded-md px-2 py-1 font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-muted)] disabled:opacity-60"
+            className="flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 py-1 font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-muted)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-60"
           >
+            <Sparkles size={13} aria-hidden="true" />
             {t('zoteroPaper.parseButton')}
           </button>
         </div>
@@ -193,8 +202,9 @@ const SegBtn: React.FC<{
     type="button"
     onClick={onClick}
     disabled={disabled}
+    aria-pressed={active}
     title={title}
-    className="rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+    className="cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
     style={
       active
         ? { background: 'var(--color-bg-elevated)', color: 'var(--color-text-primary)' }
@@ -205,7 +215,7 @@ const SegBtn: React.FC<{
   </button>
 );
 
-/** 错误码 → i18n key 后缀。 */
+/** Error code -> i18n key suffix. */
 function mapErr(code?: string): string {
   switch (code) {
     case 'MINERU_NO_TOKEN':

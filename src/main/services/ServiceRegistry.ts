@@ -28,6 +28,7 @@ import {
   createContextRequestService,
   defaultGetRendererWebContents,
 } from './agent/ContextRequestService';
+import { createHistoryManager } from './history';
 import { buildSnacaSidecarEnv } from '../ipc/agentHandlers';
 import type { ISnacaSidecarService } from './agent/interfaces/ISnacaSidecarService';
 import type { IEditorProtocolClient } from './agent/interfaces/IEditorProtocolClient';
@@ -123,6 +124,18 @@ export function registerServices(): void {
     createContextRequestService({
       getRendererWebContents: defaultGetRendererWebContents(BrowserWindow),
       fileSystem: container.get<IFileSystemService>(ServiceNames.FILE_SYSTEM),
+    })
+  );
+
+  // Lazy: a typical session may never invoke history APIs (e.g. user just
+  // browsing). Construction allocates no fds until `getOrCreate` is called.
+  container.registerLazy(ServiceNames.HISTORY_MANAGER, () =>
+    createHistoryManager({
+      baseDir: path.join(app.getPath('userData'), 'scipen-studio'),
+      // 4 KiB matches SQLite's default page size, the sweet spot for inline
+      // blob rows; the value can be tuned per-project later without touching
+      // the schema.
+      inlineMaxBytes: 4096,
     })
   );
 

@@ -23,6 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import type React from 'react';
+import { useCallback, useEffect, useId, useRef } from 'react';
 import { api } from '../../api';
 import { useTranslation } from '../../locales';
 import type { ZoteroWizardController, WizardStepState } from '../../hooks/useZoteroWizard';
@@ -39,6 +40,58 @@ const BBT_INSTALL_URL = 'https://retorque.re/zotero-better-bibtex/installation/'
 
 export const ZoteroSetupWizard: React.FC<ZoteroSetupWizardProps> = ({ controller }) => {
   const { t } = useTranslation();
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!controller.isOpen) return;
+
+    previouslyFocusedRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const firstAction =
+      dialogRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    (firstAction ?? dialogRef.current)?.focus();
+
+    return () => {
+      previouslyFocusedRef.current?.focus();
+      previouslyFocusedRef.current = null;
+    };
+  }, [controller.isOpen]);
+
+  const handleDialogKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        controller.close();
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+
+      const focusable = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? []
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialogRef.current?.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    [controller]
+  );
 
   if (!controller.isOpen) {
     return null;
@@ -60,9 +113,15 @@ export const ZoteroSetupWizard: React.FC<ZoteroSetupWizardProps> = ({ controller
         onClick={controller.close}
       >
         <motion.div
+          ref={dialogRef}
           initial={{ opacity: 0, scale: 0.96, y: 16 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.96, y: 16 }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          tabIndex={-1}
+          onKeyDown={handleDialogKeyDown}
           className="mx-4 flex max-h-[82vh] w-full max-w-2xl flex-col rounded-[28px] border p-6 shadow-[0_32px_90px_rgba(15,23,42,0.18)]"
           style={{
             background:
@@ -71,7 +130,7 @@ export const ZoteroSetupWizard: React.FC<ZoteroSetupWizardProps> = ({ controller
           }}
           onClick={(event) => event.stopPropagation()}
         >
-          <WizardHeader onClose={controller.close} />
+          <WizardHeader titleId={titleId} onClose={controller.close} />
 
           <div className="mb-4 flex items-center justify-between">
             <span className="text-xs font-medium text-[var(--color-text-muted)]">
@@ -123,7 +182,7 @@ export const ZoteroSetupWizard: React.FC<ZoteroSetupWizardProps> = ({ controller
 // Sub-components
 // ============================================================================
 
-const WizardHeader: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+const WizardHeader: React.FC<{ titleId: string; onClose: () => void }> = ({ titleId, onClose }) => {
   const { t } = useTranslation();
   return (
     <div className="mb-6 flex items-center justify-between gap-4">
@@ -132,10 +191,10 @@ const WizardHeader: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           className="flex h-11 w-11 items-center justify-center rounded-2xl"
           style={{ background: 'rgba(168, 85, 247, 0.1)', color: '#7c3aed' }}
         >
-          <BookMarked className="h-5 w-5" />
+          <BookMarked className="h-5 w-5" aria-hidden="true" />
         </div>
         <div>
-          <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">
+          <h2 id={titleId} className="text-lg font-semibold text-[var(--color-text-primary)]">
             {t('zoteroWizard.title')}
           </h2>
           <p className="text-xs text-[var(--color-text-muted)]">{t('zoteroWizard.subtitle')}</p>
@@ -144,14 +203,15 @@ const WizardHeader: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       <button
         type="button"
         onClick={onClose}
-        className="flex h-10 w-10 items-center justify-center rounded-2xl border"
+        aria-label={t('common.close')}
+        className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-2xl border focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
         style={{
           background: 'rgba(255,255,255,0.84)',
           borderColor: 'rgba(148,163,184,0.18)',
           color: 'var(--color-text-muted)',
         }}
       >
-        <X className="h-4.5 w-4.5" />
+        <X className="h-4.5 w-4.5" aria-hidden="true" />
       </button>
     </div>
   );
@@ -267,7 +327,11 @@ const StepBetterBibTex: React.FC<{
           style={{ background: 'rgba(245,158,11,0.08)', borderColor: 'rgba(245,158,11,0.2)' }}
         >
           <div className="flex items-start gap-3">
-            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" style={{ color: '#d97706' }} />
+            <AlertTriangle
+              className="mt-0.5 h-5 w-5 shrink-0"
+              style={{ color: '#d97706' }}
+              aria-hidden="true"
+            />
             <div>
               <p className="text-sm font-medium" style={{ color: '#92400e' }}>
                 {t('zoteroWizard.step3.skipNoteTitle')}
@@ -305,7 +369,7 @@ const StepBetterBibTex: React.FC<{
           <button
             type="button"
             onClick={onSkip}
-            className="ml-auto rounded-xl px-3 py-2 text-xs font-medium"
+            className="ml-auto cursor-pointer rounded-xl px-3 py-2 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             style={{ color: 'var(--color-text-muted)' }}
           >
             {t('zoteroWizard.skipBBT')}
@@ -335,7 +399,7 @@ const SuccessCard: React.FC<{ title: string; hint: string }> = ({ title, hint })
         className="flex h-8 w-8 items-center justify-center rounded-xl"
         style={{ background: '#22c55e', color: 'white' }}
       >
-        <Check className="h-4 w-4" />
+        <Check className="h-4 w-4" aria-hidden="true" />
       </div>
       <div>
         <p className="text-sm font-medium" style={{ color: '#166534' }}>
@@ -364,7 +428,11 @@ const MissingCard: React.FC<{
       }}
     >
       <div className="flex items-start gap-3">
-        <Sparkles className="mt-0.5 h-5 w-5 shrink-0" style={{ color: '#dc2626' }} />
+        <Sparkles
+          className="mt-0.5 h-5 w-5 shrink-0"
+          style={{ color: '#dc2626' }}
+          aria-hidden="true"
+        />
         <div className="flex-1">
           <p className="text-sm font-medium" style={{ color: '#991b1b' }}>
             {title}
@@ -377,7 +445,7 @@ const MissingCard: React.FC<{
           )}
           {checking && (
             <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
               <span>{t('zoteroWizard.checking')}</span>
             </p>
           )}
@@ -392,14 +460,14 @@ const LinkButton: React.FC<{ onClick: () => void; label: string }> = ({ onClick,
   <button
     type="button"
     onClick={onClick}
-    className="flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium"
+    className="flex cursor-pointer items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
     style={{
       background: 'rgba(255,255,255,0.84)',
       borderColor: 'rgba(148,163,184,0.18)',
       color: 'var(--color-text-primary)',
     }}
   >
-    <ExternalLink className="h-3.5 w-3.5" />
+    <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
     {label}
   </button>
 );
@@ -413,13 +481,13 @@ const ActionButton: React.FC<{ onClick: () => void; label: string; checking: boo
     type="button"
     onClick={onClick}
     disabled={checking}
-    className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+    className="flex cursor-pointer items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-60"
     style={{ background: '#7c3aed' }}
   >
     {checking ? (
-      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
     ) : (
-      <RefreshCw className="h-3.5 w-3.5" />
+      <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
     )}
     {label}
   </button>
@@ -447,10 +515,10 @@ const WizardFooter: React.FC<{ controller: ZoteroWizardController }> = ({ contro
         type="button"
         onClick={controller.goBack}
         disabled={currentStep === 1}
-        className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium disabled:opacity-40"
+        className="flex cursor-pointer items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
         style={{ color: 'var(--color-text-muted)' }}
       >
-        <ArrowLeft className="h-3.5 w-3.5" />
+        <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
         {t('zoteroWizard.back')}
       </button>
 
@@ -458,7 +526,7 @@ const WizardFooter: React.FC<{ controller: ZoteroWizardController }> = ({ contro
         type="button"
         onClick={isLastStep ? controller.finish : controller.goNext}
         disabled={!canGoNext}
-        className="rounded-xl px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
+        className="cursor-pointer rounded-xl px-4 py-2 text-xs font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
         style={{ background: '#7c3aed' }}
       >
         {isLastStep ? t('zoteroWizard.finish') : t('zoteroWizard.next')}

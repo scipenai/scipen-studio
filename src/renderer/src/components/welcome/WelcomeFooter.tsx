@@ -1,5 +1,5 @@
 /**
- * @file WelcomeFooter.tsx - Welcome 屏底部 footer
+ * @file WelcomeFooter.tsx - Footer at the bottom of the welcome screen.
  */
 
 import { motion } from 'framer-motion';

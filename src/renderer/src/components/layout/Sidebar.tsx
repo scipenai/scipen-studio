@@ -1,14 +1,16 @@
 /**
- * @file Sidebar.tsx - 工作台左侧导航轨
- * @description 紧凑「图标+小字」轨:品牌置顶,对话/文件导航,设置居底。
- *   活动项以 accent 左条 + 轻 accent-muted 底标识(强调收敛,无 glow)。
+ * @file Sidebar.tsx - Workspace left navigation rail
+ * @description Compact "icon + small label" rail: brand pinned at top, chat/files nav,
+ *   settings pinned at the bottom. The active item is marked by an accent left bar plus a
+ *   subtle accent-muted background (restrained emphasis, no glow).
  */
 
 import { clsx } from 'clsx';
-import { FolderKanban, MessageSquare, Settings } from 'lucide-react';
+import { FolderKanban, History, MessageSquare, Settings } from 'lucide-react';
 import type React from 'react';
 import logoS from '../../assets/logo-s.svg';
 import { useTranslation } from '../../locales';
+import { historyUIBus } from '../../services/core/HistoryUIBus';
 import { getUIService } from '../../services/core/ServiceRegistry';
 import { useProjectPath, useSidebarTab } from '../../services/core/hooks';
 
@@ -19,7 +21,7 @@ interface SidebarNavItemProps {
   onClick: () => void;
 }
 
-/** 单个导航项:图标竖叠小字标签。活动 = accent 左条 + accent-muted 底(无 glow)。 */
+/** A single nav item: icon stacked above a small label. Active = accent left bar + accent-muted background (no glow). */
 const SidebarNavItem: React.FC<SidebarNavItemProps> = ({ icon, label, active, onClick }) => (
   <button
     type="button"
@@ -27,7 +29,7 @@ const SidebarNavItem: React.FC<SidebarNavItemProps> = ({ icon, label, active, on
     aria-label={label}
     aria-current={active ? 'page' : undefined}
     className={clsx(
-      'relative flex w-full flex-col items-center gap-1 rounded-lg px-1 py-2',
+      'relative flex w-full cursor-pointer flex-col items-center gap-1 rounded-lg px-1 py-2',
       'transition-colors focus:outline-none focus-visible:ring-2',
       'focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-1',
       '[&>svg]:h-[18px] [&>svg]:w-[18px]',
@@ -62,7 +64,7 @@ export const Sidebar: React.FC = () => {
         'bg-[color-mix(in_srgb,var(--color-bg-primary)_96%,transparent)]'
       }
     >
-      {/* 品牌:logo 字符牌 + 简短 wordmark */}
+      {/* Brand: logo glyph plate + short wordmark */}
       <div className="mb-2 flex flex-col items-center gap-1">
         <div
           className={
@@ -78,9 +80,12 @@ export const Sidebar: React.FC = () => {
         </span>
       </div>
 
-      <nav className="flex w-full flex-1 flex-col gap-1">
+      <nav
+        aria-label={t('workspaceSidebar.navigation')}
+        className="flex w-full flex-1 flex-col gap-1"
+      >
         <SidebarNavItem
-          icon={<MessageSquare />}
+          icon={<MessageSquare aria-hidden="true" />}
           label={t('workspaceSidebar.imTab')}
           active={sidebarTab === 'im'}
           onClick={() => {
@@ -89,7 +94,7 @@ export const Sidebar: React.FC = () => {
           }}
         />
         <SidebarNavItem
-          icon={<FolderKanban />}
+          icon={<FolderKanban aria-hidden="true" />}
           label={t('workspaceSidebar.filesTab')}
           active={sidebarTab === 'files'}
           onClick={() => {
@@ -99,9 +104,20 @@ export const Sidebar: React.FC = () => {
         />
       </nav>
 
-      <div className="w-full border-t pt-1 border-t-[var(--color-border-subtle)]">
+      <div className="flex w-full flex-col gap-1 border-t pt-1 border-t-[var(--color-border-subtle)]">
+        {/*
+         * History: single entry that opens HistoryBrowserDialog. The dialog
+         * internally tabs between Labels (manual snapshots) and Sessions
+         * (AI step DAG). One sidebar button matches the one dialog.
+         */}
         <SidebarNavItem
-          icon={<Settings />}
+          icon={<History aria-hidden="true" />}
+          label={t('workspaceSidebar.historyTab')}
+          active={false}
+          onClick={() => historyUIBus.openBrowseLabels()}
+        />
+        <SidebarNavItem
+          icon={<Settings aria-hidden="true" />}
           label={t('workspaceSidebar.settingsTab')}
           active={sidebarTab === 'settings'}
           onClick={() => uiService.setSidebarTab('settings')}

@@ -366,7 +366,7 @@ export class PanelErrorBoundary extends Component<
     if (hasError) {
       return (
         <div className="flex flex-col items-center justify-center h-full p-4 bg-[var(--color-bg-primary)]/50">
-          <AlertTriangle className="w-8 h-8 text-[var(--color-warning)] mb-3" />
+          <AlertTriangle aria-hidden="true" className="w-8 h-8 text-[var(--color-warning)] mb-3" />
           <p className="text-sm text-[var(--color-text-secondary)] mb-1">
             {t('errorBoundary.panelLoadFailed', { name: panelName })}
           </p>
@@ -374,10 +374,11 @@ export class PanelErrorBoundary extends Component<
             {error?.message || t('errorBoundary.unknownError')}
           </p>
           <button
+            type="button"
             onClick={this.handleRetry}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] rounded transition-colors"
+            className="flex cursor-pointer items-center gap-1.5 rounded bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
           >
-            <RefreshCw size={12} />
+            <RefreshCw size={12} aria-hidden="true" />
             {t('errorBoundary.retry')}
           </button>
         </div>

@@ -119,7 +119,13 @@ export function useSyncTeX({ editorRef, activeTabPath }: UseSyncTeXParams): UseS
       }
 
       api.synctex
-        .forward(currentPath, position.lineNumber, position.column, synctexPath)
+        .forward(
+          currentPath,
+          position.lineNumber,
+          position.column,
+          synctexPath,
+          uiService.synctexProjectRoot ?? undefined
+        )
         .then((result) => {
           if (result && result.page !== undefined) {
             uiService.setPdfHighlight({

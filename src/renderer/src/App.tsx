@@ -9,6 +9,9 @@ import { useEffect, useRef } from 'react';
 import { CommandPalette } from './components/CommandPalette';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { FileConflictModal } from './components/FileConflictModal';
+import { HistoryBrowserDialog } from './components/history/HistoryBrowserDialog';
+import { NewLabelDialog } from './components/history/NewLabelDialog';
+import { autoLabelScheduler } from './services/core/AutoLabelScheduler';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { Sidebar } from './components/layout/Sidebar';
 import { StatusBar } from './components/layout/StatusBar';
@@ -133,6 +136,9 @@ function AppContent() {
 
       <CommandPalette isOpen={isCommandPaletteOpen} onClose={handleCloseCommandPalette} />
 
+      <NewLabelDialog />
+      <HistoryBrowserDialog />
+
       <FileConflictModal />
     </div>
   );
@@ -144,13 +150,15 @@ function AppContent() {
  */
 function App() {
   useEffect(() => {
-    logger.info('SciPen Studio 启动');
+    logger.info('SciPen Studio started');
+    autoLabelScheduler.start();
+    return () => autoLabelScheduler.stop();
   }, []);
 
   return (
     <ErrorBoundary
       onError={(error, errorInfo) => {
-        logger.fatal('应用程序崩溃', {
+        logger.fatal('Application crashed', {
           error: error.message,
           stack: error.stack,
           componentStack: errorInfo.componentStack,

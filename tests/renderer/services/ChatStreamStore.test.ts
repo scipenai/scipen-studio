@@ -19,6 +19,8 @@ vi.mock('../../../src/renderer/src/services/agent/AgentClientService', () => ({
     onTurnDelta: () => () => {},
     onUsageUpdate: () => () => {},
     onError: () => () => {},
+    onEditPropose: () => () => {},
+    onEditProposeComplete: () => () => {},
   },
 }));
 
@@ -96,6 +98,61 @@ describe('ChatStreamStore — per-thread cache', () => {
     // Switching back must NOT restore — cache was evicted.
     chatStreamStore.setActiveThread('thread-a');
     expect(chatStreamStore.getMessages()).toEqual([]);
+  });
+
+  it('error delta finalizes the turn so the stop-button busy flag releases', () => {
+    // Regression: SNACA's turn_engine emits Error WITHOUT a paired Done on
+    // engine failures (e.g. LoopGuardTripped). The old handler only stored
+    // the error payload and left `turn.pending` stuck at true — busy stayed
+    // true forever, freezing the chat input and rendering the stop button
+    // useless (the SNACA-side turn was already gone, cancelTurn was a noop).
+    chatStreamStore.setActiveThread('thread-a');
+    chatStreamStore.beginUserTurn('turn-1', 'hello');
+    expect(chatStreamStore.getCurrentTurn()?.pending).toBe(true);
+
+    // Reach into the private handler the same way `agentClient.onTurnDelta`
+    // would — production wires this listener via ensureSubscribed, which we
+    // intentionally skip in this suite to avoid IPC noise.
+    (chatStreamStore as unknown as { handleTurnDelta(e: unknown): void }).handleTurnDelta({
+      turn_id: 'turn-1',
+      kind: 'error',
+      code: -32014,
+      message: 'LoopGuardTripped',
+      recoverable: false,
+    });
+
+    expect(chatStreamStore.getCurrentTurn()).toBeNull();
+    const completed = chatStreamStore.getTurn('turn-1');
+    expect(completed?.pending).toBe(false);
+    expect(completed?.doneReason).toBe('error');
+    expect(completed?.error?.message).toBe('LoopGuardTripped');
+  });
+
+  it('handleError (top-level chat error channel) also finalizes the turn', () => {
+    chatStreamStore.setActiveThread('thread-a');
+    chatStreamStore.beginUserTurn('turn-2', 'hi');
+    (chatStreamStore as unknown as { handleError(e: unknown): void }).handleError({
+      turn_id: 'turn-2',
+      code: -32009,
+      message: 'auth failed',
+      recoverable: false,
+    });
+    expect(chatStreamStore.getCurrentTurn()).toBeNull();
+    expect(chatStreamStore.getTurn('turn-2')?.pending).toBe(false);
+    expect(chatStreamStore.getTurn('turn-2')?.error?.message).toBe('auth failed');
+  });
+
+  it('double-finalize is idempotent (stray Done after Error must not crash)', () => {
+    chatStreamStore.setActiveThread('thread-a');
+    chatStreamStore.beginUserTurn('turn-3', 'x');
+    const inject = (e: unknown): void =>
+      (chatStreamStore as unknown as { handleTurnDelta(e: unknown): void }).handleTurnDelta(e);
+    inject({ turn_id: 'turn-3', kind: 'error', code: 0, message: 'boom', recoverable: false });
+    // Second terminal event — SNACA *might* emit Done(reason=Error) right
+    // after Error on some code paths; the store has to swallow it gracefully.
+    inject({ turn_id: 'turn-3', kind: 'done', reason: 'error' });
+    expect(chatStreamStore.getTurn('turn-3')?.pending).toBe(false);
+    expect(chatStreamStore.getCurrentTurn()).toBeNull();
   });
 
   it('parses RFC3339 timestamps and falls back to "now" on garbage', () => {

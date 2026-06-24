@@ -1,7 +1,7 @@
 # SciPen Studio 用户手册
 
-> **适用版本**: 0.3.0-pre.1
-> **最后更新**: 2026-06-04
+> **适用版本**: 0.3.0
+> **最后更新**: 2026-06-16
 
 [English](USER_GUIDE.md) · **简体中文**
 
@@ -48,7 +48,7 @@
 
 1. 打开任意 `.tex` 或 `.typ` 文件。
 2. 工具栏点击 **编译** 或按 `Ctrl+Enter`。
-3. 默认使用内置 **WASM 编译器** (StellarLatex pdfTeX),无需本地安装 TeX 发行版。
+3. 默认使用内置 **WASM 编译器**([BusyTeX](https://github.com/busytex/busytex):pdfTeX / XeTeX / LuaLaTeX),无需本地安装 TeX 发行版。
 4. 右侧 PDF 预览自动更新;在 PDF 上单击跳回源码,编辑器内 `Ctrl+点击` 正向跳到 PDF 对应位置 (SyncTeX)。
 
 ---
@@ -82,7 +82,7 @@ LSP 二进制随安装包一同分发,**无需手动安装**。
 
 | 引擎 | 说明 | 是否需要本地安装 |
 |------|------|------------------|
-| **WASM pdfTeX** (默认) | 内置 StellarLatex,开箱即用 | 否 |
+| **WASM (BusyTeX)** (默认) | 内置 pdfTeX / XeTeX / LuaLaTeX,开箱即用 | 否 |
 | **WASM XeTeX** | 内置,支持 Unicode / CJK | 否 |
 | **Tectonic** | 自动下载宏包,适合大型项目 | 是 |
 | **TeX Live** (pdfLaTeX / XeLaTeX / LuaLaTeX) | 完整发行版 | 是 |

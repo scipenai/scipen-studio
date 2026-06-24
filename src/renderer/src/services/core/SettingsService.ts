@@ -96,7 +96,13 @@ export const defaultSettings: AppSettings = {
     outputDirectory: './output',
     cleanAuxFiles: true,
     stopOnFirstError: false,
-    texliveEndpoint: '',
+    texliveEndpoint: 'https://texlive2026.texlyre.org',
+    // Empty by default: the Typst engine ships with a full CJK font set
+    // (Libertinus + NewCM + DejaVu + Noto Serif/Sans/Mono CJK SC, ~54MB)
+    // baked into the installer via `download:typst-wasm:cjk`, so no
+    // network round-trip is needed. Set a manifest URL only to layer
+    // additional fonts (TC/JP/KR, custom Latin, etc.).
+    typstFontEndpoint: '',
     overleaf: {
       serverUrl: OVERLEAF_SERVER_URL,
       cookies: '',

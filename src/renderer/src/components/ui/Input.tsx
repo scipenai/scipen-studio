@@ -6,7 +6,7 @@
 import { clsx } from 'clsx';
 import { Eye, EyeOff } from 'lucide-react';
 import type React from 'react';
-import { forwardRef, useState } from 'react';
+import { forwardRef, useId, useState } from 'react';
 
 export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
   /** Input size */
@@ -46,6 +46,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     ref
   ) => {
     const [showPassword, setShowPassword] = useState(false);
+    const generatedId = useId();
+    const inputId = props.id ?? generatedId;
     const isPassword = type === 'password';
     const inputType = isPassword ? (showPassword ? 'text' : 'password') : type;
 
@@ -64,7 +66,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="w-full">
         {label && (
-          <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5">
+          <label
+            htmlFor={inputId}
+            className="block text-sm font-medium text-[var(--color-text-secondary)] mb-1.5"
+          >
             {label}
           </label>
         )}
@@ -79,6 +84,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           )}
           <input
             ref={ref}
+            id={inputId}
             type={inputType}
             disabled={disabled}
             className={clsx(
@@ -101,10 +107,15 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
-              tabIndex={-1}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              aria-pressed={showPassword}
+              className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer rounded text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             >
-              {showPassword ? <EyeOff size={iconSizes[size]} /> : <Eye size={iconSizes[size]} />}
+              {showPassword ? (
+                <EyeOff size={iconSizes[size]} aria-hidden="true" />
+              ) : (
+                <Eye size={iconSizes[size]} aria-hidden="true" />
+              )}
             </button>
           )}
           {rightIcon && !isPassword && (

@@ -27,8 +27,8 @@ const NoPreview: React.FC = () => {
 
 export const PreviewController: React.FC = () => {
   const previewMode = usePreviewMode();
-  // 三个 leaf 全部经 useLazyModule 动态加载(替代 lazy+Suspense),提交可靠;
-  // hook 规则要求无条件调用,故三个都 warm,按 previewMode 渲染选中者。
+  // All three leaves are dynamically loaded via useLazyModule (a replacement for lazy+Suspense) so commits are reliable;
+  // the rules of hooks require unconditional calls, so we warm all three and render the selected one by previewMode.
   const PdfPreviewPane = useLazyModule(() =>
     import('./PdfPreviewPane').then((m) => m.PdfPreviewPane)
   );

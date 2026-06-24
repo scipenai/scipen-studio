@@ -5,7 +5,7 @@
 
 import { clsx } from 'clsx';
 import type React from 'react';
-import { forwardRef } from 'react';
+import { cloneElement, forwardRef, isValidElement } from 'react';
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   /** Button variant */
@@ -54,7 +54,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       rounded-lg font-medium cursor-pointer
       transition-all duration-200
       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
-      disabled:pointer-events-none disabled:opacity-50
+      disabled:cursor-not-allowed disabled:opacity-50
     `;
 
     const variantStyles = {
@@ -121,10 +121,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         {loading ? (
           <LoadingSpinner size={size === 'sm' ? 14 : size === 'lg' ? 18 : 16} />
         ) : (
-          leftIcon
+          renderDecorativeIcon(leftIcon)
         )}
         {children}
-        {!loading && rightIcon}
+        {!loading && renderDecorativeIcon(rightIcon)}
       </button>
     );
   }
@@ -135,6 +135,7 @@ Button.displayName = 'Button';
 const LoadingSpinner: React.FC<{ size?: number }> = ({ size = 16 }) => (
   <svg
     className="animate-spin"
+    aria-hidden="true"
     width={size}
     height={size}
     viewBox="0 0 24 24"
@@ -149,5 +150,12 @@ const LoadingSpinner: React.FC<{ size?: number }> = ({ size = 16 }) => (
     />
   </svg>
 );
+
+function renderDecorativeIcon(icon: React.ReactNode): React.ReactNode {
+  if (!isValidElement<{ 'aria-hidden'?: string }>(icon)) {
+    return icon;
+  }
+  return cloneElement(icon, { 'aria-hidden': icon.props['aria-hidden'] ?? 'true' });
+}
 
 export default Button;

@@ -8,14 +8,16 @@ import type React from 'react';
 import { forwardRef } from 'react';
 
 export interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  /** Button variant — 通用图标按钮(走 size + active/idle ternary) */
+  /** Button variant — generic icon button (driven by size + active/idle ternary) */
   variant?: 'default' | 'ghost' | 'solid' | 'destructive';
   /** Button size */
   size?: 'sm' | 'md' | 'lg';
   /** Active state */
   active?: boolean;
-  /** Active 视觉强度:'accent'(默认,品牌色高亮)或 'subtle'(仅 bg-hover + 主文本,
-   *  用于「高亮收敛」场景,如主页面三面板 toggle —— 避免多个同时点亮造成 accent 泛滥)。 */
+  /** Active visual intensity: 'accent' (default, brand-color highlight) or 'subtle'
+   *  (bg-hover + primary text only, used for "highlight-restraint" surfaces such as the
+   *  main-page three-panel toggle — avoids accent oversaturation when multiple toggles
+   *  are lit at once). */
   activeTone?: 'accent' | 'subtle';
   /** Loading state */
   loading?: boolean;
@@ -42,6 +44,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
     },
     ref
   ) => {
+    const ariaLabel = props['aria-label'] ?? tooltip;
     const sizeStyles = {
       sm: 'w-7 h-7',
       md: 'w-8 h-8',
@@ -92,18 +95,20 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         title={tooltip}
         className={clsx(
           'relative inline-flex items-center justify-center',
+          'cursor-pointer disabled:cursor-not-allowed',
           'transition-all duration-200',
           'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2',
-          'disabled:pointer-events-none disabled:opacity-50',
+          'disabled:opacity-50',
           shapeStyles,
           active
             ? activeTone === 'subtle'
-              ? 'text-[var(--color-text-primary)] bg-[var(--color-bg-hover)]'
+              ? 'text-[var(--color-text-primary)] bg-[var(--color-bg-active)]'
               : activeStyles[variant]
             : variantStyles[variant],
           loading && 'cursor-wait',
           className
         )}
+        aria-label={ariaLabel}
         {...props}
       >
         {loading ? (

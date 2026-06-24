@@ -17,6 +17,10 @@ import { useEffect, useRef } from 'react';
 import { useTranslation } from '../../locales';
 
 interface AtFileDropdownProps {
+  id?: string;
+  label?: string;
+  optionIdPrefix?: string;
+  activeId?: string;
   items: string[];
   selectedIndex: number;
   onSelect: (path: string) => void;
@@ -24,6 +28,10 @@ interface AtFileDropdownProps {
 }
 
 export const AtFileDropdown: React.FC<AtFileDropdownProps> = ({
+  id,
+  label,
+  optionIdPrefix,
+  activeId,
   items,
   selectedIndex,
   onSelect,
@@ -53,17 +61,25 @@ export const AtFileDropdown: React.FC<AtFileDropdownProps> = ({
 
   return (
     <ul
+      id={id}
       ref={listRef}
       className="absolute bottom-full left-0 right-0 mb-1 max-h-64 overflow-y-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-elevated)] shadow-md"
       role="listbox"
+      aria-label={label ?? t('atFileDropdown.label')}
     >
       {items.map((path, idx) => {
         const sepIdx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
         const dir = sepIdx >= 0 ? path.slice(0, sepIdx + 1) : '';
         const name = sepIdx >= 0 ? path.slice(sepIdx + 1) : path;
         const active = idx === selectedIndex;
+        const optionId = optionIdPrefix
+          ? `${optionIdPrefix}-${idx}`
+          : active
+            ? activeId
+            : undefined;
         return (
           <li
+            id={optionId}
             key={path}
             role="option"
             aria-selected={active}

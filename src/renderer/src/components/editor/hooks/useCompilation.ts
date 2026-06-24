@@ -16,7 +16,11 @@ import {
   type CompileResult,
   getCompileService,
 } from '../../../services/core/CompileService';
-import { getSettingsService, getUIService } from '../../../services/core/ServiceRegistry';
+import {
+  getProjectService,
+  getSettingsService,
+  getUIService,
+} from '../../../services/core/ServiceRegistry';
 import type { EditorTab } from '../../../types/app';
 import { compilationEntriesToMarkers } from '../utils/editorModelHelpers';
 
@@ -123,6 +127,13 @@ export function useCompilation({
         if (result.synctexPath) {
           uiService.setSynctexPath(result.synctexPath);
         }
+        // BusyTeX WASM compiles return a projectRoot — its `.synctex.gz`
+        // records MEMFS-absolute paths under `/home/web_user/project_dir/`
+        // that main-process SyncTeXService rebases against this root.
+        // CLI compiles record host-absolute paths and leave projectRoot
+        // unset; resetting on every run prevents a stale anchor from a
+        // previous WASM compile leaking into the next CLI compile.
+        uiService.setSynctexProjectRoot(result.projectRoot ?? null);
         if (result.buildId) {
           uiService.setRemoteBuildId(result.buildId);
         }
@@ -198,6 +209,10 @@ export function useCompilation({
       const options: CompileOptions = {
         engine: compilerEngine as CompileOptions['engine'],
         mainFile: activeTabPath,
+        // BusyTeX WASM emits MEMFS-absolute paths inside .synctex.gz;
+        // main-process SyncTeXService rebases them against this root.
+        // The CLI providers also use it to anchor relative paths.
+        projectPath: getProjectService().projectPath ?? undefined,
         activeTab: activeTab,
       };
 

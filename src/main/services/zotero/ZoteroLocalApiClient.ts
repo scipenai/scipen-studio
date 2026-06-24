@@ -1,28 +1,34 @@
 /**
- * @file ZoteroLocalApiClient —— 包装对 Zotero Local HTTP API 的调用
- * @description Zotero 7+ 在 `localhost:23119` 提供按需开启的 HTTP 服务,由用户在
- *              Settings → Advanced → "Allow other applications on this
- *              computer to communicate with Zotero" 启用。所有请求打到
- *              `/api/users/0/...` —— `users/0` 段是必需的(省略返回 404)。
+ * @file ZoteroLocalApiClient — wraps calls to the Zotero Local HTTP API.
+ * @description Zotero 7+ exposes an opt-in HTTP service at `localhost:23119`,
+ *              enabled by the user via Settings -> Advanced -> "Allow other
+ *              applications on this computer to communicate with Zotero". All
+ *              requests hit `/api/users/0/...` — the `users/0` segment is
+ *              required (omitting it returns 404).
  *
- *              三个关键 URL 决策(踩坑后的结论):
+ *              Three critical URL decisions (lessons learned the hard way):
  *
- *              1. **endpoint 用 `/items/top` 而非 `/items`** —— Zotero 把
- *                 attachment / annotation / note 也算作 item,如果走 `/items`
- *                 会回来一堆子项垃圾;`/top` 服务端只返顶级,省带宽 + 语义直接。
- *                 但 standalone PDF(用户直接拖进库的裸 PDF)仍是顶级,需客户端
- *                 用 IGNORED_ITEM_TYPES 兜底排除。
+ *              1. **Use `/items/top` endpoint, not `/items`** — Zotero treats
+ *                 attachment / annotation / note as items too. `/items` returns
+ *                 a flood of child junk; `/top` only returns top-level entries
+ *                 server-side, saving bandwidth and being semantically direct.
+ *                 Standalone PDFs (raw PDFs dragged straight into the library)
+ *                 are still top-level, so the client must also filter via
+ *                 IGNORED_ITEM_TYPES as a safety net.
  *
- *              2. **`include` 必须含 `data`** —— Zotero `include` 参数是
- *                 "替换"语义,不是"追加"。`include=bib,citation` 会让响应**不含
- *                 `data` 字段**(D-1 的潜伏 bug,直到联调 curl 才暴露)。我们的
- *                 投影完全依赖 data.itemType / data.title / data.creators,所以
- *                 必须显式 `include=data,bib,citation`。
+ *              2. **`include` must contain `data`** — Zotero's `include` param
+ *                 has "replace" semantics, not "append". `include=bib,citation`
+ *                 yields a response **without `data`** (a latent D-1 bug that
+ *                 only surfaced during curl debugging). Our projection depends
+ *                 entirely on data.itemType / data.title / data.creators, so
+ *                 we must pass `include=data,bib,citation` explicitly.
  *
- *              3. **元数据 fallback 到 `meta`** —— Zotero 把渲染过的派生字段
- *                 (creatorSummary / parsedDate)放在 `meta` 而非 `data` 下。
- *                 用户手填条目时 data.creators 可能为空但 meta.creatorSummary
- *                 仍有值(Zotero 反推);year 同理 fallback meta.parsedDate。
+ *              3. **Metadata fallback to `meta`** — Zotero stores rendered
+ *                 derived fields (creatorSummary / parsedDate) under `meta`
+ *                 rather than `data`. For manually entered items, data.creators
+ *                 may be empty while meta.creatorSummary still has a value
+ *                 (Zotero infers it); year similarly falls back to
+ *                 meta.parsedDate.
  *
  * @see https://www.zotero.org/support/dev/web_api/v3/basics
  */
@@ -44,13 +50,14 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
 const MAX_PAGE_SIZE = 100;
 const DEFAULT_PAGE_SIZE = 25;
 
-/** 顶级 endpoint 仍可能放过 standalone attachment / 误入的 note;客户端兜底。 */
+/** Top-level endpoint may still leak standalone attachments / stray notes; client-side safety net. */
 const IGNORED_ITEM_TYPES: ReadonlySet<string> = new Set(['attachment', 'annotation', 'note']);
 
 /**
- * Zotero 对无数据 entry 仍渲染一个空 `<div class="csl-bib-body">…</div>` 壳;
- * 真有内容时内部嵌一个 `<div class="csl-entry">`。我们以 csl-entry 的存在
- * 区分"空壳"与"有内容",空壳归一为 undefined 避免污染 IPC。
+ * Zotero renders an empty `<div class="csl-bib-body">…</div>` shell even for
+ * entries with no data; real content nests a `<div class="csl-entry">` inside.
+ * We use the presence of csl-entry to distinguish "empty shell" from "has
+ * content" and normalize the shell to undefined to avoid polluting IPC.
  */
 const BIB_CONTENT_MARKER = 'csl-entry';
 
@@ -62,8 +69,9 @@ export class ZoteroLocalApiClient {
   }
 
   /**
-   * 验证 Local API 可达。`ok: false` 时返回人类可读理由 —— 区分 "Zotero 没启动"
-   * 与 "Zotero 启动了但 Settings → Advanced 没勾选"。
+   * Verify Local API reachability. On `ok: false`, return a human-readable
+   * reason — distinguish "Zotero not running" from "Zotero running but
+   * Settings -> Advanced checkbox not enabled".
    */
   async ping(): Promise<ZoteroPingResultDTO> {
     const url = `${this.baseUrl}/api/users/0/items?limit=1&format=json`;
@@ -95,8 +103,9 @@ export class ZoteroLocalApiClient {
   }
 
   /**
-   * 拉一页顶级文献条目,投影为 `ZoteroItemDTO`。调用方用空页作为分页终止信号 ——
-   * `Total-Results` header 暂不暴露,真要计数再加。
+   * Fetch one page of top-level bibliography items, projected to `ZoteroItemDTO`.
+   * Callers use an empty page as the pagination terminator — `Total-Results`
+   * header is not exposed yet; add counting only if actually needed.
    */
   async getItems(opts: ZoteroGetItemsOptionsDTO = {}): Promise<ZoteroItemDTO[]> {
     const limit = clampPageSize(opts.limit);
@@ -109,8 +118,9 @@ export class ZoteroLocalApiClient {
   }
 
   /**
-   * 拉取所有顶级条目。`getItems` 按页步进直到空页;`maxPages` 是防御性上限。
-   * Renderer 不直接调 —— 走 Orchestrator + EventBus。
+   * Fetch all top-level items. `getItems` paginates until an empty page;
+   * `maxPages` is a defensive upper bound. Renderer must not call directly —
+   * go through Orchestrator + EventBus.
    */
   async getAllItems(maxPages = 200): Promise<ZoteroItemDTO[]> {
     const out: ZoteroItemDTO[] = [];
@@ -126,7 +136,8 @@ export class ZoteroLocalApiClient {
   }
 
   /**
-   * 拉一个父条目下的批注。注意 `include=data` 同样必需,否则 data 字段会缺。
+   * Fetch annotations under a parent item. Note `include=data` is again
+   * required, otherwise the data field is missing.
    */
   async getItemAnnotations(itemKey: string): Promise<ZoteroAnnotationDTO[]> {
     if (!itemKey) return [];
@@ -138,8 +149,9 @@ export class ZoteroLocalApiClient {
   }
 
   /**
-   * 拉一个父条目下的附件(走 children,itemType=attachment)。用于定位
-   * 论文的 PDF 文件以抽全文。同 annotations,`include=data` 必需。
+   * Fetch attachments under a parent item (via children, itemType=attachment).
+   * Used to locate the paper's PDF for full-text extraction. Like annotations,
+   * `include=data` is required.
    */
   async getItemAttachments(itemKey: string): Promise<ZoteroAttachmentDTO[]> {
     if (!itemKey) return [];
@@ -198,8 +210,9 @@ function clampPageSize(limit?: number): number {
 }
 
 /**
- * 仅类型化我们投影需要的字段。`data` 必含 —— 若上游缺,说明 include 参数错配,
- * 应在 toItemDTO 入口 warn 而非静默 return null(便于联调时定位)。
+ * Only types the fields our projection needs. `data` must be present — if
+ * upstream is missing it, the include= param is misconfigured, so warn at
+ * toItemDTO entry rather than silently returning null (helps debugging).
  */
 interface ZoteroRawItem {
   key?: string;
@@ -210,7 +223,7 @@ interface ZoteroRawItem {
     abstractNote?: string;
     date?: string;
     creators?: Array<{ firstName?: string; lastName?: string; name?: string }>;
-    /** BBT 7+ 注入到 Zotero data schema 的字段 —— 装了 BBT 即可见,无需 JSON-RPC。 */
+    /** Field injected by BBT 7+ into the Zotero data schema — visible whenever BBT is installed, no JSON-RPC needed. */
     citationKey?: string;
     parentItem?: string;
     annotationType?: string;
@@ -218,13 +231,13 @@ interface ZoteroRawItem {
     annotationComment?: string;
     annotationColor?: string;
     annotationPageLabel?: string;
-    /** attachment 字段:定位 PDF 文件用。 */
+    /** Attachment fields: used to locate the PDF file. */
     contentType?: string;
     filename?: string;
     linkMode?: string;
     path?: string;
   };
-  /** Zotero 派生字段:creatorSummary / parsedDate / numChildren。 */
+  /** Zotero derived fields: creatorSummary / parsedDate / numChildren. */
   meta?: {
     creatorSummary?: string;
     parsedDate?: string;
@@ -254,8 +267,9 @@ function toItemDTO(raw: ZoteroRawItem): ZoteroItemDTO | null {
     title: data.title ?? '',
     creatorsLabel: formatCreators(data.creators) ?? raw.meta?.creatorSummary,
     year: extractYear(data.date) ?? extractYear(raw.meta?.parsedDate),
-    // BBT 把 citation key 直接写到 Zotero data schema,LocalApi 顺路就拿到了 ——
-    // 不再依赖 BBT JSON-RPC,即便 BBT 的 RPC schema 变化也不影响 ck 可用性。
+    // BBT writes the citation key directly into the Zotero data schema, so
+    // LocalApi picks it up for free — no longer dependent on BBT JSON-RPC,
+    // so BBT RPC schema churn does not break ck availability.
     citationKey: data.citationKey || undefined,
     abstractNote: data.abstractNote,
     citation: normalizeCitation(raw.citation),

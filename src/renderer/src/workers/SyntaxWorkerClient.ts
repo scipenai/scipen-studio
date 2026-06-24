@@ -13,7 +13,10 @@ const log = {
 
 export interface SyntaxMarker {
   severity: 'error' | 'warning' | 'info' | 'hint';
-  message: string;
+  /** i18n key — resolved by the consumer (see `useDiagnostics`). */
+  messageKey: string;
+  /** Optional interpolation args for the i18n key. */
+  messageArgs?: Record<string, string>;
   startLineNumber: number;
   startColumn: number;
   endLineNumber: number;

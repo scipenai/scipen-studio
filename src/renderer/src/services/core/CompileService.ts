@@ -16,6 +16,7 @@ import { createLogger } from '../LogService';
 import {
   LaTeXCompilerProvider,
   TypstCompilerProvider,
+  TypstWasmCompilerProvider,
   WASMCompilerProvider,
 } from './CompilerProviders';
 import { CompilerRegistry, type CompilerProvider } from './LanguageFeatureRegistry';
@@ -25,8 +26,8 @@ const logger = createLogger('CompileService');
 // ====== Type Definitions ======
 
 export type LatexEngine = 'pdflatex' | 'xelatex' | 'lualatex' | 'tectonic';
-export type WasmEngine = 'wasm-pdftex' | 'wasm-xetex';
-export type TypstEngine = 'typst' | 'tinymist';
+export type WasmEngine = 'wasm-pdftex' | 'wasm-xetex' | 'wasm-lualatex';
+export type TypstEngine = 'typst' | 'tinymist' | 'wasm-typst';
 export type CompileEngine = LatexEngine | WasmEngine | TypstEngine;
 
 export type CompileLogType = 'info' | 'success' | 'warning' | 'error';
@@ -54,6 +55,14 @@ export interface CompileResult {
   pdfBuffer?: ArrayBuffer | Uint8Array;
   synctexPath?: string;
   synctexBuffer?: Uint8Array;
+  /**
+   * Project root that the synctex file's paths are recorded relative to.
+   * Required for BusyTeX WASM compiles (records relative paths); omit
+   * for CLI compiles (records absolute paths). Consumers thread this
+   * into `syncTeXService.forward/backward` so the main-process synctex
+   * CLI can rebase its `-i` argument correctly.
+   */
+  projectRoot?: string;
   log?: string;
   errors?: string[];
   warnings?: string[];
@@ -129,6 +138,8 @@ export class CompileService implements IDisposable {
     this._disposables.add(this._compilerRegistry.register(new TypstCompilerProvider(), 10));
 
     this._disposables.add(this._compilerRegistry.register(new WASMCompilerProvider(), 8));
+
+    this._disposables.add(this._compilerRegistry.register(new TypstWasmCompilerProvider(), 8));
 
     logger.info('Builtin compiler providers registered', {
       count: this._compilerRegistry.size,

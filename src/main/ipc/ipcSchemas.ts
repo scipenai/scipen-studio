@@ -255,12 +255,30 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
         .object({
           mainFile: safePathSchema.optional(),
           projectPath: safePathSchema.optional(),
+          // Intentionally excludes `wasm-typst` — that engine runs entirely
+          // in the renderer (no IPC), so an arrival here means a routing
+          // bug. Schema rejection surfaces the bug fast.
           engine: z.enum(['typst', 'tinymist']).optional(),
         })
         .optional(),
     ]),
   ],
   [IpcChannel.Compile_Cancel, z.tuple([z.enum(['latex', 'typst']).optional()])],
+  [IpcChannel.LaTeX_GetCapabilities, z.tuple([])],
+  [IpcChannel.Typst_GetCapabilities, z.tuple([])],
+  [IpcChannel.Typst_Available, z.tuple([])],
+  [
+    IpcChannel.Compile_WriteWasmArtifacts,
+    z.tuple([
+      z.instanceof(Uint8Array), // pdfBuffer
+      z.instanceof(Uint8Array), // synctexBuffer (.synctex.gz bytes)
+      z
+        .string()
+        .max(128)
+        .regex(/^[A-Za-z0-9_.-]+$/)
+        .optional(), // baseName (no path separators)
+    ]),
+  ],
   [
     IpcChannel.SyncTeX_Forward,
     z.tuple([
@@ -276,6 +294,7 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
         .min(0)
         .max(1000000), // column
       safePathSchema, // pdfFile
+      safePathSchema.optional(), // projectRoot
     ]),
   ],
   [
@@ -293,6 +312,7 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
       z
         .number()
         .min(0), // y
+      safePathSchema.optional(), // projectRoot
     ]),
   ],
 
@@ -327,6 +347,7 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
     ]),
   ],
   [IpcChannel.AI_Completion, z.tuple([safeStringSchema(50000)])],
+  [IpcChannel.AI_GenerateTitle, z.tuple([safeStringSchema(50000)])],
 
   // ==================== Overleaf Operations ====================
   [
@@ -800,6 +821,7 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
         message: z.string().max(5000),
         title: z.string().max(200).optional(),
         type: z.enum(['info', 'warning', 'error', 'none']).optional(),
+        okText: z.string().max(100).optional(),
         detail: z.string().max(5000).optional(),
       }),
     ]),
@@ -893,10 +915,11 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
 
   // ==================== Typst (P1 fix) ====================
   [IpcChannel.Typst_Available, z.tuple([])],
+  [IpcChannel.Typst_GetCapabilities, z.tuple([])],
   [IpcChannel.Compile_GetStatus, z.tuple([])],
 
   // ==================== Zotero Integration ====================
-  // 只读 / 无参通道
+  // Read-only / no-arg channels
   [IpcChannel.Zotero_GetSettings, z.tuple([])],
   [IpcChannel.Zotero_DetectInstallation, z.tuple([])],
   [IpcChannel.Zotero_PingLocalApi, z.tuple([])],
@@ -928,8 +951,9 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
         .strict(),
     ]),
   ],
-  // 部分更新 settings:strict 模式只接受白名单字段,未知字段被 IPC 边界拒绝
-  // 而非静默持久化。integrationEnabled 是 D 方案主开关,必须在白名单内。
+  // Partial settings update: strict mode accepts only whitelisted fields; unknown fields are
+  // rejected at the IPC boundary rather than silently persisted. integrationEnabled is the
+  // master switch in scheme D and must stay on the whitelist.
   [
     IpcChannel.Zotero_SetSettings,
     z.tuple([
@@ -952,11 +976,11 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
         .strict(),
     ]),
   ],
-  // API token 各 provider 没有长度契约,只要求非空字符串。真正的有效性校验在
-  // 首次实际调用时由 provider 判定。
+  // Per-provider API tokens have no agreed length contract; we only require a non-empty string.
+  // Real validity is checked the first time the provider is actually called.
   [IpcChannel.Zotero_SetMinerUApiKey, z.tuple([z.string().min(1)])],
   [IpcChannel.Zotero_SetEmbeddingApiKey, z.tuple([z.string().min(1)])],
-  // bib index 快照拉取:since 是上次落地的 etag,缺省表示"给我全量"。
+  // Bib index snapshot pull: `since` is the previously persisted etag; omit it to request a full snapshot.
   [
     IpcChannel.Zotero_GetSnapshot,
     z.tuple([

@@ -19,7 +19,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { History, Plus } from 'lucide-react';
+import { Bot, Check, Copy, History, MessageCircleQuestion, Plus, Settings2 } from 'lucide-react';
 import type React from 'react';
 import {
   memo,
@@ -35,13 +35,16 @@ import { t as translate, useTranslation } from '../../locales';
 import { agentClient, type ThreadSummary } from '../../services/agent/AgentClientService';
 import { buildChatContext } from '../../services/agent/ChatContextBuilder';
 import { buildMentions } from '../../services/AtMentionResolver';
+import { api } from '../../api';
 import { chatStreamStore } from '../../services/agent/ChatStreamStore';
-import { getUIService } from '../../services/core/ServiceRegistry';
+import { getSettingsService, getUIService } from '../../services/core/ServiceRegistry';
 import { useSettings } from '../../services/core/hooks';
+import { AGENT_NOT_CONFIGURED_MARKER } from '../../../../../shared/ipc/types';
 import type { AskAIAboutErrorRequest } from '../../services/core/UIService';
 import { AgentChatInput, type SendIntent } from './AgentChatInput';
 import { ChatMessage } from './ChatMessage';
 import { ThreadHistoryDrawer } from './ThreadHistoryDrawer';
+import { serializeChatThread } from '../../utils/serializeChatThread';
 
 interface ChatSidebarProps {
   /** Absolute path of the current project root. Required for startProject. */
@@ -54,21 +57,71 @@ type StartupState =
   | { kind: 'idle' }
   | { kind: 'starting' }
   | { kind: 'ready'; sessionId: string }
+  // 'needs-config' is the expected initial state, explicitly distinct from
+  // runtime errors below: the former renders a guidance card (open Settings
+  // and fill in the key), the latter is a red error banner. Determined by
+  // the main process (see AGENT_NOT_CONFIGURED_MARKER).
+  | { kind: 'needs-config' }
   | { kind: 'error'; message: string };
 
 /**
- * 已 startProject 过的项目缓存(模块级,跨组件挂载存活)。主页面三面板改为
- * 声明式条件渲染后,折叠聊天会卸载 ChatSidebar、展开会重挂 —— 用它让重挂
- * 只恢复本地 UI(startup/threads),不再重跑 startProject / reset 已有会话。
- * chatStreamStore 本就是模块级单例,消息在卸载期间继续累积、重挂后照常显示。
+ * Per-project startProject cache (module-level, survives component remounts).
+ * After main-page panel layout switched to declarative conditional rendering,
+ * collapsing chat unmounts ChatSidebar and expanding remounts it — this cache
+ * lets the remount restore local UI (startup/threads) without re-running
+ * startProject or resetting an existing session. chatStreamStore is already a
+ * module-level singleton, so messages keep accumulating during unmount and
+ * display on remount as expected.
  */
 const startedProjects = new Map<string, { sessionId: string; threads: ThreadSummary[] }>();
+
+/**
+ * SNACA's `session.new_thread` returns a non-empty sentinel title when the
+ * caller doesn't supply one (`snaca_editor::session_manager::DEFAULT_THREAD_TITLE`).
+ * Renderer-side we want "no user-assigned title" to read as untitled — both
+ * to (a) actually trigger the LLM-driven topic summarization on the first
+ * user message, and (b) render the localized placeholder in the header
+ * rather than the English sentinel on a Chinese UI. Centralizing the check
+ * keeps the two surfaces in lockstep.
+ */
+const SNACA_DEFAULT_THREAD_TITLE = 'New conversation';
+function isUntitledThread(title: string | null | undefined): boolean {
+  return !title || title === SNACA_DEFAULT_THREAD_TITLE;
+}
+
+/** Derive a fallback title from the user's first message (used when the LLM is
+ * unavailable or fails): take the first line, strip quotes/attachment markers/
+ * markdown, then truncate. */
+function deriveTitleFromText(text: string): string {
+  const firstLine =
+    text
+      .replace(/^\s*>+\s?/gm, '')
+      .replace(/\[attached:[^\]]*\]/gi, '')
+      .replace(/[`*#_~]+/g, '')
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? '';
+  return firstLine.length > 24 ? `${firstLine.slice(0, 24)}…` : firstLine;
+}
 
 function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): React.ReactElement {
   const { t } = useTranslation();
   const chatFontSize = useSettings((s) => s.ui.chatFontSize);
   const [startup, setStartup] = useState<StartupState>({ kind: 'idle' });
+  // Let the one-shot AI-config listener read the latest startup state without
+  // putting `startup` in its dependency list (which would cause it to resubscribe).
+  const startupRef = useRef<StartupState>(startup);
+  startupRef.current = startup;
+  // Auto-retry trigger: bumping this lets the start effect re-run (the startedFor guard resets).
+  const [retryNonce, setRetryNonce] = useState(0);
+  // Pending auto-retry timer: typing a key character by character triggers a
+  // burst of config changes — keep only the last one.
+  const retryTimerRef = useRef<number | null>(null);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  // Hand handleSend the latest threads snapshot without listing `threads`
+  // among its deps (which would cause frequent rebuilds).
+  const threadsRef = useRef<ThreadSummary[]>(threads);
+  threadsRef.current = threads;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [seedValue, setSeedValue] = useState<string | undefined>(undefined);
@@ -96,6 +149,30 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
     [threads, activeThreadId]
   );
 
+  // ---- thread RPC helpers ----
+
+  const refreshThreads = useCallback(async () => {
+    try {
+      const list = await agentClient.listThreads();
+      setThreads(list);
+    } catch (err) {
+      // Non-fatal: keep the stale list.
+      console.warn('[ChatSidebar] listThreads failed', err);
+    }
+  }, []);
+
+  const hydrateThread = useCallback(
+    async (threadId: string) => {
+      try {
+        const { messages: wire } = await agentClient.getMessages(threadId);
+        chatStreamStore.replaceMessages(threadId, wire);
+      } catch (err) {
+        setThreadError(`${t('thread.loadFailed')}: ${extractErrorMessage(err)}`);
+      }
+    },
+    [t]
+  );
+
   // Stick-to-bottom: follow new content only while the view is pinned near the
   // bottom; once the user scrolls up to read, stop yanking them back down.
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -121,8 +198,9 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
   }, [activeThreadId]);
 
   // Start (or re-attach to) the project session once the workspaceRoot is known.
-  // 重挂载安全:同一 root 已 start 过 → 只恢复本地 UI,不再 startProject、
-  // 不 reset 已有 chatStreamStore(面板切换卸载/重挂时对话不丢)。
+  // Safe across remounts: if this root has already been started, only restore
+  // local UI — do not call startProject again or reset an existing
+  // chatStreamStore (so panel toggling never drops the conversation).
   useEffect(() => {
     if (!workspaceRoot) return;
     if (startedFor.current === workspaceRoot) return;
@@ -156,33 +234,41 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         }
       })
       .catch((err) => {
-        setStartup({ kind: 'error', message: extractErrorMessage(err) });
+        const message = extractErrorMessage(err);
+        // `includes` (not strict equality): Electron prefixes cross-process
+        // Error.message with "Error invoking remote method '…':", sandwiching
+        // the marker in the middle.
+        if (message.includes(AGENT_NOT_CONFIGURED_MARKER)) {
+          setStartup({ kind: 'needs-config' });
+        } else {
+          setStartup({ kind: 'error', message });
+        }
       });
-  }, [workspaceRoot, displayName]);
+  }, [workspaceRoot, displayName, retryNonce, refreshThreads, hydrateThread]);
 
-  // ---- thread RPC helpers ----
-
-  const refreshThreads = useCallback(async () => {
-    try {
-      const list = await agentClient.listThreads();
-      setThreads(list);
-    } catch (err) {
-      // Non-fatal — keep the stale list.
-      console.warn('[ChatSidebar] listThreads failed', err);
-    }
-  }, []);
-
-  const hydrateThread = useCallback(
-    async (threadId: string) => {
-      try {
-        const { messages: wire } = await agentClient.getMessages(threadId);
-        chatStreamStore.replaceMessages(threadId, wire);
-      } catch (err) {
-        setThreadError(`${t('thread.loadFailed')}: ${extractErrorMessage(err)}`);
-      }
-    },
-    [t]
-  );
+  // Auto-recover after the user fills in an API key: when AI config changes
+  // while we are stuck on 'needs-config', clear this project's start guard
+  // and bump retryNonce so the start effect re-runs above. Delay 500ms
+  // (debounced, keep only the last fire) so the main-side debounced (300ms)
+  // sidecar restart lands first — main owns sidecar lifecycle, we wait
+  // until it stabilises before retrying.
+  useEffect(() => {
+    const settings = getSettingsService();
+    const disposable = settings.onDidChangeAIProviders(() => {
+      if (startupRef.current.kind !== 'needs-config' || !workspaceRoot) return;
+      if (retryTimerRef.current !== null) window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = window.setTimeout(() => {
+        retryTimerRef.current = null;
+        if (startupRef.current.kind !== 'needs-config') return;
+        startedFor.current = null;
+        setRetryNonce((n) => n + 1);
+      }, 500);
+    });
+    return () => {
+      if (retryTimerRef.current !== null) window.clearTimeout(retryTimerRef.current);
+      disposable.dispose();
+    };
+  }, [workspaceRoot]);
 
   // ---- inbound prompt injection (Ask-AI buttons → input seed) ----
 
@@ -209,8 +295,43 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
 
   const busy = currentTurn?.pending === true;
 
+  // After the first user message in a new thread, generate a topic title via
+  // the completion model; fall back to the leading-line extract on failure
+  // or when LLM is not configured. Only fires when the thread has no title;
+  // user-renamed threads are never overwritten.
+  const autoGenerateTitle = useCallback(
+    async (threadId: string, userText: string) => {
+      let title = deriveTitleFromText(userText);
+      try {
+        const res = await api.ai.generateTitle(userText);
+        if (res.success && res.content?.trim()) {
+          title = res.content.trim().slice(0, 24);
+        }
+      } catch {
+        // Keep the fallback title.
+      }
+      if (!title) return;
+      setThreads((prev) => prev.map((th) => (th.thread_id === threadId ? { ...th, title } : th)));
+      try {
+        await agentClient.renameThread(threadId, title);
+        void refreshThreads();
+      } catch {
+        // Server-side rename failure does not affect the local display.
+      }
+    },
+    [refreshThreads]
+  );
+
   const handleSend = useCallback(
     async (text: string, intent: SendIntent) => {
+      // Decide before writing this turn: is this the first message in a
+      // not-yet-titled thread?
+      const titleThreadId = chatStreamStore.getActiveThreadId();
+      const isFirstMessage = chatStreamStore.getMessages().length === 0;
+      const existingThread = threadsRef.current.find((th) => th.thread_id === titleThreadId);
+      const needsTitle = Boolean(
+        isFirstMessage && titleThreadId && isUntitledThread(existingThread?.title)
+      );
       try {
         const context = buildChatContext();
         // Resolve `@path` tokens into structured `Mention[]` so the LLM
@@ -230,11 +351,12 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
           chatStreamStore.beginUserTurn(turnId, payload);
         }
         void refreshThreads();
+        if (needsTitle && titleThreadId) void autoGenerateTitle(titleThreadId, text);
       } catch (err) {
         setStartup({ kind: 'error', message: extractErrorMessage(err) });
       }
     },
-    [refreshThreads, workspaceRoot]
+    [refreshThreads, workspaceRoot, autoGenerateTitle]
   );
 
   const handleCancel = useCallback(async () => {
@@ -327,10 +449,12 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
     }
   }, [startup, t]);
 
-  const threadTitle = activeThread?.title || t('thread.newConversation');
+  const threadTitle = isUntitledThread(activeThread?.title)
+    ? t('thread.newConversation')
+    : (activeThread?.title ?? t('thread.newConversation'));
   const isEmpty = messages.length === 0 && !currentTurn;
 
-  // 单一 composer 元素:空态置于 hero 中央、有对话时落底部(docked)。
+  // Single composer element: centered hero in empty state, docked at the bottom otherwise.
   const composer = (
     <AgentChatInput
       busy={busy}
@@ -357,7 +481,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         <div className="flex min-w-0 items-center gap-2">
           <button
             type="button"
-            className="rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:opacity-40"
+            className="cursor-pointer rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
             aria-label={t('thread.historyTitle')}
             aria-expanded={drawerOpen}
             title={t('thread.historyTitle')}
@@ -374,9 +498,10 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <ThreadCopyButton disabled={startup.kind !== 'ready'} />
           <button
             type="button"
-            className="rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:opacity-40"
+            className="cursor-pointer rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
             aria-label={t('thread.newThread')}
             title={t('thread.newThread')}
             onClick={handleCreateThread}
@@ -397,13 +522,18 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         </div>
       )}
 
-      {isEmpty ? (
+      {startup.kind === 'needs-config' ? (
+        <div className="flex-1 overflow-y-auto">
+          <NeedsConfigCard onOpenSettings={() => uiService.setSidebarTab('settings')} />
+        </div>
+      ) : isEmpty ? (
         <div className="flex-1 overflow-y-auto">
           <EmptyState
             composerSlot={composer}
             onPickExample={(text) => {
-              // 直填输入框原文(可改后再发),不走 requestChatWithText —— 那条会把
-              // 文本包成 `> 引用块`,不适合示例 prompt。
+              // Drop the raw text into the input (editable before sending) instead of
+              // routing through requestChatWithText, which would wrap it in a
+              // `> quote block` — not appropriate for an example prompt.
               setSeedValue(text);
               setSeedKey((k) => k + 1);
             }}
@@ -411,17 +541,22 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         </div>
       ) : (
         <>
-          <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-4">
-            {messages.map((m, idx) => (
-              <ChatMessage
-                key={`${m.role}-${m.ts}-${m.turnId ?? idx}`}
-                message={m}
-                completedTurn={
-                  m.role === 'assistant' && m.turnId ? chatStreamStore.getTurn(m.turnId) : undefined
-                }
-              />
-            ))}
-            {currentTurn && <ChatMessage message={null} turn={currentTurn} />}
+          <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto py-4">
+            {/* Centered reading column: narrow rail uses w-full, wide screens cap at max-w-3xl with horizontal gutters aligned to the bottom composer. */}
+            <div className="mx-auto w-full max-w-3xl px-4">
+              {messages.map((m, idx) => (
+                <ChatMessage
+                  key={`${m.role}-${m.ts}-${m.turnId ?? idx}`}
+                  message={m}
+                  completedTurn={
+                    m.role === 'assistant' && m.turnId
+                      ? chatStreamStore.getTurn(m.turnId)
+                      : undefined
+                  }
+                />
+              ))}
+              {currentTurn && <ChatMessage message={null} turn={currentTurn} />}
+            </div>
           </div>
           <div className="pb-3">{composer}</div>
         </>
@@ -442,28 +577,88 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
 }
 
 /**
- * memo:主页面切面板时 shell 会重渲,但本组件 props(workspaceRoot/displayName)
- * 稳定 → 跳过整棵聊天子树重渲(含 N 条 ChatMessage 的 reconciliation)。
- * 流式时由内部 chatStreamStore 订阅自行重渲,不受 memo 影响。
+ * memo: when the main page swaps panels the shell re-renders, but this
+ * component's props (workspaceRoot/displayName) are stable, so the whole
+ * chat subtree (including N ChatMessage reconciliations) is skipped.
+ * Streaming re-renders are driven by the internal chatStreamStore
+ * subscription and are unaffected by the memo.
  */
 export const ChatSidebar = memo(ChatSidebarInner);
 
+/**
+ * Header-mounted "copy the entire chat thread" affordance. Reads the
+ * current active thread directly from chatStreamStore (rather than wiring
+ * `messages` through props) — the button is purely an on-demand action
+ * and doesn't need to re-render with each streamed delta.
+ *
+ * On click: serialize → write to clipboard → flip to a transient ✓ for
+ * 1.5s as visual confirmation. Disabled while the agent is still starting
+ * up so we don't put a stale/empty thread on the clipboard.
+ */
+function ThreadCopyButton({ disabled }: { disabled: boolean }): React.ReactElement {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+  const onClick = useCallback(async () => {
+    const messages = chatStreamStore.getMessages();
+    if (messages.length === 0) return;
+    const text = serializeChatThread({
+      messages,
+      resolveTurn: (id) => chatStreamStore.getTurn(id),
+    });
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard denied (e.g. focus lost) — silent; the user can retry.
+    }
+  }, []);
+  return (
+    <button
+      type="button"
+      className="cursor-pointer rounded border border-[var(--color-border-subtle)] p-1 text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
+      aria-label={t('thread.copyThread')}
+      title={t('thread.copyThread')}
+      onClick={() => void onClick()}
+      disabled={disabled}
+    >
+      {copied ? (
+        <Check size={14} className="text-[var(--color-success)]" aria-hidden="true" />
+      ) : (
+        <Copy size={14} aria-hidden="true" />
+      )}
+    </button>
+  );
+}
+
 function StartupBadge({ state }: { state: StartupState }): React.ReactElement {
+  const { t } = useTranslation();
   switch (state.kind) {
     case 'idle':
-      return <span className="text-[10px] text-[var(--color-text-muted)]">未连接</span>;
+      return (
+        <span className="text-[10px] text-[var(--color-text-muted)]">
+          {t('chat.status.disconnected')}
+        </span>
+      );
     case 'starting':
       return (
         <span className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-accent)]" />
-          初始化中
+          {t('chat.status.initializing')}
         </span>
       );
     case 'ready':
       return (
         <span className="flex items-center gap-1.5 text-[10px] text-[var(--color-success)]">
           <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)]" />
-          已连接
+          {t('chat.status.connected')}
+        </span>
+      );
+    case 'needs-config':
+      return (
+        <span className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-text-muted)]" />
+          {t('chat.status.unconfigured')}
         </span>
       );
     case 'error':
@@ -473,10 +668,47 @@ function StartupBadge({ state }: { state: StartupState }): React.ReactElement {
           title={state.message}
         >
           <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-error)]" />
-          错误
+          {t('chat.status.error')}
         </span>
       );
   }
+}
+
+/**
+ * 'needs-config' guidance card — replaces the red startup error on first
+ * entry. Tone is quiet onboarding rather than failure; the main action
+ * is "Open Settings" (routed via UIService, the same path used by the
+ * command palette). Once the user fills in the key, ChatSidebar's
+ * AI-config listener retries automatically; no manual reconnect needed.
+ */
+function NeedsConfigCard({
+  onOpenSettings,
+}: {
+  onOpenSettings: () => void;
+}): React.ReactElement {
+  const { t } = useTranslation();
+  return (
+    <div className="flex min-h-full flex-col items-center justify-center gap-4 px-6 py-6 text-center">
+      <div className="flex flex-col items-center gap-2 text-[var(--color-text-muted)]">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)] text-[var(--color-accent)]">
+          <Settings2 size={18} aria-hidden="true" />
+        </div>
+        <div className="text-[13px] font-medium text-[var(--color-text-secondary)]">
+          {t('chat.needsConfig.title')}
+        </div>
+        <div className="max-w-[260px] text-[11px] leading-relaxed">
+          {t('chat.needsConfig.desc')}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onOpenSettings}
+        className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-4 py-2 text-[12px] font-medium text-[var(--color-text-primary)] transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
+      >
+        {t('chat.needsConfig.openSettings')}
+      </button>
+    </div>
+  );
 }
 
 function EmptyState({
@@ -491,7 +723,9 @@ function EmptyState({
   return (
     <div className="flex min-h-full flex-col items-center justify-center gap-4 px-4 py-6 text-center">
       <div className="flex flex-col items-center gap-2 text-[var(--color-text-muted)]">
-        <div className="text-[24px]">✦</div>
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)] text-[var(--color-accent)]">
+          <Bot size={18} aria-hidden="true" />
+        </div>
         <div className="text-[13px] text-[var(--color-text-secondary)]">
           {t('chat.welcomeTitle')}
         </div>
@@ -506,25 +740,30 @@ function EmptyState({
           {t('chat.hintFiles')}
         </span>
         <span className="inline-flex items-center gap-1">
-          <kbd className="rounded bg-[var(--color-bg-hover)] px-1.5 py-0.5 font-mono">⏎</kbd>
+          <kbd className="rounded bg-[var(--color-bg-hover)] px-1.5 py-0.5 font-mono">Enter</kbd>
           {t('chat.hintSend')}
         </span>
         <span className="inline-flex items-center gap-1">
-          <kbd className="rounded bg-[var(--color-bg-hover)] px-1.5 py-0.5 font-mono">⇧⏎</kbd>
+          <kbd className="rounded bg-[var(--color-bg-hover)] px-1.5 py-0.5 font-mono">
+            Shift+Enter
+          </kbd>
           {t('chat.hintNewline')}
         </span>
       </div>
 
       <div className="flex w-full max-w-[280px] flex-col gap-1.5">
         <div className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">
-          {t('chat.tryExamples')}
+          <span className="inline-flex items-center gap-1">
+            <MessageCircleQuestion size={11} aria-hidden="true" />
+            {t('chat.tryExamples')}
+          </span>
         </div>
         {examples.map((ex) => (
           <button
             key={ex}
             type="button"
             onClick={() => onPickExample(ex)}
-            className="rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)] px-3 py-2 text-left text-[12px] text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+            className="cursor-pointer rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-elevated)] px-3 py-2 text-left text-[12px] text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
           >
             {ex}
           </button>
@@ -552,8 +791,9 @@ function formatErrorPrompt(req: AskAIAboutErrorRequest): string {
     compiler: req.compilerType,
     where: where ? ` (${where})` : '',
   });
-  // 把被点击的那条错误的具体内容也带上,不只一行 title —— Agent 另从 ChatContext
-  // 拿到完整 diagnostics,这里负责锚定用户实际点的错误。
+  // Include the specific error content too, not just a one-line title — the
+  // Agent already gets full diagnostics from ChatContext; here we anchor the
+  // specific error the user clicked.
   const detail = req.errorContent?.trim()
     ? `${req.errorMessage.trim()}\n\n${req.errorContent.trim()}`
     : req.errorMessage.trim();

@@ -1,68 +1,81 @@
 /**
- * @file bibSearchScoring —— Zotero 文献候选评分(@cite 专用)
- * @description 三档评分:
+ * @file bibSearchScoring — Zotero candidate scoring (used by @cite)
+ * @description Three-tier scoring:
  *
- *  1. **citation-key 前缀直接命中** —— 最高优先级。用户在 `\cite{` 内输入
- *     citation key 前缀时,只关心 key 是否前缀匹配。完全相等 +100;
- *     越短的 key 越靠前(短前缀更精确)。
+ *  1. **Citation-key prefix direct hit** — top priority. When the user types a
+ *     citation key prefix inside `\cite{`, only prefix-matching keys matter.
+ *     Exact match +100; shorter keys rank higher (a shorter prefix is more
+ *     precise).
  *
- *  2. **token 交集打分** —— query 拆 token,每个 token 对倒排索引做前缀匹配。
- *     完全匹配 token 10 分,前缀匹配按长度差衰减。叠加 recency bias(新论文 +)。
+ *  2. **Token-intersection scoring** — tokenize the query; each token does a
+ *     prefix match against the inverted index. Exact token match scores 10;
+ *     prefix matches decay with length delta. A recency bias is layered in
+ *     (newer papers +).
  *
- *  3. **substring fallback** —— 前两档全空时,把 query 当 substring 在
- *     haystack 里扫,每命中一份 1 分。
+ *  3. **Substring fallback** — when the first two tiers are empty, scan the
+ *     query as a substring against the haystack; +1 per hit.
  *
- * 设计 port 自 m2-zotero-stash c38298d 的 Web Worker(off-thread),
- * 但本仓 renderer 已经把数据放在主线程 mirror,5k entry 评分实测 <8ms,
- * 不需要 Worker。如果未来 lib 大到卡顿,这个纯函数也可以一字不改搬进 Worker。
+ * Ported from m2-zotero-stash c38298d's Web Worker (off-thread) design, but
+ * this repo's renderer keeps the data on the main thread in a mirror. 5k-entry
+ * scoring measures <8ms in practice, so a Worker is unnecessary. If the lib
+ * later grows large enough to jank, the pure function below can move into a
+ * Worker verbatim.
  */
 
 import type { ZoteroItemDTO } from '../../../../../shared/types/zotero';
 
 export interface BibSearchHit {
   item: ZoteroItemDTO;
-  /** 越大越靠前;主线程不再排序,由本函数排好。 */
+  /** Higher ranks first; the main thread no longer sorts — this function does. */
   score: number;
 }
 
 /**
- * 召回意图契约。键入热路径(@cite 补全)与模糊搜索框(chat @ 下拉 / Agent
- * zotero_search 工具)对召回粒度的需求不同;若都走同一接口拿三档混合结果,
- * 调用方只能在 UI 层靠 sortText / filter 间接抑制噪声 —— 这是把召回精度
- * 责任推给 UI。本类型把意图上升为接口契约,scoring 函数按声明分发。
+ * Recall-intent contract. The keystroke hot path (@cite completion) and the
+ * fuzzy search box (chat @ dropdown / Agent zotero_search tool) need different
+ * recall granularity; routing both through one API that returns three-tier
+ * mixed results forces callers to suppress noise via sortText / filter at the
+ * UI layer — pushing recall precision onto the UI. This type promotes the
+ * intent into the interface contract, and the scoring function dispatches on
+ * the declaration.
  *
- *  - `'prefix-only'`:档 1(ck 前缀)+ 档 2(token 前缀)。键入热路径专用:
- *    每敲一字触发,语义就是前缀精准匹配;substring 兜底在这里是噪声而非
- *    兜底(单字符召回半库,把 LSP 真候选淹没)。
- *  - `'full'`(默认):三档全开,含 substring 兜底。搜索框 / LLM 工具:
- *    用户主动调用,prefix 不命中时降级到 substring 是预期。
+ *  - `'prefix-only'`: tier 1 (ck prefix) + tier 2 (token prefix). Keystroke
+ *    hot path: fires every keystroke; the semantic is precise prefix match.
+ *    A substring fallback here is noise, not safety net (a single character
+ *    recalls half the library and drowns LSP candidates).
+ *  - `'full'` (default): all three tiers, including substring fallback.
+ *    Search box / LLM tool: user-invoked; falling back to substring when
+ *    prefix misses is the expected behaviour.
  */
 export type RecallMode = 'prefix-only' | 'full';
 
-/** 倒排索引和 haystack 由调用方维护,本模块不负责构建。 */
+/** Inverted index and haystack are maintained by the caller; this module does not build them. */
 export interface BibSearchCorpus {
   items: ReadonlyMap<string, ZoteroItemDTO>;
-  /** citationKey(小写) → itemKey。前缀匹配用。 */
+  /** citationKey (lowercase) → itemKey. Used for prefix matching. */
   citationKeyIndex: ReadonlyMap<string, string>;
-  /** token(小写 ≥2 char)→ itemKey 集合。 */
+  /** token (lowercase, ≥2 chars) → set of itemKeys. */
   tokenIndex: ReadonlyMap<string, ReadonlySet<string>>;
-  /** itemKey → 拼接小写 haystack(substring fallback 用)。 */
+  /** itemKey → concatenated lowercase haystack (used by substring fallback). */
   haystacks: ReadonlyMap<string, string>;
 }
 
 const MIN_TOKEN_LEN = 2;
 
 /**
- * substring fallback 的最小 query 长度门槛。query 太短(1–2 字符)进 substring
- * 召回精度归零 —— 单字符必然在 haystack 半数 entry 里出现,在 @cite 补全里
- * 会召回与 prefix 无关的论文,淹没 LSP 真候选(打 `@f` 误召回所有 title 含 f
- * 的论文,把 tinymist 的 `<fig-*>` label 挤掉)。与 MIN_TOKEN_LEN=2 对位的设计:
- * token 档已守住 query 拆 token 的最小长度;substring 档比 token 更松散,
- * 门槛设在 3 才能撑住"3 字符以下让 LSP 优先,3+ 才真启动模糊搜索"的语义。
+ * Minimum query length to enable the substring fallback. Too-short queries
+ * (1–2 chars) tank substring recall precision — a single character is almost
+ * certain to appear in half the haystack entries, and in @cite completion
+ * that recalls papers unrelated to the prefix and drowns LSP candidates
+ * (typing `@f` would surface every paper whose title contains `f`, smothering
+ * tinymist's `<fig-*>` labels). Paired with MIN_TOKEN_LEN=2: the token tier
+ * already guards the per-token minimum; the substring tier is looser than
+ * the token tier, so the threshold sits at 3 to enforce the semantic of
+ * "below 3 chars LSP wins; ≥3 chars unlocks fuzzy search".
  */
 const MIN_SUBSTRING_QUERY_LEN = 3;
 
-/** 拆 token:小写 + 非字母数字切分 + 长度门槛。 */
+/** Tokenize: lowercase + split on non-alphanumeric + length threshold. */
 export function tokenize(s: string): string[] {
   const tokens: string[] = [];
   for (const raw of s.toLowerCase().split(/[^a-z0-9]+/)) {
@@ -71,7 +84,7 @@ export function tokenize(s: string): string[] {
   return tokens;
 }
 
-/** 由一个 ZoteroItemDTO 派生 haystack(title + creators + year + ck)。 */
+/** Derive a haystack from one ZoteroItemDTO (title + creators + year + ck). */
 export function buildHaystack(item: ZoteroItemDTO): string {
   return [
     item.citationKey ?? '',
@@ -93,7 +106,7 @@ export function searchBibCorpus(
   const q = query.trim().toLowerCase();
   if (q.length === 0 || limit <= 0) return [];
 
-  // ----- 1. citation-key 前缀直接命中 -----
+  // ----- 1. citation-key prefix direct hit -----
   const ckPrefixHits: BibSearchHit[] = [];
   for (const [ck, itemKey] of corpus.citationKeyIndex) {
     if (!ck.startsWith(q)) continue;
@@ -104,7 +117,7 @@ export function searchBibCorpus(
     if (ckPrefixHits.length >= limit * 2) break;
   }
 
-  // ----- 2. token 交集 + recency bias -----
+  // ----- 2. token intersection + recency bias -----
   const queryTokens = tokenize(q);
   const tokenScores = new Map<string, number>();
   if (queryTokens.length > 0) {
@@ -119,9 +132,10 @@ export function searchBibCorpus(
     }
   }
 
-  // ----- 3. substring fallback —— 仅 'full' 模式启用 -----
-  // prefix-only 模式架构上禁止走 substring:键入热路径里 substring 召回是噪声
-  // 而非兜底(打 `@f` 不该弹一堆 title 含 f 的论文,把 tinymist 的 LSP label 挤掉)。
+  // ----- 3. substring fallback — 'full' mode only -----
+  // prefix-only mode forbids substring by design: in the keystroke hot path
+  // substring recall is noise, not a fallback (typing `@f` should not surface
+  // every paper whose title contains `f`, smothering tinymist's LSP labels).
   if (mode === 'full' && ckPrefixHits.length === 0 && tokenScores.size === 0) {
     if (q.length < MIN_SUBSTRING_QUERY_LEN) return [];
     const out: BibSearchHit[] = [];
@@ -135,7 +149,7 @@ export function searchBibCorpus(
     return out;
   }
 
-  // ----- 4. 合并 + recency bias + 截断 -----
+  // ----- 4. merge + recency bias + truncate -----
   const merged = new Map<string, BibSearchHit>();
   for (const hit of ckPrefixHits) merged.set(hit.item.itemKey, hit);
   for (const [itemKey, score] of tokenScores) {

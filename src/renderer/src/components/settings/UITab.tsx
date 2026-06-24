@@ -10,7 +10,8 @@ import { getSettingsService } from '../../services/core/ServiceRegistry';
 import { useSettings } from '../../services/core/hooks';
 import { SectionTitle, SettingItem, selectClassName } from './SettingsUI';
 
-/** 聊天字号范围(px)。值写入 ui.chatFontSize,驱动 --chat-font-size。 */
+/** Chat font-size range (px). The value is written to ui.chatFontSize and
+ *  drives the --chat-font-size CSS variable. */
 const CHAT_FONT_MIN = 12;
 const CHAT_FONT_MAX = 20;
 
@@ -69,7 +70,7 @@ export const UITab: React.FC = () => {
             value={settings.ui.chatFontSize}
             onChange={(e) => settingsService.updateUI({ chatFontSize: Number(e.target.value) })}
             aria-label={t('settings.chatFontSize')}
-            className="flex-1 cursor-pointer accent-[var(--color-accent)]"
+            className="flex-1 cursor-pointer accent-[var(--color-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
           />
           <span className="w-12 text-right text-sm tabular-nums text-[var(--color-text-secondary)]">
             {settings.ui.chatFontSize}px

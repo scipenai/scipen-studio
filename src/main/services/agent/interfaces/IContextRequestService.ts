@@ -71,4 +71,18 @@ export interface IContextRequestService extends IDisposable {
    * Resolves the pending promise `handle()` awaits for `ask_user_question`.
    */
   completeQuestion(payload: ContextQuestionResponsePayload): void;
+
+  /**
+   * Reclaim every pending entry whose `turn_id` matches. Called by the
+   * wiring layer when a turn ends — either because the host actively
+   * cancelled it (`turnCancel`) or because SNACA emitted a terminal
+   * `turn.delta { kind: 'done' }`. Without this, a turn cancel can leave
+   * an `ask_user_question` pending for up to 600 s.
+   *
+   * Idempotent. Replies `ok:false` to SNACA so the protocol layer stays
+   * consistent — SNACA will normally ignore those replies because the
+   * turn is already terminated on its side, but a friendly `ok:false`
+   * beats a silent leak if SNACA's cleanup raced behind the cancel.
+   */
+  cancelTurn(turnId: string): void;
 }

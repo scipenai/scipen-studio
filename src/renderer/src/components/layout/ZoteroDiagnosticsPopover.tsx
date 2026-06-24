@@ -1,15 +1,17 @@
 /**
- * @file ZoteroDiagnosticsPopover.tsx — 索引诊断弹窗(StatusBar 徽章上方)
- * @description 同步显示来自 mirror 的状态切片(status / itemCount / lastSyncedAt),
- *              异步拉 main 的完整诊断(数据源健康度:Local API + Better BibTeX)。
- *              提供 "手动刷新" 按钮,直接走 mirror.refresh()(main 的 cooldown 防抖)。
+ * @file ZoteroDiagnosticsPopover.tsx — Index diagnostics popover (above the StatusBar badge)
+ * @description Synchronously renders mirror state slices (status / itemCount / lastSyncedAt),
+ *              and asynchronously pulls full diagnostics from main (data-source health:
+ *              Local API + Better BibTeX). Provides a "manual refresh" button that calls
+ *              mirror.refresh() directly (main applies its own cooldown debounce).
  *
- *              UI 仅在 StatusBar 徽章被点击时挂载,卸载即释放 fetchDiagnostics 监听。
+ *              The UI is mounted only when the StatusBar badge is clicked; unmount releases
+ *              the fetchDiagnostics listener.
  */
 
 import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
 import type React from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '../../locales';
 import type { ZoteroBibMirror, ZoteroBibMirrorState } from '../../services/zotero/ZoteroBibMirror';
 import type { ZoteroDiagnosticsDTO } from '../../../../../shared/types/zotero-events';
@@ -18,17 +20,32 @@ import { createLogger } from '../../services/LogService';
 const logger = createLogger('ZoteroDiagnosticsPopover');
 
 interface Props {
+  id?: string;
   state: ZoteroBibMirrorState;
   mirror: ZoteroBibMirror;
   onClose: () => void;
 }
 
-export const ZoteroDiagnosticsPopover: React.FC<Props> = ({ state, mirror, onClose }) => {
+export const ZoteroDiagnosticsPopover: React.FC<Props> = ({ id, state, mirror, onClose }) => {
   const { t } = useTranslation();
   const [diagnostics, setDiagnostics] = useState<ZoteroDiagnosticsDTO | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
-  // 弹窗打开即拉一次完整诊断(主进程数据源健康度);后续手动刷新按钮再拉。
+  useEffect(() => {
+    previouslyFocusedRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    popoverRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+
+    return () => {
+      previouslyFocusedRef.current?.focus();
+      previouslyFocusedRef.current = null;
+    };
+  }, []);
+
+  // On popover open, pull full diagnostics once (data-source health from main); the manual
+  // refresh button re-pulls afterward.
   useEffect(() => {
     let cancelled = false;
     void mirror
@@ -60,6 +77,35 @@ export const ZoteroDiagnosticsPopover: React.FC<Props> = ({ state, mirror, onClo
 
   return (
     <div
+      ref={popoverRef}
+      id={id}
+      role="dialog"
+      aria-label={t('zotero.diagnostics.title')}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          onClose();
+          return;
+        }
+
+        if (event.key === 'Tab') {
+          const focusableActions = Array.from(
+            popoverRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []
+          );
+          if (focusableActions.length === 0) return;
+
+          const firstAction = focusableActions[0];
+          const lastAction = focusableActions[focusableActions.length - 1];
+
+          if (event.shiftKey && document.activeElement === firstAction) {
+            event.preventDefault();
+            lastAction.focus();
+          } else if (!event.shiftKey && document.activeElement === lastAction) {
+            event.preventDefault();
+            firstAction.focus();
+          }
+        }
+      }}
       className="absolute bottom-full right-0 mb-1 w-72 rounded-xl py-2 z-50 text-[11px]"
       style={{
         background: 'var(--color-bg-secondary)',
@@ -108,7 +154,7 @@ export const ZoteroDiagnosticsPopover: React.FC<Props> = ({ state, mirror, onClo
         <button
           type="button"
           onClick={onClose}
-          className="px-2 py-1 rounded hover:bg-[var(--color-bg-hover)]"
+          className="px-2 py-1 rounded cursor-pointer hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
           style={{ color: 'var(--color-text-muted)' }}
         >
           {t('zotero.diagnostics.close')}
@@ -117,10 +163,10 @@ export const ZoteroDiagnosticsPopover: React.FC<Props> = ({ state, mirror, onClo
           type="button"
           onClick={() => void onRefresh()}
           disabled={refreshing}
-          className="flex items-center gap-1 px-2 py-1 rounded hover:bg-[var(--color-bg-hover)] disabled:opacity-50"
+          className="flex items-center gap-1 px-2 py-1 rounded cursor-pointer hover:bg-[var(--color-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
           style={{ color: 'var(--color-accent)' }}
         >
-          <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
+          <RefreshCw size={11} aria-hidden="true" className={refreshing ? 'animate-spin' : ''} />
           {t('zotero.diagnostics.refresh')}
         </button>
       </div>

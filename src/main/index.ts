@@ -37,6 +37,10 @@ import type { IOverleafFileSystemService } from './services/interfaces';
 
 import { initAllowedDirs, setupCSP } from './security';
 import {
+  registerWasmAssetProtocol,
+  registerWasmAssetSchemePrivileged,
+} from './services/WasmAssetProtocol';
+import {
   addPermanentAllowedDirectory,
   clearAllowedDirectories,
   registerLocalFileProtocol,
@@ -66,6 +70,7 @@ import {
   registerUpdateHandlers,
   registerWindowHandlers,
   registerZoteroHandlers,
+  registerHistoryHandlers,
 } from './ipc';
 import { UpdateService } from './services/UpdateService';
 import { ConfigKeys } from '../../shared/types/config-keys';
@@ -170,6 +175,7 @@ function openFileInWindow(filePath: string, targetWindow?: BrowserWindow | null)
 
 // Must register protocol schemes before app ready
 registerProtocolSchemes();
+registerWasmAssetSchemePrivileged();
 
 // ====== Single Instance Lock ======
 
@@ -234,12 +240,15 @@ let overleafFileSystem: IOverleafFileSystemService | null = null;
 const recentProjectsFile = path.join(app.getPath('userData'), 'recent-projects.json');
 
 /**
- * SciPen 的 Zotero 集成是否处于"启用"状态 — 唯一的 gate 主开关。
- * 由 wizard finish() 显式置 true(用户走完所有步骤);Settings 页面可一键关。
+ * Whether SciPen's Zotero integration is "enabled" — the single main gate.
+ * Set explicitly to true by wizard finish() (user completed all steps);
+ * the Settings page can flip it off with one click.
  *
- * 不读 ZoteroPath:那是数据目录展示字段,文件系统状态不等于用户意图。
- * 不读 ZoteroLocalApiEnabled:那是 Zotero 客户端 "Allow other applications"
- * 开关的状态镜像,属于外部状态,用户没法在 SciPen 里关掉它。
+ * Do NOT read ZoteroPath: that is a display field for the data directory;
+ * filesystem state is not user intent.
+ * Do NOT read ZoteroLocalApiEnabled: that mirrors Zotero client's
+ * "Allow other applications" toggle — an external state the user cannot
+ * turn off from inside SciPen.
  */
 function isZoteroConfigured(): boolean {
   return configManager.get<boolean>(ConfigKeys.ZoteroIntegrationEnabled, false);
@@ -290,7 +299,8 @@ async function saveRecentProjects(
 }
 
 async function addRecentProject(projectPath: string, isRemote?: boolean): Promise<void> {
-  // Overleaf Local-First 副本不记入最近项目（用户通过 Overleaf 面板打开）
+  // Overleaf local-first replicas are NOT recorded in recent projects
+  // (the user opens them via the Overleaf panel).
   const { OVERLEAF_PROJECTS_DIR } = await import('./services/OverleafProjectMetaStore');
   const normalized = projectPath.replace(/\\/g, '/');
   const normalizedOverleaf = OVERLEAF_PROJECTS_DIR.replace(/\\/g, '/');
@@ -373,8 +383,9 @@ function createWindow(options?: {
       // sandbox=false is required because electron-vite compiles the preload as ESM (sandbox is incompatible).
       sandbox: false,
       webSecurity: true,
-      // packaged 默认关 DevTools 是安全姿态;SCIPEN_DEVTOOLS=1 是诊断逃生口,
-      // 不留在 prod 默认行为里,但出问题时不用重新打包就能开。
+      // Packaged builds keep DevTools off by default for safety; SCIPEN_DEVTOOLS=1
+      // is the diagnostic escape hatch — not part of the prod default, but
+      // reachable without rebuilding when something breaks in the field.
       devTools: !app.isPackaged || process.env.SCIPEN_DEVTOOLS === '1',
     },
   });
@@ -427,7 +438,8 @@ function createWindow(options?: {
     }
   } else {
     newWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), { hash: hash || undefined });
-    // prod 诊断逃生口:SCIPEN_DEVTOOLS=1 启动时自动 detach 弹 DevTools,不挤主界面。
+    // Prod diagnostic escape hatch: SCIPEN_DEVTOOLS=1 auto-opens DevTools detached
+    // at launch so it does not crowd the main window.
     if (process.env.SCIPEN_DEVTOOLS === '1' && !isViewer) {
       newWindow.webContents.openDevTools({ mode: 'detach' });
     }
@@ -498,6 +510,10 @@ app.whenReady().then(async () => {
 
   // Custom protocol for efficient streaming of large files (PDFs).
   registerLocalFileProtocol();
+  // Custom protocol for app-bundled WASM assets (BusyTeX, future tinymist, etc.).
+  // Required because Chromium blocks fetch() under file://, which BusyTeX's
+  // pipeline.js relies on to load texlive-*.js data package descriptors.
+  registerWasmAssetProtocol();
 
   registerServices();
 
@@ -505,11 +521,13 @@ app.whenReady().then(async () => {
   initializeCompilerRegistry();
   initializeLSPRegistry();
 
-  // IPC handlers 必须在 createWindow 之前注册，确保 renderer 加载时所有通道已就绪
+  // IPC handlers MUST be registered before createWindow so all channels are
+  // ready by the time the renderer loads.
   registerIpcHandlers();
 
   // ====== Renderer Unresponsive Detection ======
-  // web-contents-created 必须在 createWindow 之前注册，否则首窗口事件会错过
+  // web-contents-created MUST be registered before createWindow, otherwise the
+  // event for the first window is missed.
   app.on('web-contents-created', (_event, webContents) => {
     let isHandlingUnresponsive = false;
 
@@ -578,9 +596,11 @@ app.whenReady().then(async () => {
       .catch((err) => log.warn('[Main] Zotero bootstrap failed:', err));
   }
 
-  // 启动 references.bib 同步服务 —— 订阅 main 索引事件,debounce 写盘。
-  // 即使 isZoteroConfigured=false 也启动,这样设置里翻 enable 立刻生效。
-  // 项目路径由 fileTreeHandlers 在 Project_Open / Project_OpenByPath 时注入。
+  // Start the references.bib sync service — subscribes to main-index events
+  // and writes to disk on a debounce. Start even when isZoteroConfigured=false
+  // so flipping "enable" in Settings takes effect immediately.
+  // The project path is injected by fileTreeHandlers on Project_Open /
+  // Project_OpenByPath.
   const bibTexSyncConfig = {
     enabled: configManager.get<boolean>(ConfigKeys.ZoteroBibTexSyncEnabled, true),
     fileName: configManager.get<string>(
@@ -592,9 +612,11 @@ app.whenReady().then(async () => {
   getBibTexSyncService().setConfig(bibTexSyncConfig);
   getBibTexSyncService().start();
 
-  // 启动 embedding 索引服务(M3 主动推荐)。无条件 start() 订阅 bib 增量;
-  // ensureBuilt() 内部自 gate(未开启 → disabled,无 key → no-key),仅在
-  // activeRecommendation=true 且 keychain 有 key 时才真正建库。全异步不阻塞。
+  // Start the embedding index service (M3 active recommendation). Unconditional
+  // start() subscribes to bib deltas; ensureBuilt() self-gates internally
+  // (disabled when off / no-key when keychain is empty) and only builds the
+  // index when activeRecommendation=true AND the keychain has a key. Fully
+  // async, non-blocking.
   getEmbeddingIndexService().start();
   void getEmbeddingIndexService().ensureBuilt();
 
@@ -848,7 +870,8 @@ function registerIpcHandlers() {
   registerDialogHandlers();
   registerSettingsHandlers();
   registerZoteroHandlers();
-  // Zotero 缓存根(MinerU 解析图片等)常驻可读 —— 跨项目共享,不随项目切换清空。
+  // Zotero cache root (MinerU parsed images, etc.) stays persistently readable —
+  // shared across projects, NOT cleared on project switch.
   addPermanentAllowedDirectory(ZOTERO_CACHE_ROOT);
   registerCollaborationOwnerHandlers();
   registerOverleafHandlers({
@@ -874,6 +897,11 @@ function registerIpcHandlers() {
       config: c.get(ServiceNames.CONFIG),
     });
   }
+
+  // ====== Register History Handlers (per-project blob/chunk/label/step) ======
+  registerHistoryHandlers({
+    historyManager: getServiceContainer().get(ServiceNames.HISTORY_MANAGER),
+  });
 
   // ====== Register Update Handlers ======
   const updateService = new UpdateService();

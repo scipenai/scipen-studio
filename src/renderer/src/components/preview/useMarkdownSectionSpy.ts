@@ -1,11 +1,15 @@
 /**
- * @file useMarkdownSectionSpy —— markdown 预览的 scroll-spy。跟踪滚动容器
- *   视口顶部当前可见的章节标题,上报 UIService.setCurrentMarkdownSection,
- *   供 ChatContextBuilder 注入 AI 上下文(表达「用户正在读哪一节」)。
+ * @file useMarkdownSectionSpy — scroll-spy for markdown preview. Tracks the
+ *   currently visible section heading near the top of the scroll container's
+ *   viewport, reports it to UIService.setCurrentMarkdownSection, so that
+ *   ChatContextBuilder can inject it into AI context (conveys "which section
+ *   the user is reading").
  *
- * 只传标题文本,不传滚动坐标(裸坐标 AI 无法解读)。用 IntersectionObserver
- * + 上移的下边界(rootMargin)把判定收窄到容器顶部约 1/3,取文档序最靠前的
- * 可见 heading 作为当前章节。MarkdownRenderService 已为每个 heading 生成 id。
+ * Only the heading text is passed, not scroll coordinates (raw coords are
+ * uninterpretable to the AI). Use IntersectionObserver with a raised bottom
+ * margin (rootMargin) to narrow the detection band to roughly the top 1/3
+ * of the container, then take the document-order earliest visible heading
+ * as the current section. MarkdownRenderService already assigns ids to headings.
  */
 
 import { useEffect } from 'react';
@@ -32,11 +36,11 @@ export function useMarkdownSectionSpy(
           if (e.isIntersecting) visible.add(e.target as HTMLElement);
           else visible.delete(e.target as HTMLElement);
         }
-        // headings 为文档序;取第一个落在判定带内的标题 = 视口顶部章节。
+        // headings are in document order; first heading inside the detection band = section at viewport top.
         const top = headings.find((h) => visible.has(h)) ?? null;
         ui.setCurrentMarkdownSection(top?.textContent?.trim() || null);
       },
-      // 下边界上移 66% → 只认容器顶部约 1/3 的标题,避免整页标题同时命中。
+      // Raise bottom edge 66% -> only headings in the top ~1/3 of the container count, avoiding all headings matching at once.
       { root: container, rootMargin: '0px 0px -66% 0px', threshold: 0 }
     );
     headings.forEach((h) => observer.observe(h));
@@ -45,7 +49,7 @@ export function useMarkdownSectionSpy(
       observer.disconnect();
       ui.setCurrentMarkdownSection(null);
     };
-    // deps 由调用方传入(通常是渲染后的 html),内容变则重建 observer。
+    // deps supplied by caller (typically the rendered html); content change rebuilds the observer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 }

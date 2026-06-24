@@ -32,6 +32,8 @@
       "serverUrl": "Server URL",
       "serverUrlHint": "Supports official server or private deployment",
       "cookies": "Cookies",
+      "showCookies": "Show cookies",
+      "hideCookies": "Hide cookies",
       "cookiesRequired": "Please enter Overleaf Cookie",
       "howToGetCookie": "How to get Cookie?",
       "cookieStep1": "Log in to Overleaf in your browser",
@@ -72,6 +74,10 @@
     },
     "settings": {
       "title": "Editor Settings",
+      "groupTypography": "Typography",
+      "groupDisplay": "Display",
+      "groupBehavior": "Behavior",
+      "groupAI": "AI assistance",
       "fontSize": "Font Size",
       "fontFamily": "Font Family",
       "consolasRecommended": "Consolas (Recommended)",
@@ -91,6 +97,11 @@
       "aiCompletionDesc": "Trigger AI suggestions while typing",
       "ghostText": "Ghost Text",
       "ghostTextDesc": "Gray completion hints"
+    },
+    "syntax": {
+      "unmatchedEnd": "Missing matching \\end{{{name}}}",
+      "unmatchedBegin": "Missing matching \\begin{{{name}}}",
+      "unclosedCite": "Possibly unclosed \\cite command"
     }
   },
   "fileExplorer": {},
@@ -129,10 +140,16 @@
       "selection": "Selection",
       "ui": "UI",
       "shortcuts": "Shortcuts",
-      "ai": "AI Agent",
-      "agent": "Agent Data",
+      "ai": "AI Services",
+      "agent": "Agent Behaviors",
       "zotero": "Zotero",
       "update": "Update"
+    },
+    "groups": {
+      "aiEngine": "AI",
+      "basics": "Preferences",
+      "workflow": "Workspace",
+      "system": "System"
     }
   },
   "update": {
@@ -165,21 +182,23 @@
     "versionRestored": "Restored Overleaf version: {{fileName}}"
   },
   "aiSettings": {
-    "chatProvider": "AI Agent",
-    "chatProviderDesc": "Used by the SNACA Agent for chat, tool calls, Diff review, and Ctrl+K inline completion",
-    "chatModel": "Agent Model",
+    "sectionConnection": "Connection",
+    "sectionModelRouting": "Model Routing",
+    "chatModel": "Primary Agent Model",
     "chatModelDesc": "Pick a stronger reasoning model, e.g. deepseek-chat, claude-sonnet-4",
-    "provider": "Provider",
+    "provider": "Model Service",
     "providerDesc": "Select the model provider for AI",
     "apiKey": "API Key",
     "apiKeyDesc": "API key for the provider",
     "baseUrl": "Base URL",
     "baseUrlDesc": "API endpoint URL, leave empty for default",
-    "model": "Completion Model",
-    "modelDesc": "Model ID for Ctrl+K inline completion (low-latency models recommended, e.g. gpt-4o-mini); leave blank to reuse the Agent model",
+    "model": "Inline Completion Model",
+    "modelDesc": "Model ID for Ctrl+K inline completion (low-latency models recommended, e.g. gpt-4o-mini); leave blank to reuse the Primary Agent Model",
     "testConnection": "Test Connection",
     "testSuccess": "Connection successful",
-    "testFailed": "Connection failed"
+    "testFailed": "Connection failed",
+    "providerOpenAICompat": "OpenAI Compatible",
+    "providerAnthropicCompat": "Anthropic Compatible"
   },
   "selection": {
     "title": "Selection Assistant",
@@ -193,7 +212,7 @@
     "title": "LaTeX Compilation Settings",
     "remoteProject": "Currently a remote project (Overleaf), using remote compilation",
     "localProject": "Currently a local project, using local compilation",
-    "engine": "Compilation Engine",
+    "engine": "LaTeX Engine",
     "engineDesc": "Use XeLaTeX or LuaLaTeX for Chinese documents",
     "xelatexRecommended": "XeLaTeX",
     "lualatex": "LuaLaTeX",
@@ -234,16 +253,29 @@
     },
     "wasmPdftex": "pdfLaTeX WASM",
     "wasmXetex": "XeLaTeX WASM",
+    "wasmLualatex": "LuaLaTeX WASM",
     "texliveEndpoint": "TexLive Package Server",
-    "texliveEndpointDesc": "URL for on-demand TeX package fetching during WASM compilation. Leave empty for default. Use http://your-host:5001/ for self-hosted.",
+    "texliveEndpointDesc": "URL for on-demand TeX package/font fetching during WASM compilation. Defaults to the BusyTeX upstream endpoint; replace with http://your-host:5001/ for self-hosted, leave empty to disable remote fallback.",
     "typstEngine": "Typst Compiler",
-    "typstEngineDesc": "Select the compiler backend used for Typst PDF generation",
-    "tinymist": "Tinymist",
-    "typstCli": "Typst CLI",
+    "typstEngineDesc": "Select the compiler backend used for Typst PDF generation; options shown depend on what is detected on this machine",
+    "tinymist": "Local Tinymist",
+    "typstCli": "Local Typst CLI",
+    "typstWasm": "Typst",
+    "latexProbing": "Probing available LaTeX engines...",
+    "latexNoEngine": "No LaTeX compiler detected. Install TeX Live/MiKTeX/Tectonic, or bundle BusyTeX WASM assets to enable LaTeX compilation.",
+    "latexEngineMissing": "Selected LaTeX engine \"{{engine}}\" is unavailable. Please choose another engine.",
+    "typstProbing": "Probing available engines...",
+    "typstNoEngine": "No Typst compiler detected. Install tinymist/typst CLI or run pnpm download:typst-wasm to enable the Typst engine.",
+    "typstEngineMissing": "Selected engine \"{{engine}}\" is unavailable. Please choose another engine.",
+    "typstFontEndpoint": "Typst Font Supplement",
+    "typstFontEndpointDesc": "The Typst engine ships with a full font set (Libertinus + NewCM + DejaVu + Noto CJK SC). To layer extra fonts (TC/JP/KR or custom families) set a manifest URL — the engine fetches it at init and Electron disk-caches the binaries. See scipen-wasm://typst-ts/examples/noto-cjk-sc.json for the manifest format.",
+    "typstFontHintNotConfigured": "Hint: the local font set doesn't include the requested font. Set a manifest URL under \"Settings → Typst Font Supplement\" that contains it — the Typst engine will pull it on next init.",
+    "typstFontHintConfigured": "Hint: a font supplement URL is configured but doesn't provide the requested font. Edit that manifest to include the font, or switch to one that's already available.",
+    "typstFontHintFetchFailed": "Hint: the font supplement URL is unreachable; the Typst engine loaded local fonts only. Check the URL and your network, then restart Studio.",
     "syncTexTitle": "SyncTeX Support",
     "syncTexLocalSupport": "pdfLaTeX, XeLaTeX, LuaLaTeX, and Tectonic support SyncTeX.",
-    "syncTexWasmSupport": "LaTeX WASM engines have session-scoped SyncTeX support.",
-    "syncTexTypstSupport": "Typst compilers currently do not support SyncTeX.",
+    "syncTexWasmSupport": "LaTeX WASM engines (pdftex / xetex / lualatex) have session-scoped SyncTeX support.",
+    "syncTexTypstSupport": "No Typst engine currently supports SyncTeX; source/PDF bidirectional jump is unavailable.",
     "syncTexOverleafSupport": "Overleaf supports bidirectional source/PDF sync."
   },
   "aiConfig": {},
@@ -269,14 +301,12 @@
     "basicSettings": "Basic Settings",
     "enableSelection": "Enable Selection Assistant",
     "enableSelectionDesc": "When enabled, use a shortcut or global selection popup to inspect captured text",
-    "shortcutSettings": "Shortcut Settings",
     "triggerShortcut": "Trigger Shortcut",
     "triggerShortcutDesc": "After selecting text in any app, press this shortcut to open the selection window",
     "shortcut": "Shortcut",
     "shortcutPlaceholder": "e.g., Alt+D, Ctrl+Shift+K",
     "supportedModifiers": "Supported modifiers:",
     "modifierExample": "Example: Alt+D, Ctrl+Shift+K, CommandOrControl+Alt+S",
-    "advancedSettings": "Advanced Settings",
     "triggerMode": "Trigger Mode",
     "triggerModeDesc": "Shortcut trigger is more stable, global selection provides smoother experience",
     "shortcutTrigger": "Shortcut Trigger",
@@ -290,9 +320,17 @@
   },
   "common": {
     "cancel": "Cancel",
+    "confirm": "Confirm",
+    "ok": "OK",
     "close": "Close",
     "error": "Error",
     "refresh": "Refresh"
+  },
+  "dialog": {
+    "confirmTitle": "Confirm",
+    "errorTitle": "Error",
+    "warningTitle": "Warning",
+    "infoTitle": "Info"
   },
   "errorBoundary": {
     "title": "Application Error",
@@ -350,6 +388,61 @@
   "fileTree": {
     "noFiles": "No files"
   },
+  "history": {
+    "createLabel": "Create snapshot label",
+    "createLabelDesc": "Capture a named version snapshot of every currently open file",
+    "browseLabels": "Browse snapshot labels",
+    "browseLabelsDesc": "Inspect this project's snapshots; restore any version",
+    "labelNamePlaceholder": "Label name (e.g. \"Submission v1\")",
+    "labelDescriptionPlaceholder": "Description (optional)",
+    "labelCreating": "Creating…",
+    "labelCreateFailed": "Create failed: {{error}}",
+    "labelCreateSuccess": "Created snapshot \"{{name}}\"",
+    "labelEmpty": "No snapshots yet — use \"Create snapshot label\" to start",
+    "labelNoFiles": "No open files to snapshot — open a file first",
+    "labelNoProject": "No project open",
+    "labelKindManual": "Manual",
+    "labelKindAuto": "Auto",
+    "labelKindMilestone": "Milestone",
+    "labelFilesCount": "{{count}} files",
+    "submit": "Create",
+    "cancel": "Cancel",
+    "close": "Close",
+    "open": "Open",
+    "restore": "Restore",
+    "restoreConfirm": "Restore to \"{{name}}\"? Every currently open file will be replaced with the snapshot's version (you can undo with Ctrl+Z).",
+    "restoreConfirmTitle": "Restore snapshot",
+    "restoring": "Restoring…",
+    "restoreSuccess": "Restored {{count}} files",
+    "restoreFailed": "Restore failed: {{error}}",
+    "restoreNoTabs": "No open files to restore",
+    "rollbackBefore": "Rollback to before this message",
+    "rollbackBeforeTitle": "Rollback AI changes",
+    "rollbackBeforeConfirm": "Restore every open file to the state right before this message?",
+    "rollbackNoStep": "No snapshot exists prior to this message",
+    "rollbackNoSession": "No active session or project",
+    "restorePreview": "Restore diff:",
+    "diffStatsHint": "(after restore)",
+    "diffStatsClosed": "not open",
+    "diffStatsNoChange": "no change",
+    "viewDiff": "View diff",
+    "diffOverlayTitle": "Diff: {{fileId}}",
+    "browseSessions": "Session history",
+    "browseSessionsDesc": "Browse every AI session's change records; restore to any step",
+    "sessionsEmpty": "No AI session history yet",
+    "stepsEmpty": "No changes recorded in this session",
+    "sessionsStepCount": "{{count}} steps",
+    "sessionChat": "Chat {{thread}}",
+    "sessionLocal": "Local edit",
+    "originSnaca": "AI",
+    "originHuman": "Human",
+    "originMerge": "Merge",
+    "labelSelectPrompt": "Pick a snapshot on the left to inspect",
+    "labelKeyboardHint": "↑/↓ or j/k to navigate · Esc to close",
+    "stepSelectPrompt": "Pick a step on the left to inspect",
+    "browserTitle": "History browser",
+    "browserSections": "History sections"
+  },
   "chat": {
     "rename": "Rename",
     "delete": "Delete",
@@ -362,8 +455,22 @@
     "approvalAllowOnce": "Allow once",
     "approvalAllowAlways": "Always allow",
     "approvalDeny": "Deny",
+    "approvalSubmitting": "Submitting…",
+    "approvalSubmitFailed": "Submission failed — please retry",
+    "approvalRetry": "Retry",
+    "approvalHighRiskWarning": "High-risk action — review carefully",
+    "approvalArming": "Arming in {{seconds}}s",
+    "approvalShortcutHint": "A allow · D deny · Shift+A to always allow",
     "questionSubmit": "Submit",
     "questionOther": "Other (type your own)…",
+    "questionHeader": "Decision needed",
+    "questionSkip": "Skip",
+    "questionSubmitting": "Submitting…",
+    "questionSubmitFailed": "Submission failed — please retry",
+    "questionRetry": "Retry",
+    "questionTimeRemaining": "Expires in {{seconds}}s",
+    "questionSelectedCount": "{{count}} of {{total}} selected",
+    "questionShortcutHint": "Ctrl+Enter to submit · Esc to skip",
     "proposalPending": "Pending review",
     "proposalAccepted": "Accepted",
     "proposalRejected": "Rejected",
@@ -403,6 +510,27 @@
     "cancel": "Cancel",
     "startupIdle": "Open a project first",
     "startupError": "Startup failed: {{message}}",
+    "needsConfig": {
+      "title": "No AI model configured yet",
+      "desc": "Add your model service API key and model name in Settings to start chatting — this panel reconnects automatically once you're done.",
+      "openSettings": "Open Settings"
+    },
+    "status": {
+      "disconnected": "Disconnected",
+      "initializing": "Initializing",
+      "connected": "Connected",
+      "unconfigured": "Not configured",
+      "error": "Error"
+    },
+    "toolDetail": {
+      "args": "Args",
+      "status": "Status",
+      "result": "Result"
+    },
+    "thinking": {
+      "streaming": "Thinking…",
+      "completed": "Thought process"
+    },
     "compileErrorIntro": "{{compiler}} build error{{where}}:",
     "compileErrorAsk": "Help me figure out how to fix it.",
     "inputAriaLabel": "Chat message input"
@@ -421,6 +549,7 @@
     "reload": "Reload"
   },
   "fileExplorerMenu": {
+    "actions": "File actions",
     "newFile": "New File",
     "newFolder": "New Folder",
     "rename": "Rename (F2)",
@@ -448,15 +577,17 @@
       "ui": "Adjust theme, interface density, and sidebar presentation.",
       "shortcuts": "Customize command shortcuts and interaction habits.",
       "selection": "Configure selection assistant and shortcut trigger mode.",
-      "ai": "Configure provider, API key, and models for the AI Agent and inline completion.",
+      "ai": "Configure provider, API key, and models for AI Services and inline completion.",
       "agent": "Browse Agent memory and the skills available to this project.",
       "zotero": "Enable Zotero integration to @cite any reference from the editor.",
       "update": "Check for and install application updates."
     }
   },
   "workspaceSidebar": {
+    "navigation": "Workspace navigation",
     "imTab": "Chat",
     "filesTab": "Files",
+    "historyTab": "History",
     "settingsTab": "Settings",
     "settingsLoading": "Loading settings..."
   },
@@ -490,6 +621,8 @@
       "title": "Configure MinerU Precise Parse",
       "tokenLabel": "MinerU API Token",
       "tokenPlaceholder": "Paste the token from mineru.net",
+      "showToken": "Show token",
+      "hideToken": "Hide token",
       "privacyTitle": "Privacy notice",
       "privacyBody": "Precise parse uploads this PDF to the MinerU third-party cloud service for parsing. Please confirm you accept this.",
       "consent": "I understand and agree to upload the PDF to MinerU cloud parsing",
@@ -543,6 +676,8 @@
       "providerLabel": "Embedding provider",
       "keyLabel": "API Key",
       "keyPlaceholder": "Paste the API key for the chosen provider",
+      "showKey": "Show key",
+      "hideKey": "Hide key",
       "consent": "I understand and agree to send paragraph text to the chosen embedding provider",
       "save": "Save & enable",
       "cancel": "Cancel"
@@ -598,16 +733,7 @@
     "compileFailed": "Compile failed",
     "localCompiler": "Local Compiler",
     "selectCompileEngine": "Select Compile Engine",
-    "fastEnglishOnly": "SyncTeX supported",
-    "traditionalLatex": "Legacy compiler",
-    "unicodeSupport": "SyncTeX supported",
-    "unicodeAndLua": "SyncTeX supported",
-    "typstCompiler": "Typst Compiler",
-    "recommendedFullFeatures": "PDF generation only",
-    "officialCliTool": "PDF generation only",
-    "recommendedUnicode": "SyncTeX supported",
-    "modernCompiler": "SyncTeX supported",
-    "wasmNoInstall": "Session-scoped SyncTeX"
+    "typstCompiler": "Typst Compiler"
   },
   "outline": {
     "noFileOpen": "No file open",
@@ -655,13 +781,12 @@
     "pdfPreviewTab": "PDF Preview"
   },
   "markdownPreview": {
-    "copied": "Copied",
-    "copyCode": "Copy code",
     "documentLabel": "Markdown Document"
   },
   "thread": {
     "newConversation": "New conversation",
     "newThread": "New thread",
+    "copyThread": "Copy entire thread",
     "historyTitle": "Threads",
     "historyEmpty": "No threads yet.",
     "active": "Active",
@@ -679,7 +804,6 @@
     "noTurns": "No turns yet"
   },
   "markdownRender": {
-    "scrollHint": "Scroll horizontally to see full code",
     "copyCode": "Copy code"
   },
   "layout": {},
@@ -723,9 +847,11 @@
     "openSettings": "Open Settings"
   },
   "atFileDropdown": {
+    "label": "File suggestions",
     "noMatch": "No matching files"
   },
   "atCiteDropdown": {
+    "label": "Citation suggestions",
     "noMatch": "No matching references",
     "prompt": "Type to search references"
   },
@@ -754,8 +880,9 @@
     "usageHint": "Cumulative tokens / estimated cost for this conversation"
   },
   "settingsAgent": {
-    "viewer": "Agent data viewer",
-    "viewerDesc": "Inspect Agent memory and the skills currently loaded for this project. Both feed the AI's long-term context and capabilities.",
+    "sectionCoreBehavior": "Core Behavior",
+    "sectionMemoryTools": "Memory & Tools",
+    "sectionIntegrations": "Integrations",
     "memoryLabel": "Memory",
     "memoryDesc": "Project-scoped long-term memory: user prefs, project conventions, references, and feedback corrections.",
     "openMemory": "Open Memory Viewer",
@@ -786,8 +913,6 @@
       "restartHint": "⚠ MCP config changes restart the sidecar; the active session resumes automatically."
     },
     "approval": {
-      "title": "Approval mode",
-      "desc": "Controls how SNACA asks before file mutations / shell tools run.",
       "mode": "Mode",
       "modeDesc": "Takes effect on the next turn — no session restart needed.",
       "interactive": "Interactive (recommended)",
@@ -795,8 +920,6 @@
       "autoDeny": "Auto-deny all"
     },
     "webSearch": {
-      "title": "Web search",
-      "desc": "The built-in WebSearch tool uses Tavily and needs an API key to query the web; WebFetch (page fetching) needs no key.",
       "apiKey": "Tavily API key",
       "apiKeyDesc": "Saving restarts the Agent runtime so it takes effect. Leave empty to disable WebSearch (WebFetch still works).",
       "apiKeyPlaceholder": "tvly-..."
@@ -806,6 +929,11 @@
       "expand": "Expand",
       "collapse": "Collapse",
       "desc": "Override SNACA engine defaults. Leave blank to keep the model-aware default. Changes restart the sidecar.",
+      "groupExecution": "Execution",
+      "groupContext": "Context & compaction",
+      "groupTokens": "Token limits",
+      "groupMcp": "MCP tuning",
+      "groupSwitches": "Switches & memory",
       "maxIterations": "max_iterations",
       "maxIterationsDesc": "Max LLM iterations per turn — prevents runaway loops.",
       "loopGuard": "loop_guard_max_repeats",
@@ -925,14 +1053,13 @@
     "title": "Zotero integration",
     "subtitle": "Enables a long-running main-process index of your Zotero library; @cite from the editor",
     "basicSettings": "Basic",
-    "enableIntegration": "Enable Zotero integration",
+    "enableIntegration": "Connect Zotero library",
     "enableIntegrationDesc": "First enable opens the setup wizard; the main process then indexes your library",
     "notEnabledTitle": "Not enabled",
     "notEnabledDesc": "Zotero integration relies on a local Zotero install + Local API. Three quick steps and you can @cite any reference from the editor.",
     "startWizard": "Open setup wizard",
     "indexStatus": "Index status",
-    "statusLabel": "Status",
-    "itemCount": "Items",
+    "itemCount": "Indexed references",
     "lastSyncedAt": "Last synced",
     "never": "Never",
     "sources": "Data sources",

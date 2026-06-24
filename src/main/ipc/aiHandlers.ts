@@ -48,6 +48,15 @@ export function registerAIHandlers(deps: AIHandlersDeps): void {
         }
       },
 
+      [IpcChannel.AI_GenerateTitle]: async (userMessage) => {
+        try {
+          const content = await aiService.generateTitle(userMessage);
+          return { success: true, content };
+        } catch (error) {
+          return { success: false, error: error instanceof Error ? error.message : String(error) };
+        }
+      },
+
       [IpcChannel.AI_TestConnection]: async () => {
         return aiService.testConnection();
       },

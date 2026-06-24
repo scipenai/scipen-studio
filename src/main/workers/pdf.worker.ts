@@ -161,7 +161,7 @@ interface PDFPageContent {
 const DEFAULT_CHUNKING_CONFIG: ChunkingConfig = {
   chunkSize: 512,
   chunkOverlap: 50,
-  separators: ['\n\n', '\n', '。', '.', ' '],
+  separators: ['\n\n', '\n', '。', '.', ' '], // allow-cjk: split CJK PDF text on full-width period
 };
 
 // ============ PDF Parsing ============

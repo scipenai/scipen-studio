@@ -10,6 +10,20 @@
 
 // ====== Base Types ======
 
+/**
+ * 主进程在「LLM 尚未配置」时,从 agent IPC(startProject → init)抛出的错误标记。
+ *
+ * WHY 用字符串标记而非数值 code:Electron 的 ipcMain.handle 把 throw 的 Error
+ * 跨进程序列化时只可靠保留 message,自定义属性(如 .code)会丢失。因此把这个
+ * 稳定标记嵌入 message,renderer 用 `message.includes(marker)` 判别 —— Electron
+ * 会给 message 加 "Error invoking remote method '…':" 前缀,故必须 includes 而非
+ * 全等。两端 import 同一常量,避免魔法字符串漂移。
+ *
+ * 语义边界:这是「未配置(预期初始态)」,不是运行时错误 —— renderer 据此渲染
+ * 引导卡而非红色报错。
+ */
+export const AGENT_NOT_CONFIGURED_MARKER = 'AGENT_NOT_CONFIGURED';
+
 // ====== File Operations ======
 
 export interface FileTreeNode {

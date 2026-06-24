@@ -1,7 +1,7 @@
 # SciPen Studio User Guide
 
-> **Version:** 0.3.0-pre.1
-> **Last updated:** 2026-06-04
+> **Version:** 0.3.0
+> **Last updated:** 2026-06-16
 
 **English** · [简体中文](USER_GUIDE.zh-CN.md)
 
@@ -48,7 +48,7 @@ The welcome screen offers three entry points:
 
 1. Open any `.tex` or `.typ` file.
 2. Click **Compile** in the toolbar or press `Ctrl+Enter`.
-3. By default the bundled **WASM compiler** (StellarLatex pdfTeX) runs — no local TeX installation required.
+3. By default the bundled **WASM compiler** ([BusyTeX](https://github.com/busytex/busytex): pdfTeX / XeTeX / LuaLaTeX) runs — no local TeX installation required.
 4. The PDF preview on the right updates automatically. Click on the PDF to jump back to the source; `Ctrl+click` in the editor jumps forward to the matching PDF location (SyncTeX).
 
 ---
@@ -82,7 +82,7 @@ LSP binaries ship with the installer — **no manual setup needed**.
 
 | Engine | Notes | Local install required |
 |--------|-------|------------------------|
-| **WASM pdfTeX** (default) | Bundled StellarLatex, works out of the box | No |
+| **WASM (BusyTeX)** (default) | Bundled pdfTeX / XeTeX / LuaLaTeX, works out of the box | No |
 | **WASM XeTeX** | Bundled, supports Unicode / CJK | No |
 | **Tectonic** | Fetches packages on demand, good for larger projects | Yes |
 | **TeX Live** (pdfLaTeX / XeLaTeX / LuaLaTeX) | Full distribution | Yes |

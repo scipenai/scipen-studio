@@ -46,8 +46,10 @@ import {
   useZoteroPdf,
 } from '../../services/core/hooks';
 import { DOMScheduler, SchedulePriority } from '../../utils/DOMScheduler';
+import type { PdfHighlight } from '../../services/core';
 import { useTranslation } from '../../locales';
 import { CompileLogPanel } from './CompileLogPanel';
+import { usePulseHighlight } from './usePdfMotion';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
@@ -95,13 +97,41 @@ const PDFPage = memo<{
   pdfDoc: pdfjsLib.PDFDocumentProxy;
   scale: number;
   isVisible: boolean;
+  highlight?: PdfHighlight | null;
   onRendered?: () => void;
   onPageClick?: (pageNum: number, x: number, y: number) => void;
-}>(({ pageNum, pdfDoc, scale, isVisible, onRendered, onPageClick }) => {
+}>(({ pageNum, pdfDoc, scale, isVisible, highlight, onRendered, onPageClick }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const pulseRef = useRef<HTMLDivElement>(null);
   const [isRendered, setIsRendered] = useState(false);
   const renderingRef = useRef(false);
   const renderTaskRef = useRef<{ cancel(): void } | null>(null);
+
+  // SyncTeX landing pulse: latch a snapshot of the non-null highlight and bump a token to trigger one animation.
+  // The parent clearing highlight to null ~500ms later (to drop navigation state) won't interrupt the latched pulse — fully decoupled.
+  const pulseTokenRef = useRef(0);
+  const [pulse, setPulse] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    token: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!highlight) return;
+    pulseTokenRef.current += 1;
+    setPulse({
+      x: highlight.x,
+      y: highlight.y,
+      width: highlight.width,
+      height: highlight.height,
+      token: pulseTokenRef.current,
+    });
+  }, [highlight]);
+
+  usePulseHighlight(pageRef, pulseRef, pulse?.token ?? 0);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -176,6 +206,7 @@ const PDFPage = memo<{
 
   return (
     <div
+      ref={pageRef}
       className="bg-white shadow-2xl relative flex-shrink-0"
       style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}
     >
@@ -190,6 +221,25 @@ const PDFPage = memo<{
           <div className="w-6 h-6 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin" />
         </div>
       )}
+      {/* SyncTeX landing pulse layer: visibility/scale is fully delegated to GSAP (autoAlpha); style does not declare opacity/visibility/transform
+          to avoid parent re-renders overriding the animation; pointer-events-none as a safety net so it never blocks reverse-sync clicks. */}
+      {pulse && (
+        <div
+          ref={pulseRef}
+          aria-hidden
+          className="pointer-events-none absolute rounded-[3px]"
+          style={{
+            left: pulse.x * scale,
+            top: pulse.y * scale,
+            width: Math.max(pulse.width * scale, 24),
+            height: Math.max(pulse.height * scale, 14),
+            border: '2px solid var(--color-accent)',
+            background: 'color-mix(in srgb, var(--color-accent) 12%, transparent)',
+            boxShadow:
+              '0 0 0 4px color-mix(in srgb, var(--color-accent) 26%, transparent), 0 0 20px 2px color-mix(in srgb, var(--color-accent) 50%, transparent)',
+          }}
+        />
+      )}
     </div>
   );
 });
@@ -198,8 +248,8 @@ PDFPage.displayName = 'PDFPage';
 export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   source = 'compile',
 }) => {
-  // 两个数据 hook 都无条件调用(hook 规则),按 source 选。zotero 源是 Zotero
-  // 论文 PDF(无 synctex / 无编译态),compile 源是编译产物(默认,行为不变)。
+  // Both data hooks are called unconditionally (rules of hooks), then we pick by source. The zotero source is a Zotero
+  // paper PDF (no synctex / no compile state); the compile source is the compilation artifact (default, behavior unchanged).
   const compilePdfData = usePdfData();
   const zoteroPdfData = useZoteroPdf();
   const pdfData = source === 'zotero' ? zoteroPdfData : compilePdfData;
@@ -390,7 +440,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   }, [currentZoomPercent]);
 
   useEffect(() => {
-    // SyncTeX 正向高亮是编译产物专属;zotero 论文 PDF 无 synctex,跳过。
+    // SyncTeX forward highlight is exclusive to compilation artifacts; zotero paper PDFs have no synctex, skip.
     if (source === 'zotero') return;
     if (!pdfHighlight || !pdfDoc || !pagesContainerRef.current) return;
 
@@ -597,8 +647,8 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     });
   }, [pdfDoc]);
 
-  // 每次新 PDF 文档加载后(切文件 / 切源 / 重编译都会产生新的 pdfDoc 实例),
-  // 默认按容器宽度自适应,而不是固定 120% —— 复用 fitToWidth,容器此时已挂载。
+  // After every new PDF document load (switching files / sources / recompiling all produce a new pdfDoc instance),
+  // default to fitting container width instead of a fixed 120% — reuse fitToWidth; the container is already mounted by then.
   useEffect(() => {
     if (!pdfDoc || totalPages === 0) return;
     fitToWidth();
@@ -650,7 +700,13 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
 
     try {
       const syncTeXService = getSyncTeXService();
-      const result = await syncTeXService.backward(pageNum, x, y, synctexPath);
+      const result = await syncTeXService.backward(
+        pageNum,
+        x,
+        y,
+        synctexPath,
+        uiService.synctexProjectRoot ?? undefined
+      );
 
       if (result?.file && result.line !== undefined) {
         window.dispatchEvent(
@@ -668,9 +724,12 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     }
   }, []);
 
-  // zotero 论文 PDF 无 .synctex → 禁用反向同步点击(传 undefined 即关闭),
-  // 避免 backward 在无 synctexPath 时报错。
+  // zotero paper PDFs have no .synctex → disable reverse-sync clicks (pass undefined to turn off),
+  // avoiding backward() throwing when synctexPath is missing.
   const pageClickHandler = source === 'zotero' ? undefined : handlePageClick;
+
+  // SyncTeX landing highlight only exists for compilation artifacts (zotero papers have no synctex); only forward to the hit page, others get null.
+  const activeHighlight = source === 'zotero' ? null : pdfHighlight;
 
   const pageNumbers = useMemo(
     () => Array.from({ length: totalPages }, (_, i) => i + 1),
@@ -735,7 +794,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3">
               <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--color-error-muted)] text-[var(--color-error)]">
-                <AlertCircle size={18} />
+                <AlertCircle size={18} aria-hidden="true" />
               </div>
               <div>
                 <div className="text-sm font-semibold text-[var(--color-text-primary)]">
@@ -751,7 +810,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
               <button
                 type="button"
                 onClick={() => window.dispatchEvent(new CustomEvent('trigger-compile'))}
-                className="rounded-lg border px-3 py-2 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+                className="cursor-pointer rounded-lg border px-3 py-2 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                 style={{
                   borderColor: 'var(--color-border)',
                   background: 'color-mix(in srgb, var(--color-bg-primary) 84%, transparent)',
@@ -776,9 +835,9 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                     rawLog,
                   })
                 }
-                className="flex items-center gap-1.5 rounded-xl bg-[linear-gradient(135deg,#0ea5e9_0%,#2563eb_100%)] px-3.5 py-2 text-xs font-semibold text-white shadow-[0_12px_24px_rgba(37,99,235,0.24)] transition-transform hover:-translate-y-[1px] hover:shadow-[0_16px_28px_rgba(37,99,235,0.28)]"
+                className="flex cursor-pointer items-center gap-1.5 rounded-xl bg-[linear-gradient(135deg,#0ea5e9_0%,#2563eb_100%)] px-3.5 py-2 text-xs font-semibold text-white shadow-[0_12px_24px_rgba(37,99,235,0.24)] transition-transform hover:-translate-y-[1px] hover:shadow-[0_16px_28px_rgba(37,99,235,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
               >
-                <Sparkles size={12} />
+                <Sparkles size={12} aria-hidden="true" />
                 <span>{t('pdfPreview.askAgent')}</span>
               </button>
             </div>
@@ -850,7 +909,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                   onClick={() => {
                     void jumpToCompileLocation(primaryIssue.file!, primaryIssue.line!);
                   }}
-                  className="mt-3 rounded-lg bg-[var(--color-accent-muted)] px-3 py-2 text-xs font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-white"
+                  className="mt-3 cursor-pointer rounded-lg bg-[var(--color-accent-muted)] px-3 py-2 text-xs font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                 >
                   {t('pdfPreview.jumpToError')}
                 </button>
@@ -886,8 +945,9 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                     <button
                       type="button"
                       onClick={() => setFailureLogTab('diagnostics')}
+                      aria-pressed={failureLogTab === 'diagnostics'}
                       className={clsx(
-                        'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                        'cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
                         failureLogTab === 'diagnostics'
                           ? 'bg-[var(--color-accent-muted)] text-[var(--color-accent)]'
                           : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
@@ -905,8 +965,9 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                     <button
                       type="button"
                       onClick={() => setFailureLogTab('raw')}
+                      aria-pressed={failureLogTab === 'raw'}
                       className={clsx(
-                        'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                        'cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
                         failureLogTab === 'raw'
                           ? 'bg-[var(--color-accent-muted)] text-[var(--color-accent)]'
                           : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
@@ -975,7 +1036,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                       <button
                         type="button"
                         onClick={() => navigator.clipboard.writeText(rawLog)}
-                        className="rounded-lg border px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+                        className="cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                         style={{
                           borderColor: 'var(--color-border)',
                           background:
@@ -1002,7 +1063,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     return (
       <div className="h-full flex flex-col bg-[var(--color-bg-secondary)]">
         <div
-          className="flex min-h-[54px] items-center justify-between border-b px-3 py-2.5"
+          className="flex min-h-[54px] items-center justify-between border-b px-4 py-2.5"
           style={{
             borderBottomColor: 'var(--color-border-subtle)',
             background: 'color-mix(in srgb, var(--color-bg-elevated) 92%, transparent)',
@@ -1020,45 +1081,60 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
             </div>
             <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
             <button
+              type="button"
               onClick={() => setShowThumbnails(!showThumbnails)}
+              aria-label="Show thumbnails"
+              aria-pressed={showThumbnails}
               className={clsx(
-                'p-1.5 rounded transition-colors',
+                'cursor-pointer rounded p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
                 showThumbnails
                   ? 'bg-[var(--color-accent)] text-white'
                   : 'hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
               )}
               title="Show thumbnails"
             >
-              <Sidebar size={16} />
+              <Sidebar size={16} aria-hidden="true" />
             </button>
             <span className="text-sm text-[var(--color-text-secondary)] min-w-[60px] text-center">
               {currentPage} / {totalPages}
             </span>
             <button
+              type="button"
               onClick={() => goToPage(currentPage - 1)}
               disabled={currentPage <= 1}
-              className="p-1 hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
+              aria-label="Previous page"
+              className={clsx(
+                'rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:opacity-30',
+                currentPage <= 1 ? 'cursor-not-allowed' : 'cursor-pointer'
+              )}
               title="Previous page"
             >
-              <ChevronLeft size={18} />
+              <ChevronLeft size={18} aria-hidden="true" />
             </button>
             <button
+              type="button"
               onClick={() => goToPage(currentPage + 1)}
               disabled={currentPage >= totalPages}
-              className="p-1 hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] disabled:opacity-30"
+              aria-label="Next page"
+              className={clsx(
+                'rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:opacity-30',
+                currentPage >= totalPages ? 'cursor-not-allowed' : 'cursor-pointer'
+              )}
               title="Next page"
             >
-              <ChevronRight size={18} />
+              <ChevronRight size={18} aria-hidden="true" />
             </button>
           </div>
 
           <div className="flex items-center gap-1">
             <button
+              type="button"
               onClick={zoomOut}
-              className="p-1.5 hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+              aria-label="Zoom out"
+              className="cursor-pointer rounded p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
               title="Zoom out"
             >
-              <ZoomOut size={16} />
+              <ZoomOut size={16} aria-hidden="true" />
             </button>
             <div className="flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1">
               <input
@@ -1090,41 +1166,54 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
               <option value="200">200%</option>
             </select>
             <button
+              type="button"
               onClick={zoomIn}
-              className="p-1.5 hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+              aria-label="Zoom in"
+              className="cursor-pointer rounded p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
               title="Zoom in"
             >
-              <ZoomIn size={16} />
+              <ZoomIn size={16} aria-hidden="true" />
             </button>
             <button
+              type="button"
               onClick={fitToWidth}
-              className="p-1.5 hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+              aria-label="Fit to width"
+              className="cursor-pointer rounded p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
               title="Fit to width"
             >
-              <Maximize2 size={16} />
+              <Maximize2 size={16} aria-hidden="true" />
             </button>
           </div>
 
           <div className="flex items-center gap-1">
             <button
+              type="button"
               onClick={() => setViewMode(viewMode === 'scroll' ? 'single' : 'scroll')}
+              aria-label={viewMode === 'scroll' ? 'Single page mode' : 'Scroll mode'}
+              aria-pressed={viewMode === 'single'}
               className={clsx(
-                'p-1.5 rounded transition-colors',
+                'cursor-pointer rounded p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
                 viewMode === 'single'
                   ? 'bg-[var(--color-accent)] text-white'
                   : 'hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
               )}
               title={viewMode === 'scroll' ? 'Single page mode' : 'Scroll mode'}
             >
-              {viewMode === 'scroll' ? <Grid3X3 size={16} /> : <Columns size={16} />}
+              {viewMode === 'scroll' ? (
+                <Grid3X3 size={16} aria-hidden="true" />
+              ) : (
+                <Columns size={16} aria-hidden="true" />
+              )}
             </button>
             <div className="w-px h-4 bg-[var(--color-border)] mx-1" />
             <button
+              type="button"
               onClick={handleDownload}
-              className="p-1.5 hover:bg-[var(--color-bg-hover)] rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+              aria-label="Download PDF"
+              className="cursor-pointer rounded p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
               title="Download PDF"
             >
-              <Download size={16} />
+              <Download size={16} aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -1169,6 +1258,11 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                         pdfDoc={pdfDoc}
                         scale={scale}
                         isVisible={true}
+                        highlight={
+                          activeHighlight && activeHighlight.page === pageNum
+                            ? activeHighlight
+                            : null
+                        }
                         onPageClick={pageClickHandler}
                       />
                     ) : (
@@ -1191,6 +1285,9 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                   pdfDoc={pdfDoc}
                   scale={scale}
                   isVisible={true}
+                  highlight={
+                    activeHighlight && activeHighlight.page === currentPage ? activeHighlight : null
+                  }
                   onPageClick={handlePageClick}
                 />
               </div>

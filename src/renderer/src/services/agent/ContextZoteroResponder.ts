@@ -139,7 +139,7 @@ export class ContextZoteroResponder {
       try {
         csl = (await api.zotero.getCslByKey(entry.citationKey)) ?? undefined;
       } catch {
-        // CSL 可选 metadata,失败不致命。
+        // CSL is optional metadata; failure is non-fatal.
       }
     }
 
@@ -201,7 +201,7 @@ export class ContextZoteroResponder {
       return;
     }
 
-    // key 可能是 citationKey 或 itemKey;全文抽取按 itemKey 走,先经 mirror 归一。
+    // key may be citationKey or itemKey; full-text extraction is keyed by itemKey, so normalize via mirror first.
     const mirror = getZoteroBibMirror();
     const entry = mirror.getByCitationKey(key) ?? mirror.getByItemKey(key);
     if (!entry) {

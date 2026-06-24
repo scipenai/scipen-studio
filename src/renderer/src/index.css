@@ -4,27 +4,33 @@
 
 /* ============================================================
  * SciPen Studio - "Midnight Manuscript" Design System v4
- * 午夜手稿设计系统 - 面向科研写作工作台
+ * Design system for the academic writing workbench.
  *
- * 设计理念：
- * - 深色模式不是 IDE 黑壳，而是“夜间写作桌面”：墨蓝纸感、低眩光、高可读
- * - 浅色模式不是纯白后台，而是“稿纸桌面”：亚麻纸色、柔和边界、适合久看
- * - 主强调色保留学术蓝青，但降低攻击性，避免过度工程化
- * - 语义色保持清晰，但全部收敛到更克制、更有文稿气质的明度与饱和度
+ * Design intent:
+ * - Dark mode is not an "IDE black shell" but a "night writing desk":
+ *   ink-blue paper feel, low glare, high readability.
+ * - Light mode is not a pure-white admin surface but a "manuscript desk":
+ *   linen paper hue, soft borders, easy on long reading sessions.
+ * - Primary accent keeps the academic teal/blue but tones down aggressiveness.
+ * - Semantic colors stay clear, but all converge on a more restrained
+ *   lightness and saturation appropriate for prose.
  * ============================================================ */
 
 /* ============================================================
- * 半径纪律 (Radius Discipline) —— 去「廉价胶囊感」的统一约定
- *   真圆 (状态点/spinner/头像/grip)         → rounded-full
- *   矩形控件 (按钮/toggle/tab/chip/tag)      → rounded-lg  (8px)
- *   容器/卡片 (面板/弹层/输入卡/抽屉/代码块) → rounded-xl  (12px)
- *   大外壳 (WorkspaceShell)                 → rounded-2xl (16px)
- * `rounded-full`/`999px`/`[18px]`/`1rem` 不得用于矩形表面。
+ * Radius discipline — uniform rules that eliminate the "cheap pill" look.
+ *   True circle (status dot / spinner / avatar / grip)   → rounded-full
+ *   Small inner controls (tag / chip / icon-btn / segment) → rounded-md (6px)
+ *   Rectangular controls (button / toggle / tab / input)  → rounded-lg (8px)
+ *   Containers / cards (panel / popover / drawer / codeblock) → rounded-xl (12px)
+ *   Large shells (WorkspaceShell / dialog)                 → rounded-2xl (16px)
+ * All radii flow through Tailwind classes (--radius:0.5rem derives md/lg
+ * plus the default xl/2xl); arbitrary `rounded-[Npx]` and `rounded-full`
+ * on rectangular surfaces are forbidden.
  * ============================================================ */
 
 @layer base {
 :root {
-    /* ===== 基础色盘 (Zinc - 纯中性灰) ===== */
+    /* ===== Base palette (Zinc — pure neutral grey) ===== */
     --zinc-50: #fafafa;
     --zinc-100: #f4f4f5;
     --zinc-200: #e4e4e7;
@@ -37,7 +43,7 @@
     --zinc-900: #18181b;
     --zinc-950: #09090b;
 
-    /* ===== 强调色 (柔和版) ===== */
+    /* ===== Accent (soft) ===== */
     --teal-400: #2dd4bf;
     --teal-500: #14b8a6;
     --teal-600: #0d9488;
@@ -47,34 +53,53 @@
     --amber-500: #f59e0b;
     --rose-500: #f43f5e;
 
-    /* ===== SciPen Design Tokens（统一语义层）===== */
+    /* ===== SciPen Design Tokens (unified semantic layer) ===== */
     --scipen-font-sans: 'Inter', 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei UI', system-ui, -apple-system, sans-serif;
     --scipen-font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
 
-    /* 聊天面板正文/输入字号(px);由设置 ui.chatFontSize 在 ChatSidebar 根覆盖 */
+    /* Chat panel body/input font size (px). ChatSidebar root overrides per ui.chatFontSize. */
     --chat-font-size: 14px;
 
-    /* Motion tokens — Doherty 阈值 + 心流原则
-       fast:   hover / 微交互
-       base:   panel 切换 / modal
-       slow:   大壳过渡 / 路由切换
-       pulse:  AI 流式 / 呼吸感(更长周期=更平静,降焦虑)
-       ease:   iOS 标准曲线,流畅且不弹 */
+    /* Font-size scale / line-height (theme-invariant) — corrals the scattered
+       arbitrary `text-[Npx]` values. Consumed by CSS and Tailwind arbitrary
+       values: `text-[length:var(--text-xs)]` / `leading-[var(--leading-relaxed)]`.
+       Tailwind adds only the 2xs key; the default scale is not overridden
+       (avoids disturbing existing text-sm/lg visuals). */
+    --text-2xs: 10px;
+    --text-xs: 11px;
+    --text-sm: 12px;
+    --text-base: 13px;
+    --text-md: 14px;
+    --text-lg: 16px;
+    --text-xl: 18px;
+    --text-2xl: 20px;
+    --text-3xl: 24px;
+    --leading-tight: 1.4;
+    --leading-snug: 1.55;
+    --leading-normal: 1.6;
+    --leading-relaxed: 1.75;
+
+    /* Motion tokens — Doherty threshold + flow principle.
+       fast:   hover / micro-interactions
+       base:   panel transition / modal
+       slow:   shell transition / route change
+       pulse:  AI streaming / breathing rhythm (longer period = calmer, less anxiety)
+       ease:   iOS standard curve, smooth without bounce */
     --motion-fast: 160ms;
     --motion-base: 200ms;
     --motion-slow: 320ms;
     --motion-pulse: 2.4s;
     --motion-ease: cubic-bezier(0.32, 0.72, 0, 1);
 
-    --scipen-bg-canvas: #0f131a;
-    --scipen-surface: #161b24;
-    --scipen-surface-strong: #1d2430;
-    --scipen-surface-muted: #283142;
-    --scipen-border: rgba(170, 182, 204, 0.16);
-    --scipen-border-soft: rgba(170, 182, 204, 0.08);
-    --scipen-text-primary: #eef2f7;
-    --scipen-text-secondary: #c6cfdd;
-    --scipen-text-muted: #8d98ad;
+    --scipen-bg-canvas: #09090b;
+    --scipen-surface: #18181b;
+    --scipen-surface-strong: #27272a;
+    --scipen-surface-muted: #3f3f46;
+    --scipen-border: rgba(255, 255, 255, 0.08);
+    --scipen-border-soft: rgba(255, 255, 255, 0.05);
+    --scipen-text-primary: #fafafa;
+    --scipen-text-secondary: #d4d4d8;
+    --scipen-text-muted: #a1a1aa;
     --scipen-accent: #69a7c7;
     --scipen-accent-strong: #4f8eaf;
     --scipen-accent-soft: rgba(105, 167, 199, 0.16);
@@ -86,91 +111,91 @@
     --scipen-danger-soft: rgba(216, 132, 132, 0.16);
     --scipen-info: #8fa2d9;
     --scipen-info-soft: rgba(143, 162, 217, 0.16);
-    --scipen-radius-xs: 4px;
-    --scipen-radius-md: 14px;
-    --scipen-radius-lg: 22px;
-    --scipen-radius-full: 999px;
     --scipen-shadow-xs: 0 2px 6px rgba(0, 0, 0, 0.22);
     --scipen-shadow-sm: 0 10px 24px rgba(0, 0, 0, 0.28);
     --scipen-shadow-md: 0 22px 42px rgba(0, 0, 0, 0.34);
     --scipen-shadow-lg: 0 34px 70px rgba(0, 0, 0, 0.42);
     --scipen-shadow-glow: 0 0 24px rgba(105, 167, 199, 0.12);
 
-    /* ===== 集成品牌色(跨主题恒定,不随 .light-theme 变化)=====
-       供 Overleaf 等第三方集成 UI 使用,与 SciPen 品牌色 --scipen-accent 区隔 */
+    /* ===== Integration brand colors (theme-invariant; do not change with .light-theme) =====
+       For third-party integrations (e.g. Overleaf); kept distinct from SciPen's --scipen-accent. */
     --color-overleaf-primary: #305f8a;
     --color-overleaf-muted: rgba(64, 114, 162, 0.08);
     --color-overleaf-gradient: linear-gradient(135deg, #4072a2 0%, #305f8a 100%);
 
-    /* ===== Shadcn/UI Style Variables (Dark Mode Default) =====
-       HSL 值与上方 --scipen-* palette 在角色维度精确对齐:
-       - background ↔ --scipen-bg-canvas (#0f131a)
-       - card / popover ↔ --scipen-surface (#161b24)
-       - secondary / muted / accent ↔ --scipen-surface-strong (#1d2430)
+    /* ===== Shadcn/UI style variables (dark mode default) =====
+       HSL values align role-for-role with the --scipen-* palette above:
+       - background ↔ --scipen-bg-canvas (#09090b, zinc-950)
+       - card / popover ↔ --scipen-surface (#18181b, zinc-900)
+       - secondary / muted / accent ↔ --scipen-surface-strong (#27272a, zinc-800)
        - primary / ring ↔ --scipen-accent (#69a7c7)
-       - muted-foreground ↔ --scipen-text-muted (#8d98ad)
+       - muted-foreground ↔ --scipen-text-muted (#a1a1aa, zinc-400)
        - destructive ↔ --scipen-danger (#d88484)
-       注:Shadcn "accent" 在语义上是次级背景,非品牌强调色 */
-    --background: 222 24% 8%;
-    --foreground: 214 31% 95%;
+       Note: Shadcn "accent" is semantically a secondary background, not a brand accent. */
+    --background: 240 6% 4%;
+    --foreground: 0 0% 98%;
 
-    --card: 218 24% 11%;
-    --card-foreground: 214 31% 95%;
+    --card: 240 5% 10%;
+    --card-foreground: 0 0% 98%;
 
-    --popover: 218 24% 11%;
-    --popover-foreground: 214 31% 95%;
+    --popover: 240 5% 10%;
+    --popover-foreground: 0 0% 98%;
 
     --primary: 200 41% 60%;
-    --primary-foreground: 222 24% 8%;
+    --primary-foreground: 240 6% 4%;
 
-    --secondary: 218 25% 15%;
-    --secondary-foreground: 214 31% 95%;
+    --secondary: 240 4% 16%;
+    --secondary-foreground: 0 0% 98%;
 
-    --muted: 218 25% 15%;
-    --muted-foreground: 220 16% 62%;
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 65%;
 
-    --accent: 218 25% 15%;
-    --accent-foreground: 214 31% 95%;
+    --accent: 240 4% 16%;
+    --accent-foreground: 0 0% 98%;
 
     --destructive: 0 50% 68%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 220 18% 22%;
-    --input: 220 18% 22%;
+    --border: 240 4% 16%;
+    --input: 240 4% 16%;
     --ring: 200 41% 60%;
 
     --radius: 0.5rem;
 
     /* ===== Legacy CSS Variables (--color-*) ===== */
-    /* 业务消费的事实 API(1117 处 var(--color-*) 在 75 个文件中),经 alias
-       指向 --scipen-* palette。不可随意删除/改名,改值会广泛影响 UI */
+    /* The de-facto API consumed by features (1117 `var(--color-*)` references
+       across 75 files), aliased to the --scipen-* palette. Do not delete or
+       rename freely; changing a value cascades broadly through the UI. */
 
-    /* 背景层次 */
+    /* Background layers */
     --color-bg-void: var(--scipen-bg-canvas);
     --color-bg-primary: var(--scipen-surface);
     --color-bg-secondary: var(--scipen-surface-strong);
     --color-bg-tertiary: var(--scipen-surface-muted);
     --color-bg-elevated: var(--scipen-surface-strong);
     --color-bg-hover: var(--scipen-surface-muted);
+    /* Selected / active surface — one step brighter than hover; used for subtle
+       active states (e.g. the three-panel toggle) to distinguish from hover. */
+    --color-bg-active: #52525b;
 
-    /* 边框 */
+    /* Borders */
     --color-border-subtle: var(--scipen-border-soft);
     --color-border: var(--scipen-border);
     --color-border-strong: rgba(161, 161, 170, 0.2);
 
-    /* 文字 */
+    /* Text */
     --color-text-primary: var(--scipen-text-primary);
     --color-text-secondary: var(--scipen-text-secondary);
     --color-text-muted: var(--scipen-text-muted);
     --color-text-disabled: #52525b;
 
-    /* 强调色 */
+    /* Accent */
     --color-accent: var(--scipen-accent);
     --color-accent-dim: var(--scipen-accent-strong);
     --color-accent-bright: var(--scipen-accent);
     --color-accent-muted: var(--scipen-accent-soft);
 
-    /* 语义色 */
+    /* Semantic */
     --color-success: var(--scipen-success);
     --color-success-muted: var(--scipen-success-soft);
     --color-warning: var(--scipen-warning);
@@ -180,21 +205,21 @@
     --color-info: var(--scipen-info);
     --color-info-muted: var(--scipen-info-soft);
 
-    /* 渐变 */
+    /* Gradients */
     --gradient-accent: linear-gradient(135deg, #69a7c7 0%, #90a2d9 100%);
     --gradient-warm: linear-gradient(135deg, #d1a168 0%, #d88484 100%);
     --gradient-cool: linear-gradient(135deg, #69a7c7 0%, #90a2d9 100%);
 
-    /* 阴影 */
+    /* Shadows */
     --shadow-sm: var(--scipen-shadow-xs);
     --shadow-md: var(--scipen-shadow-sm);
     --shadow-lg: var(--scipen-shadow-md);
     --shadow-glow: var(--scipen-shadow-glow);
 
-    /* 遮罩 */
+    /* Backdrop */
     --color-backdrop: rgba(10, 13, 19, 0.82);
 
-    /* Welcome Screen 专用变量 - 深色模式 */
+    /* Welcome Screen variables — dark mode */
     --welcome-card-bg: rgba(24, 24, 27, 0.75);
     --welcome-card-border: rgba(20, 184, 166, 0.12);
     --welcome-tip-bg: linear-gradient(135deg, rgba(20, 184, 166, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%);
@@ -204,17 +229,17 @@
     --welcome-glow-tertiary: rgba(16, 185, 129, 0.1);
     --welcome-grid-color: rgba(20, 184, 166, 0.15);
 
-    /* 编辑器变量 */
+    /* Editor variables */
     --editor-background: var(--color-bg-secondary);
     --editor-foreground: var(--color-text-primary);
     --editorCursor-foreground: var(--color-accent);
     --editorLineNumber-foreground: var(--color-text-muted);
 
-    /* 侧边栏变量 */
+    /* Sidebar variables */
     --activityBar-background: var(--color-bg-void);
     --sideBar-background: var(--color-bg-primary);
 
-    /* 滚动条变量 (中性灰) */
+    /* Scrollbar variables (neutral grey) */
     --scrollbarSlider-background: rgba(141, 152, 173, 0.18);
     --scrollbarSlider-hoverBackground: rgba(141, 152, 173, 0.28);
     --scrollbarSlider-activeBackground: rgba(141, 152, 173, 0.38);
@@ -250,22 +275,22 @@
     --markdown-preview-quote-bg: rgba(105, 167, 199, 0.1);
     --markdown-preview-quote-border: rgba(105, 167, 199, 0.48);
     --markdown-preview-table-stripe: rgba(255, 255, 255, 0.028);
-    --markdown-preview-mark-bg: rgba(209, 161, 104, 0.16);
+    --markdown-preview-mark-bg: rgba(105, 167, 199, 0.16);
   }
 
-  /* ===== Light Mode (Sepia Eye-Care - 护眼暖黄色调) ===== */
+  /* ===== Light Mode (Cool Neutral — floating white card) ===== */
   .light-theme {
     --scipen-font-sans: 'Inter', 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei UI', system-ui, -apple-system, sans-serif;
     --scipen-font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
-    --scipen-bg-canvas: #f3eee3;
-    --scipen-surface: #faf6ee;
-    --scipen-surface-strong: #fffdf8;
-    --scipen-surface-muted: #ece6d9;
-    --scipen-border: rgba(95, 84, 69, 0.12);
-    --scipen-border-soft: rgba(95, 84, 69, 0.06);
-    --scipen-text-primary: #23201b;
-    --scipen-text-secondary: #575147;
-    --scipen-text-muted: #857d71;
+    --scipen-bg-canvas: #f4f4f5;
+    --scipen-surface: #ffffff;
+    --scipen-surface-strong: #ffffff;
+    --scipen-surface-muted: #f1f5f9;
+    --scipen-border: #e5e7eb;
+    --scipen-border-soft: #eef2f6;
+    --scipen-text-primary: #1e293b;
+    --scipen-text-secondary: #475569;
+    --scipen-text-muted: #64748b;
     --scipen-accent: #3f89a8;
     --scipen-accent-strong: #2f6f8d;
     --scipen-accent-soft: rgba(63, 137, 168, 0.14);
@@ -277,47 +302,43 @@
     --scipen-danger-soft: rgba(198, 112, 112, 0.14);
     --scipen-info: #728dc7;
     --scipen-info-soft: rgba(114, 141, 199, 0.14);
-    --scipen-radius-xs: 4px;
-    --scipen-radius-md: 14px;
-    --scipen-radius-lg: 22px;
-    --scipen-radius-full: 999px;
-    --scipen-shadow-xs: 0 2px 8px rgba(56, 47, 36, 0.05);
-    --scipen-shadow-sm: 0 12px 28px rgba(56, 47, 36, 0.08);
-    --scipen-shadow-md: 0 24px 54px rgba(56, 47, 36, 0.12);
-    --scipen-shadow-lg: 0 32px 72px rgba(56, 47, 36, 0.16);
+    --scipen-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.05);
+    --scipen-shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.06);
+    --scipen-shadow-md: 0 12px 28px rgba(15, 23, 42, 0.08);
+    --scipen-shadow-lg: 0 24px 54px rgba(15, 23, 42, 0.12);
     --scipen-shadow-glow: 0 0 24px rgba(63, 137, 168, 0.08);
 
-    /* 集成品牌色 — light theme 与 :root 同色(Overleaf 品牌跨主题一致) */
+    /* Integration brand colors — light theme matches :root (Overleaf brand is theme-invariant) */
     --color-overleaf-primary: #305f8a;
     --color-overleaf-muted: rgba(64, 114, 162, 0.08);
     --color-overleaf-gradient: linear-gradient(135deg, #4072a2 0%, #305f8a 100%);
 
-    --background: 36 32% 92%;
-    --foreground: 34 14% 12%;
+    --background: 240 5% 96%;
+    --foreground: 217 33% 17%;
 
-    --card: 38 50% 96%;
-    --card-foreground: 34 14% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 217 33% 17%;
 
-    --popover: 38 50% 96%;
-    --popover-foreground: 34 14% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 217 33% 17%;
 
     --primary: 197 45% 45%;
-    --primary-foreground: 36 32% 92%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 40 28% 89%;
-    --secondary-foreground: 34 14% 12%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 217 33% 17%;
 
-    --muted: 40 28% 89%;
-    --muted-foreground: 33 9% 49%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
 
-    --accent: 40 28% 89%;
-    --accent-foreground: 34 14% 12%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 217 33% 17%;
 
     --destructive: 0 47% 61%;
-    --destructive-foreground: 45 30% 96%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 38 18% 85%;
-    --input: 38 18% 85%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
     --ring: 197 45% 45%;
 
     /* Legacy Variables (Light Mode - Research Desk) */
@@ -326,7 +347,10 @@
     --color-bg-secondary: var(--scipen-surface-strong);
     --color-bg-tertiary: var(--scipen-surface-muted);
     --color-bg-elevated: var(--scipen-surface-strong);
-    --color-bg-hover: #eef3f9;
+    --color-bg-hover: #f1f5f9;
+    /* Light: selected/active surface one step darker than hover (slate-100→slate-200)
+       so the active panel stays legible. */
+    --color-bg-active: #e2e8f0;
 
     --color-border-subtle: var(--scipen-border-soft);
     --color-border: var(--scipen-border);
@@ -358,8 +382,8 @@
     --shadow-lg: var(--scipen-shadow-md);
     --shadow-glow: var(--scipen-shadow-glow);
 
-    /* 遮罩层 */
-    --color-backdrop: rgba(35, 32, 27, 0.72);
+    /* Backdrop */
+    --color-backdrop: rgba(15, 23, 42, 0.72);
 
     --welcome-card-bg: rgba(255, 255, 255, 0.9);
     --welcome-card-border: rgba(13, 148, 136, 0.18);
@@ -370,46 +394,43 @@
     --welcome-glow-tertiary: rgba(5, 150, 105, 0.08);
     --welcome-grid-color: rgba(13, 148, 136, 0.06);
 
-    --scrollbarSlider-background: rgba(133, 125, 113, 0.16);
-    --scrollbarSlider-hoverBackground: rgba(133, 125, 113, 0.24);
-    --scrollbarSlider-activeBackground: rgba(133, 125, 113, 0.32);
+    --scrollbarSlider-background: rgba(100, 116, 139, 0.16);
+    --scrollbarSlider-hoverBackground: rgba(100, 116, 139, 0.24);
+    --scrollbarSlider-activeBackground: rgba(100, 116, 139, 0.32);
     --diff-added-bg: rgba(110, 157, 125, 0.12);
     --diff-added-line: rgba(110, 157, 125, 0.72);
     --diff-removed-bg: rgba(198, 112, 112, 0.10);
     --diff-removed-line: rgba(198, 112, 112, 0.72);
     --diff-removed-text: rgba(148, 86, 86, 0.84);
 
-    --research-chat-assistant-bg: linear-gradient(180deg, rgba(255, 253, 248, 0.96) 0%, rgba(250, 246, 238, 0.98) 100%);
+    --research-chat-assistant-bg: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
     --research-chat-assistant-border: rgba(63, 137, 168, 0.1);
-    --research-chat-embed-bg: linear-gradient(180deg, rgba(255, 253, 248, 0.96) 0%, rgba(247, 242, 233, 0.98) 100%);
+    --research-chat-embed-bg: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
     --research-chat-embed-border: rgba(63, 137, 168, 0.1);
-    --research-chat-meta: rgba(87, 81, 71, 0.78);
-    --research-chat-body: rgba(35, 32, 27, 0.96);
-    --research-chat-body-soft: rgba(87, 81, 71, 0.88);
+    --research-chat-meta: rgba(100, 116, 139, 0.85);
+    --research-chat-body: #1e293b;
+    --research-chat-body-soft: #475569;
 
-    --markdown-preview-bg:
-      radial-gradient(circle at top right, rgba(63, 137, 168, 0.08), transparent 32%),
-      radial-gradient(circle at bottom left, rgba(114, 141, 199, 0.06), transparent 28%),
-      linear-gradient(180deg, #f5efe4 0%, #f3eee3 100%);
-    --markdown-preview-paper: linear-gradient(180deg, rgba(255, 253, 248, 0.96) 0%, rgba(250, 246, 238, 0.98) 100%);
-    --markdown-preview-paper-strong: linear-gradient(180deg, rgba(255, 253, 248, 0.98) 0%, rgba(247, 242, 233, 1) 100%);
-    --markdown-preview-border: rgba(95, 84, 69, 0.1);
-    --markdown-preview-shadow: 0 24px 56px rgba(56, 47, 36, 0.1);
-    --markdown-preview-title: #23201b;
-    --markdown-preview-body: rgba(57, 52, 46, 0.9);
-    --markdown-preview-muted: rgba(113, 104, 92, 0.72);
+    --markdown-preview-bg: #ffffff;
+    --markdown-preview-paper: #ffffff;
+    --markdown-preview-paper-strong: #ffffff;
+    --markdown-preview-border: #e5e7eb;
+    --markdown-preview-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    --markdown-preview-title: #1e293b;
+    --markdown-preview-body: #334155;
+    --markdown-preview-muted: #64748b;
     --markdown-preview-link: #3f89a8;
-    --markdown-preview-code-bg: rgba(236, 230, 217, 0.72);
-    --markdown-preview-code-border: rgba(95, 84, 69, 0.12);
-    --markdown-preview-code-text: #2b261f;
+    --markdown-preview-code-bg: #f1f5f9;
+    --markdown-preview-code-border: transparent;
+    --markdown-preview-code-text: #1e293b;
     --markdown-preview-quote-bg: rgba(63, 137, 168, 0.08);
     --markdown-preview-quote-border: rgba(63, 137, 168, 0.34);
-    --markdown-preview-table-stripe: rgba(35, 32, 27, 0.028);
-    --markdown-preview-mark-bg: rgba(183, 135, 76, 0.16);
+    --markdown-preview-table-stripe: rgba(15, 23, 42, 0.03);
+    --markdown-preview-mark-bg: rgba(63, 137, 168, 0.16);
 
-    /* 编辑器专用 - 护眼纸张色 */
-    --editor-background: #fbfbf9;
-    --editor-foreground: #111827;
+    /* Editor-specific (cool neutral, follows theme surface) */
+    --editor-background: var(--color-bg-secondary);
+    --editor-foreground: var(--color-text-primary);
   }
 
   /* Base styles */
@@ -681,7 +702,7 @@ body {
   text-wrap: pretty;
 }
 
-/* 标题样式 - 使用主题感知颜色 */
+/* Heading styles — use theme-aware colors */
 .markdown-content h1,
 .markdown-content h2,
 .markdown-content h3,
@@ -691,20 +712,20 @@ body {
   color: var(--markdown-preview-title);
 }
 
-/* 粗体/强调文字 */
+/* Bold / strong */
 .markdown-content strong,
 .markdown-content b {
   color: var(--markdown-preview-title);
   font-weight: 600;
 }
 
-/* 斜体 */
+/* Italic */
 .markdown-content em,
 .markdown-content i {
   color: var(--markdown-preview-body);
 }
 
-/* 段落和列表 */
+/* Paragraphs and lists */
 .markdown-content p,
 .markdown-content li {
   color: var(--markdown-preview-body);
@@ -727,13 +748,15 @@ body {
 }
 
 .markdown-content code:not(pre code) {
-  background: var(--markdown-preview-code-bg);
-  color: var(--markdown-preview-code-text);
-  border: 1px solid var(--markdown-preview-code-border);
+  /* Clean cool grey (light slate-100 / dark zinc-700), borderless, monospace */
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  border: none;
   display: inline;
   line-height: inherit;
   white-space: normal;
-  @apply px-1 py-0.5 rounded text-[0.92em];
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
+  @apply px-1.5 py-0.5 rounded-md text-[0.9em];
 }
 
 .markdown-content pre {
@@ -748,7 +771,7 @@ body {
   text-decoration: underline;
 }
 
-/* 引用块 */
+/* Blockquote */
 .markdown-content blockquote {
   color: var(--markdown-preview-body);
   border-left-color: var(--markdown-preview-quote-border);
@@ -757,7 +780,7 @@ body {
   padding: 0.95rem 1.1rem;
 }
 
-/* 表格 */
+/* Table */
 .markdown-content th {
   color: var(--markdown-preview-title);
 }
@@ -812,26 +835,29 @@ body {
 }
 
 .markdown-content h1 {
-  font-size: 2rem;
-  line-height: 1.2;
-  letter-spacing: -0.04em;
+  font-size: 1.6rem;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+  font-weight: 700;
   margin-top: 0;
-  margin-bottom: 1rem;
+  margin-bottom: 0.85rem;
 }
 
 .markdown-content h2 {
-  font-size: 1.45rem;
-  line-height: 1.28;
-  letter-spacing: -0.03em;
-  margin-top: 1.4rem;
-  margin-bottom: 0.9rem;
+  font-size: 1.3rem;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+  margin-top: 1.6rem;
+  margin-bottom: 0.75rem;
 }
 
 .markdown-content h3 {
   font-size: 1.1rem;
   line-height: 1.4;
-  margin-top: 1.5rem;
-  margin-bottom: 0.65rem;
+  font-weight: 600;
+  margin-top: 1.4rem;
+  margin-bottom: 0.6rem;
 }
 
 .markdown-content hr {
@@ -868,7 +894,7 @@ body {
 .markdown-content .prism-code .token.number,
 .markdown-content .prism-code .token.constant,
 .markdown-content .prism-code .token.symbol {
-  color: #c2410c;
+  color: #0891b2;
 }
 
 .markdown-content .prism-code .token.selector,
@@ -899,72 +925,89 @@ body {
 
 .markdown-content .prism-code .token.regex,
 .markdown-content .prism-code .token.important {
-  color: #b91c1c;
+  color: #c026d3;
 }
 
 .markdown-content .prism-code {
-  color: #111827;
+  color: var(--color-text-primary);
 }
 
 .markdown-code-block {
   position: relative;
   overflow: hidden;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(15,23,42,0.98) 0%, rgba(15,23,42,0.94) 100%);
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+/* Cool grey code block: light slate-50 / dark near-black — syntax highlight stays
+   crisp on both sides; warm tones are forbidden. */
+  background: var(--color-bg-void);
+  box-shadow: none;
 }
 
+/* Minimal header: lowercase small-size language tag (left) + icon-only copy (right), ~h-8 tight row */
 .markdown-code-block__toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.55rem 0.75rem 0.15rem;
+  gap: 0.75rem;
+  padding: 0.2rem 0.4rem 0.2rem 0.75rem;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .markdown-code-block__meta {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: 0.5rem;
   min-width: 0;
 }
 
 .markdown-code-block__language {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 8px;
-  background: rgba(148, 163, 184, 0.08);
-  padding: 0.18rem 0.55rem;
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: #cbd5e1;
+  text-transform: lowercase;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
 }
 
 .markdown-code-block__copy {
   flex-shrink: 0;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 8px;
-  background: rgba(255,255,255,0.06);
-  padding: 0.3rem 0.7rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: #cbd5e1;
-  transition: all var(--motion-fast) ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease;
 }
 
 .markdown-code-block__copy:hover {
-  background: rgba(14,165,233,0.18);
-  border-color: rgba(56,189,248,0.28);
-  color: #e0f2fe;
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 
 .markdown-code-block__copy[data-copied="true"] {
-  background: rgba(34,197,94,0.18);
-  border-color: rgba(74,222,128,0.28);
-  color: #dcfce7;
+  background: var(--color-success-muted);
+  color: var(--color-success);
+}
+
+/* Copy icon uses a CSS mask (currentColor), shared across both columns and sanitize-safe;
+   swap to a checkmark on copy success. */
+.markdown-code-block__copy::before {
+  content: '';
+  width: 14px;
+  height: 14px;
+  background-color: currentColor;
+  -webkit-mask: center / contain no-repeat
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='14' height='14' x='8' y='8' rx='2'/><path d='M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2'/></svg>");
+  mask: center / contain no-repeat
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='14' height='14' x='8' y='8' rx='2'/><path d='M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2'/></svg>");
+}
+
+.markdown-code-block__copy[data-copied="true"]::before {
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>");
+  mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>");
 }
 
 .markdown-code-block__scroll {
@@ -982,21 +1025,25 @@ body {
   float: right;
   width: 28px;
   height: 100%;
-  background: linear-gradient(90deg, rgba(15,23,42,0) 0%, rgba(15,23,42,0.95) 100%);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-bg-void) 0%, transparent) 0%,
+    var(--color-bg-void) 100%
+  );
   pointer-events: none;
 }
 
 .markdown-code-block__body {
   margin: 0;
   min-width: max-content;
-  padding: 0.55rem 0.8rem 0.8rem;
+  padding: 0.6rem 0.8rem 0.8rem;
   background: transparent;
   border: 0;
 }
 
 .markdown-code-block__body code {
   background: transparent !important;
-  color: #e2e8f0 !important;
+  color: var(--color-text-primary) !important;
   font-size: 0.84rem;
   line-height: 1.7;
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
@@ -1041,7 +1088,7 @@ body {
 .markdown-code-block__code .token.constant,
 .markdown-code-block__code .token.symbol,
 .markdown-code-block__code .token.property {
-  color: #fbbf24;
+  color: #22d3ee;
 }
 
 .markdown-code-block__code .token.operator,
@@ -1063,20 +1110,20 @@ body {
   margin-bottom: 0;
 }
 
-/* 聊天纯文本(用户消息/流式文本/输入框)字号 —— 与 .chat-markdown 同源,
-   靠真 CSS 变量缩放(Tailwind 任意值类 text-[length:var] 在本项目不生效)。 */
+/* Chat plain-text body / streaming text / input font size — shares the source with .chat-markdown,
+   scaled via a real CSS variable (Tailwind arbitrary `text-[length:var]` is inert in this project). */
 .chat-msg-text {
   font-size: var(--chat-font-size, 14px);
 }
 
 .chat-markdown {
   font-size: var(--chat-font-size, 14px);
-  line-height: 1.75;
+  line-height: 1.7;
 }
 
 .chat-markdown p,
 .chat-markdown li {
-  color: var(--research-chat-body-soft);
+  color: var(--color-text-primary);
 }
 
 .chat-markdown p {
@@ -1089,16 +1136,27 @@ body {
   display: inline;
   line-height: inherit;
   white-space: normal;
-  padding: 0.125rem 0.25rem;
-  border-radius: 0.25rem;
-  background: color-mix(in srgb, var(--color-bg-primary) 82%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-accent) 16%, transparent);
-  color: var(--research-chat-body);
+  /* py-0.5 px-1.5 */
+  padding: 0.125rem 0.375rem;
+  /* rounded-md */
+  border-radius: 0.375rem;
+  /* Clean cool grey (light slate-100 #f1f5f9 / dark zinc-700) — no warm/beige */
+  background: var(--color-bg-tertiary);
+  border: none;
+  color: var(--color-text-primary);
   box-shadow: none;
-  font-size: 0.92em;
+  font-size: 0.9em;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
 }
 
-/* Reasonix 气质:代码块压平(无 gradient/重阴影),仅留扁平面 + 细边;高亮/复制/语言标签照旧 */
+/* Strip the default backtick ::before/::after that @tailwindcss/typography adds to inline code */
+.markdown-content code:not(pre code)::before,
+.markdown-content code:not(pre code)::after {
+  content: none;
+}
+
+/* Reasonix feel: flatten code blocks (no gradient/heavy shadow), keep a flat surface + thin border;
+   highlight/copy/language tag unchanged. */
 .chat-markdown .markdown-code-block {
   border-color: var(--color-border-subtle);
   background: var(--color-bg-primary);
@@ -1197,7 +1255,7 @@ body {
 .chat-markdown .markdown-code-block__code .token.constant,
 .chat-markdown .markdown-code-block__code .token.symbol,
 .chat-markdown .markdown-code-block__code .token.property {
-  color: #fbbf24;
+  color: #22d3ee;
 }
 
 .chat-markdown .markdown-code-block__code .token.operator,
@@ -1227,7 +1285,7 @@ body {
   margin-bottom: 0.75rem;
 }
 
-/* Reasonix 气质:克制引用/列表/链接 —— dim 左条、accent marker、收敛下划线 */
+/* Reasonix feel: restrained blockquote / list / link — dim left bar, accent marker, contained underline */
 .chat-markdown blockquote {
   border-left-width: 2px;
   border-left-color: var(--color-accent-dim);
@@ -1249,93 +1307,10 @@ body {
   text-decoration: underline;
 }
 
-/* ── 浅色主题：代码块 ───────────────────────────────────────── */
-
-.light-theme .markdown-code-block {
-  border-color: rgba(95, 84, 69, 0.12);
-  background: linear-gradient(180deg, rgba(236, 230, 217, 0.52) 0%, rgba(245, 241, 233, 0.68) 100%);
-  box-shadow: 0 8px 20px rgba(95, 84, 69, 0.06);
-}
-
-.light-theme .markdown-code-block__language {
-  border-color: rgba(95, 84, 69, 0.12);
-  background: rgba(95, 84, 69, 0.06);
-  color: #575147;
-}
-
-.light-theme .markdown-code-block__copy {
-  border-color: rgba(95, 84, 69, 0.12);
-  background: rgba(255, 255, 255, 0.5);
-  color: #575147;
-}
-
-.light-theme .markdown-code-block__copy:hover {
-  background: rgba(63, 137, 168, 0.1);
-  border-color: rgba(63, 137, 168, 0.22);
-  color: #2f6f8d;
-}
-
-.light-theme .markdown-code-block__copy[data-copied="true"] {
-  background: rgba(110, 157, 125, 0.12);
-  border-color: rgba(110, 157, 125, 0.26);
-  color: #4d7a5b;
-}
-
-.light-theme .markdown-code-block__scroll::after {
-  background: linear-gradient(90deg, rgba(245, 241, 233, 0) 0%, rgba(245, 241, 233, 0.95) 100%);
-}
-
-.light-theme .markdown-code-block__body code,
-.light-theme .markdown-code-block__code {
-  color: #23201b !important;
-}
-
-/* Token 高亮：浅色主题 */
-.light-theme .markdown-code-block__code .token.punctuation {
-  color: #6b6054;
-}
-
-.light-theme .markdown-code-block__code .token.comment,
-.light-theme .markdown-code-block__code .token.prolog,
-.light-theme .markdown-code-block__code .token.doctype,
-.light-theme .markdown-code-block__code .token.cdata {
-  color: #9a9082;
-}
-
-.light-theme .markdown-code-block__code .token.keyword,
-.light-theme .markdown-code-block__code .token.atrule {
-  color: #7c3aed;
-  font-weight: 600;
-}
-
-.light-theme .markdown-code-block__code .token.function,
-.light-theme .markdown-code-block__code .token.class-name {
-  color: #2563eb;
-}
-
-.light-theme .markdown-code-block__code .token.string,
-.light-theme .markdown-code-block__code .token.char,
-.light-theme .markdown-code-block__code .token.attr-value {
-  color: #0d7a6e;
-}
-
-.light-theme .markdown-code-block__code .token.number,
-.light-theme .markdown-code-block__code .token.boolean,
-.light-theme .markdown-code-block__code .token.constant,
-.light-theme .markdown-code-block__code .token.symbol,
-.light-theme .markdown-code-block__code .token.property {
-  color: #b45309;
-}
-
-.light-theme .markdown-code-block__code .token.operator,
-.light-theme .markdown-code-block__code .token.variable {
-  color: #575147;
-}
-
-/* Markdown 预览区的 prism 代码块也需要浅色主题 */
-.light-theme .markdown-content .prism-code {
-  color: #23201b;
-}
+/* Light theme no longer overrides the code block: everything funnels into the
+   base .markdown-code-block (bg-void cool grey) plus the chilled base prism
+   tokens — consistent across dark/light, no warm tones. The base __code text
+   and token colors are already theme-aware (var(--color-text-*) / cool hex). */
 
 .markdown-preview-surface {
   background: var(--markdown-preview-bg);
@@ -1517,7 +1492,7 @@ body {
 }
 
 /* ===== Welcome Screen Background Gradients ===== */
-/* 深色模式背景 */
+/* Dark-mode background */
 .welcome-bg-gradient {
   background:
     radial-gradient(ellipse 100% 80% at 50% -30%, rgba(20, 184, 166, 0.12), transparent 60%),
@@ -1526,7 +1501,7 @@ body {
     radial-gradient(ellipse 50% 50% at 80% 20%, rgba(99, 102, 241, 0.06), transparent 50%);
 }
 
-/* 浅色模式背景 */
+/* Light-mode background */
 .light-theme .welcome-bg-gradient {
   background:
     radial-gradient(ellipse 80% 50% at 50% -20%, rgba(13, 148, 136, 0.12), transparent),
@@ -1580,7 +1555,7 @@ input, textarea, [contenteditable], .monaco-editor * {
 
 /* ====== AI Diff Review — Sweep Animation ====== */
 
-/* Sweep line：扫过编辑区域的高亮线 */
+/* Sweep line: highlight bar that scans across the editor region */
 .diff-review-sweep-line {
   background: linear-gradient(
     180deg,
@@ -1593,13 +1568,14 @@ input, textarea, [contenteditable], .monaco-editor * {
   border-bottom: 2px solid rgba(99, 179, 237, 0.8);
 }
 
-/* 尚未被 sweep 扫过的 decoration：低透明度 */
+/* Decorations not yet reached by sweep: dim opacity */
 .diff-review-sweep-pending {
   opacity: 0.25;
   transition: opacity var(--motion-base) ease-out;
 }
 
-/* 被扫过后恢复正常——仅在 sweep 场景（带 .diff-review-sweep-revealed 标记）触发渐变动画 */
+/* After being swept, restore normal styling — fade-in only triggers in the sweep
+   context (gated by .diff-review-sweep-revealed). */
 .diff-review-added.diff-review-sweep-revealed {
   animation: diff-review-reveal var(--motion-base) ease-out;
 }
@@ -1636,7 +1612,7 @@ input, textarea, [contenteditable], .monaco-editor * {
   z-index: 20;
 }
 
-/* 逐 hunk 内联按钮 */
+/* Per-hunk inline button */
 .diff-review-hunk-inline {
   position: absolute;
   top: 0;
@@ -1672,6 +1648,16 @@ input, textarea, [contenteditable], .monaco-editor * {
 }
 .diff-review-hunk-inline__preview:hover {
   background: rgba(255, 255, 255, 0.94);
+}
+.diff-review-hunk-inline__preview:focus-visible,
+.diff-review-hunk-inline__btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.diff-review-hunk-inline__preview:disabled,
+.diff-review-hunk-inline__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 .diff-review-hunk-inline__type {
   font-weight: 700;
@@ -1760,7 +1746,7 @@ input, textarea, [contenteditable], .monaco-editor * {
   color: color-mix(in srgb, var(--color-success) 82%, black 18%);
 }
 
-/* ====== 隐藏 Monaco Overview Ruler 红柱子 ====== */
+/* ====== Hide Monaco overview-ruler red bars ====== */
 .monaco-editor .decorationsOverviewRuler {
   width: 3px !important;
   border-radius: 2px;
@@ -1773,14 +1759,14 @@ input, textarea, [contenteditable], .monaco-editor * {
   opacity: 0.74;
 }
 
-/* ====== 流式消息光标 ====== */
+/* ====== Streaming message caret ====== */
 .streaming-cursor {
   display: inline-block;
   width: 2px;
   height: 1em;
   background: var(--color-accent);
   margin-left: 2px;
-  /* 渐隐脉动而非硬闪(step-end)—— 降低打字机焦虑感 */
+  /* Fade pulse rather than hard blink (step-end) — calmer typewriter feel */
   animation: blink-cursor 1.4s ease-in-out infinite;
   vertical-align: text-bottom;
 }
@@ -1810,7 +1796,8 @@ input, textarea, [contenteditable], .monaco-editor * {
   50% { opacity: 0; }
 }
 
-/* 主页面「当前任务区」细描边:纯 CSS 跟随真实焦点,零 React 重渲(取代旧 activePanel state)。 */
+/* Active panel hairline on the main page: pure CSS that follows real focus,
+   zero React re-renders (replaces the legacy activePanel state). */
 .panel-focus-edge:focus-within {
   box-shadow: inset 2px 0 0 var(--color-accent-dim);
 }

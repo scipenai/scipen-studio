@@ -1,6 +1,6 @@
 /**
- * @file WelcomeScreen.tsx - Welcome screen (orchestrator)
- * @description State + effects + handlers,组装 welcome/* 子组件 + OverleafDownloadDialog
+ * @file WelcomeScreen.tsx - Welcome screen (orchestrator).
+ * @description State + effects + handlers; composes welcome/* sub-components + OverleafDownloadDialog.
  */
 
 import { motion } from 'framer-motion';

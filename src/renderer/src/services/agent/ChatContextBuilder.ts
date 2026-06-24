@@ -32,7 +32,8 @@ import type {
 
 const DIAGNOSTICS_CAP = 50;
 const RECENT_EDITS_CAP = 20;
-// 选区文本进入每轮 system_prompt,大段选区不设限会逐轮翻倍撑爆上下文。
+// Selection text goes into every system_prompt; without a cap, large selections
+// double on each turn and blow the context budget.
 const SELECTION_TEXT_MAX_BYTES = 4096;
 
 /**
@@ -162,7 +163,7 @@ export function buildChatContext(): ChatContext {
     if (intel) ctx.project_intel = intel;
   }
 
-  // ---- 焦点对象身份(易失,表达用户当前注意力)----
+  // ---- focus-object identities (ephemeral, expresses current user attention) ----
   const zoteroItemKey = ui.zoteroPdf?.itemKey;
   if (zoteroItemKey) ctx.active_zotero_item = zoteroItemKey;
   const mdSection = ui.currentMarkdownSection;
@@ -178,7 +179,7 @@ function toRelative(absPath: string, projectPath: string | null): string {
   if (!projectPath) return normalizedAbs;
   const normalizedRoot = normalize(projectPath);
   if (normalizedAbs === normalizedRoot) return '';
-  const withSep = normalizedRoot.endsWith('/') ? normalizedRoot : normalizedRoot + '/';
+  const withSep = normalizedRoot.endsWith('/') ? normalizedRoot : `${normalizedRoot}/`;
   return normalizedAbs.startsWith(withSep) ? normalizedAbs.slice(withSep.length) : normalizedAbs;
 }
 

@@ -24,6 +24,7 @@ export { registerOverleafLiveHandlers } from './overleafLiveHandlers';
 export { registerUpdateHandlers, type UpdateHandlersDeps } from './updateHandlers';
 export { registerAgentHandlers, type AgentHandlersDeps } from './agentHandlers';
 export { registerZoteroHandlers } from './zoteroHandlers';
+export { registerHistoryHandlers, type HistoryHandlersDeps } from './historyHandlers';
 
 // ====== Type-Safe IPC Utilities ======
 export {

@@ -1,21 +1,26 @@
 /**
- * @file WorkspaceDrawer.tsx - 工作台侧滑抽屉
- * @description backdrop + drawer panel 的 framer-motion 双子元素封装。
- *              定位为 absolute,需放在 relative 父容器内(WorkspaceShell 的 body 区自带)
+ * @file WorkspaceDrawer.tsx - Workspace sliding drawer
+ * @description framer-motion backdrop + drawer panel pair.
+ *              Positioned absolute; must live inside a relative parent
+ *              (WorkspaceShell's body area provides this by default).
  */
 
 import { clsx } from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 import type React from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+
+const focusableSelector =
+  'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
 export interface WorkspaceDrawerProps {
   open: boolean;
   onClose: () => void;
-  /** 抽屉位于左侧或右侧,默认左 */
+  /** Drawer side — left or right; defaults to left */
   side?: 'left' | 'right';
-  /** Backdrop 的 aria-label(关闭按钮的无障碍名) */
+  /** Accessible name for the backdrop close button */
   closeAriaLabel: string;
-  /** 抽屉宽度,默认 320px */
+  /** Drawer width in px; defaults to 320 */
   width?: number;
   children: React.ReactNode;
 }
@@ -29,6 +34,59 @@ export const WorkspaceDrawer: React.FC<WorkspaceDrawerProps> = ({
   children,
 }) => {
   const isLeft = side === 'left';
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key === 'Tab') {
+        const focusableElements = Array.from(
+          drawerRef.current?.querySelectorAll<HTMLElement>(focusableSelector) ?? []
+        );
+
+        if (focusableElements.length === 0) {
+          event.preventDefault();
+          drawerRef.current?.focus();
+          return;
+        }
+
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+
+        if (event.shiftKey && document.activeElement === firstElement) {
+          event.preventDefault();
+          lastElement.focus();
+        } else if (!event.shiftKey && document.activeElement === lastElement) {
+          event.preventDefault();
+          firstElement.focus();
+        }
+      }
+    },
+    [onClose]
+  );
+
+  useEffect(() => {
+    if (!open) return;
+
+    previouslyFocusedRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    document.addEventListener('keydown', handleKeyDown);
+    const focusTarget = drawerRef.current?.querySelector<HTMLElement>(focusableSelector);
+    (focusTarget ?? drawerRef.current)?.focus();
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previouslyFocusedRef.current?.focus();
+      previouslyFocusedRef.current = null;
+    };
+  }, [open, handleKeyDown]);
+
   return (
     <AnimatePresence>
       {open && (
@@ -41,12 +99,18 @@ export const WorkspaceDrawer: React.FC<WorkspaceDrawerProps> = ({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
             className={clsx(
-              'absolute inset-0 z-10 backdrop-blur-[1px]',
+              'absolute inset-0 z-10 cursor-pointer backdrop-blur-[1px]',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-accent)]',
               'bg-[color-mix(in_srgb,var(--color-backdrop)_24%,transparent)]'
             )}
             onClick={onClose}
           />
           <motion.div
+            ref={drawerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={closeAriaLabel}
+            tabIndex={-1}
             initial={{ x: isLeft ? -24 : 24, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: isLeft ? -24 : 24, opacity: 0 }}

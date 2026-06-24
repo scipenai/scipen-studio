@@ -4,19 +4,29 @@
  */
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { FileText, HelpCircle, MessageSquare, Play, Search, Settings } from 'lucide-react';
+import {
+  FileText,
+  History,
+  HelpCircle,
+  MessageSquare,
+  Play,
+  Search,
+  Settings,
+  Tag,
+} from 'lucide-react';
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useWindowEvent } from '../hooks';
 import { useTranslation } from '../locales';
 import { getUIService } from '../services/core';
+import { historyUIBus } from '../services/core/HistoryUIBus';
 
 interface Command {
   id: string;
   label: string;
   description?: string;
   icon: React.ReactNode;
-  category: 'ai' | 'file' | 'edit' | 'view' | 'help';
+  category: 'ai' | 'file' | 'edit' | 'view' | 'help' | 'history';
   shortcut?: string;
   action: () => void;
 }
@@ -30,6 +40,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const { t } = useTranslation();
 
   const uiService = getUIService();
@@ -92,6 +103,31 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
       },
     },
     {
+      id: 'history-create-label',
+      label: t('history.createLabel'),
+      description: t('history.createLabelDesc'),
+      icon: <Tag size={16} />,
+      category: 'history',
+      action: () => {
+        onClose();
+        historyUIBus.openCreateLabel();
+      },
+    },
+    {
+      // Single unified entry — mirrors the single sidebar History button.
+      // Dialog has internal tabs for labels vs sessions; users can pick
+      // either after the dialog opens.
+      id: 'history-browse',
+      label: t('history.browserTitle'),
+      description: t('history.browseLabelsDesc'),
+      icon: <History size={16} />,
+      category: 'history',
+      action: () => {
+        onClose();
+        historyUIBus.openBrowseLabels();
+      },
+    },
+    {
       id: 'help-shortcuts',
       label: t('commandPalette.showShortcuts'),
       icon: <HelpCircle size={16} />,
@@ -107,6 +143,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
       cmd.label.toLowerCase().includes(query.toLowerCase()) ||
       cmd.description?.toLowerCase().includes(query.toLowerCase())
   );
+  const activeCommand = filteredCommands[selectedIndex];
+  const activeOptionId = activeCommand ? `command-palette-option-${activeCommand.id}` : undefined;
 
   // useWindowEvent automatically manages event listeners
   useWindowEvent('keydown', (e: KeyboardEvent) => {
@@ -115,11 +153,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setSelectedIndex((prev) => (prev < filteredCommands.length - 1 ? prev + 1 : prev));
+        setSelectedIndex((prev) =>
+          filteredCommands.length > 0 ? (prev + 1) % filteredCommands.length : 0
+        );
         break;
       case 'ArrowUp':
         e.preventDefault();
-        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : prev));
+        setSelectedIndex((prev) =>
+          filteredCommands.length > 0
+            ? (prev - 1 + filteredCommands.length) % filteredCommands.length
+            : 0
+        );
         break;
       case 'Enter':
         e.preventDefault();
@@ -136,10 +180,16 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
 
   useEffect(() => {
     if (isOpen) {
+      previouslyFocusedRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setQuery('');
       setSelectedIndex(0);
-      // Use requestAnimationFrame instead of setTimeout for faster response
-      requestAnimationFrame(() => inputRef.current?.focus());
+      inputRef.current?.focus();
+
+      return () => {
+        previouslyFocusedRef.current?.focus();
+        previouslyFocusedRef.current = null;
+      };
     }
   }, [isOpen]);
 
@@ -166,23 +216,41 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
           exit={{ opacity: 0, scale: 0.95, y: -20 }}
           transition={{ duration: 0.15 }}
           className="relative w-full max-w-2xl backdrop-blur-xl rounded-2xl shadow-2xl overflow-hidden bg-[var(--color-bg-secondary)] border border-[var(--color-border)]"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Command Palette"
         >
           <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--color-border)]">
-            <Search size={20} className="flex-shrink-0 text-[var(--color-text-secondary)]" />
+            <Search
+              size={20}
+              className="flex-shrink-0 text-[var(--color-text-secondary)]"
+              aria-hidden="true"
+            />
             <input
               ref={inputRef}
               type="text"
+              role="combobox"
+              aria-label="Command search"
+              aria-controls="command-palette-listbox"
+              aria-expanded={filteredCommands.length > 0}
+              aria-activedescendant={activeOptionId}
+              aria-autocomplete="list"
               placeholder={t('commandPalette.placeholder')}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="flex-1 bg-transparent outline-none text-base text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)]"
+              className="flex-1 bg-transparent text-base text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus-visible:ring-0"
             />
             <kbd className="px-2 py-1 text-xs rounded text-[var(--color-text-secondary)] bg-[var(--color-bg-tertiary)]">
-              esc
+              Esc
             </kbd>
           </div>
 
-          <div className="max-h-[50vh] overflow-y-auto py-2">
+          <div
+            id="command-palette-listbox"
+            role="listbox"
+            aria-label="Commands"
+            className="max-h-[50vh] overflow-y-auto py-2"
+          >
             {filteredCommands.length === 0 ? (
               <div className="px-5 py-8 text-center text-[var(--color-text-secondary)]">
                 {t('commandPalette.noResults')}
@@ -191,9 +259,13 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
               filteredCommands.map((cmd, index) => (
                 <button
                   key={cmd.id}
+                  id={`command-palette-option-${cmd.id}`}
+                  type="button"
+                  role="option"
+                  aria-selected={index === selectedIndex}
                   onClick={cmd.action}
                   onMouseEnter={() => setSelectedIndex(index)}
-                  className={`w-full px-5 py-3 flex items-center gap-4 transition-colors cursor-pointer ${
+                  className={`flex w-full cursor-pointer items-center gap-4 px-5 py-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] ${
                     index === selectedIndex ? 'bg-[var(--color-bg-tertiary)]' : ''
                   }`}
                 >
@@ -203,6 +275,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
                         ? 'text-[var(--color-info)]'
                         : 'text-[var(--color-text-secondary)]'
                     }`}
+                    aria-hidden="true"
                   >
                     {cmd.icon}
                   </div>
@@ -229,11 +302,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose 
           <div className="px-5 py-3 flex items-center justify-between text-xs border-t border-[var(--color-border)] text-[var(--color-text-secondary)]">
             <div className="flex items-center gap-4">
               <span>
-                <kbd className="px-1.5 py-0.5 rounded mr-1 bg-[var(--color-bg-tertiary)]">↑↓</kbd>
+                <kbd className="px-1.5 py-0.5 rounded mr-1 bg-[var(--color-bg-tertiary)]">
+                  Arrow keys
+                </kbd>
                 {t('commandPalette.navigate')}
               </span>
               <span>
-                <kbd className="px-1.5 py-0.5 rounded mr-1 bg-[var(--color-bg-tertiary)]">↵</kbd>
+                <kbd className="px-1.5 py-0.5 rounded mr-1 bg-[var(--color-bg-tertiary)]">
+                  Enter
+                </kbd>
                 {t('commandPalette.execute')}
               </span>
             </div>

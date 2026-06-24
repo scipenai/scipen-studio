@@ -6,6 +6,7 @@
 
 import { ipcRenderer } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
+import { eventSchemas } from '../../../shared/ipc/schemas';
 
 // ====== Security: Allowed IPC Channels Whitelist ======
 // Only channels in this set can be invoked via the low-level ipcRenderer.invoke API
@@ -69,7 +70,10 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Compile_Typst,
   IpcChannel.Compile_Cancel,
   IpcChannel.Compile_GetStatus,
+  IpcChannel.Compile_WriteWasmArtifacts,
+  IpcChannel.LaTeX_GetCapabilities,
   IpcChannel.Typst_Available,
+  IpcChannel.Typst_GetCapabilities,
 
   // ====== LSP ======
   IpcChannel.LSP_GetProcessInfo,
@@ -111,6 +115,7 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.AI_UpdateConfig,
   IpcChannel.AI_IsConfigured,
   IpcChannel.AI_Completion,
+  IpcChannel.AI_GenerateTitle,
   IpcChannel.AI_ChatStream,
   IpcChannel.AI_TestConnection,
   IpcChannel.AI_StopGeneration,
@@ -186,6 +191,19 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Agent_ContextFlushResponse,
   IpcChannel.Agent_ContextZoteroResponse,
   IpcChannel.Agent_UserQuestionResponse,
+
+  // ====== History (versioning) ======
+  IpcChannel.History_PutBlob,
+  IpcChannel.History_EnsureSession,
+  IpcChannel.History_RecordStep,
+  IpcChannel.History_CreateLabel,
+  IpcChannel.History_ListLabels,
+  IpcChannel.History_ResolveLabelSnapshot,
+  IpcChannel.History_GetStep,
+  IpcChannel.History_ListSessionSteps,
+  IpcChannel.History_ResolveStepSnapshot,
+  IpcChannel.History_FindStepBeforeTs,
+  IpcChannel.History_ListSessions,
 
   // ====== Zotero Integration ======
   IpcChannel.Zotero_GetSettings,
@@ -334,13 +352,35 @@ export function isPathSafe(filePath: string): boolean {
  * Unlike removeAllListeners, this only removes the specific listener,
  * preventing interference with other listeners on the same channel.
  *
+ * Schema enforcement: if `channel` is registered in `eventSchemas`
+ * (`shared/ipc/schemas.ts`), the payload is `safeParse`d before forward —
+ * malformed pushes are dropped at the preload boundary and never reach the
+ * renderer. Channels without a registered schema pass through (renderer-side
+ * `onEvent` may still re-validate; both gatekeepers share the same registry — progressive migration).
+ *
  * @param channel The IPC channel to listen on
  * @returns A function that creates event subscriptions with proper cleanup
  * @sideeffect Registers an IPC event listener that must be cleaned up
  */
 export function createSafeListener<T>(channel: IpcChannel) {
+  const schema = eventSchemas.get(channel);
   return (callback: (data: T) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: T) => callback(data);
+    const handler = (_event: Electron.IpcRendererEvent, data: unknown) => {
+      if (schema) {
+        const result = schema.safeParse(data);
+        if (!result.success) {
+          // eslint-disable-next-line no-console -- preload boundary diagnostics can only land on stdout
+          console.warn(
+            `[Preload] dropped malformed payload on '${channel}':`,
+            result.error.format()
+          );
+          return;
+        }
+        callback(result.data as T);
+        return;
+      }
+      callback(data as T);
+    };
     ipcRenderer.on(channel, handler);
     // Return a cleanup function that removes only this specific handler
     return () => ipcRenderer.removeListener(channel, handler);

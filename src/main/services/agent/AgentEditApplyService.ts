@@ -81,12 +81,7 @@ export class AgentEditApplyService implements IAgentEditApplyService {
     }
 
     if (params.decision === 'reject') {
-      const confirmResult = await this.deps.client.editConfirm({
-        proposal_id: params.proposalId,
-        decision: 'reject',
-      });
-      this.proposals.delete(params.proposalId);
-      return { applied: false, confirmResult };
+      return this.rejectProposal(params.proposalId);
     }
 
     const acceptedHunks = filterAcceptedHunks(cached.params.hunks, params.decision, params.perHunk);
@@ -94,27 +89,53 @@ export class AgentEditApplyService implements IAgentEditApplyService {
     if (acceptedHunks.length === 0) {
       // Treat "accept_partial with all rejected" as a regular reject so the
       // LLM gets the same signal.
-      const confirmResult = await this.deps.client.editConfirm({
-        proposal_id: params.proposalId,
-        decision: 'reject',
-      });
-      this.proposals.delete(params.proposalId);
-      return { applied: false, confirmResult };
+      return this.rejectProposal(params.proposalId);
     }
 
     const absoluteFile = resolveAbsolute(cached.absoluteFile, params.workspaceRoot);
     const fileResult = await this.deps.fileSystem.readFile(absoluteFile);
     const original = fileResult.content;
 
+    // Guard #1 — base_hash precondition. SNACA computed `base_hash` against
+    // the file snapshot it saw when generating the proposal. If the user
+    // edited the file in the meantime, the hunk line numbers point at
+    // stale locations and the `old_text === slice` check downstream might
+    // still match by coincidence on short strings. Comparing hashes is
+    // the SNACA-supplied safety net for that scenario; rejecting up front
+    // is cleaner than half-applying and rolling back.
+    //
+    // SNACA hashes the raw on-disk bytes (no EOL normalisation), so we
+    // compare against `original` BEFORE `applyHunks` does its CRLF→LF
+    // normalisation pass. Hash space stays aligned with the Rust side.
+    const currentHash = sha256Hex(original);
+    if (currentHash !== cached.params.base_hash) {
+      logger.warn('edit.propose apply: base_hash mismatch — file modified externally', {
+        proposalId: params.proposalId,
+        expected: cached.params.base_hash,
+        actual: currentHash,
+      });
+      return this.rejectProposal(params.proposalId, [
+        {
+          hunkId: '*',
+          message: 'file changed since proposal was generated; proposal is stale',
+        },
+      ]);
+    }
+
     const errors: Array<{ hunkId: string; message: string }> = [];
     const newContent = applyHunks(original, acceptedHunks, errors);
 
     if (errors.length > 0) {
+      // Guard #2 — defensive `old_text` mismatch detection. base_hash should
+      // have caught most file-drift cases above, but stays as a fallback
+      // for malformed hunks. Either way we must `editConfirm({reject})` so
+      // SNACA stops waiting — the original code path returned `applied:false`
+      // without notifying SNACA, leaving the LLM blocked on the confirm.
       logger.warn('edit.propose apply: hunk mismatch — aborting write', {
         proposalId: params.proposalId,
         errors,
       });
-      return { applied: false, errors };
+      return this.rejectProposal(params.proposalId, errors);
     }
 
     await this.deps.fileSystem.writeFile(absoluteFile, newContent);
@@ -143,6 +164,26 @@ export class AgentEditApplyService implements IAgentEditApplyService {
 
     this.proposals.delete(params.proposalId);
     return { applied: true, appliedHash, confirmResult };
+  }
+
+  /**
+   * Single reject codepath. Always forwards `editConfirm({reject})` to
+   * SNACA — otherwise the LLM blocks waiting for confirmation — then
+   * evicts the cached proposal. `errors` is optional so the "user pressed
+   * Reject" path looks identical on the wire to the "we couldn't apply"
+   * path, while the result object carries the diagnostic for renderer
+   * display when present.
+   */
+  private async rejectProposal(
+    proposalId: string,
+    errors?: Array<{ hunkId: string; message: string }>
+  ): Promise<AgentResolveEditProposalResult> {
+    const confirmResult = await this.deps.client.editConfirm({
+      proposal_id: proposalId,
+      decision: 'reject',
+    });
+    this.proposals.delete(proposalId);
+    return errors ? { applied: false, errors, confirmResult } : { applied: false, confirmResult };
   }
 
   dispose(): void {

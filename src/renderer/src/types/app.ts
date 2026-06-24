@@ -125,9 +125,10 @@ export type LaTeXEngine =
   | 'xelatex'
   | 'lualatex'
   | 'wasm-pdftex'
-  | 'wasm-xetex';
+  | 'wasm-xetex'
+  | 'wasm-lualatex';
 
-export type TypstEngine = 'typst' | 'tinymist';
+export type TypstEngine = 'typst' | 'tinymist' | 'wasm-typst';
 
 export type CompilerEngine = LaTeXEngine | TypstEngine;
 
@@ -202,6 +203,18 @@ export interface AppSettings {
     cleanAuxFiles: boolean;
     stopOnFirstError: boolean;
     texliveEndpoint: string;
+    /**
+     * Optional URL for additional Typst fonts layered ON TOP of the local
+     * bundle (which already covers Latin + math + DejaVu mono + Noto CJK
+     * SC). Two accepted forms:
+     *   - manifest URL (ends with `.json`): fetched directly
+     *   - base URL: `/manifest.json` is appended
+     * Manifest schema: `{ fonts: (string | { name, url })[] }`. Bare names
+     * resolve against the manifest's own directory; object entries take
+     * their absolute `url` as-is (one manifest can pull from any CDN).
+     * Empty disables the remote step (local fonts only — the default).
+     */
+    typstFontEndpoint: string;
     overleaf: {
       serverUrl: string;
       cookies: string;
@@ -211,7 +224,7 @@ export interface AppSettings {
   ui: {
     theme: UITheme;
     language: UILocale;
-    /** 聊天面板正文/输入字号(px),12–20 可调。 */
+    /** Chat panel body/input font size (px), adjustable 12–20. */
     chatFontSize: number;
     previewWidth: number;
     rightPanelWidth: number;

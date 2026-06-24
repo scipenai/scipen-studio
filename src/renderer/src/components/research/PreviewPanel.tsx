@@ -1,8 +1,9 @@
 /**
- * @file PreviewPanel.tsx - 右栏预览面板(预览 / 论文 双 tab)
- * @description 从原 MainLayout 的 RightPanelContent 抽出,逻辑不变。主页面拍平为
- *   单层三面板后,预览作为独立 Panel 直接渲染本组件。预览/论文 tab 切换、
- *   ZoteroPaperPane(论文 tab)行为与原实现一致。
+ * @file PreviewPanel.tsx - Right-column preview panel (preview / paper dual tab).
+ * @description Extracted from the original MainLayout's RightPanelContent with the logic unchanged.
+ *   After the main page was flattened to a single layer of three panels, preview is now rendered
+ *   directly by this component as a standalone Panel. The preview/paper tab switching and the
+ *   ZoteroPaperPane (paper tab) behavior match the original implementation.
  */
 
 import type React from 'react';
@@ -14,7 +15,7 @@ import { useLazyModule } from '../../hooks/useLazyModule';
 import { PanelErrorBoundary } from '../ErrorBoundary';
 import { PreviewLoadingFallback } from '../LoadingFallback';
 
-/** 预览标题随 previewMode(pdf / markdown / typst)切换。 */
+/** Preview title follows previewMode (pdf / markdown / typst). */
 export function usePreviewTitle(): string {
   const { t } = useTranslation();
   const previewMode = usePreviewMode();
@@ -42,23 +43,25 @@ function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.Re
   );
 
   const setTab = (tab: 'preview' | 'paper') => getUIService().setRightPanelTab(tab);
-  // 紧凑文字 tab:活动 = 主文本色 + 2px accent 下划线;非活动 = muted。
-  // 取代原 rounded-full 三重 accent 药丸(高亮收敛)。
+  // iOS-style segmented control: a recessed track (bg-void) with a raised white active pill
+  // (bg-primary + light shadow); inactive tabs are transparent muted. Replaces the old 2px
+  // underline / accent outline.
   const tabBtn = (tab: 'preview' | 'paper', label: string) => {
     const active = rightPanelTab === tab;
     return (
       <button
         type="button"
+        role="tab"
+        aria-selected={active}
         onClick={() => setTab(tab)}
-        className="relative px-2.5 py-1 text-[13px] transition-colors"
+        className="cursor-pointer rounded-md px-3 py-1 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
         style={{
+          background: active ? 'var(--color-bg-primary)' : 'transparent',
           color: active ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+          boxShadow: active ? 'var(--shadow-xs)' : 'none',
         }}
       >
         {label}
-        {active && (
-          <span className="absolute inset-x-1.5 -bottom-px h-0.5 rounded-sm bg-[var(--color-accent)]" />
-        )}
       </button>
     );
   };
@@ -69,11 +72,17 @@ function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.Re
       style={{ background: 'var(--color-bg-secondary)' }}
     >
       <div
-        className="flex items-center gap-1 border-b px-3 py-2"
+        className="flex items-center border-b px-4 py-2"
         style={{ borderBottomColor: 'var(--color-border-subtle)' }}
       >
-        {tabBtn('preview', previewTitle)}
-        {tabBtn('paper', t('mainLayout.paperTab'))}
+        <div
+          className="inline-flex items-center gap-0.5 rounded-lg bg-[var(--color-bg-void)] p-0.5"
+          role="tablist"
+          aria-label={previewTitle}
+        >
+          {tabBtn('preview', previewTitle)}
+          {tabBtn('paper', t('mainLayout.paperTab'))}
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         <PanelErrorBoundary panelName={previewTitle}>
@@ -95,7 +104,7 @@ function PreviewPanelInner({ previewTitle }: { previewTitle: string }): React.Re
 }
 
 /**
- * memo:切面板时 shell 重渲,但 previewTitle 稳定 → 跳过预览子树
- * (PreviewController / pdf.js)重渲。
+ * memo: when other panels toggle the shell re-renders, but previewTitle is stable -> the preview
+ * subtree (PreviewController / pdf.js) skips re-rendering.
  */
 export const PreviewPanel = memo(PreviewPanelInner);

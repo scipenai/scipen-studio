@@ -19,7 +19,6 @@
 
 import { spawn } from 'child_process';
 import path from 'path';
-import zlib from 'zlib';
 import { augmentedEnv } from '../utils/shellEnv';
 import type { ForwardSyncResult, ISyncTeXService, InverseSyncResult } from './interfaces';
 import fs from 'fs-extra';
@@ -27,19 +26,20 @@ import fs from 'fs-extra';
 // Re-export types for backward compatibility
 export type { ForwardSyncResult, InverseSyncResult } from './interfaces';
 
-export interface SyncTeXPosition {
-  page: number;
-  h: number; // horizontal position (in PDF points)
-  v: number; // vertical position (in PDF points)
-  width: number;
-  height: number;
-}
-
-export interface SyncTeXSourceLocation {
-  file: string;
-  line: number;
-  column: number;
-}
+/**
+ * BusyTeX runs LaTeX inside an Emscripten MEMFS whose project directory
+ * is hard-coded at `busytex_pipeline.js:201`:
+ *   `this.project_dir = '/home/web_user/project_dir';`
+ *
+ * Every path BusyTeX emits into `.synctex.gz` is prefixed with this
+ * MEMFS root — it looks like a POSIX absolute path but resolves nowhere
+ * on the host. SyncTeX queries must translate between this namespace
+ * and the user's actual project root in both directions:
+ *   - forward : host-absolute  →  MEMFS-absolute  (synctex `-i` arg)
+ *   - inverse : MEMFS-absolute →  host-absolute  (returned to renderer)
+ */
+const BUSYTEX_MEMFS_PROJECT_ROOT = '/home/web_user/project_dir';
+const BUSYTEX_MEMFS_PROJECT_PREFIX = `${BUSYTEX_MEMFS_PROJECT_ROOT}/`;
 
 export class SyncTeXService implements ISyncTeXService {
   private synctexPath = 'synctex';
@@ -49,7 +49,8 @@ export class SyncTeXService implements ISyncTeXService {
     synctexFile: string,
     sourceFile: string,
     line: number,
-    column = 0
+    column = 0,
+    projectRoot?: string
   ): Promise<ForwardSyncResult | null> {
     // Derive PDF path from synctex file path.
     const dir = path.dirname(synctexFile);
@@ -61,11 +62,27 @@ export class SyncTeXService implements ISyncTeXService {
       return null;
     }
 
+    // BusyTeX-produced .synctex.gz records MEMFS absolute paths under
+    // {@link BUSYTEX_MEMFS_PROJECT_ROOT}, not host paths. When projectRoot
+    // is supplied (the engine returned it), rebase the renderer-supplied
+    // host path into the MEMFS namespace so synctex CLI's `-i` argument
+    // matches the entries inside the .synctex.gz file. CLI-compiled files
+    // use real absolute paths and skip this branch entirely.
+    let resolvedSource = sourceFile;
+    if (projectRoot) {
+      const rel = path.relative(projectRoot, sourceFile);
+      if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+        resolvedSource = `${BUSYTEX_MEMFS_PROJECT_ROOT}/${rel.replace(/\\/g, '/')}`;
+      }
+    }
+
     // synctex records full paths using lowercase drive letters and forward slashes.
     // Normalize Windows paths before invoking synctex to avoid mismatches.
-    const normalizedSourceFile = sourceFile
-      .replace(/\\/g, '/')
-      .replace(/^([A-Z]):/, (_, letter) => `${letter.toLowerCase()}:`);
+    const normalizedSourceFile = path.isAbsolute(resolvedSource)
+      ? resolvedSource
+          .replace(/\\/g, '/')
+          .replace(/^([A-Z]):/, (_, letter) => `${letter.toLowerCase()}:`)
+      : resolvedSource;
 
     return new Promise((resolve) => {
       // synctex view -i "line:column:input" -o "output.pdf"
@@ -110,7 +127,8 @@ export class SyncTeXService implements ISyncTeXService {
     synctexFile: string,
     page: number,
     x: number,
-    y: number
+    y: number,
+    projectRoot?: string
   ): Promise<InverseSyncResult | null> {
     if (!synctexFile) {
       return null;
@@ -153,10 +171,18 @@ export class SyncTeXService implements ISyncTeXService {
       proc.on('close', () => {
         clearTimeout(timeout);
         const result = this.parseEditOutput(output);
-        if (result) {
-          // Normalize relative file path to absolute.
-          if (result.file && !path.isAbsolute(result.file)) {
-            result.file = path.join(dir, result.file);
+        if (result?.file) {
+          // BusyTeX emits MEMFS-absolute paths (see BUSYTEX_MEMFS_*).
+          // Strip the prefix and rebase onto the user's projectRoot.
+          // CLI-compiled builds skip this branch (no MEMFS prefix).
+          if (result.file.startsWith(BUSYTEX_MEMFS_PROJECT_PREFIX) && projectRoot) {
+            const rel = result.file.slice(BUSYTEX_MEMFS_PROJECT_PREFIX.length);
+            result.file = path.join(projectRoot, rel);
+          } else if (!path.isAbsolute(result.file)) {
+            // CLI-compiled relative paths: anchor on projectRoot when
+            // given, else the synctex file's own directory.
+            const anchor = projectRoot ?? dir;
+            result.file = path.join(anchor, result.file);
           }
         }
         resolve(result);
@@ -172,25 +198,6 @@ export class SyncTeXService implements ISyncTeXService {
         resolve(null);
       });
     });
-  }
-
-  private async findSynctexFile(filePath: string): Promise<string | null> {
-    const dir = path.dirname(filePath);
-    const baseName = path.basename(filePath).replace(/\.(pdf|tex)$/, '');
-
-    // Try different possible synctex file locations
-    const candidates = [
-      path.join(dir, `${baseName}.synctex.gz`),
-      path.join(dir, `${baseName}.synctex`),
-    ];
-
-    for (const candidate of candidates) {
-      if (await fs.pathExists(candidate)) {
-        return candidate;
-      }
-    }
-
-    return null;
   }
 
   /**
@@ -336,42 +343,6 @@ export class SyncTeXService implements ISyncTeXService {
     }
 
     return null;
-  }
-
-  async parseSynctexFile(filePath: string): Promise<unknown> {
-    const synctexPath = await this.findSynctexFile(filePath);
-    if (!synctexPath) {
-      throw new Error('SyncTeX file not found');
-    }
-
-    let content: string;
-
-    if (synctexPath.endsWith('.gz')) {
-      const compressed = await fs.readFile(synctexPath);
-      const decompressed = zlib.gunzipSync(compressed);
-      content = decompressed.toString('utf-8');
-    } else {
-      content = await fs.readFile(synctexPath, 'utf-8');
-    }
-
-    // Parse synctex format
-    // This is a simplified parser - full implementation would need more work
-    const lines = content.split('\n');
-    const files: Map<number, string> = new Map();
-    // SyncTeX block structure (reserved for future use).
-    const blocks: Array<{ page: number; x: number; y: number; fileId: number; line: number }> = [];
-
-    for (const line of lines) {
-      // Input file definition
-      if (line.startsWith('Input:')) {
-        const match = line.match(/^Input:(\d+):(.+)$/);
-        if (match) {
-          files.set(Number.parseInt(match[1], 10), match[2]);
-        }
-      }
-    }
-
-    return { files, blocks };
   }
 }
 

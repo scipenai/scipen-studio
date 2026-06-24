@@ -63,22 +63,28 @@ export interface ContextRequestServiceDeps {
   fileSystem: IFileSystemService;
 }
 
-interface PendingFlush {
+/**
+ * Common envelope shared by the three pending kinds. `turnId` is the
+ * sole reason a non-`Cancellable` would store SNACA's turn id at all —
+ * it lets `cancelTurn()` reclaim entries when a turn terminates without
+ * waiting for the per-kind timeout (5 s flush/zotero, 600 s question).
+ */
+interface Cancellable {
+  turnId: string;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+interface PendingFlush extends Cancellable {
   resolve: (flushedFiles: string[]) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
 }
 
-interface PendingZotero {
+interface PendingZotero extends Cancellable {
   resolve: (payload: ContextZoteroResponsePayload) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
 }
 
-interface PendingQuestion {
+interface PendingQuestion extends Cancellable {
   resolve: (payload: ContextQuestionResponsePayload) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
 }
 
 export class ContextRequestService implements IContextRequestService {
@@ -147,6 +153,39 @@ export class ContextRequestService implements IContextRequestService {
     entry.resolve(payload);
   }
 
+  cancelTurn(turnId: string): void {
+    // Sweep all three pending kinds. The `ask_user_question` map is the
+    // one that actually matters in practice (600 s timeout vs 5 s for
+    // flush/zotero), but the protocol contract is "no pending survives
+    // its turn", so all three get the same treatment.
+    const reclaimed = [
+      this.reclaimByTurn(this.pending, turnId),
+      this.reclaimByTurn(this.pendingZotero, turnId),
+      this.reclaimByTurn(this.pendingQuestion, turnId),
+    ].reduce((a, b) => a + b, 0);
+    if (reclaimed > 0) {
+      logger.info('reclaimed pending entries on turn cancel', { turnId, reclaimed });
+    }
+  }
+
+  /**
+   * Drop every entry whose `turnId` matches, rejecting its parked
+   * promise. Returns the count for logging — silent when there's
+   * nothing to do because most turns terminate cleanly without
+   * outstanding `context.request` work.
+   */
+  private reclaimByTurn<T extends Cancellable>(map: Map<string, T>, turnId: string): number {
+    let count = 0;
+    for (const [requestId, entry] of map) {
+      if (entry.turnId !== turnId) continue;
+      clearTimeout(entry.timer);
+      map.delete(requestId);
+      entry.reject(new Error(`turn ${turnId} cancelled`));
+      count++;
+    }
+    return count;
+  }
+
   dispose(): void {
     this.disposed = true;
     for (const [, entry] of this.pending) {
@@ -187,7 +226,7 @@ export class ContextRequestService implements IContextRequestService {
           reject(new Error(`flush_unsaved timeout after ${FLUSH_TIMEOUT_MS}ms`));
         }
       }, FLUSH_TIMEOUT_MS);
-      this.pending.set(req.request_id, { resolve, reject, timer });
+      this.pending.set(req.request_id, { turnId: req.turn_id, resolve, reject, timer });
 
       for (const wc of targets) {
         try {
@@ -257,7 +296,7 @@ export class ContextRequestService implements IContextRequestService {
           reject(new Error(`${req.kind} timeout after ${ZOTERO_TIMEOUT_MS}ms`));
         }
       }, ZOTERO_TIMEOUT_MS);
-      this.pendingZotero.set(req.request_id, { resolve, reject, timer });
+      this.pendingZotero.set(req.request_id, { turnId: req.turn_id, resolve, reject, timer });
 
       // We broadcast to all targets; only the focused window will
       // actually serve the request (its ContextZoteroResponder is
@@ -334,7 +373,7 @@ export class ContextRequestService implements IContextRequestService {
           reject(new Error(`ask_user_question timeout after ${QUESTION_TIMEOUT_MS}ms`));
         }
       }, QUESTION_TIMEOUT_MS);
-      this.pendingQuestion.set(req.request_id, { resolve, reject, timer });
+      this.pendingQuestion.set(req.request_id, { turnId: req.turn_id, resolve, reject, timer });
 
       for (const wc of targets) {
         try {

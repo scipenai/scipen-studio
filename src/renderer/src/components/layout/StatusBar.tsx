@@ -6,9 +6,14 @@
 
 import { AlertTriangle, Check, ChevronUp, Cpu, HardDrive, Save } from 'lucide-react';
 import type React from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import type {
+  LaTeXCapabilities,
+  TypstCapabilities,
+} from '../../../../../shared/ipc/compile-contract';
 import { RunOnceScheduler } from '../../../../../shared/utils';
 import logoS from '../../assets/logo-s.svg';
+import { api } from '../../api';
 import { useClickOutside, useEvent } from '../../hooks';
 import { getLanguageForFile } from '../../utils';
 import { AgentStatusSegment } from './AgentStatusSegment';
@@ -24,7 +29,40 @@ import {
   useProjectPath,
 } from '../../services/core/hooks';
 import { useTranslation } from '../../locales';
-import type { LaTeXEngine } from '../../types';
+import type { LaTeXEngine, TypstEngine } from '../../types';
+
+type CompileEngineOption = {
+  value: LaTeXEngine | TypstEngine;
+  label: string;
+};
+
+function unavailableLatexCaps(): LaTeXCapabilities {
+  const unavailable = { available: false, version: null };
+  return {
+    cli: {
+      pdflatex: { ...unavailable },
+      xelatex: { ...unavailable },
+      lualatex: { ...unavailable },
+      tectonic: { ...unavailable },
+    },
+    wasm: {
+      pdftex: { ...unavailable },
+      xetex: { ...unavailable },
+      lualatex: { ...unavailable },
+    },
+  };
+}
+
+function unavailableTypstCaps(): TypstCapabilities {
+  const unavailable = { available: false, version: null };
+  return {
+    cli: {
+      tinymist: { ...unavailable },
+      typst: { ...unavailable },
+    },
+    wasm: { ...unavailable },
+  };
+}
 
 export const StatusBar: React.FC = () => {
   const { t } = useTranslation();
@@ -39,7 +77,12 @@ export const StatusBar: React.FC = () => {
   const isTypstFile = activeTab?.name?.endsWith('.typ') || false;
 
   const [isEngineDropdownOpen, setIsEngineDropdownOpen] = useState(false);
+  const [latexCaps, setLatexCaps] = useState<LaTeXCapabilities | null>(null);
+  const [typstCaps, setTypstCaps] = useState<TypstCapabilities | null>(null);
   const engineDropdownRef = useRef<HTMLDivElement>(null);
+  const engineMenuRef = useRef<HTMLDivElement>(null);
+  const engineMenuId = useId();
+  const previouslyFocusedEngineRef = useRef<HTMLElement | null>(null);
 
   // ====== Save Status ======
 
@@ -63,7 +106,99 @@ export const StatusBar: React.FC = () => {
     hideStatusScheduler.schedule();
   });
 
+  useEffect(() => {
+    let cancelled = false;
+
+    api.compile
+      .getLaTeXCapabilities()
+      .then((caps) => {
+        if (!cancelled) setLatexCaps(caps);
+      })
+      .catch(() => {
+        if (!cancelled) setLatexCaps(unavailableLatexCaps());
+      });
+
+    api.compile
+      .getTypstCapabilities()
+      .then((caps) => {
+        if (!cancelled) setTypstCaps(caps);
+      })
+      .catch(() => {
+        if (!cancelled) setTypstCaps(unavailableTypstCaps());
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useClickOutside(engineDropdownRef, () => setIsEngineDropdownOpen(false), isEngineDropdownOpen);
+
+  useEffect(() => {
+    if (!isEngineDropdownOpen) return;
+
+    previouslyFocusedEngineRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    return () => {
+      previouslyFocusedEngineRef.current?.focus();
+      previouslyFocusedEngineRef.current = null;
+    };
+  }, [isEngineDropdownOpen]);
+
+  const getEngineMenuItems = (): HTMLButtonElement[] =>
+    Array.from(
+      engineMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? []
+    );
+
+  const focusEngineMenuItem = (offset: number): void => {
+    const items = getEngineMenuItems();
+    if (items.length === 0) return;
+
+    const currentIndex = items.findIndex((item) => item === document.activeElement);
+    const nextIndex =
+      currentIndex === -1 ? 0 : (currentIndex + offset + items.length) % items.length;
+    items[nextIndex]?.focus();
+  };
+
+  const handleEngineMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    switch (event.key) {
+      case 'ArrowDown':
+      case 'ArrowRight':
+        event.preventDefault();
+        focusEngineMenuItem(1);
+        break;
+      case 'ArrowUp':
+      case 'ArrowLeft':
+        event.preventDefault();
+        focusEngineMenuItem(-1);
+        break;
+      case 'Home':
+        event.preventDefault();
+        getEngineMenuItems()[0]?.focus();
+        break;
+      case 'End': {
+        event.preventDefault();
+        const items = getEngineMenuItems();
+        items[items.length - 1]?.focus();
+        break;
+      }
+      case 'Enter':
+      case ' ':
+        if (document.activeElement instanceof HTMLButtonElement) {
+          event.preventDefault();
+          document.activeElement.click();
+        }
+        break;
+      case 'Escape':
+        event.preventDefault();
+        event.stopPropagation();
+        setIsEngineDropdownOpen(false);
+        break;
+      default:
+        break;
+    }
+  };
 
   // ====== Helpers ======
 
@@ -77,30 +212,138 @@ export const StatusBar: React.FC = () => {
     return activeTabPath.split(/[/\\]/).pop() || '';
   };
 
-  const getCompilerLabel = (engine: string): string => {
-    switch (engine) {
-      case 'pdflatex':
-        return t('compiler.pdflatex');
-      case 'xelatex':
-        return t('compiler.xelatexRecommended');
-      case 'lualatex':
-        return t('compiler.lualatex');
-      case 'tectonic':
-        return t('compiler.tectonic');
-      case 'wasm-pdftex':
-        return t('compiler.wasmPdftex');
-      case 'wasm-xetex':
-        return t('compiler.wasmXetex');
-      case 'latex':
-        return 'LaTeX';
-      case 'tinymist':
-        return 'Tinymist';
-      case 'typst':
-        return 'Typst CLI';
-      default:
-        return engine;
+  const getCompilerLabel = useCallback(
+    (engine: string): string => {
+      switch (engine) {
+        case 'pdflatex':
+          return t('compiler.pdflatex');
+        case 'xelatex':
+          return t('compiler.xelatexRecommended');
+        case 'lualatex':
+          return t('compiler.lualatex');
+        case 'tectonic':
+          return t('compiler.tectonic');
+        case 'wasm-pdftex':
+          return t('compiler.wasmPdftex');
+        case 'wasm-xetex':
+          return t('compiler.wasmXetex');
+        case 'wasm-lualatex':
+          return t('compiler.wasmLualatex');
+        case 'latex':
+          return 'LaTeX';
+        case 'tinymist':
+          return t('compiler.tinymist');
+        case 'typst':
+          return t('compiler.typstCli');
+        case 'wasm-typst':
+          return t('compiler.typstWasm');
+        default:
+          return engine;
+      }
+    },
+    [t]
+  );
+
+  const latexEngineOptions = useMemo<CompileEngineOption[]>(() => {
+    if (!latexCaps) {
+      return [];
     }
-  };
+
+    const options: CompileEngineOption[] = [];
+    if (latexCaps.cli.xelatex.available) {
+      options.push({ value: 'xelatex', label: getCompilerLabel('xelatex') });
+    }
+    if (latexCaps.cli.lualatex.available) {
+      options.push({ value: 'lualatex', label: getCompilerLabel('lualatex') });
+    }
+    if (latexCaps.cli.pdflatex.available) {
+      options.push({ value: 'pdflatex', label: getCompilerLabel('pdflatex') });
+    }
+    if (latexCaps.cli.tectonic.available) {
+      options.push({ value: 'tectonic', label: getCompilerLabel('tectonic') });
+    }
+    if (latexCaps.wasm.xetex.available) {
+      options.push({ value: 'wasm-xetex', label: getCompilerLabel('wasm-xetex') });
+    }
+    if (latexCaps.wasm.pdftex.available) {
+      options.push({ value: 'wasm-pdftex', label: getCompilerLabel('wasm-pdftex') });
+    }
+    if (latexCaps.wasm.lualatex.available) {
+      options.push({ value: 'wasm-lualatex', label: getCompilerLabel('wasm-lualatex') });
+    }
+    return options;
+  }, [getCompilerLabel, latexCaps]);
+
+  const typstEngineOptions = useMemo<CompileEngineOption[]>(() => {
+    if (!typstCaps) {
+      return [];
+    }
+
+    const options: CompileEngineOption[] = [];
+    if (typstCaps.cli.tinymist.available) {
+      options.push({ value: 'tinymist', label: getCompilerLabel('tinymist') });
+    }
+    if (typstCaps.cli.typst.available) {
+      options.push({ value: 'typst', label: getCompilerLabel('typst') });
+    }
+    if (typstCaps.wasm.available) {
+      options.push({ value: 'wasm-typst', label: getCompilerLabel('wasm-typst') });
+    }
+    return options;
+  }, [getCompilerLabel, typstCaps]);
+
+  useEffect(() => {
+    if (!isEngineDropdownOpen) return;
+
+    const selectedItem =
+      engineMenuRef.current?.querySelector<HTMLButtonElement>('[data-selected="true"]') ?? null;
+    const firstItem =
+      engineMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitemradio"]') ?? null;
+
+    (selectedItem ?? firstItem ?? engineMenuRef.current)?.focus();
+  }, [isEngineDropdownOpen, isTypstFile, latexEngineOptions, typstEngineOptions]);
+
+  useEffect(() => {
+    if (!latexCaps || latexEngineOptions.length === 0) return;
+    if (latexEngineOptions.some((engine) => engine.value === compilerSettings.engine)) return;
+
+    const next = latexEngineOptions[0].value;
+    getSettingsService().updateCompiler({ engine: next as LaTeXEngine });
+  }, [compilerSettings.engine, latexCaps, latexEngineOptions]);
+
+  useEffect(() => {
+    if (!typstCaps || typstEngineOptions.length === 0) return;
+    if (typstEngineOptions.some((engine) => engine.value === compilerSettings.typstEngine)) return;
+
+    const next = typstEngineOptions[0].value;
+    getSettingsService().updateCompiler({ typstEngine: next as TypstEngine });
+  }, [compilerSettings.typstEngine, typstCaps, typstEngineOptions]);
+
+  const currentCompilerLabel = useMemo(() => {
+    if (isTypstFile) {
+      if (!typstCaps) return t('compiler.typstProbing');
+      return (
+        typstEngineOptions.find((engine) => engine.value === compilerSettings.typstEngine)?.label ??
+        getCompilerLabel(compilerSettings.typstEngine || 'tinymist')
+      );
+    }
+
+    if (!latexCaps) return t('compiler.latexProbing');
+    return (
+      latexEngineOptions.find((engine) => engine.value === compilerSettings.engine)?.label ??
+      getCompilerLabel(compilerSettings.engine)
+    );
+  }, [
+    compilerSettings.engine,
+    compilerSettings.typstEngine,
+    getCompilerLabel,
+    isTypstFile,
+    latexCaps,
+    latexEngineOptions,
+    t,
+    typstCaps,
+    typstEngineOptions,
+  ]);
 
   const getLanguageType = () => {
     const fileName = getCurrentFileName();
@@ -249,28 +492,38 @@ export const StatusBar: React.FC = () => {
           style={{ borderLeft: '1px solid var(--color-border-subtle)' }}
         >
           <button
+            type="button"
             onClick={() => setIsEngineDropdownOpen(!isEngineDropdownOpen)}
-            className="flex items-center gap-1.5 px-3 h-full transition-all cursor-pointer"
+            className="flex h-full cursor-pointer items-center gap-1.5 px-3 transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
             style={{
               color: isTypstFile ? 'var(--color-info)' : 'var(--color-warning)',
               background: isEngineDropdownOpen ? 'var(--color-bg-hover)' : 'transparent',
             }}
             title={t('statusBar.selectCompileEngine')}
+            aria-label={t('statusBar.selectCompileEngine')}
+            aria-expanded={isEngineDropdownOpen}
+            aria-haspopup="menu"
+            aria-controls={isEngineDropdownOpen ? engineMenuId : undefined}
           >
-            <Cpu size={13} className="flex-shrink-0" />
+            <Cpu size={13} className="flex-shrink-0" aria-hidden="true" />
             <span className="max-w-[80px] truncate text-[11px] font-mono font-medium">
-              {isTypstFile
-                ? getCompilerLabel(compilerSettings.typstEngine || 'tinymist')
-                : getCompilerLabel(compilerSettings.engine)}
+              {currentCompilerLabel}
             </span>
             <ChevronUp
               size={11}
+              aria-hidden="true"
               className={`transition-transform flex-shrink-0 ${isEngineDropdownOpen ? '' : 'rotate-180'}`}
             />
           </button>
 
           {isEngineDropdownOpen && (
             <div
+              id={engineMenuId}
+              ref={engineMenuRef}
+              role="menu"
+              aria-label={t('statusBar.localCompiler')}
+              tabIndex={-1}
+              onKeyDown={handleEngineMenuKeyDown}
               className="absolute bottom-full right-0 mb-1 w-52 rounded-xl py-1.5 z-50"
               style={{
                 background: 'var(--color-bg-secondary)',
@@ -293,97 +546,79 @@ export const StatusBar: React.FC = () => {
                   <div className="px-3 py-1 text-xs text-[var(--color-info)] border-b border-editor-border">
                     {t('statusBar.typstCompiler')}
                   </div>
-                  {[
-                    {
-                      value: 'tinymist',
-                      label: getCompilerLabel('tinymist'),
-                      descKey: 'statusBar.recommendedFullFeatures' as const,
-                    },
-                    {
-                      value: 'typst',
-                      label: getCompilerLabel('typst'),
-                      descKey: 'statusBar.officialCliTool' as const,
-                    },
-                  ].map((engine) => (
+                  {!typstCaps && (
+                    <div className="px-3 py-2 text-xs text-[var(--color-text-muted)]">
+                      {t('compiler.typstProbing')}
+                    </div>
+                  )}
+                  {typstCaps && typstEngineOptions.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-[var(--color-text-muted)]">
+                      {t('compiler.typstNoEngine')}
+                    </div>
+                  )}
+                  {typstEngineOptions.map((engine) => (
                     <button
+                      type="button"
                       key={engine.value}
+                      role="menuitemradio"
+                      aria-checked={compilerSettings.typstEngine === engine.value}
+                      data-selected={
+                        compilerSettings.typstEngine === engine.value ? 'true' : undefined
+                      }
                       onClick={() => {
                         getSettingsService().updateCompiler({
-                          typstEngine: engine.value as 'typst' | 'tinymist',
+                          typstEngine: engine.value as TypstEngine,
                         });
                         setIsEngineDropdownOpen(false);
                       }}
-                      className={`w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--color-bg-hover)] flex items-center justify-between ${
+                      className={`flex w-full cursor-pointer items-center justify-between px-3 py-1.5 text-left text-xs hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] ${
                         compilerSettings.typstEngine === engine.value
                           ? 'text-[var(--color-info)]'
                           : 'text-[var(--color-text-secondary)]'
                       }`}
                     >
-                      <span className="flex flex-col">
-                        <span>{engine.label}</span>
-                        <span className="text-[var(--color-text-muted)] text-[10px]">
-                          {t(engine.descKey)}
-                        </span>
-                      </span>
-                      {compilerSettings.typstEngine === engine.value && <Check size={12} />}
+                      <span>{engine.label}</span>
+                      {compilerSettings.typstEngine === engine.value && (
+                        <Check size={12} aria-hidden="true" />
+                      )}
                     </button>
                   ))}
                 </>
               ) : (
                 <>
-                  {[
-                    {
-                      value: 'xelatex',
-                      label: getCompilerLabel('xelatex'),
-                      descKey: 'statusBar.recommendedUnicode' as const,
-                    },
-                    {
-                      value: 'lualatex',
-                      label: getCompilerLabel('lualatex'),
-                      descKey: 'statusBar.unicodeAndLua' as const,
-                    },
-                    {
-                      value: 'pdflatex',
-                      label: getCompilerLabel('pdflatex'),
-                      descKey: 'statusBar.fastEnglishOnly' as const,
-                    },
-                    {
-                      value: 'tectonic',
-                      label: getCompilerLabel('tectonic'),
-                      descKey: 'statusBar.modernCompiler' as const,
-                    },
-                    {
-                      value: 'wasm-xetex',
-                      label: getCompilerLabel('wasm-xetex'),
-                      descKey: 'statusBar.wasmNoInstall' as const,
-                    },
-                    {
-                      value: 'wasm-pdftex',
-                      label: getCompilerLabel('wasm-pdftex'),
-                      descKey: 'statusBar.wasmNoInstall' as const,
-                    },
-                  ].map((engine) => (
+                  {!latexCaps && (
+                    <div className="px-3 py-2 text-xs text-[var(--color-text-muted)]">
+                      {t('compiler.latexProbing')}
+                    </div>
+                  )}
+                  {latexCaps && latexEngineOptions.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-[var(--color-text-muted)]">
+                      {t('compiler.latexNoEngine')}
+                    </div>
+                  )}
+                  {latexEngineOptions.map((engine) => (
                     <button
+                      type="button"
                       key={engine.value}
+                      role="menuitemradio"
+                      aria-checked={compilerSettings.engine === engine.value}
+                      data-selected={compilerSettings.engine === engine.value ? 'true' : undefined}
                       onClick={() => {
                         getSettingsService().updateCompiler({
                           engine: engine.value as LaTeXEngine,
                         });
                         setIsEngineDropdownOpen(false);
                       }}
-                      className={`w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--color-bg-hover)] flex items-center justify-between ${
+                      className={`flex w-full cursor-pointer items-center justify-between px-3 py-1.5 text-left text-xs hover:bg-[var(--color-bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] ${
                         compilerSettings.engine === engine.value
                           ? 'text-[var(--color-warning)]'
                           : 'text-[var(--color-text-secondary)]'
                       }`}
                     >
-                      <span className="flex flex-col">
-                        <span>{engine.label}</span>
-                        <span className="text-[var(--color-text-muted)] text-[10px]">
-                          {t(engine.descKey)}
-                        </span>
-                      </span>
-                      {compilerSettings.engine === engine.value && <Check size={12} />}
+                      <span>{engine.label}</span>
+                      {compilerSettings.engine === engine.value && (
+                        <Check size={12} aria-hidden="true" />
+                      )}
                     </button>
                   ))}
                 </>
@@ -409,7 +644,7 @@ export const StatusBar: React.FC = () => {
         {/* Zotero canonical bib index status badge */}
         <ZoteroStatusBadge />
 
-        {/* M3 标尺5:主动文献推荐微章(✨ N + 点击弹 top3) */}
+        {/* M3 ruler 5: active citation recommendation badge (Sparkles N + click to reveal top 3) */}
         <ActiveRecommendationSegment />
 
         {/* SciPen Studio Brand */}

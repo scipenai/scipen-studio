@@ -54,7 +54,25 @@ export enum IpcChannel {
   Compile_Typst = 'compile-typst',
   Compile_Cancel = 'compile-cancel',
   Compile_GetStatus = 'compile-get-status',
+  /**
+   * Persist a BusyTeX WASM compile result (pdf + .synctex.gz) to a fresh
+   * temp directory and return the on-disk paths so the main-process
+   * `synctex` CLI can parse them the same way as a CLI-compiled result.
+   */
+  Compile_WriteWasmArtifacts = 'compile-write-wasm-artifacts',
+  /**
+   * Probe LaTeX engine capabilities: local CLI binaries
+   * (pdflatex/xelatex/lualatex/tectonic) plus bundled BusyTeX WASM assets.
+   * UI uses the result to hide engines that cannot run on this machine.
+   */
+  LaTeX_GetCapabilities = 'latex:get-capabilities',
   Typst_Available = 'typst-available',
+  /**
+   * Probe Typst engine capabilities: CLI binaries (tinymist / typst) AND
+   * the in-renderer typst-ts WASM compiler. UI uses the result to dynamically
+   * enable/disable engine options instead of hardcoding what's installed.
+   */
+  Typst_GetCapabilities = 'typst:get-capabilities',
   SyncTeX_Forward = 'synctex-forward',
   SyncTeX_Backward = 'synctex-backward',
 
@@ -108,6 +126,7 @@ export enum IpcChannel {
   AI_UpdateConfig = 'ai:update-config',
   AI_IsConfigured = 'ai:is-configured',
   AI_Completion = 'ai:completion',
+  AI_GenerateTitle = 'ai:generate-title',
   AI_ChatStream = 'ai:chat-stream',
   AI_StreamChunk = 'ai:stream-chunk',
   AI_TestConnection = 'ai:test-connection',
@@ -427,6 +446,30 @@ export enum IpcChannel {
   // ====== Dialog ======
   Dialog_Confirm = 'dialog:confirm',
   Dialog_Message = 'dialog:message',
+
+  // ====== History (versioning: blob/chunk/label/step/session) ======
+  /** Upload bytes; returns the content-addressed hash (lowercase hex). */
+  History_PutBlob = 'history:put-blob',
+  /** Create or get a session row; required before the first `recordStep`. */
+  History_EnsureSession = 'history:ensure-session',
+  /** Record one SNACA tool turn / human-edit batch as a Step DAG node. */
+  History_RecordStep = 'history:record-step',
+  /** Create a user-named multi-file snapshot label. */
+  History_CreateLabel = 'history:create-label',
+  /** List labels for a project, most recent first. */
+  History_ListLabels = 'history:list-labels',
+  /** Resolve a label id to a `Map<fileId, bytes>` via the underlying BlobStore. */
+  History_ResolveLabelSnapshot = 'history:resolve-label-snapshot',
+  /** Fetch a single step by its lowercase-hex hash. */
+  History_GetStep = 'history:get-step',
+  /** List steps within a session, ordered by ts asc. */
+  History_ListSessionSteps = 'history:list-session-steps',
+  /** Resolve a step's `tree` to a `Map<fileId, bytes>` snapshot. */
+  History_ResolveStepSnapshot = 'history:resolve-step-snapshot',
+  /** Locate the most recent step in a session whose `ts < beforeTs`. */
+  History_FindStepBeforeTs = 'history:find-step-before-ts',
+  /** List every chat-style session that has at least one recorded step. */
+  History_ListSessions = 'history:list-sessions',
 }
 
 export type IpcChannelType = `${IpcChannel}`;

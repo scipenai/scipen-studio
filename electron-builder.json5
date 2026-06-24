@@ -8,7 +8,12 @@
     "node_modules/bindings/**/*",
     "node_modules/file-uri-to-path/**/*",
     "node_modules/@parcel/watcher/**/*",
-    "node_modules/@anthropic-ai/**/*"
+    "node_modules/@anthropic-ai/**/*",
+    // BusyTeX WASM artifacts (~445 MB) — must live outside asar so the
+    // Worker can fetch() them as plain files and Emscripten preload data
+    // streams cleanly. Reading a 200 MB blob through asar's virtual FS
+    // doubles startup memory and has known Chromium quirks.
+    "out/renderer/wasm/**/*"
   ],
   "productName": "SciPen Studio",
   "publish": {

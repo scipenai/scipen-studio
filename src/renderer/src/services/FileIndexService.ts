@@ -1,15 +1,18 @@
 /**
- * @file FileIndexService.ts - 项目文件内容索引编排(标签/引用补全的数据源)
- * @description 扫描项目内 .tex/.bib/.typ,读内容喂 InlineCompletionService 的索引器。
+ * @file FileIndexService.ts - Project file content index orchestration (data source for label/citation completion).
+ * @description Scans .tex/.bib/.typ in the project and feeds content into InlineCompletionService's indexer.
  *
- *   生命周期 = **项目级**(非 UI 组件)—— 跨抽屉/面板重挂存活,故每项目只全量索引一次。
- *   此前该逻辑在 FileExplorer 的 useFileIndexing hook 里,随抽屉(AnimatePresence)重挂而
- *   清零 → 每次开抽屉重跑全库 stat+read(idle 但纯浪费)。搬到服务后由正确信号驱动:
- *   - 首次全量:bootstrapProject 调一次(见 FileOpenService)。
- *   - 增量:file watcher 的内容变更(见 useFileWatcher.reindexChangedFile)。
- *   - 打开/选中文件的实时更新仍走 editorSetup / useFileSelection 的 updateFileIndex,不变。
+ *   Lifecycle = **project-scoped** (not a UI component) — survives drawer/panel remounts,
+ *   so each project is fully indexed only once.
+ *   This used to live in FileExplorer's useFileIndexing hook, which got reset on every
+ *   drawer (AnimatePresence) remount → re-ran full stat+read on each open (idle but wasted).
+ *   Moving it to a service drives indexing from the correct signals:
+ *   - Initial full scan: bootstrapProject calls it once (see FileOpenService).
+ *   - Incremental: file watcher content changes (see useFileWatcher.reindexChangedFile).
+ *   - Live updates from open/selected file still go through editorSetup / useFileSelection.updateFileIndex.
  *
- *   mtime 缓存按文件存活 → 同项目重复触发只读「真的变了」的文件;切项目清空旧索引。
+ *   mtime cache is keyed per file → repeated triggers within a project only re-read
+ *   files that actually changed; switching projects clears the old index.
  */
 import { api } from '../api';
 import type { FileNode } from '../types';
@@ -44,17 +47,17 @@ function collectIndexablePaths(node: FileNode | null): string[] {
 export class FileIndexService {
   private _indexedProjectPath: string | null = null;
   private _indexedMtime = new Map<string, number>();
-  // 单调递增,作废在途批次(stale 批次 fire 时早返回,无需 cancel 队列)。
+  // Monotonic; invalidates in-flight batches (stale fires return early, no queue cancel needed).
   private _runId = 0;
 
   /**
-   * 项目首次全量索引(每项目一次)。切换项目时清空旧索引 + mtime 缓存。
-   * idle 分批 stat+read,只读 mtime 变化的文件。
+   * Initial full-project index (once per project). Switching projects clears old index + mtime cache.
+   * Idle-batched stat+read; only reads files with changed mtime.
    */
   indexProject(projectPath: string, tree: FileNode | null): void {
     if (this._indexedProjectPath === projectPath) return;
     if (this._indexedProjectPath !== null) {
-      // 切项目:旧项目的 label/citation 索引必须清掉,否则串味。
+      // Switching projects: label/citation index from old project must be cleared to avoid bleed.
       getInlineCompletionService().resetIndex();
       this._indexedMtime.clear();
     }
@@ -66,7 +69,7 @@ export class FileIndexService {
   }
 
   /**
-   * 单文件增量重索引(file watcher 内容变更驱动)。非可索引类型直接跳过。
+   * Single-file incremental re-index (driven by file watcher content changes). Skips non-indexable types.
    */
   async reindexChangedFile(filePath: string): Promise<void> {
     if (!isIndexable(filePath)) return;
@@ -76,7 +79,7 @@ export class FileIndexService {
         updateFileIndex(filePath, result.content);
       }
     } catch (error) {
-      logger.warn('增量重索引失败', { filePath, error });
+      logger.warn('incremental reindex failed', { filePath, error });
     }
   }
 
@@ -84,7 +87,7 @@ export class FileIndexService {
     const runId = ++this._runId;
 
     const processBatch = async (start: number): Promise<void> => {
-      if (runId !== this._runId) return; // 被更新的索引请求取代
+      if (runId !== this._runId) return; // superseded by a newer index request
       const batch = paths.slice(start, start + BATCH_SIZE);
       if (batch.length === 0) return;
 
@@ -109,7 +112,7 @@ export class FileIndexService {
           }
         }
       } catch (error) {
-        logger.warn('批量索引失败', { error });
+        logger.warn('batch index failed', { error });
       }
 
       if (start + BATCH_SIZE < paths.length) {

@@ -284,9 +284,11 @@ export class ZoteroIndex {
       item.creatorsLabel ?? '',
       item.year ? String(item.year) : '',
     ];
-    // 整 item 加权:有 citationKey 的 item 整体 score ×1.5,使 @cite 模糊匹配
-    // 时持有 citation key 的条目天然排在无 key 条目前(对 title 命中也享受
-    // 加权,实测对用户体验无负面 — 想找的文献通常都已分配 citation key)。
+    // Whole-item weighting: items with a citationKey get an overall score
+    // multiplier of 1.5, so @cite fuzzy matches favour entries that
+    // already have a key (title hits get the boost too, with no observed
+    // UX downside — the literature users look for usually already has a
+    // citation key assigned).
     const compound = tokens.filter(Boolean).join(' ');
     this.trigram.upsert(item.itemKey, compound, item.citationKey ? 1.5 : 1.0);
   }

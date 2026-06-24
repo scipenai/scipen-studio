@@ -415,12 +415,14 @@ export const EditorPane: React.FC = React.memo(() => {
 
   if (openTabs.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center bg-[#fffdf9] text-[var(--color-text-muted)]">
+      <div className="h-full flex items-center justify-center bg-[var(--color-bg-primary)] text-[var(--color-text-muted)]">
         <div className="max-w-md text-center">
-          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-[20px] border border-[rgba(15,23,42,0.06)] bg-white shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-            <span className="text-[24px] font-semibold text-slate-300">S</span>
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] shadow-[var(--shadow-sm)]">
+            <span className="text-[24px] font-semibold text-[var(--color-text-disabled)]">S</span>
           </div>
-          <p className="text-sm font-medium text-slate-500">{t('editor.noFileOpen')}</p>
+          <p className="text-sm font-medium text-[var(--color-text-secondary)]">
+            {t('editor.noFileOpen')}
+          </p>
           <p className="mt-2 text-xs leading-6 text-[var(--color-text-disabled)]">
             {t('editor.selectFileHint')}
           </p>
@@ -431,7 +433,7 @@ export const EditorPane: React.FC = React.memo(() => {
 
   return (
     <div
-      className="h-full flex flex-col bg-[#fffdf9]"
+      className="h-full flex flex-col bg-[var(--color-bg-primary)]"
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >

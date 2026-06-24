@@ -32,6 +32,14 @@ Requirements:
 4. Keep the content academically rigorous
 5. Return only the continuation, not the original context`;
 
+// Title generation: emit a minimal topic phrase — no punctuation, quotes, or prefix; language follows the user's message.
+const TITLE_SYSTEM_PROMPT = `You generate a short, descriptive title for a conversation based on the user's first message.
+Rules:
+- Output ONLY the title text — no quotes, no punctuation at the end, no prefix, no explanation.
+- Keep it concise: at most 6 words, or about 16 Chinese characters.
+- Use the same language as the user's message.
+- Capture the core topic/intent, not a generic label.`;
+
 const CHAT_SYSTEM_PROMPT = `You are SciPen AI, a professional scientific writing assistant specializing in LaTeX, Typst, and academic writing.
 
 Capabilities:
@@ -177,6 +185,37 @@ export class AIService implements IAIService {
       return text;
     } catch (error) {
       console.error('[AIService] Completion failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Use the completion model (low latency, sharing config with inline completion) to squeeze
+   * the user's first message into a short conversation title. Reuses createCompletionModel()
+   * but with the title-specific system prompt instead of the "continue writing" one.
+   */
+  async generateTitle(userMessage: string): Promise<string> {
+    try {
+      const model = this.createCompletionModel();
+
+      const { text } = await generateText({
+        model,
+        system: TITLE_SYSTEM_PROMPT,
+        prompt: userMessage.trim().slice(0, 2000),
+        maxOutputTokens: 32,
+        temperature: 0.3,
+      });
+
+      // Cleanup: take the first line, strip surrounding quotes and whitespace, cap length;
+      // renderer makes the final fallback decision.
+      return text
+        .split('\n')[0]
+        .trim()
+        .replace(/^["'“”‘’「」『』]+|["'“”‘’「」『』]+$/g, '') // allow-cjk: strip CJK paired quotes from model output
+        .trim()
+        .slice(0, 24);
+    } catch (error) {
+      logger.warn('[AIService] generateTitle failed, falling back to first-line title:', error);
       throw error;
     }
   }

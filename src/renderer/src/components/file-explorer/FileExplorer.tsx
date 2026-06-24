@@ -16,7 +16,7 @@ import {
   useFileTree,
   useProjectPath,
 } from '../../services/core';
-import { VirtualizedFileTree } from '../VirtualizedFileTree';
+import { type FileTreeContextMenuEvent, VirtualizedFileTree } from '../VirtualizedFileTree';
 import { useTranslation } from '../../locales';
 import { isSamePath } from '../../utils/pathComparison';
 
@@ -178,7 +178,7 @@ export const FileExplorer: React.FC = () => {
 
   // ====== Context Menu Handlers ======
 
-  const handleContextMenu = (e: React.MouseEvent, node: FileNode | null) => {
+  const handleContextMenu = (e: FileTreeContextMenuEvent, node: FileNode | null) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, node });
   };

@@ -9,8 +9,26 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+/**
+ * Byte threshold past which a SNACA-driven cumulative diff triggers an
+ * autoLabel snapshot. 5KB is roughly "half a LaTeX page of substantive
+ * edits" — small enough to give the user recoverable checkpoints during a
+ * long agent run, big enough to avoid spamming the label list.
+ */
+const SIZE_TRIGGER_LABEL_BYTES = 5 * 1024;
+
+function safeStringify(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return undefined;
+  }
+}
+
 import { agentClient, type ThreadMessageDTO } from './AgentClientService';
 import { resolveAgentPath } from './agentPathResolver';
+import { historyUIBus } from '../core/HistoryUIBus';
 import {
   deleteTurnMetaForThread,
   loadTurnMetaForThread,
@@ -59,6 +77,10 @@ export interface ChatProposalRecord {
   hunkCount: number;
   status: 'pending' | 'accepted' | 'rejected';
 }
+
+// Note: proposal is woven into the timeline via a 'proposal' event (see
+// ChatTimelineEvent) so the propose card renders inline with the tool_call
+// that produced it instead of stacking at the bottom of the turn.
 
 export interface ChatPlanFile {
   /** Agent-supplied path, as it appeared in `plan.update`. Display only. */
@@ -125,6 +147,7 @@ export interface ChatUserQuestion {
 export type ChatTimelineEvent =
   | { kind: 'thinking'; text: string }
   | { kind: 'tool_ref'; toolCallId: string }
+  | { kind: 'proposal'; proposalId: string }
   | { kind: 'text'; text: string };
 
 export interface ChatTurn {
@@ -576,34 +599,23 @@ class ChatStreamStoreImpl {
         break;
       }
       case 'done':
-        turn.pending = false;
-        turn.doneReason = evt.reason;
-        // Materialize the assistant message into the persistent log.
-        if (turn.text.trim().length > 0) {
-          this.messages = [
-            ...this.messages,
-            { role: 'assistant', turnId, text: turn.text, ts: Date.now() },
-          ];
-        }
-        // Move turn from "current" to "completed".
-        this.completedTurns.set(turnId, turn);
-        if (this.currentTurn?.turnId === turnId) {
-          this.currentTurn = null;
-        }
-        // Persist the rich meta (thinking / tool calls / proposals / plan
-        // / usage) to IndexedDB so a future hydrate can re-attach it to
-        // SNACA's bare ThreadMessage. Fire-and-forget — IDB failure only
-        // costs us the cards next time, never breaks chat.
-        if (this.activeThreadId) {
-          void this.persistTurnMeta(this.activeThreadId, turn);
-        }
+        this.finalizeTurn(turn, evt.reason);
         break;
       case 'error':
+        // SNACA's turn_engine emits Error WITHOUT a paired Done on engine
+        // failures (e.g. LoopGuardTripped) — different from the llm.rs path
+        // which sends Error+Done. Without finalizing here the turn stays
+        // `pending=true` forever, freezing the chat input behind the stop
+        // button and leaving cancelTurn() with no live turn to abort
+        // (SNACA-side is already gone). Treat error as terminal.
         turn.error = {
           code: evt.code,
           message: evt.message,
-          recoverable: evt.recoverable,
+          // Coerce in case the wire omits `recoverable` — ChatTurn.error
+          // types it as boolean, matches handleError's contract.
+          recoverable: !!evt.recoverable,
         };
+        this.finalizeTurn(turn, 'error');
         break;
       default:
         return;
@@ -634,7 +646,44 @@ class ChatStreamStoreImpl {
       message: evt.message,
       recoverable: !!evt.recoverable,
     };
+    // Top-level chat error channel — same finalize-and-release contract as
+    // a turn_delta 'error' event. Without this the stop-button / busy flag
+    // sticks even when the agent has already given up.
+    this.finalizeTurn(turn, 'error');
     this.fire();
+  }
+
+  /**
+   * Terminal state transition for a turn. Pure state mutation — the caller
+   * is responsible for firing listeners. Idempotent: a second call (e.g.
+   * SNACA sends Error then a stray Done) short-circuits, so any field the
+   * caller mutated before re-entering (a late `error` payload) is left
+   * intact for the caller's fire() to flush.
+   *
+   * Shared by the `done` event, the in-band `error` event, and the
+   * top-level chat error channel. The `error` paths set `turn.error`
+   * *before* calling this so listeners see the payload in the same tick.
+   */
+  private finalizeTurn(turn: ChatTurn, reason: ChatTurn['doneReason']): void {
+    if (!turn.pending) return;
+    turn.pending = false;
+    turn.doneReason = reason;
+    const turnId = turn.turnId;
+    if (turn.text.trim().length > 0) {
+      this.messages = [
+        ...this.messages,
+        { role: 'assistant', turnId, text: turn.text, ts: Date.now() },
+      ];
+    }
+    this.completedTurns.set(turnId, turn);
+    if (this.currentTurn?.turnId === turnId) {
+      this.currentTurn = null;
+    }
+    // Fire-and-forget IDB persist — failure only costs us the rich meta
+    // on next hydrate, never breaks chat.
+    if (this.activeThreadId) {
+      void this.persistTurnMeta(this.activeThreadId, turn);
+    }
   }
 
   /**
@@ -685,6 +734,11 @@ class ChatStreamStoreImpl {
         hunkCount,
         status: 'pending',
       });
+      // Weave the proposal into the timeline at the point it was emitted so
+      // the card renders alongside the tool_call that produced it. Idempotent
+      // — only the first-sighting branch runs this; later updates only touch
+      // the existing record's hunkCount/path.
+      turn.events.push({ kind: 'proposal', proposalId });
     }
     this.fire();
   }
@@ -740,8 +794,113 @@ class ChatStreamStoreImpl {
       if (a) {
         a.status = 'resolved';
         this.fire();
+        // Best-effort: persist an AI-session-level step so a future user can
+        // see/rollback what this tool did. OT log remains the truth, so any
+        // failure here is logged and swallowed — the chat does not block on
+        // history I/O.
+        void this.recordSnacaToolStep(a);
         return;
       }
+    }
+  }
+
+  /**
+   * Per-session head step cache so each new step parents the previous one
+   * within the same chat thread → builds the Step DAG branch.
+   */
+  private readonly lastStepBySession = new Map<string, string>();
+
+  /**
+   * Running |diff| size accumulated across SNACA tool turns in the active
+   * thread. Once it crosses `SIZE_TRIGGER_LABEL_BYTES`, autoLabelScheduler
+   * fires a `kind:'auto'` milestone label and the counter resets — gives the
+   * user a recoverable checkpoint before an AI session drifts far from the
+   * last manual save without forcing them to remember to label.
+   */
+  private cumulativeAiSizeBytes = 0;
+  private lastTreeContentByFile = new Map<string, string>();
+
+  private async recordSnacaToolStep(approval: ChatApprovalRequest): Promise<void> {
+    try {
+      // Defer-import to keep the historyApi lazy — chat happily streams long
+      // before the user ever opens a label dialog, no need to eagerly bind.
+      const [{ api }, { getProjectRuntimeContext, getEditorService }, scheduler, idHelper] =
+        await Promise.all([
+          import('../../api'),
+          import('../core'),
+          import('../core/AutoLabelScheduler'),
+          import('../../utils/historyProjectId'),
+        ]);
+      const projectId = idHelper.historyProjectIdOf(getProjectRuntimeContext().rootPath);
+      const threadId = this.activeThreadId;
+      if (!projectId || !threadId) return;
+
+      // Stable per-chat-thread session id; collisions across reopens are fine
+      // because the underlying SQL row is INSERT OR IGNORE on the id.
+      const sessionId = `chat-${threadId}`;
+      await api.history.ensureSession({
+        projectId,
+        id: sessionId,
+        chatThreadId: threadId,
+        parentSession: null,
+      });
+
+      const tabs = getEditorService().tabs;
+      const tree: Array<{ fileId: string; blobHashHex: string }> = [];
+      const encoder = new TextEncoder();
+      let sizeDelta = 0;
+      for (const tab of tabs) {
+        const fileId = tab._id ?? tab.path;
+        const bytes = encoder.encode(tab.content);
+        const result = await api.history.putBlob({ projectId, bytes });
+        tree.push({ fileId, blobHashHex: result.hashHex });
+
+        // sizeDelta = absolute byte delta since this fileId's last seen tree.
+        // Reasonable proxy for "amount the AI just changed"; not exact (a
+        // pure shuffle would read as 0) but cheap and signal-rich.
+        const prev = this.lastTreeContentByFile.get(fileId);
+        if (prev !== undefined) {
+          sizeDelta += Math.abs(tab.content.length - prev.length);
+        }
+        this.lastTreeContentByFile.set(fileId, tab.content);
+      }
+
+      const parent = this.lastStepBySession.get(sessionId) ?? null;
+      const step = await api.history.recordStep({
+        projectId,
+        sessionId,
+        parentStepHashHex: parent,
+        tree,
+        causes: [
+          {
+            toolName: approval.tool,
+            argsJson: safeStringify(approval.args),
+            resultSummary: approval.summary || undefined,
+          },
+        ],
+        origin: 'snaca_tool',
+        ts: Date.now(),
+        sizeDelta,
+      });
+      this.lastStepBySession.set(sessionId, step.hashHex);
+      // Cache-invalidation broadcast — HistoryBrowserDialog refetches the
+      // sessions list (step count, lastTs) and the steps panel for the
+      // currently-selected session.
+      historyUIBus.fireSessionsChanged();
+
+      // Drift checkpoint: once the AI has changed enough bytes, ask the
+      // autoLabelScheduler to drop a recoverable snapshot. Reset the
+      // counter so we don't fire again until the next batch's worth of
+      // changes accumulates.
+      this.cumulativeAiSizeBytes += sizeDelta;
+      if (this.cumulativeAiSizeBytes >= SIZE_TRIGGER_LABEL_BYTES) {
+        this.cumulativeAiSizeBytes = 0;
+        void scheduler.autoLabelScheduler.runOnce();
+      }
+    } catch (err) {
+      // Best-effort; do not surface to the user. The card already flipped.
+      // eslint-disable-next-line no-console
+      console.warn('[ChatStreamStore] recordSnacaToolStep failed', err);
     }
   }
 
@@ -883,10 +1042,26 @@ function recordToCompletedTurn(r: TurnMetaRecord): ChatTurn {
   // followed by all tools) so the renderer doesn't have to branch on
   // legacy shape — interleaving is lost for those, but order across
   // thinking and tools is best-effort by definition once a turn ends.
-  const events: ChatTimelineEvent[] =
+  const baseEvents: ChatTimelineEvent[] =
     r.events && r.events.length > 0
-      ? r.events
+      ? [...r.events]
       : fabricateTimelineFromLegacy(r.thinking, r.toolCalls);
+  // Backfill for records written before proposals were threaded into the
+  // timeline: those have `events` populated (thinking+text+tool_ref) but no
+  // 'proposal' entries, while `proposals` still carries the records.
+  // Without this patch the standalone ProposalsList removal would erase
+  // edit cards from every legacy turn on read. Idempotent on new records —
+  // any proposal event already present short-circuits the append.
+  const proposalsInEvents = new Set<string>();
+  for (const ev of baseEvents) {
+    if (ev.kind === 'proposal') proposalsInEvents.add(ev.proposalId);
+  }
+  for (const p of r.proposals) {
+    if (!proposalsInEvents.has(p.proposalId)) {
+      baseEvents.push({ kind: 'proposal', proposalId: p.proposalId });
+    }
+  }
+  const events = baseEvents;
   return {
     turnId: r.turnId,
     origin: r.origin ?? 'chat',
@@ -909,6 +1084,9 @@ function fabricateTimelineFromLegacy(
   thinking: string,
   toolCalls: ChatTurn['toolCalls']
 ): ChatTimelineEvent[] {
+  // Pure thinking+tool reconstruction. Proposals are merged in by the
+  // caller (`recordToCompletedTurn`) so the backfill logic stays in one
+  // place across both the fresh-fabricate and pre-existing-events paths.
   const events: ChatTimelineEvent[] = [];
   if (thinking.length > 0) events.push({ kind: 'thinking', text: thinking });
   for (const tc of toolCalls) events.push({ kind: 'tool_ref', toolCallId: tc.toolCallId });

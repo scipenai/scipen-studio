@@ -15,6 +15,10 @@ import { useEffect, useRef } from 'react';
 import type { BibSearchHit } from '../../services/zotero/bibSearchScoring';
 
 interface AtCiteDropdownProps {
+  id?: string;
+  label?: string;
+  optionIdPrefix?: string;
+  activeId?: string;
   items: BibSearchHit[];
   selectedIndex: number;
   onSelect: (hit: BibSearchHit) => void;
@@ -22,6 +26,10 @@ interface AtCiteDropdownProps {
 }
 
 export const AtCiteDropdown: React.FC<AtCiteDropdownProps> = ({
+  id,
+  label,
+  optionIdPrefix,
+  activeId,
   items,
   selectedIndex,
   onSelect,
@@ -46,17 +54,25 @@ export const AtCiteDropdown: React.FC<AtCiteDropdownProps> = ({
 
   return (
     <ul
+      id={id}
       ref={listRef}
       className="absolute bottom-full left-0 right-0 mb-1 max-h-64 overflow-y-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-elevated)] shadow-md"
       role="listbox"
+      aria-label={label}
     >
       {items.map((hit, idx) => {
         const active = idx === selectedIndex;
         const item = hit.item;
         const keyLabel = item.citationKey ?? item.itemKey;
+        const optionId = optionIdPrefix
+          ? `${optionIdPrefix}-${idx}`
+          : active
+            ? activeId
+            : undefined;
         const meta = [item.creatorsLabel, item.year].filter(Boolean).join(' · ');
         return (
           <li
+            id={optionId}
             key={item.itemKey}
             role="option"
             aria-selected={active}

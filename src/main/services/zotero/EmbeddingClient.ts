@@ -1,12 +1,14 @@
 /**
- * @file EmbeddingClient —— 云 embedding 提供商(智谱/阿里/openai)的 BYOK 客户端。
+ * @file EmbeddingClient — BYOK client for cloud embedding providers (Zhipu / Aliyun / OpenAI).
  *
- * 三家都是 OpenAI 兼容的 `/embeddings` 形态:请求 `{ input, model }`、响应
- * `{ data: [{ embedding: number[] }] }`,鉴权 `Authorization: Bearer <key>`。
- * key 由 main 从 keychain 读出后传入构造,**renderer 永不见明文**。
+ * All three are OpenAI-compatible `/embeddings`: request `{ input, model }`,
+ * response `{ data: [{ embedding: number[] }] }`, auth `Authorization: Bearer <key>`.
+ * The key is read by main from the keychain and passed into the constructor;
+ * **renderer never sees plaintext**.
  *
- * 建库走 `embedBatch`(按 provider 批上限分批 + 小并发),查询走 `embedOne`。
- * 单次 HTTP 30s 超时(AbortController),照 MinerUParseService 形态。
+ * Index build goes through `embedBatch` (per-provider batch limit + small
+ * concurrency); queries go through `embedOne`. Single HTTP call 30s timeout
+ * (AbortController), matching MinerUParseService.
  */
 
 import type { ZoteroEmbeddingProvider } from '../../../../shared/types/zotero';
@@ -14,12 +16,12 @@ import { createLogger } from '../LoggerService';
 
 const logger = createLogger('EmbeddingClient');
 
-/** 单次 HTTP 超时。embedding 请求体小,30s 足够覆盖网络抖动。 */
+/** Single HTTP timeout. Embedding request body is small; 30s covers network jitter. */
 const HTTP_TIMEOUT_MS = 30_000;
-/** 建库时并发请求数(避免突发打满 provider 限流)。 */
+/** Concurrent request count during index build (avoid bursting provider rate limits). */
 const BUILD_CONCURRENCY = 3;
 
-/** 各 provider 的端点 + 默认模型。 */
+/** Endpoint + default model per provider. */
 const PROVIDER_ENDPOINTS: Record<ZoteroEmbeddingProvider, { url: string; model: string }> = {
   zhipu: { url: 'https://open.bigmodel.cn/api/paas/v4/embeddings', model: 'embedding-3' },
   aliyun: {
@@ -29,7 +31,7 @@ const PROVIDER_ENDPOINTS: Record<ZoteroEmbeddingProvider, { url: string; model: 
   openai: { url: 'https://api.openai.com/v1/embeddings', model: 'text-embedding-3-small' },
 };
 
-/** 各 provider 单次请求的最大输入条数(保守取值,避免超 provider 上限）。 */
+/** Max input items per request per provider (conservative, avoids exceeding provider caps). */
 const PROVIDER_BATCH_LIMIT: Record<ZoteroEmbeddingProvider, number> = {
   zhipu: 64,
   aliyun: 10,
@@ -39,7 +41,7 @@ const PROVIDER_BATCH_LIMIT: Record<ZoteroEmbeddingProvider, number> = {
 export interface EmbeddingClientConfig {
   provider: ZoteroEmbeddingProvider;
   apiKey: string;
-  /** 覆盖默认模型;留空用 provider 默认。 */
+  /** Override default model; empty falls back to provider default. */
   model?: string;
 }
 
@@ -49,7 +51,7 @@ export interface EmbedResult {
   dim: number;
 }
 
-/** key 无效(401/403)时抛此错,上层据此转 error 态并停止重试。 */
+/** Thrown when the key is invalid (401/403); upper layers flip to error state and stop retrying. */
 export class EmbeddingAuthError extends Error {
   constructor(message: string) {
     super(message);
@@ -57,7 +59,7 @@ export class EmbeddingAuthError extends Error {
   }
 }
 
-/** 解析 provider 的端点 + 模型(model 覆盖优先)。导出供单测。 */
+/** Resolve a provider's endpoint + model (model override takes precedence). Exported for unit tests. */
 export function resolveEmbeddingEndpoint(
   provider: ZoteroEmbeddingProvider,
   model?: string
@@ -66,12 +68,12 @@ export function resolveEmbeddingEndpoint(
   return { url: base.url, model: model?.trim() || base.model };
 }
 
-/** 模型标识(向量失效守卫的标签):`provider:model`。导出供单测。 */
+/** Model tag (label for the vector invalidation guard): `provider:model`. Exported for unit tests. */
 export function modelIdFor(provider: ZoteroEmbeddingProvider, model: string): string {
   return `${provider}:${model}`;
 }
 
-/** 把 N 个元素按 size 切成多个批。导出供单测。 */
+/** Split N items into batches of size. Exported for unit tests. */
 export function chunkBatches<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
@@ -92,7 +94,7 @@ export class EmbeddingClient {
     this.batchLimit = PROVIDER_BATCH_LIMIT[cfg.provider];
   }
 
-  /** 单条 embedding(查询用)。返回向量 + modelId。 */
+  /** Single-item embedding (used for queries). Returns vector + modelId. */
   async embedOne(
     text: string,
     signal?: AbortSignal
@@ -102,8 +104,9 @@ export class EmbeddingClient {
   }
 
   /**
-   * 批量 embedding(建库用)。按 provider 批上限分批,每批小并发跑,
-   * 保持输入顺序与输出顺序一致。`onProgress` 每完成一批回调累计数。
+   * Batch embedding (used to build the index). Splits by provider batch limit,
+   * runs each window with small concurrency, preserves input/output order.
+   * `onProgress` is invoked per completed batch with the running total.
    */
   async embedBatch(
     texts: string[],
@@ -115,7 +118,7 @@ export class EmbeddingClient {
     const results: number[][][] = new Array(batches.length);
     let done = 0;
 
-    // 以 BUILD_CONCURRENCY 为窗口滑动执行,避免一次性打满限流。
+    // Slide a window of BUILD_CONCURRENCY to avoid saturating the rate limit at once.
     for (let i = 0; i < batches.length; i += BUILD_CONCURRENCY) {
       const window = batches.slice(i, i + BUILD_CONCURRENCY);
       await Promise.all(
@@ -132,7 +135,7 @@ export class EmbeddingClient {
     return { vectors, modelId: this.modelId, dim: vectors[0]?.length ?? 0 };
   }
 
-  /** 实际 HTTP 调用。OpenAI 兼容 `{input, model}` → `{data:[{embedding}]}`。 */
+  /** Actual HTTP call. OpenAI-compatible `{input, model}` -> `{data:[{embedding}]}`. */
   private async callEmbeddings(input: string[], signal?: AbortSignal): Promise<number[][]> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), HTTP_TIMEOUT_MS);

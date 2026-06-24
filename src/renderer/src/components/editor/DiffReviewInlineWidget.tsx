@@ -170,83 +170,20 @@ export const DiffReviewInlineWidget: React.FC<DiffReviewInlineWidgetProps> = mem
           const position = hunkPositions.get(hunk.id);
           if (!position) return null;
 
-          const indicator = hunkTypeIndicator(hunk);
-          const isExpanded = expandedHunkId === hunk.id;
-          const showBelow = position.top < 110;
-
           return (
-            <div
+            <DiffReviewHunkInline
               key={hunk.id}
-              className="diff-review-hunk-inline"
-              style={{ top: position.top, left: position.left }}
-            >
-              <button
-                type="button"
-                className="diff-review-hunk-inline__preview"
-                title={t('diffReview.previewChange')}
-                onClick={() =>
-                  setExpandedHunkId((current) => (current === hunk.id ? null : hunk.id))
-                }
-                disabled={disabled}
-              >
-                <span className="diff-review-hunk-inline__type" style={{ color: indicator.color }}>
-                  {indicator.label}
-                </span>
-              </button>
-              <button
-                type="button"
-                className="diff-review-hunk-inline__btn diff-review-hunk-inline__btn--accept"
-                onClick={() => onAcceptHunk(hunk.id)}
-                title={t('diffReview.accept')}
-                disabled={disabled}
-              >
-                <Check size={11} strokeWidth={2.5} />
-              </button>
-              <button
-                type="button"
-                className="diff-review-hunk-inline__btn diff-review-hunk-inline__btn--reject"
-                onClick={() => onRejectHunk(hunk.id)}
-                title={t('diffReview.reject')}
-                disabled={disabled}
-              >
-                <X size={11} strokeWidth={2.5} />
-              </button>
-
-              {isExpanded && (
-                <div
-                  className={`diff-review-hunk-popover${
-                    showBelow ? ' diff-review-hunk-popover--below' : ''
-                  }${
-                    position.popoverDirection === 'open-right'
-                      ? ' diff-review-hunk-popover--right'
-                      : ' diff-review-hunk-popover--left'
-                  }`}
-                  style={{ width: `${position.popoverWidth}px` }}
-                >
-                  <div className="diff-review-hunk-popover__title">{getPreviewTitle(hunk)}</div>
-                  {hunk.originalText ? (
-                    <div className="diff-review-hunk-popover__section">
-                      <div className="diff-review-hunk-popover__label">
-                        {t('diffReview.originalVersion')}
-                      </div>
-                      <pre className="diff-review-hunk-popover__code diff-review-hunk-popover__code--removed">
-                        {trimPreviewText(hunk.originalText)}
-                      </pre>
-                    </div>
-                  ) : null}
-                  {hunk.newText ? (
-                    <div className="diff-review-hunk-popover__section">
-                      <div className="diff-review-hunk-popover__label">
-                        {t('diffReview.proposedVersion')}
-                      </div>
-                      <pre className="diff-review-hunk-popover__code diff-review-hunk-popover__code--added">
-                        {trimPreviewText(hunk.newText)}
-                      </pre>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
+              hunk={hunk}
+              position={position}
+              isExpanded={expandedHunkId === hunk.id}
+              disabled={disabled}
+              onToggle={() =>
+                setExpandedHunkId((current) => (current === hunk.id ? null : hunk.id))
+              }
+              onClose={() => setExpandedHunkId(null)}
+              onAccept={() => onAcceptHunk(hunk.id)}
+              onReject={() => onRejectHunk(hunk.id)}
+            />
           );
         })}
       </div>
@@ -255,3 +192,138 @@ export const DiffReviewInlineWidget: React.FC<DiffReviewInlineWidgetProps> = mem
 );
 
 DiffReviewInlineWidget.displayName = 'DiffReviewInlineWidget';
+
+interface DiffReviewHunkInlineProps {
+  hunk: DiffHunk;
+  position: HunkWidgetPosition;
+  isExpanded: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onAccept: () => void;
+  onReject: () => void;
+}
+
+const DiffReviewHunkInline: React.FC<DiffReviewHunkInlineProps> = ({
+  hunk,
+  position,
+  isExpanded,
+  disabled,
+  onToggle,
+  onClose,
+  onAccept,
+  onReject,
+}) => {
+  const previewButtonRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const indicator = hunkTypeIndicator(hunk);
+  const showBelow = position.top < 110;
+  const previewLabel = t('diffReview.previewChange');
+  const acceptLabel = t('diffReview.accept');
+  const rejectLabel = t('diffReview.reject');
+  const previewTitle = getPreviewTitle(hunk);
+  const popoverId = `diff-review-hunk-popover-${hunk.id}`;
+
+  useEffect(() => {
+    if (!isExpanded) return;
+
+    const previewButton = previewButtonRef.current;
+    popoverRef.current?.focus();
+
+    return () => {
+      previewButton?.focus();
+    };
+  }, [isExpanded]);
+
+  return (
+    <div className="diff-review-hunk-inline" style={{ top: position.top, left: position.left }}>
+      <button
+        ref={previewButtonRef}
+        type="button"
+        className="diff-review-hunk-inline__preview"
+        aria-label={previewLabel}
+        aria-expanded={isExpanded}
+        aria-haspopup="dialog"
+        aria-controls={popoverId}
+        title={previewLabel}
+        onClick={onToggle}
+        disabled={disabled}
+      >
+        <span
+          className="diff-review-hunk-inline__type"
+          style={{ color: indicator.color }}
+          aria-hidden="true"
+        >
+          {indicator.label}
+        </span>
+      </button>
+      <button
+        type="button"
+        className="diff-review-hunk-inline__btn diff-review-hunk-inline__btn--accept"
+        onClick={onAccept}
+        aria-label={acceptLabel}
+        title={acceptLabel}
+        disabled={disabled}
+      >
+        <Check size={11} strokeWidth={2.5} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="diff-review-hunk-inline__btn diff-review-hunk-inline__btn--reject"
+        onClick={onReject}
+        aria-label={rejectLabel}
+        title={rejectLabel}
+        disabled={disabled}
+      >
+        <X size={11} strokeWidth={2.5} aria-hidden="true" />
+      </button>
+
+      {isExpanded && (
+        <div
+          ref={popoverRef}
+          id={popoverId}
+          role="dialog"
+          aria-label={previewTitle}
+          tabIndex={-1}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              event.stopPropagation();
+              onClose();
+            }
+          }}
+          className={`diff-review-hunk-popover${
+            showBelow ? ' diff-review-hunk-popover--below' : ''
+          }${
+            position.popoverDirection === 'open-right'
+              ? ' diff-review-hunk-popover--right'
+              : ' diff-review-hunk-popover--left'
+          }`}
+          style={{ width: `${position.popoverWidth}px` }}
+        >
+          <div className="diff-review-hunk-popover__title">{previewTitle}</div>
+          {hunk.originalText ? (
+            <div className="diff-review-hunk-popover__section">
+              <div className="diff-review-hunk-popover__label">
+                {t('diffReview.originalVersion')}
+              </div>
+              <pre className="diff-review-hunk-popover__code diff-review-hunk-popover__code--removed">
+                {trimPreviewText(hunk.originalText)}
+              </pre>
+            </div>
+          ) : null}
+          {hunk.newText ? (
+            <div className="diff-review-hunk-popover__section">
+              <div className="diff-review-hunk-popover__label">
+                {t('diffReview.proposedVersion')}
+              </div>
+              <pre className="diff-review-hunk-popover__code diff-review-hunk-popover__code--added">
+                {trimPreviewText(hunk.newText)}
+              </pre>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+};

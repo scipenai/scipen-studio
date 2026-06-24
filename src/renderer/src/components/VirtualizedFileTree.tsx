@@ -29,12 +29,22 @@ interface FlattenedNode {
   isLoading?: boolean;
 }
 
+export type FileTreeContextMenuEvent =
+  | React.MouseEvent
+  | {
+      type: 'keyboard';
+      clientX: number;
+      clientY: number;
+      preventDefault: () => void;
+      stopPropagation: () => void;
+    };
+
 interface VirtualizedFileTreeProps {
   fileTree: FileNode | null;
   selectedPath: string | null;
   activeTabPath: string | null;
   onSelect: (node: FileNode) => void;
-  onContextMenu: (e: React.MouseEvent, node: FileNode) => void;
+  onContextMenu: (e: FileTreeContextMenuEvent, node: FileNode) => void;
   renamingPath: string | null;
   onRenameSubmit: (oldPath: string, newName: string) => void;
   onRenameCancel: () => void;
@@ -47,24 +57,24 @@ const getFileIcon = (name: string) => {
   switch (ext) {
     case 'tex':
     case 'latex':
-      return <FileCode size={16} className="text-[var(--color-success)]" />;
+      return <FileCode size={16} className="text-[var(--color-success)]" aria-hidden="true" />;
     case 'bib':
-      return <FileText size={16} className="text-[var(--color-warning)]" />;
+      return <FileText size={16} className="text-[var(--color-warning)]" aria-hidden="true" />;
     case 'pdf':
-      return <FileText size={16} className="text-[var(--color-error)]" />;
+      return <FileText size={16} className="text-[var(--color-error)]" aria-hidden="true" />;
     case 'png':
     case 'jpg':
     case 'jpeg':
     case 'gif':
     case 'svg':
-      return <Image size={16} className="text-[var(--color-info)]" />;
+      return <Image size={16} className="text-[var(--color-info)]" aria-hidden="true" />;
     case 'md':
-      return <FileText size={16} className="text-[var(--color-accent)]" />;
+      return <FileText size={16} className="text-[var(--color-accent)]" aria-hidden="true" />;
     case 'sty':
     case 'cls':
-      return <FileCode size={16} className="text-[var(--color-warning)]" />;
+      return <FileCode size={16} className="text-[var(--color-warning)]" aria-hidden="true" />;
     default:
-      return <File size={16} className="text-[var(--color-text-muted)]" />;
+      return <File size={16} className="text-[var(--color-text-muted)]" aria-hidden="true" />;
   }
 };
 
@@ -119,7 +129,7 @@ const FileTreeRow = memo<{
   isRenaming: boolean;
   onToggle: (path: string) => void;
   onSelect: (node: FileNode) => void;
-  onContextMenu: (e: React.MouseEvent, node: FileNode) => void;
+  onContextMenu: (e: FileTreeContextMenuEvent, node: FileNode) => void;
   onRenameSubmit: (oldPath: string, newName: string) => void;
   onRenameCancel: () => void;
 }>(
@@ -151,6 +161,35 @@ const FileTreeRow = memo<{
       }
     }, [isDirectory, onSelect, node]);
 
+    const handleKeyDown = useCallback(
+      (e: React.KeyboardEvent) => {
+        if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+          e.preventDefault();
+          e.stopPropagation();
+          const rowRect = e.currentTarget.getBoundingClientRect();
+          onContextMenu(
+            {
+              type: 'keyboard',
+              clientX: rowRect.left + 16,
+              clientY: rowRect.top + rowRect.height / 2,
+              preventDefault: () => undefined,
+              stopPropagation: () => undefined,
+            },
+            node
+          );
+          return;
+        }
+
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        onSelect(node);
+        if (isDirectory) {
+          onToggle(node.path);
+        }
+      },
+      [isDirectory, node, onContextMenu, onSelect, onToggle]
+    );
+
     const handleContextMenu = useCallback(
       (e: React.MouseEvent) => {
         e.preventDefault();
@@ -171,10 +210,15 @@ const FileTreeRow = memo<{
 
     return (
       <div
+        role="treeitem"
+        tabIndex={0}
+        aria-selected={isSelected || isActive}
+        aria-expanded={isDirectory && hasChildren ? isExpanded : undefined}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
+        onKeyDown={handleKeyDown}
         onContextMenu={handleContextMenu}
-        className="group w-full flex items-center gap-2 py-1 px-2 text-[13px] transition-all duration-150 cursor-pointer select-none relative"
+        className="group relative flex w-full cursor-pointer select-none items-center gap-2 px-2 py-1 text-[13px] transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
         style={{
           paddingLeft: `${depth * 12 + 8}px`,
           background: isActive
@@ -199,7 +243,11 @@ const FileTreeRow = memo<{
         <div className="w-4 h-4 flex items-center justify-center">
           {isDirectory && hasChildren ? (
             isLoading ? (
-              <Loader2 size={14} className="animate-spin text-[var(--color-accent)]" />
+              <Loader2
+                size={14}
+                className="animate-spin text-[var(--color-accent)]"
+                aria-hidden="true"
+              />
             ) : (
               <span
                 className={clsx(
@@ -209,7 +257,11 @@ const FileTreeRow = memo<{
                     : 'text-[var(--color-text-disabled)] group-hover:text-[var(--color-text-muted)]'
                 )}
               >
-                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                {isExpanded ? (
+                  <ChevronDown size={14} aria-hidden="true" />
+                ) : (
+                  <ChevronRight size={14} aria-hidden="true" />
+                )}
               </span>
             )
           ) : null}
@@ -218,9 +270,9 @@ const FileTreeRow = memo<{
         <div className="flex-shrink-0 flex items-center justify-center">
           {isDirectory ? (
             isExpanded ? (
-              <FolderOpen size={16} className="text-[var(--color-warning)]" />
+              <FolderOpen size={16} className="text-[var(--color-warning)]" aria-hidden="true" />
             ) : (
-              <Folder size={16} className="text-[var(--color-warning)]/80" />
+              <Folder size={16} className="text-[var(--color-warning)]/80" aria-hidden="true" />
             )
           ) : (
             <span className="flex-shrink-0 opacity-90 group-hover:opacity-100 transition-opacity">
@@ -230,7 +282,11 @@ const FileTreeRow = memo<{
         </div>
 
         {node.isRemote && (
-          <Cloud size={12} className="text-[var(--color-success)]/80 flex-shrink-0" />
+          <Cloud
+            size={12}
+            className="text-[var(--color-success)]/80 flex-shrink-0"
+            aria-hidden="true"
+          />
         )}
 
         <div className="truncate flex-1 text-left min-w-0">
@@ -421,6 +477,7 @@ export const VirtualizedFileTree: React.FC<VirtualizedFileTreeProps> = ({
       itemContent={renderRow}
       className="h-full"
       style={{ height: '100%' }}
+      role="tree"
       increaseViewportBy={{ top: 100, bottom: 100 }}
     />
   );

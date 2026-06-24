@@ -5,11 +5,20 @@
 
 import { clsx } from 'clsx';
 import type React from 'react';
-import { createContext, forwardRef, useContext, useState } from 'react';
+import {
+  cloneElement,
+  createContext,
+  forwardRef,
+  isValidElement,
+  useContext,
+  useId,
+  useState,
+} from 'react';
 
 interface TabsContextValue {
   value: string;
   onChange: (value: string) => void;
+  baseId: string;
 }
 
 const TabsContext = createContext<TabsContextValue | null>(null);
@@ -38,7 +47,9 @@ export const Tabs: React.FC<TabsProps> = ({
   className,
 }) => {
   const [internalValue, setInternalValue] = useState(defaultValue || '');
+  const generatedId = useId();
   const value = controlledValue !== undefined ? controlledValue : internalValue;
+  const baseId = `tabs-${generatedId.replace(/:/g, '')}`;
 
   const handleChange = (newValue: string) => {
     if (controlledValue === undefined) {
@@ -48,7 +59,7 @@ export const Tabs: React.FC<TabsProps> = ({
   };
 
   return (
-    <TabsContext.Provider value={{ value, onChange: handleChange }}>
+    <TabsContext.Provider value={{ value, onChange: handleChange, baseId }}>
       <div className={className}>{children}</div>
     </TabsContext.Provider>
   );
@@ -105,12 +116,14 @@ export const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(
     }
 
     const isActive = context.value === value;
+    const triggerId = `${context.baseId}-trigger-${value}`;
+    const panelId = `${context.baseId}-panel-${value}`;
 
     const baseStyles = `
       inline-flex items-center justify-center gap-2 
-      text-sm font-medium transition-all duration-200
+      cursor-pointer text-sm font-medium transition-all duration-200
       focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]
-      disabled:pointer-events-none disabled:opacity-50
+      disabled:cursor-not-allowed disabled:opacity-50
     `;
 
     const variantStyles = {
@@ -139,15 +152,17 @@ export const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(
     return (
       <button
         ref={ref}
+        id={triggerId}
         type="button"
         role="tab"
         aria-selected={isActive}
+        aria-controls={panelId}
         disabled={disabled}
         onClick={() => context.onChange(value)}
         className={clsx(baseStyles, variantStyles[variant], className)}
         {...props}
       >
-        {icon}
+        {renderDecorativeIcon(icon)}
         {children}
       </button>
     );
@@ -176,7 +191,14 @@ export const TabsContent = forwardRef<HTMLDivElement, TabsContentProps>(
     }
 
     return (
-      <div ref={ref} role="tabpanel" className={clsx('mt-4 animate-fade-in', className)} {...props}>
+      <div
+        ref={ref}
+        id={`${context.baseId}-panel-${value}`}
+        role="tabpanel"
+        aria-labelledby={`${context.baseId}-trigger-${value}`}
+        className={clsx('mt-4 animate-fade-in', className)}
+        {...props}
+      >
         {children}
       </div>
     );
@@ -184,5 +206,12 @@ export const TabsContent = forwardRef<HTMLDivElement, TabsContentProps>(
 );
 
 TabsContent.displayName = 'TabsContent';
+
+function renderDecorativeIcon(icon: React.ReactNode): React.ReactNode {
+  if (!isValidElement<{ 'aria-hidden'?: string }>(icon)) {
+    return icon;
+  }
+  return cloneElement(icon, { 'aria-hidden': icon.props['aria-hidden'] ?? 'true' });
+}
 
 export default Tabs;

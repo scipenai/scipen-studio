@@ -1,6 +1,6 @@
 /**
- * @file WelcomeHero.tsx - Welcome 屏左列
- * @description logo + title + subtitle + 2 个 action cards(本地/远程)+ feature highlights
+ * @file WelcomeHero.tsx - Left column of the welcome screen.
+ * @description logo + title + subtitle + 2 action cards (local/remote) + feature highlights.
  */
 
 import { motion } from 'framer-motion';
@@ -81,7 +81,7 @@ export const WelcomeHero: React.FC<WelcomeHeroProps> = ({
               : { y: -4, boxShadow: '0 12px 40px rgba(245,158,11,0.15)' }
           }
           whileTap={isOpeningAnyProject ? undefined : { scale: 0.98 }}
-          className={`group relative overflow-hidden rounded-2xl p-5 text-left transition-all duration-300 ${
+          className={`group relative overflow-hidden rounded-2xl p-5 text-left transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] ${
             isOpeningAnyProject ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
           }`}
           style={{
@@ -101,9 +101,9 @@ export const WelcomeHero: React.FC<WelcomeHeroProps> = ({
               style={{ background: 'rgba(245,158,11,0.15)' }}
             >
               {isOpeningProject ? (
-                <Loader2 className="h-5 w-5 animate-spin text-amber-400" />
+                <Loader2 className="h-5 w-5 animate-spin text-amber-400" aria-hidden="true" />
               ) : (
-                <FolderOpen className="h-5 w-5 text-amber-400" />
+                <FolderOpen className="h-5 w-5 text-amber-400" aria-hidden="true" />
               )}
             </div>
             <h3
@@ -126,7 +126,7 @@ export const WelcomeHero: React.FC<WelcomeHeroProps> = ({
           transition={{ delay: 0.6 }}
           whileHover={{ y: -4, boxShadow: '0 12px 40px rgba(139,92,246,0.15)' }}
           whileTap={{ scale: 0.98 }}
-          className="group relative cursor-pointer overflow-hidden rounded-2xl p-5 text-left transition-all duration-300"
+          className="group relative cursor-pointer overflow-hidden rounded-2xl p-5 text-left transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
           style={{
             background: 'var(--color-bg-elevated)',
             border: '1px solid var(--color-border)',
@@ -143,7 +143,7 @@ export const WelcomeHero: React.FC<WelcomeHeroProps> = ({
               className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl transition-transform group-hover:scale-110"
               style={{ background: 'rgba(139,92,246,0.15)' }}
             >
-              <Cloud className="h-5 w-5 text-violet-400" />
+              <Cloud className="h-5 w-5 text-violet-400" aria-hidden="true" />
             </div>
             <h3
               className="mb-1 text-sm font-semibold"
@@ -167,15 +167,15 @@ export const WelcomeHero: React.FC<WelcomeHeroProps> = ({
         style={{ color: 'var(--color-text-muted)' }}
       >
         <div className="flex items-center gap-1.5">
-          <Sparkles size={12} className="text-cyan-400" />
+          <Sparkles size={12} className="text-cyan-400" aria-hidden="true" />
           <span>{t('welcome.featureAI')}</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <Cloud size={12} className="text-violet-400" />
+          <Cloud size={12} className="text-violet-400" aria-hidden="true" />
           <span>{t('welcome.featureOverleaf')}</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <Zap size={12} className="text-amber-400" />
+          <Zap size={12} className="text-amber-400" aria-hidden="true" />
           <span>{t('welcome.featurePreview')}</span>
         </div>
       </motion.div>

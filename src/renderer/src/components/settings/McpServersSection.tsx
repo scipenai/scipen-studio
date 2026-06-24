@@ -16,7 +16,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
 import { ConfigKeys } from '../../../../../shared/types/config-keys';
 import { useTranslation } from '../../locales';
-import { SectionTitle, SettingItem, inputClassName } from './SettingsUI';
+import {
+  EmptyState,
+  SectionTitle,
+  SettingItem,
+  inputClassName,
+  inputMonoClassName,
+} from './SettingsUI';
 
 type Transport = 'stdio' | 'http';
 
@@ -42,9 +48,10 @@ const selectClassName =
   'focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]';
 
 const buttonClass =
-  'inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded border ' +
+  'inline-flex cursor-pointer items-center gap-1 px-2.5 py-1 text-xs rounded border ' +
   'border-[var(--color-border)] bg-[var(--color-bg-secondary)] ' +
-  'text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]';
+  'text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] ' +
+  'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]';
 
 export const McpServersSection: React.FC = () => {
   const { t } = useTranslation();
@@ -110,14 +117,10 @@ export const McpServersSection: React.FC = () => {
       </p>
 
       <div className="space-y-2 mb-3">
-        {servers.length === 0 && (
-          <div className="text-xs text-[var(--color-text-muted)] py-2">
-            {t('settingsAgent.mcp.empty')}
-          </div>
-        )}
+        {servers.length === 0 && <EmptyState>{t('settingsAgent.mcp.empty')}</EmptyState>}
         {servers.map((server, idx) => (
           <ServerRow
-            key={idx}
+            key={`${server.name || 'unnamed'}-${server.transport}-${server.command ?? server.url ?? idx}`}
             server={server}
             isExpanded={expandedIndex === idx}
             isDuplicateName={servers.findIndex((s) => s.name === server.name) !== idx}
@@ -129,7 +132,7 @@ export const McpServersSection: React.FC = () => {
       </div>
 
       <button type="button" onClick={onAdd} className={buttonClass}>
-        <Plus size={12} />
+        <Plus size={12} aria-hidden="true" />
         {t('settingsAgent.mcp.add')}
       </button>
 
@@ -168,9 +171,15 @@ const ServerRow: React.FC<ServerRowProps> = ({
         <button
           type="button"
           onClick={onToggle}
-          className="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+          aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${server.name || 'unnamed'}`}
+          aria-expanded={isExpanded}
+          className="cursor-pointer rounded p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
         >
-          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          {isExpanded ? (
+            <ChevronDown size={14} aria-hidden="true" />
+          ) : (
+            <ChevronRight size={14} aria-hidden="true" />
+          )}
         </button>
         <span className="text-sm font-medium flex-1 truncate">
           {server.name || <em className="text-[var(--color-text-muted)]">(unnamed)</em>}
@@ -181,10 +190,11 @@ const ServerRow: React.FC<ServerRowProps> = ({
         <button
           type="button"
           onClick={onDelete}
-          className="p-1 text-red-400/80 hover:text-red-400 hover:bg-[var(--color-bg-tertiary)] rounded"
+          aria-label={`${t('settingsAgent.mcp.delete')} ${server.name || 'unnamed'}`}
+          className="cursor-pointer rounded p-1 text-red-400/80 hover:bg-[var(--color-bg-tertiary)] hover:text-red-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
           title={t('settingsAgent.mcp.delete')}
         >
-          <Trash2 size={12} />
+          <Trash2 size={12} aria-hidden="true" />
         </button>
       </div>
 
@@ -196,7 +206,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
               value={server.name}
               onChange={(e) => onChange({ name: e.target.value.toLowerCase() })}
               placeholder="my-server"
-              className={inputClassName}
+              className={inputMonoClassName}
             />
             {!nameValid && (
               <div className="mt-1 text-[11px] text-red-400">
@@ -232,7 +242,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
                   value={server.command ?? ''}
                   onChange={(e) => onChange({ command: e.target.value })}
                   placeholder="npx"
-                  className={inputClassName}
+                  className={inputMonoClassName}
                 />
               </SettingItem>
 
@@ -252,7 +262,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
                     })
                   }
                   placeholder="-y @modelcontextprotocol/server-filesystem /tmp"
-                  className={inputClassName}
+                  className={inputMonoClassName}
                 />
               </SettingItem>
 
@@ -275,7 +285,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
                   }}
                   rows={3}
                   placeholder="KEY=value"
-                  className={`${inputClassName} h-auto py-2 font-mono text-xs`}
+                  className={`${inputMonoClassName} h-auto py-2 text-xs`}
                 />
               </SettingItem>
             </>
@@ -291,7 +301,7 @@ const ServerRow: React.FC<ServerRowProps> = ({
                 value={server.url ?? ''}
                 onChange={(e) => onChange({ url: e.target.value })}
                 placeholder="https://example.com/mcp"
-                className={inputClassName}
+                className={inputMonoClassName}
               />
             </SettingItem>
           )}

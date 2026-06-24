@@ -1,14 +1,16 @@
 /**
- * @file ZoteroTab.tsx — Zotero 集成设置入口
- * @description 主开关 `integrationEnabled` 一统全局:
- *              - 未启用态:引导卡片 + "立即引导设置" 按钮(打开 wizard)
- *              - 已启用态:实时状态卡(BibStatus / itemCount / lastSyncedAt)+
- *                          数据源健康度(Local API / Better BibTeX)+
- *                          三个动作按钮(刷新 / 重开向导 / 重检测安装)
+ * @file ZoteroTab.tsx — Zotero integration settings entry.
+ * @description Master switch `integrationEnabled` gates everything:
+ *              - Disabled state: onboarding card + "Start wizard" button (opens wizard)
+ *              - Enabled state: live status card (BibStatus / itemCount / lastSyncedAt)
+ *                + data source health (Local API / Better BibTeX)
+ *                + three action buttons (refresh / reopen wizard / redetect install)
  *
- *              状态卡复用 `useZoteroBibMirror` 单例,与 StatusBar 徽章看到同一份事实。
- *              首次启用(toggle 翻 true 且 `localApiEnabled=false`)自动弹 wizard。
- *              停用仅停镜像,不清子设置 —— 用户切换试用不会丢配置。
+ *              Status card reuses the `useZoteroBibMirror` singleton, so it shares
+ *              the same source of truth as the StatusBar badge. First enable
+ *              (toggle flips true while `localApiEnabled=false`) auto-pops the wizard.
+ *              Disabling only stops the mirror without clearing sub-settings — users
+ *              can toggle the trial on/off without losing their configuration.
  */
 
 import { BookMarked, CheckCircle2, RefreshCw, Sparkles, XCircle } from 'lucide-react';
@@ -24,7 +26,8 @@ import type { ZoteroDiagnosticsDTO } from '../../../../../shared/types/zotero-ev
 import { ZoteroSetupWizard } from '../onboarding/ZoteroSetupWizard';
 import { BibTexSyncSection } from './BibTexSyncSection';
 import { EmbeddingRecommendationSection } from './EmbeddingRecommendationSection';
-import { SectionTitle, SettingCard, Toggle } from './SettingsUI';
+import { Toggle } from '../ui';
+import { FormRow, FormSection, SettingCard } from './SettingsUI';
 
 const logger = createLogger('ZoteroTab');
 
@@ -38,12 +41,14 @@ export const ZoteroTab: React.FC = () => {
   const [diagnostics, setDiagnostics] = useState<ZoteroDiagnosticsDTO | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [redetecting, setRedetecting] = useState(false);
-  // 防止 toggle 翻 true 后,settings 异步同步期间反复触发 wizard 自动弹出。
+  // Prevent the wizard from re-popping while settings sync asynchronously
+  // after the toggle flips true.
   const [autoOpenedOnce, setAutoOpenedOnce] = useState(false);
 
-  // 已启用 + 状态切换时拉一次完整诊断(数据源健康度)。
-  // 依赖 state.status 而非 state.etag —— etag 每次 patch 都变,但源健康度只在
-  // status(ready/degraded/error)切换时才有意义重拉。
+  // When enabled and status transitions, refetch the full diagnostics
+  // (data source health). Depends on state.status rather than state.etag —
+  // etag changes on every patch, but source health only meaningfully shifts
+  // when status (ready/degraded/error) actually changes.
   useEffect(() => {
     if (!enabled) {
       setDiagnostics(null);
@@ -61,9 +66,10 @@ export const ZoteroTab: React.FC = () => {
     };
   }, [enabled, state.status]);
 
-  // 首次启用 + localApiEnabled 还未就绪 → 自动开 wizard。
-  // wizard controller 引用不稳定(useZoteroWizard 未 memo),所以这里同步 set
-  // autoOpenedOnce=true 以拦截 effect 重入,避免多发 getSettings IPC。
+  // First enable + localApiEnabled not yet ready → auto-open the wizard.
+  // The wizard controller reference is unstable (useZoteroWizard is not
+  // memoized), so we synchronously set autoOpenedOnce=true to short-circuit
+  // effect re-entry and avoid duplicate getSettings IPC calls.
   useEffect(() => {
     if (!enabled || autoOpenedOnce) return;
     setAutoOpenedOnce(true);
@@ -88,7 +94,7 @@ export const ZoteroTab: React.FC = () => {
     try {
       await api.zotero.setSettings({ integrationEnabled: next });
       if (!next) {
-        // 关闭时让自动弹窗策略复位,下次再开重新评估。
+        // Reset auto-popup policy on disable, so the next enable re-evaluates.
         setAutoOpenedOnce(false);
       }
     } catch (err) {
@@ -127,7 +133,7 @@ export const ZoteroTab: React.FC = () => {
   }, [redetecting]);
 
   return (
-    <div className="space-y-6">
+    <div>
       <div className="flex items-center gap-3 mb-6">
         <div className="p-2 rounded-lg bg-[var(--color-accent-muted)]">
           <BookMarked className="w-5 h-5 text-[var(--color-accent)]" />
@@ -141,22 +147,25 @@ export const ZoteroTab: React.FC = () => {
       </div>
 
       {error && (
-        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+        <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
           {error}
         </div>
       )}
 
-      <SectionTitle>{t('zoteroSettings.basicSettings')}</SectionTitle>
-
-      <SettingCard>
-        <Toggle
-          label={t('zoteroSettings.enableIntegration')}
-          desc={t('zoteroSettings.enableIntegrationDesc')}
-          checked={enabled}
-          onChange={(next) => void handleToggle(next)}
-          disabled={toggling}
-        />
-      </SettingCard>
+      <FormSection title={t('zoteroSettings.basicSettings')} first>
+        <FormRow
+          title={t('zoteroSettings.enableIntegration')}
+          description={t('zoteroSettings.enableIntegrationDesc')}
+        >
+          <Toggle
+            size="sm"
+            checked={enabled}
+            onChange={(next) => void handleToggle(next)}
+            disabled={toggling}
+            aria-label={t('zoteroSettings.enableIntegration')}
+          />
+        </FormRow>
+      </FormSection>
 
       {!enabled ? (
         <NotEnabledGuide onStart={() => wizard.open()} />
@@ -187,9 +196,9 @@ const NotEnabledGuide: React.FC<{ onStart: () => void }> = ({ onStart }) => {
       <button
         type="button"
         onClick={onStart}
-        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[var(--color-accent)] text-white hover:opacity-90 transition-opacity"
+        className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2"
       >
-        <Sparkles size={14} />
+        <Sparkles size={14} aria-hidden="true" />
         {t('zoteroSettings.startWizard')}
       </button>
     </SettingCard>
@@ -218,88 +227,82 @@ const EnabledPanel: React.FC<EnabledPanelProps> = ({
   const { t } = useTranslation();
   return (
     <>
-      <SectionTitle>{t('zoteroSettings.indexStatus')}</SectionTitle>
-
-      <SettingCard>
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-[var(--color-text-muted)]">
-            {t('zoteroSettings.statusLabel')}
-          </span>
-          <span className="flex items-center gap-2 text-sm font-medium">
+      <FormSection title={t('zoteroSettings.indexStatus')}>
+        <div className="flex items-center justify-between rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-bg-secondary)] p-4">
+          <div className="flex items-center gap-2">
             <span
-              className="inline-block w-2 h-2 rounded-full"
+              className="inline-block h-2 w-2 rounded-full"
               style={{ background: BIB_STATUS_COLOR[state.status] }}
             />
-            {t(`zotero.status.${state.status}` as const)}
-          </span>
-        </div>
-      </SettingCard>
-
-      <SettingCard>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <div className="text-xs text-[var(--color-text-muted)] mb-1">
-              {t('zoteroSettings.itemCount')}
+            <span className="text-sm font-medium text-[var(--color-text-primary)]">
+              {t(`zotero.status.${state.status}` as const)}
+            </span>
+          </div>
+          <div className="flex items-center gap-8">
+            <div className="text-right">
+              <div className="text-xs text-[var(--color-text-muted)]">
+                {t('zoteroSettings.itemCount')}
+              </div>
+              <div className="font-mono text-base font-semibold text-[var(--color-text-primary)]">
+                {state.itemCount}
+              </div>
             </div>
-            <div className="text-lg font-mono font-semibold text-[var(--color-text-primary)]">
-              {state.itemCount}
+            <div className="text-right">
+              <div className="text-xs text-[var(--color-text-muted)]">
+                {t('zoteroSettings.lastSyncedAt')}
+              </div>
+              <div className="font-mono text-sm text-[var(--color-text-secondary)]">
+                {state.lastSyncedAt
+                  ? new Date(state.lastSyncedAt).toLocaleString()
+                  : t('zoteroSettings.never')}
+              </div>
             </div>
           </div>
-          <div>
-            <div className="text-xs text-[var(--color-text-muted)] mb-1">
-              {t('zoteroSettings.lastSyncedAt')}
-            </div>
-            <div className="text-sm font-mono text-[var(--color-text-secondary)]">
-              {state.lastSyncedAt
-                ? new Date(state.lastSyncedAt).toLocaleString()
-                : t('zoteroSettings.never')}
-            </div>
+        </div>
+      </FormSection>
+
+      <FormSection title={t('zoteroSettings.sources')}>
+        <SettingCard>
+          <SourceRow
+            label={t('zoteroSettings.localApi')}
+            ok={diagnostics?.sources.localApi.ok ?? null}
+            error={diagnostics?.sources.localApi.error}
+          />
+          <div className="my-2 border-t border-[var(--color-border-subtle)]" />
+          <SourceRow
+            label={t('zoteroSettings.betterBibTex')}
+            ok={diagnostics?.sources.betterBibTex.ok ?? null}
+            error={diagnostics?.sources.betterBibTex.error}
+          />
+        </SettingCard>
+      </FormSection>
+
+      <FormSection title={t('zoteroSettings.actions')}>
+        <SettingCard>
+          <div className="space-y-2">
+            <ActionRow
+              label={t('zoteroSettings.refreshNow')}
+              desc={t('zoteroSettings.refreshNowDesc')}
+              busy={refreshing}
+              icon={<RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />}
+              onClick={onRefresh}
+            />
+            <ActionRow
+              label={t('zoteroSettings.reopenWizard')}
+              desc={t('zoteroSettings.reopenWizardDesc')}
+              icon={<Sparkles size={13} />}
+              onClick={onReopenWizard}
+            />
+            <ActionRow
+              label={t('zoteroSettings.redetect')}
+              desc={t('zoteroSettings.redetectDesc')}
+              busy={redetecting}
+              icon={<BookMarked size={13} />}
+              onClick={onRedetect}
+            />
           </div>
-        </div>
-      </SettingCard>
-
-      <SectionTitle>{t('zoteroSettings.sources')}</SectionTitle>
-
-      <SettingCard>
-        <SourceRow
-          label={t('zoteroSettings.localApi')}
-          ok={diagnostics?.sources.localApi.ok ?? null}
-          error={diagnostics?.sources.localApi.error}
-        />
-        <div className="my-2 border-t border-[var(--color-border-subtle)]" />
-        <SourceRow
-          label={t('zoteroSettings.betterBibTex')}
-          ok={diagnostics?.sources.betterBibTex.ok ?? null}
-          error={diagnostics?.sources.betterBibTex.error}
-        />
-      </SettingCard>
-
-      <SectionTitle>{t('zoteroSettings.actions')}</SectionTitle>
-
-      <SettingCard>
-        <div className="space-y-2">
-          <ActionRow
-            label={t('zoteroSettings.refreshNow')}
-            desc={t('zoteroSettings.refreshNowDesc')}
-            busy={refreshing}
-            icon={<RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />}
-            onClick={onRefresh}
-          />
-          <ActionRow
-            label={t('zoteroSettings.reopenWizard')}
-            desc={t('zoteroSettings.reopenWizardDesc')}
-            icon={<Sparkles size={13} />}
-            onClick={onReopenWizard}
-          />
-          <ActionRow
-            label={t('zoteroSettings.redetect')}
-            desc={t('zoteroSettings.redetectDesc')}
-            busy={redetecting}
-            icon={<BookMarked size={13} />}
-            onClick={onRedetect}
-          />
-        </div>
-      </SettingCard>
+        </SettingCard>
+      </FormSection>
 
       <BibTexSyncSection />
 
@@ -346,9 +349,10 @@ const ActionRow: React.FC<ActionRowProps> = ({ label, desc, icon, busy, onClick 
         onClick={onClick}
         disabled={busy}
         title={label}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] disabled:opacity-50 flex-shrink-0"
+        aria-label={label}
+        className="flex flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {icon}
+        <span aria-hidden="true">{icon}</span>
         <span>{busy ? t('zoteroSettings.busy') : t('zoteroSettings.execute')}</span>
       </button>
     </div>

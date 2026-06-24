@@ -17,7 +17,8 @@ export const EditorTab: React.FC = () => {
 
   return (
     <>
-      <SectionTitle>{t('editor.settings.title')}</SectionTitle>
+      {/* —— Typography —— */}
+      <SectionTitle>{t('editor.settings.groupTypography')}</SectionTitle>
       <SettingItem label={`${t('editor.settings.fontSize')} ${settings.editor.fontSize}px`}>
         <input
           type="range"
@@ -27,7 +28,7 @@ export const EditorTab: React.FC = () => {
           onChange={(e) =>
             settingsService.updateEditor({ fontSize: Number.parseInt(e.target.value) })
           }
-          className="w-full accent-[var(--color-accent)]"
+          className="w-full cursor-pointer accent-[var(--color-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
         />
       </SettingItem>
       <SettingItem label={t('editor.settings.fontFamily')}>
@@ -58,6 +59,9 @@ export const EditorTab: React.FC = () => {
           <option value="4">4</option>
         </select>
       </SettingItem>
+
+      {/* —— Display —— */}
+      <SectionTitle>{t('editor.settings.groupDisplay')}</SectionTitle>
       <SettingItem label={t('editor.settings.cursorStyle')}>
         <select
           value={settings.editor.cursorStyle}
@@ -74,11 +78,6 @@ export const EditorTab: React.FC = () => {
         </select>
       </SettingItem>
       <Toggle
-        label={t('editor.settings.wordWrap')}
-        checked={settings.editor.wordWrap}
-        onChange={(v) => settingsService.updateEditor({ wordWrap: v })}
-      />
-      <Toggle
         label={t('editor.settings.lineNumbers')}
         checked={settings.editor.lineNumbers}
         onChange={(v) => settingsService.updateEditor({ lineNumbers: v })}
@@ -89,20 +88,31 @@ export const EditorTab: React.FC = () => {
         onChange={(v) => settingsService.updateEditor({ minimap: v })}
       />
       <Toggle
+        label={t('editor.settings.indentGuides')}
+        checked={settings.editor.indentGuides}
+        onChange={(v) => settingsService.updateEditor({ indentGuides: v })}
+      />
+      <Toggle
         label={t('editor.settings.bracketColor')}
         checked={settings.editor.bracketPairColorization}
         onChange={(v) => settingsService.updateEditor({ bracketPairColorization: v })}
       />
+
+      {/* —— Behavior —— */}
+      <SectionTitle>{t('editor.settings.groupBehavior')}</SectionTitle>
       <Toggle
-        label={t('editor.settings.indentGuides')}
-        checked={settings.editor.indentGuides}
-        onChange={(v) => settingsService.updateEditor({ indentGuides: v })}
+        label={t('editor.settings.wordWrap')}
+        checked={settings.editor.wordWrap}
+        onChange={(v) => settingsService.updateEditor({ wordWrap: v })}
       />
       <Toggle
         label={t('editor.settings.smoothScroll')}
         checked={settings.editor.smoothScrolling}
         onChange={(v) => settingsService.updateEditor({ smoothScrolling: v })}
       />
+
+      {/* —— AI assist —— */}
+      <SectionTitle>{t('editor.settings.groupAI')}</SectionTitle>
       <Toggle
         label={t('editor.settings.aiCompletion')}
         desc={t('editor.settings.aiCompletionDesc')}

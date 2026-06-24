@@ -72,7 +72,7 @@ export const DEFAULT_MAX_FRAME_BYTES = 8 * 1024 * 1024;
  * Result is a string; caller writes it to the child's stdin.
  */
 export function encodeLine(value: unknown): string {
-  return JSON.stringify(value) + '\n';
+  return `${JSON.stringify(value)}\n`;
 }
 
 /**

@@ -124,7 +124,7 @@ function toRelativePath(absPath: string): string {
   const root = getProjectService().projectPath;
   if (!root) return normalized;
   const normRoot = root.replace(/\\/g, '/');
-  const withSep = normRoot.endsWith('/') ? normRoot : normRoot + '/';
+  const withSep = normRoot.endsWith('/') ? normRoot : `${normRoot}/`;
   return normalized.startsWith(withSep) ? normalized.slice(withSep.length) : normalized;
 }
 

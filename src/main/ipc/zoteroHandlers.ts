@@ -1,9 +1,9 @@
 /**
- * @file Zotero IPC handlers — settings / 安全 API key / 环境探测 / canonical
- *       bib index 快照与诊断
- * @sideeffect 持久化到 electron-store 与 OS keychain;通过 Zotero_SettingsChanged
- *             广播 settings 变化;不在 handler 内做隐式 cache(wizard finish()
- *             是唯一写 path / localApiEnabled / integrationEnabled 的位置)。
+ * @file Zotero IPC handlers — settings / secure API keys / environment probes / canonical
+ *       bib index snapshots and diagnostics
+ * @sideeffect Persists to electron-store and the OS keychain; broadcasts settings changes via
+ *             Zotero_SettingsChanged; no implicit caching inside handlers (wizard finish()
+ *             is the sole writer for path / localApiEnabled / integrationEnabled).
  */
 
 import { BrowserWindow } from 'electron';
@@ -120,19 +120,19 @@ function applySettingsPatch(patch: ZoteroSettingsPatchDTO): { success: boolean }
   }
   if (isValidEmbeddingProvider(patch.embeddingProvider)) {
     configManager.set(ConfigKeys.ZoteroEmbeddingProvider, patch.embeddingProvider);
-    // provider 变 → modelId 变 → 旧向量整体失效,清空重建。
+    // provider change -> modelId change -> existing vectors invalidated; wipe and rebuild.
     getEmbeddingIndexService().invalidate('provider-change');
   }
   if (typeof patch.activeRecommendation === 'boolean') {
     configManager.set(ConfigKeys.ZoteroActiveRecommendation, patch.activeRecommendation);
-    // 翻 true → lazy 建库;翻 false → ensureBuilt 内部转 disabled。
+    // Flip true -> lazy build; flip false -> ensureBuilt internally transitions to disabled.
     void getEmbeddingIndexService().ensureBuilt();
   }
   if (patch.bibTexSync) {
     configManager.set(ConfigKeys.ZoteroBibTexSyncEnabled, patch.bibTexSync.enabled);
     configManager.set(ConfigKeys.ZoteroBibTexSyncFileName, patch.bibTexSync.fileName);
     configManager.set(ConfigKeys.ZoteroBibTexSyncTranslator, patch.bibTexSync.translator);
-    // 配置变更同步通知 sync service —— 让其立即生效(enable 翻 true 时立刻同步)。
+    // Push config change to sync service immediately so flipping enable=true takes effect at once.
     getBibTexSyncService().setConfig(patch.bibTexSync);
   }
 
@@ -161,7 +161,7 @@ export function registerZoteroHandlers(): void {
     const ok = setZoteroEmbeddingApiKey(token);
     if (ok) {
       broadcastSettingsChanged(readSettings());
-      getEmbeddingIndexService().invalidate('key-change'); // 新 key → 重建
+      getEmbeddingIndexService().invalidate('key-change'); // New key -> rebuild
     }
     return { success: ok };
   });
@@ -172,13 +172,13 @@ export function registerZoteroHandlers(): void {
     return { success: true };
   });
 
-  // ---- 探测 / 探活(无副作用,wizard 自己根据返回再决定是否 finish) ----
+  // ---- Discovery / liveness probes (side-effect free; wizard decides whether to finish() based on the return value) ----
   registerHandler(IpcChannel.Zotero_DetectInstallation, () => getZoteroDiscoveryService().detect());
   registerHandler(IpcChannel.Zotero_PingLocalApi, () => getZoteroLocalApiClient().ping());
 
-  // ---- Main-canonical bib index(方案 D / D-1) ----
-  // 三个 read 通道是 renderer 读 index 的唯一入口;renderer 镜像本地命中,
-  // 不存在 per-hover / per-keystroke 的 RPC 风暴。
+  // ---- Main-canonical bib index (scheme D / D-1) ----
+  // These three read channels are the renderer's sole entry into the index; the renderer
+  // hits its local mirror, so per-hover / per-keystroke RPC storms cannot happen.
   registerHandler(IpcChannel.Zotero_GetSnapshot, (req) =>
     getZoteroOrchestrator().getIndex().buildSnapshotSince(req.since)
   );
@@ -187,7 +187,7 @@ export function registerZoteroHandlers(): void {
   );
   registerHandler(IpcChannel.Zotero_GetDiagnostics, () => getZoteroOrchestrator().getDiagnostics());
 
-  // ---- references.bib 同步(M2 Phase 2)----
+  // ---- references.bib sync (M2 Phase 2) ----
   registerHandler(IpcChannel.Zotero_SyncBibTex, () => getBibTexSyncService().syncNow());
   registerHandler(IpcChannel.Zotero_GetBibTexSyncStatus, () => getBibTexSyncService().getStatus());
 
@@ -222,9 +222,9 @@ export function registerZoteroHandlers(): void {
     }
   );
 
-  // PDF 二进制供 renderer 内嵌渲染。路径来源是受信的 Zotero API + dataDir
-  // (项目目录外),不走 assertPathSecurity。无 PDF / 读失败均抛,renderer
-  // 据错误码区分反馈。
+  // PDF binary for renderer-side rendering. The path comes from the trusted Zotero API + dataDir
+  // (outside the project root), so we bypass assertPathSecurity. Missing PDF / read failures throw;
+  // the renderer distinguishes them by error code.
   registerHandler(IpcChannel.Zotero_LoadPdf, async (rawItemKey): Promise<ArrayBuffer> => {
     if (typeof rawItemKey !== 'string' || rawItemKey.length === 0) {
       throw new Error('invalid itemKey');
@@ -235,8 +235,8 @@ export function registerZoteroHandlers(): void {
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
   });
 
-  // MinerU 精解析:fire-and-forget 启动,进度走 Zotero_MinerUProgress 事件;
-  // 内部已 try/catch + broadcast failed,这里只回执"已启动"。
+  // MinerU precise parse: fire-and-forget start; progress flows over the Zotero_MinerUProgress event.
+  // Internal try/catch + broadcast failed handle errors; here we only ACK "started".
   registerHandler(IpcChannel.Zotero_ParseWithMinerU, async (rawItemKey) => {
     if (typeof rawItemKey !== 'string' || rawItemKey.length === 0) {
       throw new Error('invalid itemKey');
@@ -260,8 +260,9 @@ export function registerZoteroHandlers(): void {
     return getZoteroFullTextService().getContentList(rawItemKey);
   });
 
-  // ---- Embedding 主动推荐(M3 标尺5)----
-  // 索引状态变化广播到所有窗口(建库进度 / no-key / error),renderer 据此更新 UI。
+  // ---- Embedding active recommendation (M3 yardstick 5) ----
+  // Index status changes are broadcast to every window (build progress / no-key / error);
+  // renderers update their UI accordingly.
   getEmbeddingIndexService().setStatusListener((status) => {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send(IpcChannel.Zotero_EmbeddingProgress, status);

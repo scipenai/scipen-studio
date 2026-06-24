@@ -43,7 +43,8 @@ const EXTRACT_DEBOUNCE_MS = 250;
 export const ProjectCitedReferencesPanel: React.FC = () => {
   const { t } = useTranslation();
   const activeTab = useActiveTab();
-  // 默认折叠:抽屉打开时不抢占视觉,用户点击标题才展开本文引用列表
+  // Collapsed by default: when the drawer opens we don't grab attention; the user has to
+  // click the header to expand this file's citation list.
   const [collapsed, setCollapsed] = useState(true);
   const [content, setContent] = useState<string>('');
   const [bibState, setBibState] = useState<ZoteroBibMirrorState>(() =>
@@ -80,7 +81,8 @@ export const ProjectCitedReferencesPanel: React.FC = () => {
   }, []);
 
   // ----- Extract cited keys + join with mirror -----
-  // bibState 进依赖列表:mirror 异步 hydrate 完成后,重新 join 拿到 title/meta。
+  // bibState enters the dependency list: once the mirror finishes its async hydrate, we
+  // re-join to pick up title/meta.
   const cited = useMemo<CitedEntry[]>(() => {
     if (!content) return [];
     const occurrences = extractCitedKeys(content);
@@ -99,8 +101,9 @@ export const ProjectCitedReferencesPanel: React.FC = () => {
       occurrences: occs,
       entry: mirror.getByCitationKey(key) ?? mirror.getByItemKey(key),
     }));
-    // bibState.etag 是 mirror 数据版本号:etag 变 → mirror hydrate/patch 落地 →
-    // 重新 join 拿到最新 title/meta。mirror 本身是单例,不在 deps 里。
+    // bibState.etag is the mirror's data version number: when etag changes the mirror has
+    // hydrated / a patch has landed, and we re-join to pick up the latest title/meta. The
+    // mirror itself is a singleton, so it stays out of the deps array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content, bibState.etag]);
 
@@ -124,14 +127,19 @@ export const ProjectCitedReferencesPanel: React.FC = () => {
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
-        className="flex w-full items-center justify-between px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+        aria-expanded={!collapsed}
+        className="flex w-full cursor-pointer items-center justify-between px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
       >
         <span className="flex items-center gap-1.5">
-          <BookOpen className="h-3 w-3" />
+          <BookOpen className="h-3 w-3" aria-hidden="true" />
           {t('projectCitedReferences.title')}
           <span className="text-[10px] font-normal opacity-70">({cited.length})</span>
         </span>
-        {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        {collapsed ? (
+          <ChevronRight className="h-3 w-3" aria-hidden="true" />
+        ) : (
+          <ChevronDown className="h-3 w-3" aria-hidden="true" />
+        )}
       </button>
 
       {!collapsed && (
@@ -156,7 +164,7 @@ export const ProjectCitedReferencesPanel: React.FC = () => {
                         ? t('projectCitedReferences.firstOf', { n: occurrences.length })
                         : undefined
                     }
-                    className="block w-full px-3 py-1 text-left text-[12px] hover:bg-[var(--color-bg-hover)]"
+                    className="block w-full cursor-pointer px-3 py-1 text-left text-[12px] hover:bg-[var(--color-bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
                   >
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="font-mono text-[11px] text-[var(--color-text-primary)]">

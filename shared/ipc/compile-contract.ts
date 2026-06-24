@@ -15,9 +15,56 @@ import type {
 // ====== Compilation Types ======
 
 export interface TypstCompileOptions {
-  engine?: 'typst' | 'tinymist';
+  engine?: 'typst' | 'tinymist' | 'wasm-typst';
   mainFile?: string;
   projectPath?: string;
+}
+
+/** Availability + version for a single Typst-family engine. */
+export interface TypstEngineCapability {
+  available: boolean;
+  /** Semver string when available, null otherwise. */
+  version: string | null;
+}
+
+/** Availability + version for a single LaTeX-family engine. */
+export interface LaTeXEngineCapability {
+  available: boolean;
+  /** Version/banner string when available, null otherwise. */
+  version: string | null;
+}
+
+/**
+ * Combined LaTeX capability snapshot. `cli.*` is probed by spawning each
+ * binary with `--version`; `wasm.*` is true when the bundled BusyTeX assets
+ * are present on disk.
+ */
+export interface LaTeXCapabilities {
+  cli: {
+    pdflatex: LaTeXEngineCapability;
+    xelatex: LaTeXEngineCapability;
+    lualatex: LaTeXEngineCapability;
+    tectonic: LaTeXEngineCapability;
+  };
+  wasm: {
+    pdftex: LaTeXEngineCapability;
+    xetex: LaTeXEngineCapability;
+    lualatex: LaTeXEngineCapability;
+  };
+}
+
+/**
+ * Combined capability snapshot. `cli.*` is probed by spawning each binary
+ * with `--version`; `wasm.available` is true when the bundled WASM assets
+ * (manifest + compiler) are present on disk. Order is meaningful — the
+ * UI uses it to render dropdown options in a stable order.
+ */
+export interface TypstCapabilities {
+  cli: {
+    tinymist: TypstEngineCapability;
+    typst: TypstEngineCapability;
+  };
+  wasm: TypstEngineCapability;
 }
 
 export interface TypstCompileResult {
@@ -43,6 +90,18 @@ export interface CompileCancelResult {
   cancelled: number;
 }
 
+/**
+ * Result of `Compile_WriteWasmArtifacts`.
+ *
+ * WASM compile output (PDF + `.synctex.gz` as raw bytes) is persisted into
+ * a fresh `os.tmpdir()` subdir so the main-process `synctex` CLI can read
+ * them. The renderer only ever consumes the two file paths.
+ */
+export interface CompileWasmArtifactsResult {
+  pdfPath: string;
+  synctexPath: string;
+}
+
 // ====== Channel Contract ======
 
 export interface IPCCompileContract {
@@ -65,16 +124,28 @@ export interface IPCCompileContract {
       typst: { isCompiling: boolean };
     };
   };
+  [IpcChannel.Compile_WriteWasmArtifacts]: {
+    args: [pdfBuffer: Uint8Array, synctexBuffer: Uint8Array, baseName?: string];
+    result: CompileWasmArtifactsResult;
+  };
+  [IpcChannel.LaTeX_GetCapabilities]: {
+    args: [];
+    result: LaTeXCapabilities;
+  };
   [IpcChannel.Typst_Available]: {
     args: [];
     result: TypstAvailability;
   };
+  [IpcChannel.Typst_GetCapabilities]: {
+    args: [];
+    result: TypstCapabilities;
+  };
   [IpcChannel.SyncTeX_Forward]: {
-    args: [texFile: string, line: number, column: number, pdfFile: string];
+    args: [texFile: string, line: number, column: number, pdfFile: string, projectRoot?: string];
     result: SyncTeXForwardResult | null;
   };
   [IpcChannel.SyncTeX_Backward]: {
-    args: [pdfFile: string, page: number, x: number, y: number];
+    args: [pdfFile: string, page: number, x: number, y: number, projectRoot?: string];
     result: SyncTeXBackwardResult | null;
   };
 }

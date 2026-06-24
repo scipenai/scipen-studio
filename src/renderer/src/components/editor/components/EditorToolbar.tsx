@@ -51,32 +51,37 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
   return (
     <div
-      className="flex items-center"
+      className="flex items-center gap-1 px-2 py-1.5"
       style={{
-        background: 'var(--color-bg-primary)',
+        background: 'var(--color-bg-void)',
         borderBottom: '1px solid var(--color-border-subtle)',
       }}
     >
-      <div className="flex-1 flex overflow-x-auto">
+      <div className="flex-1 flex gap-1 overflow-x-auto" role="tablist">
         {openTabs.map((tab) => {
           const isActive = tab.path === activeTabPath;
           return (
+            // Modern tab: active = floating white pill (bg-primary + light shadow); inactive transparent muted.
+            // Recessed tab row (bg-void) provides the base, sharing the segmented-control vocabulary with the right panel. Old violet gradient indicator bar removed.
             <div
               key={tab.path}
               onClick={() => onTabClick(tab.path)}
-              className="group relative flex items-center gap-2 px-4 py-2.5 text-sm transition-all cursor-pointer"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onTabClick(tab.path);
+                }
+              }}
+              role="tab"
+              tabIndex={0}
+              aria-selected={isActive}
+              className="group flex items-center gap-2 rounded-md px-3 py-1 text-sm transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
               style={{
-                background: isActive ? 'var(--color-bg-secondary)' : 'transparent',
+                background: isActive ? 'var(--color-bg-primary)' : 'transparent',
                 color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
-                borderRight: '1px solid var(--color-border-subtle)',
+                boxShadow: isActive ? 'var(--shadow-xs)' : 'none',
               }}
             >
-              {isActive && (
-                <div
-                  className="absolute top-0 left-0 right-0 h-[2px]"
-                  style={{ background: 'var(--gradient-accent)' }}
-                />
-              )}
               {tab.isDirty && (
                 <div
                   className="w-2 h-2 rounded-full"
@@ -91,9 +96,14 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 />
               )}
               <span className="truncate max-w-[140px] font-medium">{tab.name}</span>
-              <span
+              <button
+                type="button"
+                aria-label={`${t('common.close')} ${tab.name}`}
                 onClick={(e) => onTabClose(e, tab.path)}
-                className="ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                }}
+                className="ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
                 style={{ background: 'transparent' }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = 'var(--color-bg-hover)';
@@ -102,8 +112,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                   e.currentTarget.style.background = 'transparent';
                 }}
               >
-                <X size={12} />
-              </span>
+                <X size={12} aria-hidden="true" />
+              </button>
             </div>
           );
         })}
@@ -180,10 +190,12 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         )}
 
         <button
+          type="button"
           onClick={onSyncTexJump}
           disabled={!hasPdf}
+          aria-label={t('editorToolbar.jumpToPdf')}
           className={clsx(
-            'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm transition-all',
+            'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm transition-all focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]',
             hasPdf ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'
           )}
           style={{ color: 'var(--color-text-muted)' }}
@@ -199,23 +211,22 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           }}
           title={t('editorToolbar.jumpToPdf')}
         >
-          <Link2 size={15} />
+          <Link2 size={15} aria-hidden="true" />
         </button>
 
         <button
+          type="button"
           data-compile-button
           onClick={onCompile}
           disabled={isCompileDisabled}
+          aria-label={isCompiling ? t('editorToolbar.stopCompile') : t('editorToolbar.compile')}
           className={clsx(
-            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ml-1',
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ml-1 focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]',
             isCompileDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
           )}
           style={{
-            background: isCompiling
-              ? 'color-mix(in srgb, var(--color-error) 15%, transparent)'
-              : isCompileDisabled
-                ? 'var(--color-bg-tertiary)'
-                : 'var(--color-accent-muted)',
+            // ghost/outline: transparent by default, only blue text + blue icon + a faint border — avoids competing visually with the file tabs.
+            background: 'transparent',
             color: isCompiling
               ? 'var(--color-error)'
               : isCompileDisabled
@@ -224,31 +235,24 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             border: `1px solid ${
               isCompiling
                 ? 'color-mix(in srgb, var(--color-error) 30%, transparent)'
-                : 'color-mix(in srgb, var(--color-accent) 20%, transparent)'
+                : isCompileDisabled
+                  ? 'var(--color-border-subtle)'
+                  : 'color-mix(in srgb, var(--color-accent) 22%, transparent)'
             }`,
           }}
           onMouseEnter={(e) => {
-            if (!isCompiling && !isCompileDisabled) {
-              e.currentTarget.style.background =
-                'color-mix(in srgb, var(--color-accent) 25%, transparent)';
-              e.currentTarget.style.boxShadow =
-                '0 0 15px color-mix(in srgb, var(--color-accent) 20%, transparent)';
-            } else if (isCompiling) {
-              e.currentTarget.style.background =
-                'color-mix(in srgb, var(--color-error) 25%, transparent)';
-              e.currentTarget.style.boxShadow =
-                '0 0 15px color-mix(in srgb, var(--color-error) 20%, transparent)';
-            }
+            if (isCompileDisabled) return;
+            // A single very faint fill is the hover feedback — the old glow was dropped to lighten the visual weight.
+            e.currentTarget.style.background = isCompiling
+              ? 'color-mix(in srgb, var(--color-error) 12%, transparent)'
+              : 'var(--color-accent-muted)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = isCompiling
-              ? 'color-mix(in srgb, var(--color-error) 15%, transparent)'
-              : 'var(--color-accent-muted)';
-            e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.background = 'transparent';
           }}
           title={isCompiling ? t('editorToolbar.stopCompile') : t('editorToolbar.compile')}
         >
-          {isCompiling ? <X size={14} /> : <Play size={14} />}
+          {isCompiling ? <X size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
           <span className="hidden sm:inline">
             {isCompiling ? t('editorToolbar.stop') : t('editor.compile')}
           </span>

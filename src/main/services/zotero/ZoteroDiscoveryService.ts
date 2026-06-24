@@ -73,8 +73,9 @@ function zoteroCandidatePaths(): string[] {
 }
 
 /**
- * 找 Zotero 数据目录(含 `zotero.sqlite` 的那个)。附件存储在
- * `{dataDir}/storage/{attachmentKey}/`。Discovery 探测与全文抽取共用。
+ * Locate the Zotero data directory (the one containing `zotero.sqlite`).
+ * Attachments live under `{dataDir}/storage/{attachmentKey}/`. Shared by
+ * discovery probing and full-text extraction.
  */
 export async function resolveZoteroDataDir(): Promise<string | null> {
   for (const dir of zoteroCandidatePaths()) {

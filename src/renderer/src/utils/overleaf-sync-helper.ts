@@ -225,7 +225,7 @@ async function syncNewEntry(
           }
         }
         if (childErrors.length > 0) {
-          return { success: false, relativePath, error: childErrors.join('；') };
+          return { success: false, relativePath, error: childErrors.join('; ') };
         }
       }
       return { success: true, relativePath };

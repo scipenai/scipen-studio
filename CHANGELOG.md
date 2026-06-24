@@ -5,6 +5,135 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-06-16
+
+First non-pre `0.3.x` release. Highlights: a full local history / restore system, a
+WASM LaTeX engine swap (StellarLatex → BusyTeX), a Typst engine refresh (typst.ts +
+bundled CJK fonts), a reworked Settings UI, and a long tail of agent-stability fixes.
+
+### Added
+
+- **Local history & restore** — Background versioning of the open project, no Git
+  required. Layered as L0–L4: SHA-256 content-addressed BlobStore + chunk store,
+  Step DAG keyed by `(sessionId, parentHash)`, and a unified browser dialog.
+  - **Labels** — manual checkpoints with name + optional description; restore writes
+    every tracked file back to disk and reloads open tabs.
+  - **Auto-labels** — drift-triggered after the AI writes more than ~5 KB cumulative
+    bytes, plus milestone labels on every successful compile.
+  - **Sessions / Step DAG** — every SNACA tool call that touched files is recorded
+    as a step under the active chat thread. The dialog renders a git-log-style
+    timeline with per-file unified diffs and per-step restore.
+  - **Per-message rollback** — hover a user message in chat to revert all open tabs
+    to the most recent step recorded *before* that message.
+  - **Storage hygiene** — orphan blob sweep daemon, automatic chunk merging on
+    sweep, persistent refcount in SQLite (`node:sqlite`).
+- **Chat thread copy** — Header button serializes the entire active thread (user
+  messages, assistant text, thinking trace summary, tool call list, edit proposal
+  list) to a single markdown block on the clipboard.
+- **Edit proposals woven into the timeline** — `edit.propose` events now render
+  inline with the tool call that produced them, instead of stacking at the bottom
+  of the turn. Legacy IDB turns are back-filled at read time so existing threads
+  keep showing their edit cards.
+- **Auto-generated chat titles** — First user message in an untitled thread fires
+  a background call to the completion model; the returned topic (≤ 24 chars)
+  replaces the default placeholder. User-renamed threads are never overwritten.
+- **Typst engine refresh** — typst.ts WASM runtime is now bundled by default;
+  full CJK font set ships offline (`download:typst-wasm:cjk`); custom font
+  manifests via *Settings → Compiler → Typst font manifest*.
+- **Settings UI rework** — AI-first left navigation, modern form components,
+  Agent / AI / Zotero tabs rebuilt with clearer grouping.
+- **Three-panel main layout** — Chat / editor / preview each toggle independently
+  via the right-hand status bar; only mounted panels stay in the DOM, so closing
+  preview frees Monaco + pdf.js from the main thread.
+- **Command palette `Ctrl+P`** — Single unified `History browser` entry, AI chat,
+  compile, file save, view shortcuts. Hover-to-select with keyboard navigation.
+
+### Changed
+
+- **WASM LaTeX engine: StellarLatex → BusyTeX.** SyncTeX is now driven end-to-end
+  by the renderer for all three engines (xetex / pdftex / lualatex); session-scoped
+  forward / backward jump works the same across local, WASM, and Tectonic paths.
+- **StatusBar engine dropdown** — Per-engine description rows removed; each row
+  now shows only the engine name plus a checkmark for the current selection. The
+  SyncTeX capability matrix lives in *Settings → Compiler* (`syncTexTitle` card)
+  where it belongs.
+- **History dialogs unified** — Previously two separate `BrowseLabelsDialog` /
+  `BrowseSessionsDialog`; merged into a single `HistoryBrowserDialog` with a tab
+  strip. Sidebar collapses to one `History` entry, command palette to one
+  `History browser` entry.
+- **Code language policy** — Code-layer comments / log messages / internal strings
+  are now English; user-facing UI strings go through `t()` and ship in
+  `zh-CN.json` / `en-US.json`. A `lint:no-cjk` script guards against regressions.
+- **Approval / AskUserQuestion cards** — Rewritten with explicit Skip, deny-once
+  vs. always-deny semantics, high-risk-action cooldown, full keyboard navigation,
+  and structured failure when the user closes the card without choosing.
+- **Per-project memory recall** — Quality-gated by self-rated confidence; entries
+  below `recall_confidence_floor` (default 0.30) are filtered out.
+- **Accessibility sweep across the renderer.** Framework-level a11y automation in
+  shared UI primitives — `Button` auto-`aria-hidden`s decorative left/right icons,
+  `Modal` uses `useId` to wire `aria-labelledby` / `aria-describedby`, `SettingItem`
+  cloneElements native `input` / `select` / `textarea` children with auto-generated
+  `id` + merged `aria-describedby`. Across the renderer: `cursor-pointer` /
+  `disabled:cursor-not-allowed` on every clickable surface, explicit `type="button"`
+  on icon-only buttons, `focus-visible:ring` on every focusable element, decorative
+  Unicode glyphs (`✦`, `⏎`, `⇧⏎`) replaced by Lucide icons or plain text for
+  cross-platform consistency. Send / Stop in chat composer became square icon-only
+  buttons aligned with mainstream chat UIs. The lint baseline (previously 4
+  warnings) now compiles cleanly.
+- **Component test coverage.** 61 new component specs covering the renderer-level
+  UI (~112 new tests, total goes from 506 to 618). Tests double as a11y contract
+  guards going forward.
+
+### Fixed
+
+- **Streaming chat timeline re-mount.** `ChatMessage` Timeline list keys were
+  derived from array index, so React re-mounted `ThinkingRenderer` /
+  `MarkdownContent` / `ProposalRow` whenever events streamed in (animation replay,
+  collapse state reset, content flicker). Keys are now derived from a stable hash
+  of the event content plus an occurrence counter for legitimate duplicates.
+
+- **Loop-guard tripped → chat input frozen.** SNACA's `turn_engine` emits Error
+  without a paired Done on engine failures (e.g. `LoopGuardTripped`); the
+  renderer's turn state machine now finalizes on either event, so the stop button
+  releases and the input enables itself for a retry.
+- **Auto-generated titles never fired.** SNACA's `session.new_thread` returns
+  `"New conversation"` as a non-empty sentinel when no title is supplied; the
+  renderer mistook that for a user-assigned title and skipped summarization. Now
+  the sentinel is recognized and the summary runs as designed. Same fix surfaces
+  the localized placeholder in the header on Chinese UI.
+- **History browser stale until reopen.** Write sites (`NewLabelDialog`,
+  `AutoLabelScheduler`, SNACA tool-step recorder) now broadcast on
+  `historyUIBus`; the open browser refetches the affected tab immediately.
+- **Edit-proposal cards vanished from legacy turns.** When the per-event timeline
+  was promoted to the source of truth for ordering, IDB records written before
+  that change still had `proposals` but no proposal events — the read path now
+  back-fills missing events on hydrate.
+- **Drag-select across user messages.** The hover-revealed per-message rollback
+  button used to split selections that crossed it. It now drops out of the
+  hit-test while a non-collapsed selection is active.
+- **"No project open" when opening history.** `ProjectRuntimeContext.projectId`
+  was never being set by anyone — history actions read directly from the OT
+  service path or the active tab now.
+- **OT joinFile race after tab switch.** OT connection lifecycle and per-file
+  `join` were merged into a single effect that tore down the WebSocket on tab
+  changes; split into two effects so tab swap no longer re-handshakes OT.
+- **`api.dialog.*` defaults were Chinese.** Defaults now go through i18n; native
+  dialogs respect the current UI locale.
+
+### Removed
+
+- StellarLatex WASM TeX engine and its asset pipeline.
+- Standalone `BrowseLabelsDialog` / `BrowseSessionsDialog` (merged into
+  `HistoryBrowserDialog`).
+- Per-engine description i18n keys in StatusBar (`fastEnglishOnly`,
+  `recommendedUnicode`, `unicodeAndLua`, `modernCompiler`, `wasmNoInstall`,
+  `recommendedFullFeatures`, `officialCliTool`, `unicodeSupport`,
+  `traditionalLatex`) — dropdown rows no longer show descriptions.
+- `MainLayout` wrapper — replaced by the three-panel `WorkspaceMode` model.
+- Dead preload-typed `historyApi` (renderer reaches IPC through
+  `ipcRenderer.invoke` against the allow-list; the typed bridge was a stale
+  duplicate).
+
 ## [0.3.0-pre.1] — 2026-06-04
 
 Pre-release. The agent runtime (SNACA) is now ported in tree and the desktop bundle ships

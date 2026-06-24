@@ -1,0 +1,596 @@
+/**
+ * @file HistoryService - L1 + L2 history API for scipen-studio.
+ *
+ * L1: chunk (per-file OT-version range) + label (multi-file named snapshot).
+ * L2: step (one SNACA tool turn or one human-edit batch) + session DAG.
+ *
+ * All multi-row writes are wrapped in better-sqlite3 transactions so a half-
+ * applied state can never escape: e.g. createLabel inserts the label row, every
+ * label_file row, and bumps each referenced blob's refcount under the same
+ * transaction, so a crash mid-call leaves zero pollution.
+ *
+ * Hashing notes:
+ * - tree_hash is the SHA-256 of a canonical JSON of `[{fileId, blobHex}, …]`
+ *   sorted by fileId. The same JSON is also stored as a blob so consumers can
+ *   pull the file → blob map back without a step_file join.
+ * - step.hash is the SHA-256 of a `|`-delimited canonical string over
+ *   (parent | tree | session | ts | causes). Pipe-delimited beats JSON because
+ *   we never have to debug "did this JSON serializer reorder keys" later.
+ *
+ * TODO(blake3 / msgpack): when network access returns, swap SHA-256 → BLAKE3
+ * (one-line in BlobStore + here) and JSON.stringify(causes) → msgpack for the
+ * on-disk `causes` blob.
+ */
+
+import { createHash, randomUUID } from 'node:crypto';
+import type { StatementSync } from 'node:sqlite';
+import { createLogger } from '../LoggerService';
+
+type Stmt = StatementSync;
+
+/**
+ * `node:sqlite` does not provide a `db.transaction(fn)` helper the way
+ * better-sqlite3 does, so wrap manually. Same semantics: any throw inside
+ * `fn` rolls back; otherwise commits.
+ */
+function runInTx<T>(db: { exec: (sql: string) => void }, fn: () => T): T {
+  db.exec('BEGIN');
+  try {
+    const out = fn();
+    db.exec('COMMIT');
+    return out;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+import type { BlobStore } from './BlobStore';
+import type {
+  CreateLabelInput,
+  IHistoryService,
+  RecordChunkInput,
+  RecordChunkResult,
+  RecordStepInput,
+} from './interfaces/IHistoryService';
+import type { MetaDb } from './MetaDb';
+import {
+  DEFAULT_HISTORY_CONFIG,
+  type Hash,
+  type HashHex,
+  type HistoryChunk,
+  type HistoryConfig,
+  type HistoryLabel,
+  type HistoryStep,
+  type LabelKind,
+  type StepOrigin,
+} from './types';
+
+const logger = createLogger('HistoryService');
+
+export interface HistoryServiceDeps {
+  metaDb: MetaDb;
+  blobStore: BlobStore;
+  config?: Partial<HistoryConfig>;
+}
+
+export class HistoryService implements IHistoryService {
+  private readonly config: HistoryConfig;
+  private readonly stmts: {
+    insertChunk: Stmt;
+    listChunks: Stmt;
+    insertLabel: Stmt;
+    insertLabelFile: Stmt;
+    listLabels: Stmt;
+    listLabelFiles: Stmt;
+    insertStep: Stmt;
+    insertStepFile: Stmt;
+    getStep: Stmt;
+    listSessionSteps: Stmt;
+    insertSession: Stmt;
+    /** Inline refcount bump used inside transactions; shares cache with BlobStore. */
+    incRefBlob: Stmt;
+    listStepFiles: Stmt;
+    findStepBefore: Stmt;
+  };
+
+  constructor(private readonly deps: HistoryServiceDeps) {
+    this.config = { ...DEFAULT_HISTORY_CONFIG, ...(deps.config ?? {}) };
+    void this.config;
+    const db = deps.metaDb.db;
+    this.stmts = {
+      insertChunk: db.prepare(
+        `INSERT INTO history_chunk
+         (project_id, file_id, version_from, version_to, base_blob, target_blob, op_count, primary_actor, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ),
+      listChunks: db.prepare(
+        `SELECT id, project_id, file_id, version_from, version_to, base_blob, target_blob, op_count, primary_actor, created_at
+         FROM history_chunk WHERE project_id = ? AND file_id = ?
+         ORDER BY version_to DESC LIMIT ?`
+      ),
+      insertLabel: db.prepare(
+        `INSERT INTO history_label
+         (id, project_id, name, description, kind, created_at, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ),
+      insertLabelFile: db.prepare(
+        'INSERT INTO history_label_file (label_id, file_id, blob_hash, version) VALUES (?, ?, ?, ?)'
+      ),
+      listLabels: db.prepare(
+        `SELECT id, project_id, name, description, kind, created_at, created_by
+         FROM history_label WHERE project_id = ?
+         ORDER BY created_at DESC LIMIT ?`
+      ),
+      listLabelFiles: db.prepare(
+        'SELECT file_id, blob_hash, version FROM history_label_file WHERE label_id = ?'
+      ),
+      insertStep: db.prepare(
+        `INSERT OR IGNORE INTO history_step
+         (hash, parent_hash, project_id, session_id, tree_hash, causes, origin, ts, size_delta)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ),
+      insertStepFile: db.prepare(
+        'INSERT OR IGNORE INTO history_step_file (step_hash, file_id, blob_hash) VALUES (?, ?, ?)'
+      ),
+      getStep: db.prepare(
+        `SELECT hash, parent_hash, project_id, session_id, tree_hash, causes, origin, ts, size_delta
+         FROM history_step WHERE hash = ?`
+      ),
+      listSessionSteps: db.prepare(
+        `SELECT hash, parent_hash, project_id, session_id, tree_hash, causes, origin, ts, size_delta
+         FROM history_step WHERE session_id = ?
+         ORDER BY ts ASC LIMIT ?`
+      ),
+      insertSession: db.prepare(
+        `INSERT OR IGNORE INTO history_session
+         (id, project_id, chat_thread_id, head_step_hash, parent_session, created_at, closed_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL)`
+      ),
+      incRefBlob: db.prepare('UPDATE history_blob SET refcount = refcount + 1 WHERE hash = ?'),
+      listStepFiles: db.prepare(
+        'SELECT file_id, blob_hash FROM history_step_file WHERE step_hash = ?'
+      ),
+      findStepBefore: db.prepare(
+        `SELECT hash, parent_hash, project_id, session_id, tree_hash, causes, origin, ts, size_delta
+         FROM history_step WHERE session_id = ? AND ts < ?
+         ORDER BY ts DESC LIMIT 1`
+      ),
+    };
+    logger.debug('HistoryService constructed', {
+      schemaVersion: deps.metaDb.schemaVersion(),
+    });
+  }
+
+  // ===== Blob facade =====
+
+  /**
+   * Put bytes into the project's BlobStore and return the hash. The sole
+   * sanctioned write path for the IPC layer — `BlobStore` itself stays
+   * encapsulated.
+   */
+  putBlob(bytes: Uint8Array): Promise<Hash> {
+    return this.deps.blobStore.put(bytes);
+  }
+
+  // ===== L1 =====
+
+  async recordChunk(input: RecordChunkInput): Promise<RecordChunkResult> {
+    const baseHash = await this.deps.blobStore.put(input.baseContent);
+    const targetHash = await this.deps.blobStore.put(input.targetContent);
+    const now = Date.now();
+
+    const chunkId = runInTx(this.deps.metaDb.db, () => {
+      const result = this.stmts.insertChunk.run(
+        input.projectId,
+        input.fileId,
+        input.versionFrom,
+        input.versionTo,
+        baseHash,
+        targetHash,
+        input.opCount,
+        input.primaryActor,
+        now
+      );
+      this.stmts.incRefBlob.run(baseHash);
+      this.stmts.incRefBlob.run(targetHash);
+      return Number(result.lastInsertRowid);
+    });
+    return {
+      chunkId,
+      baseBlob: toHex(baseHash),
+      targetBlob: toHex(targetHash),
+    };
+  }
+
+  async mergeChunks(
+    projectId: string,
+    fileId: string,
+    minChunks = 1000
+  ): Promise<{ merged: number }> {
+    const db = this.deps.metaDb.db;
+    const rows = db
+      .prepare(
+        `SELECT id, version_from, version_to, base_blob, target_blob, op_count, created_at
+         FROM history_chunk WHERE project_id = ? AND file_id = ?
+         ORDER BY version_from ASC`
+      )
+      .all(projectId, fileId) as Array<{
+      id: number;
+      version_from: number;
+      version_to: number;
+      base_blob: Uint8Array;
+      target_blob: Uint8Array;
+      op_count: number;
+      created_at: number;
+    }>;
+    if (rows.length <= minChunks) return { merged: 0 };
+
+    const firstRow = rows[0];
+    const lastRow = rows[rows.length - 1];
+    const totalOps = rows.reduce((acc, r) => acc + r.op_count, 0);
+    const decStmt = db.prepare(
+      'UPDATE history_blob SET refcount = CASE WHEN refcount - 1 < 0 THEN 0 ELSE refcount - 1 END WHERE hash = ?'
+    );
+    const deleteStmt = db.prepare('DELETE FROM history_chunk WHERE id = ?');
+    const updateStmt = db.prepare(
+      'UPDATE history_chunk SET version_to = ?, target_blob = ?, op_count = ? WHERE id = ?'
+    );
+
+    runInTx(db, () => {
+      // Update the first row to span the full range; decRef every intermediate
+      // base + target blob (the first row's base stays referenced, last row's
+      // target stays referenced).
+      for (let i = 1; i < rows.length; i++) {
+        decStmt.run(new Uint8Array(rows[i].base_blob));
+      }
+      for (let i = 0; i < rows.length - 1; i++) {
+        decStmt.run(new Uint8Array(rows[i].target_blob));
+      }
+      updateStmt.run(
+        lastRow.version_to,
+        new Uint8Array(lastRow.target_blob),
+        totalOps,
+        firstRow.id
+      );
+      for (let i = 1; i < rows.length; i++) {
+        deleteStmt.run(rows[i].id);
+      }
+    });
+    return { merged: rows.length - 1 };
+  }
+
+  async mergeAllChunks(minChunks = 1000): Promise<{ merged: number; filesAffected: number }> {
+    const db = this.deps.metaDb.db;
+    // Group by (project_id, file_id) and only return groups that exceed the
+    // merge threshold — the row scan stays bounded to "files actually worth
+    // merging" instead of every chunk in the DB.
+    const groups = db
+      .prepare(
+        `SELECT project_id, file_id, COUNT(*) AS cnt
+         FROM history_chunk GROUP BY project_id, file_id HAVING cnt > ?`
+      )
+      .all(minChunks) as Array<{ project_id: string; file_id: string; cnt: number }>;
+    let merged = 0;
+    let filesAffected = 0;
+    for (const g of groups) {
+      const result = await this.mergeChunks(g.project_id, g.file_id, minChunks);
+      if (result.merged > 0) {
+        merged += result.merged;
+        filesAffected++;
+      }
+    }
+    return { merged, filesAffected };
+  }
+
+  async listChunks(projectId: string, fileId: string, limit = 100): Promise<HistoryChunk[]> {
+    const rows = this.stmts.listChunks.all(projectId, fileId, limit) as Array<{
+      id: number;
+      project_id: string;
+      file_id: string;
+      version_from: number;
+      version_to: number;
+      base_blob: Uint8Array;
+      target_blob: Uint8Array;
+      op_count: number;
+      primary_actor: string | null;
+      created_at: number;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      projectId: r.project_id,
+      fileId: r.file_id,
+      versionFrom: r.version_from,
+      versionTo: r.version_to,
+      baseBlob: new Uint8Array(r.base_blob),
+      targetBlob: new Uint8Array(r.target_blob),
+      opCount: r.op_count,
+      primaryActor: r.primary_actor,
+      createdAt: r.created_at,
+    }));
+  }
+
+  async createLabel(input: CreateLabelInput): Promise<HistoryLabel> {
+    // crypto.randomUUID() ≠ ULID time-sorting, but `created_at` already sorts
+    // labels; the id is just an opaque key. If a future P5 wants ULID, swap
+    // here without touching callers.
+    const id = randomUUID();
+    const now = Date.now();
+    const description = input.description ?? null;
+
+    runInTx(this.deps.metaDb.db, () => {
+      this.stmts.insertLabel.run(
+        id,
+        input.projectId,
+        input.name,
+        description,
+        input.kind,
+        now,
+        input.createdBy
+      );
+      for (const f of input.files) {
+        const blobHash = fromHex(f.blobHashHex);
+        this.stmts.insertLabelFile.run(id, f.fileId, blobHash, f.version);
+        this.stmts.incRefBlob.run(blobHash);
+      }
+    });
+
+    return {
+      id,
+      projectId: input.projectId,
+      name: input.name,
+      description,
+      kind: input.kind,
+      createdAt: now,
+      createdBy: input.createdBy,
+    };
+  }
+
+  async listLabels(projectId: string, limit = 50): Promise<HistoryLabel[]> {
+    const rows = this.stmts.listLabels.all(projectId, limit) as Array<{
+      id: string;
+      project_id: string;
+      name: string;
+      description: string | null;
+      kind: LabelKind;
+      created_at: number;
+      created_by: string;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      projectId: r.project_id,
+      name: r.name,
+      description: r.description,
+      kind: r.kind,
+      createdAt: r.created_at,
+      createdBy: r.created_by,
+    }));
+  }
+
+  async resolveLabelSnapshot(labelId: string): Promise<Map<string, Uint8Array>> {
+    const files = this.stmts.listLabelFiles.all(labelId) as Array<{
+      file_id: string;
+      blob_hash: Uint8Array;
+      version: number;
+    }>;
+    const map = new Map<string, Uint8Array>();
+    for (const row of files) {
+      const bytes = await this.deps.blobStore.get(new Uint8Array(row.blob_hash));
+      if (bytes) map.set(row.file_id, bytes);
+    }
+    return map;
+  }
+
+  // ===== L2 =====
+
+  /**
+   * Create a session row if absent. Idempotent on `id` — required because
+   * `history_step.session_id` carries a FK constraint, so the step writer
+   * must be able to upsert the session it belongs to.
+   */
+  ensureSession(input: {
+    id: string;
+    projectId: string;
+    chatThreadId: string | null;
+    parentSession: string | null;
+  }): void {
+    this.stmts.insertSession.run(
+      input.id,
+      input.projectId,
+      input.chatThreadId,
+      null,
+      input.parentSession,
+      Date.now()
+    );
+  }
+
+  async recordStep(input: RecordStepInput): Promise<HistoryStep> {
+    const treeCanonical = canonicalTreeJson(input.tree);
+    const treeBytes = new TextEncoder().encode(treeCanonical);
+    const treeHash = await this.deps.blobStore.put(treeBytes);
+
+    const causesBytes = new TextEncoder().encode(JSON.stringify(input.causes));
+    const parentHash = input.parentStepHashHex ? fromHex(input.parentStepHashHex) : null;
+
+    const hash = computeStepHash({
+      parentHashHex: input.parentStepHashHex,
+      treeHashHex: toHex(treeHash),
+      sessionId: input.sessionId,
+      ts: input.ts,
+      causesBytes,
+    });
+
+    runInTx(this.deps.metaDb.db, () => {
+      this.stmts.insertStep.run(
+        hash,
+        parentHash,
+        input.projectId,
+        input.sessionId,
+        treeHash,
+        causesBytes,
+        input.origin,
+        input.ts,
+        input.sizeDelta
+      );
+      this.stmts.incRefBlob.run(treeHash);
+      for (const file of input.tree) {
+        const blobHash = fromHex(file.blobHashHex);
+        this.stmts.insertStepFile.run(hash, file.fileId, blobHash);
+        this.stmts.incRefBlob.run(blobHash);
+      }
+    });
+
+    return {
+      hash,
+      parentHash,
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      treeHash,
+      causes: causesBytes,
+      origin: input.origin,
+      ts: input.ts,
+      sizeDelta: input.sizeDelta,
+    };
+  }
+
+  async getStep(hashHex: HashHex): Promise<HistoryStep | null> {
+    const hash = fromHex(hashHex);
+    const row = this.stmts.getStep.get(hash) as StepRow | undefined;
+    if (!row) return null;
+    return rowToStep(row);
+  }
+
+  async listSessionSteps(sessionId: string, limit = 200): Promise<HistoryStep[]> {
+    const rows = this.stmts.listSessionSteps.all(sessionId, limit) as unknown as StepRow[];
+    return rows.map(rowToStep);
+  }
+
+  async resolveStepSnapshot(hashHex: HashHex): Promise<Map<string, Uint8Array>> {
+    const hash = fromHex(hashHex);
+    const files = this.stmts.listStepFiles.all(hash) as Array<{
+      file_id: string;
+      blob_hash: Uint8Array;
+    }>;
+    const map = new Map<string, Uint8Array>();
+    for (const row of files) {
+      const bytes = await this.deps.blobStore.get(new Uint8Array(row.blob_hash));
+      if (bytes) map.set(row.file_id, bytes);
+    }
+    return map;
+  }
+
+  async findStepBeforeTs(sessionId: string, beforeTs: number): Promise<HistoryStep | null> {
+    const row = this.stmts.findStepBefore.get(sessionId, beforeTs) as StepRow | undefined;
+    if (!row) return null;
+    return rowToStep(row);
+  }
+
+  async listSessions(
+    projectId: string,
+    limit = 50
+  ): Promise<
+    Array<{ sessionId: string; chatThreadId: string | null; stepCount: number; lastTs: number }>
+  > {
+    // Aggregate from history_step + join session row for chat_thread_id.
+    // Sessions without any step are skipped — they exist only as FK targets.
+    const rows = this.deps.metaDb.db
+      .prepare(
+        `SELECT s.session_id AS sessionId,
+                ss.chat_thread_id AS chatThreadId,
+                COUNT(*) AS stepCount,
+                MAX(s.ts) AS lastTs
+         FROM history_step s
+         LEFT JOIN history_session ss ON ss.id = s.session_id
+         WHERE s.project_id = ?
+         GROUP BY s.session_id
+         ORDER BY lastTs DESC
+         LIMIT ?`
+      )
+      .all(projectId, limit) as Array<{
+      sessionId: string;
+      chatThreadId: string | null;
+      stepCount: number;
+      lastTs: number;
+    }>;
+    return rows;
+  }
+
+  async dispose(): Promise<void> {
+    await this.deps.blobStore.dispose();
+    this.deps.metaDb.close();
+  }
+}
+
+export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
+  return new HistoryService(deps);
+}
+
+// ----- helpers -----
+
+interface StepRow {
+  hash: Uint8Array;
+  parent_hash: Uint8Array | null;
+  project_id: string;
+  session_id: string;
+  tree_hash: Uint8Array;
+  causes: Uint8Array;
+  origin: StepOrigin;
+  ts: number;
+  size_delta: number;
+}
+
+function canonicalTreeJson(tree: Array<{ fileId: string; blobHashHex: HashHex }>): string {
+  const sorted = [...tree].sort((a, b) => (a.fileId < b.fileId ? -1 : a.fileId > b.fileId ? 1 : 0));
+  return JSON.stringify(sorted);
+}
+
+/**
+ * Step hash = SHA-256 of pipe-delimited (parent | tree | session | ts | causes).
+ * Pipe-delimited stays independent of JSON formatting drift.
+ */
+function computeStepHash(input: {
+  parentHashHex: HashHex | null;
+  treeHashHex: HashHex;
+  sessionId: string;
+  ts: number;
+  causesBytes: Uint8Array;
+}): Hash {
+  const causesHex = bytesToHex(input.causesBytes);
+  const canonical = `${input.parentHashHex ?? ''}|${input.treeHashHex}|${input.sessionId}|${input.ts}|${causesHex}`;
+  const digest = createHash('sha256').update(canonical).digest();
+  return new Uint8Array(digest);
+}
+
+function toHex(hash: Hash): string {
+  let out = '';
+  for (let i = 0; i < hash.length; i++) out += hash[i].toString(16).padStart(2, '0');
+  return out;
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) out += bytes[i].toString(16).padStart(2, '0');
+  return out;
+}
+
+function fromHex(hex: HashHex): Uint8Array {
+  if (hex.length % 2 !== 0) throw new Error('hex length must be even');
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+function rowToStep(row: StepRow): HistoryStep {
+  return {
+    hash: new Uint8Array(row.hash),
+    parentHash: row.parent_hash ? new Uint8Array(row.parent_hash) : null,
+    projectId: row.project_id,
+    sessionId: row.session_id,
+    treeHash: new Uint8Array(row.tree_hash),
+    causes: new Uint8Array(row.causes),
+    origin: row.origin,
+    ts: row.ts,
+    sizeDelta: row.size_delta,
+  };
+}

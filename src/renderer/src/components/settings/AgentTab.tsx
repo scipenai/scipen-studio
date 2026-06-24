@@ -15,13 +15,22 @@
 
 import { BookOpen, Brain, ChevronDown, ChevronRight } from 'lucide-react';
 import type React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
 import { ConfigKeys } from '../../../../../shared/types/config-keys';
 import { useTranslation } from '../../locales';
 import { agentClient } from '../../services/agent/AgentClientService';
 import { McpServersSection } from './McpServersSection';
-import { SectionTitle, SettingItem, inputClassName } from './SettingsUI';
+import {
+  FormField,
+  FormRow,
+  FormSection,
+  SectionTitle,
+  SettingItem,
+  inputClassName,
+  inputMonoClassName,
+  secondaryButtonClass,
+} from './SettingsUI';
 
 type ApprovalMode = 'interactive' | 'auto_allow' | 'auto_deny';
 
@@ -192,6 +201,43 @@ const BOOL_FIELDS: Array<{
   },
 ];
 
+/** Semantic grouping of engine numeric fields (sub-sections inside the
+ *  collapsible region, to reduce cognitive load). References NUMBER_FIELDS
+ *  by key only; field definitions themselves are unchanged. */
+const ENGINE_GROUPS: Array<{ titleKey: string; keys: NumberKey[] }> = [
+  {
+    titleKey: 'settingsAgent.engine.groupExecution',
+    keys: [
+      'max_iterations',
+      'loop_guard_max_repeats',
+      'concurrent_tool_limit',
+      'turn_timeout_secs',
+    ],
+  },
+  {
+    titleKey: 'settingsAgent.engine.groupContext',
+    keys: [
+      'history_limit',
+      'history_max_bytes',
+      'compact_after_input_tokens',
+      'compact_summary_max_tokens',
+      'collapse_tool_results_threshold',
+    ],
+  },
+  {
+    titleKey: 'settingsAgent.engine.groupTokens',
+    keys: ['max_tokens', 'max_output_token_ceiling', 'max_output_token_escalation_attempts'],
+  },
+  {
+    titleKey: 'settingsAgent.engine.groupMcp',
+    keys: ['mcp_idle_ttl_secs', 'mcp_reaper_period_secs'],
+  },
+];
+
+const NUMBER_FIELD_MAP: Record<NumberKey, (typeof NUMBER_FIELDS)[number]> = Object.fromEntries(
+  NUMBER_FIELDS.map((f) => [f.key, f])
+) as Record<NumberKey, (typeof NUMBER_FIELDS)[number]>;
+
 const selectClassName =
   'h-9 px-3 py-1.5 text-sm rounded-lg border border-[var(--color-border)] ' +
   'bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)] ' +
@@ -288,161 +334,153 @@ export const AgentTab: React.FC = () => {
     },
     [engine, persistEngine]
   );
-  const buttonClass =
-    'inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded border ' +
-    'border-[var(--color-border)] bg-[var(--color-bg-secondary)] ' +
-    'text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]';
-
   return (
-    <>
-      {/* ---------- Memory / Skills viewer launchers ---------- */}
-      <SectionTitle>{t('settingsAgent.viewer')}</SectionTitle>
-      <p className="text-xs text-[var(--color-text-muted)] mb-3 -mt-1">
-        {t('settingsAgent.viewerDesc')}
-      </p>
-
-      <SettingItem
-        label={t('settingsAgent.memoryLabel')}
-        description={t('settingsAgent.memoryDesc')}
-      >
-        <button type="button" onClick={openMemory} className={buttonClass}>
-          <Brain size={14} />
-          {t('settingsAgent.openMemory')}
-        </button>
-      </SettingItem>
-
-      <SettingItem
-        label={t('settingsAgent.skillsLabel')}
-        description={t('settingsAgent.skillsDesc')}
-      >
-        <button type="button" onClick={openSkills} className={buttonClass}>
-          <BookOpen size={14} />
-          {t('settingsAgent.openSkills')}
-        </button>
-      </SettingItem>
-
-      {/* ---------- Approval mode ---------- */}
-      <SectionTitle>{t('settingsAgent.approval.title')}</SectionTitle>
-      <p className="text-xs text-[var(--color-text-muted)] mb-3 -mt-1">
-        {t('settingsAgent.approval.desc')}
-      </p>
-      <SettingItem
-        label={t('settingsAgent.approval.mode')}
-        description={t('settingsAgent.approval.modeDesc')}
-      >
-        <select
-          value={approval}
-          onChange={(e) => onApprovalChange(e.target.value as ApprovalMode)}
-          className={selectClassName}
+    <div>
+      {/* ---------- Core behavior: approval mode ---------- */}
+      <FormSection title={t('settingsAgent.sectionCoreBehavior')} first>
+        <FormRow
+          title={t('settingsAgent.approval.mode')}
+          description={t('settingsAgent.approval.modeDesc')}
         >
-          <option value="interactive">{t('settingsAgent.approval.interactive')}</option>
-          <option value="auto_allow">{t('settingsAgent.approval.autoAllow')}</option>
-          <option value="auto_deny">{t('settingsAgent.approval.autoDeny')}</option>
-        </select>
-      </SettingItem>
-
-      {/* ---------- Web search (Tavily) ---------- */}
-      <SectionTitle>{t('settingsAgent.webSearch.title')}</SectionTitle>
-      <p className="text-xs text-[var(--color-text-muted)] mb-3 -mt-1">
-        {t('settingsAgent.webSearch.desc')}
-      </p>
-      <SettingItem
-        label={t('settingsAgent.webSearch.apiKey')}
-        description={t('settingsAgent.webSearch.apiKeyDesc')}
-      >
-        <input
-          type="password"
-          value={webSearchKey}
-          onChange={(e) => onWebSearchKeyChange(e.target.value)}
-          placeholder={t('settingsAgent.webSearch.apiKeyPlaceholder')}
-          className={inputClassName}
-          autoComplete="off"
-          spellCheck={false}
-        />
-      </SettingItem>
-
-      {/* ---------- MCP Servers ---------- */}
-      <McpServersSection />
-
-      {/* ---------- Engine advanced ---------- */}
-      <SectionTitle>{t('settingsAgent.engine.title')}</SectionTitle>
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="-mt-1 mb-2 inline-flex items-center gap-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-      >
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        {t(expanded ? 'settingsAgent.engine.collapse' : 'settingsAgent.engine.expand')}
-      </button>
-
-      {expanded && (
-        <>
-          <p className="text-xs text-[var(--color-text-muted)] mb-3">
-            {t('settingsAgent.engine.desc')}
-          </p>
-
-          {NUMBER_FIELDS.map((field) => {
-            const value = engine[field.key];
-            const allowZero = field.allowZero ?? false;
-            return (
-              <SettingItem
-                key={field.key}
-                label={t(field.labelKey as never)}
-                description={t(field.descKey as never)}
-              >
-                <input
-                  type="number"
-                  min={allowZero ? 0 : 1}
-                  value={typeof value === 'number' ? value : ''}
-                  placeholder={field.placeholder}
-                  onChange={(e) => updateNumber(field.key, e.target.value, allowZero)}
-                  className={inputClassName}
-                />
-              </SettingItem>
-            );
-          })}
-
-          {BOOL_FIELDS.map((field) => {
-            // Unset persisted value → show the engine default so the UI
-            // reflects what's actually happening. Any user interaction
-            // then writes an explicit boolean.
-            const effective = engine[field.key] ?? field.engineDefault;
-            return (
-              <SettingItem
-                key={field.key}
-                label={t(field.labelKey as never)}
-                description={t(field.descKey as never)}
-              >
-                <select
-                  value={effective ? 'true' : 'false'}
-                  onChange={(e) => updateBool(field.key, e.target.value === 'true')}
-                  className={selectClassName}
-                >
-                  <option value="true">{t('settingsAgent.engine.boolOn' as never)}</option>
-                  <option value="false">{t('settingsAgent.engine.boolOff' as never)}</option>
-                </select>
-              </SettingItem>
-            );
-          })}
-
-          <SettingItem
-            label={t('settingsAgent.engine.memoryExtractorModel' as never)}
-            description={t('settingsAgent.engine.memoryExtractorModelDesc' as never)}
+          <select
+            value={approval}
+            onChange={(e) => onApprovalChange(e.target.value as ApprovalMode)}
+            className={selectClassName}
           >
-            <input
-              type="text"
-              value={engine.memory_extractor_model ?? ''}
-              placeholder="deepseek-chat"
-              onChange={(e) => updateString('memory_extractor_model', e.target.value)}
-              className={inputClassName}
-            />
-          </SettingItem>
+            <option value="interactive">{t('settingsAgent.approval.interactive')}</option>
+            <option value="auto_allow">{t('settingsAgent.approval.autoAllow')}</option>
+            <option value="auto_deny">{t('settingsAgent.approval.autoDeny')}</option>
+          </select>
+        </FormRow>
+      </FormSection>
 
-          <p className="text-[11px] text-amber-400/80 mt-2">
-            {t('settingsAgent.engine.restartHint')}
-          </p>
-        </>
-      )}
-    </>
+      {/* ---------- Memory & tools: Memory / Skills viewer ---------- */}
+      <FormSection title={t('settingsAgent.sectionMemoryTools')}>
+        <FormRow title={t('settingsAgent.memoryLabel')} description={t('settingsAgent.memoryDesc')}>
+          <button type="button" onClick={openMemory} className={secondaryButtonClass}>
+            <Brain size={14} aria-hidden="true" />
+            {t('settingsAgent.openMemory')}
+          </button>
+        </FormRow>
+        <FormRow title={t('settingsAgent.skillsLabel')} description={t('settingsAgent.skillsDesc')}>
+          <button type="button" onClick={openSkills} className={secondaryButtonClass}>
+            <BookOpen size={14} aria-hidden="true" />
+            {t('settingsAgent.openSkills')}
+          </button>
+        </FormRow>
+      </FormSection>
+
+      {/* ---------- External integrations: Tavily + MCP ---------- */}
+      <FormSection title={t('settingsAgent.sectionIntegrations')}>
+        <FormField
+          title={t('settingsAgent.webSearch.apiKey')}
+          description={t('settingsAgent.webSearch.apiKeyDesc')}
+        >
+          <input
+            type="password"
+            value={webSearchKey}
+            onChange={(e) => onWebSearchKeyChange(e.target.value)}
+            placeholder={t('settingsAgent.webSearch.apiKeyPlaceholder')}
+            className={inputMonoClassName}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </FormField>
+        <McpServersSection />
+      </FormSection>
+
+      {/* ---------- Advanced engine (collapsible) ---------- */}
+      <FormSection title={t('settingsAgent.engine.title')}>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="mb-2 inline-flex cursor-pointer items-center gap-1 rounded text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+        >
+          {expanded ? (
+            <ChevronDown size={12} aria-hidden="true" />
+          ) : (
+            <ChevronRight size={12} aria-hidden="true" />
+          )}
+          {t(expanded ? 'settingsAgent.engine.collapse' : 'settingsAgent.engine.expand')}
+        </button>
+
+        {expanded && (
+          <>
+            <p className="text-xs text-[var(--color-text-muted)] mb-3">
+              {t('settingsAgent.engine.desc')}
+            </p>
+
+            {ENGINE_GROUPS.map((grp) => (
+              <Fragment key={grp.titleKey}>
+                <SectionTitle>{t(grp.titleKey as never)}</SectionTitle>
+                {grp.keys.map((k) => {
+                  const field = NUMBER_FIELD_MAP[k];
+                  const value = engine[field.key];
+                  const allowZero = field.allowZero ?? false;
+                  return (
+                    <SettingItem
+                      key={field.key}
+                      label={t(field.labelKey as never)}
+                      description={t(field.descKey as never)}
+                    >
+                      <input
+                        type="number"
+                        min={allowZero ? 0 : 1}
+                        value={typeof value === 'number' ? value : ''}
+                        placeholder={field.placeholder}
+                        onChange={(e) => updateNumber(field.key, e.target.value, allowZero)}
+                        className={inputClassName}
+                      />
+                    </SettingItem>
+                  );
+                })}
+              </Fragment>
+            ))}
+
+            <SectionTitle>{t('settingsAgent.engine.groupSwitches' as never)}</SectionTitle>
+            {BOOL_FIELDS.map((field) => {
+              // Unset persisted value → show the engine default so the UI
+              // reflects what's actually happening. Any user interaction
+              // then writes an explicit boolean.
+              const effective = engine[field.key] ?? field.engineDefault;
+              return (
+                <SettingItem
+                  key={field.key}
+                  label={t(field.labelKey as never)}
+                  description={t(field.descKey as never)}
+                >
+                  <select
+                    value={effective ? 'true' : 'false'}
+                    onChange={(e) => updateBool(field.key, e.target.value === 'true')}
+                    className={selectClassName}
+                  >
+                    <option value="true">{t('settingsAgent.engine.boolOn' as never)}</option>
+                    <option value="false">{t('settingsAgent.engine.boolOff' as never)}</option>
+                  </select>
+                </SettingItem>
+              );
+            })}
+
+            <SettingItem
+              label={t('settingsAgent.engine.memoryExtractorModel' as never)}
+              description={t('settingsAgent.engine.memoryExtractorModelDesc' as never)}
+            >
+              <input
+                type="text"
+                value={engine.memory_extractor_model ?? ''}
+                placeholder="deepseek-chat"
+                onChange={(e) => updateString('memory_extractor_model', e.target.value)}
+                className={inputMonoClassName}
+              />
+            </SettingItem>
+
+            <p className="text-[11px] text-amber-400/80 mt-2">
+              {t('settingsAgent.engine.restartHint')}
+            </p>
+          </>
+        )}
+      </FormSection>
+    </div>
   );
 };

@@ -75,9 +75,9 @@ export interface ChatContext {
   project?: ProjectMeta;
   /** Free-form markdown intel summary; rendered into LLM system prompt. */
   project_intel?: string;
-  /** 右栏正在查看的 Zotero 论文 itemKey(Ctrl+Click \cite 打开)。 */
+  /** itemKey of the Zotero paper currently open in the right pane (opened via Ctrl+Click on \cite). */
   active_zotero_item?: string;
-  /** markdown 预览当前滚到的章节标题(scroll-spy 跟踪)。 */
+  /** Heading of the section the markdown preview is currently scrolled to (scroll-spy). */
   markdown_section?: string;
 }
 
