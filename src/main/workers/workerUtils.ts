@@ -53,6 +53,11 @@ const Dirname = path.dirname(Filename);
  * - Dev: out/main/workers/xxx.worker.cjs
  * - Production: resources/app.asar/out/main/workers/xxx.worker.cjs
  *
+ * Note: this file is bundled into out/main/index.js by electron-vite, so
+ * `Dirname` resolves to out/main/ (not to out/main/workers/). The 'workers'
+ * segment must be joined explicitly — see scripts/build-workers.js, which
+ * emits all workers under out/main/workers/.
+ *
  * @param workerName Worker name (without extension), e.g., 'compile', 'pdf', 'file'
  * @returns Absolute path to the Worker script.
  */
@@ -63,9 +68,8 @@ export function getWorkerPath(workerName: string): string {
     // Production: Worker is inside app.asar
     return path.join(process.resourcesPath, 'app.asar', 'out', 'main', 'workers', workerFileName);
   } else {
-    // Dev: Worker is in out/main/workers/
-    // Note: __dirname points to out/main/workers/ after compilation
-    return path.join(Dirname, workerFileName);
+    // Dev: out/main/workers/<name>.worker.cjs (Dirname === out/main/)
+    return path.join(Dirname, 'workers', workerFileName);
   }
 }
 

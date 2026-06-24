@@ -50,6 +50,9 @@ export function registerFileTreeHandlers(deps: FileHandlersDeps): void {
           }
 
           const fileTree = await fileSystemService.buildFileTree(effectivePath);
+
+          fileSystemService.startWatching(effectivePath);
+
           await addRecentProject(effectivePath);
 
           PathSecurityService.setProjectPath(effectivePath);
