@@ -158,8 +158,7 @@ const DOCUMENTCLASS_REGEX = /\\documentclass\s*(?:\[[^\]]*\])?\s*\{[^}]+\}/;
  * user could write those AFTER `\usepackage{xeCJK}` and we'd already see
  * xeCJK in the package list; that's the cleaner signal.
  */
-const USER_PACKAGE_REGEX =
-  /\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/g;
+const USER_PACKAGE_REGEX = /\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/g;
 const USER_CJK_PACKAGE_NAMES = new Set([
   'ctex',
   'xeCJK',
