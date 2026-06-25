@@ -164,7 +164,8 @@ describe('StatusBar', () => {
     fireEvent.click(selector);
 
     const menu = screen.getByRole('menu', { name: 'Local compiler' });
-    expect(await screen.findByRole('menuitemradio', { name: 'XeLaTeX' })).toHaveFocus();
+    const selectedEngine = await screen.findByRole('menuitemradio', { name: 'XeLaTeX' });
+    await waitFor(() => expect(selectedEngine).toHaveFocus());
 
     fireEvent.keyDown(menu, { key: 'Escape' });
 
