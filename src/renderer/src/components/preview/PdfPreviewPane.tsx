@@ -636,11 +636,13 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     if (!containerRef.current || !pdfDoc) return;
 
     pdfDoc.getPage(1).then((page) => {
-      const containerStyle = window.getComputedStyle(containerRef.current!);
+      const container = containerRef.current;
+      if (!container) return;
+      const containerStyle = window.getComputedStyle(container);
       const horizontalPadding =
         Number.parseFloat(containerStyle.paddingLeft || '0') +
         Number.parseFloat(containerStyle.paddingRight || '0');
-      const containerWidth = containerRef.current!.clientWidth - horizontalPadding - 24;
+      const containerWidth = container.clientWidth - horizontalPadding - 24;
       const viewport = page.getViewport({ scale: 1 });
       const newScale = containerWidth / viewport.width;
       setScale(Math.min(Math.max(newScale, 0.5), 3));
