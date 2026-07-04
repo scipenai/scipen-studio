@@ -80,9 +80,11 @@ export function shouldOfferCjkSupport(source: string): boolean {
 }
 
 /**
- * Character offset of the real `\documentclass{...}` in `source`, or null.
- * Used to anchor the CodeLens on the same line the insertion targets (a plain
- * substring search would also match a commented-out `% \documentclass`).
+ * Character offset of the first `\documentclass{...}` token in `source`, or
+ * null. Shared by the CodeLens anchor and {@link insertCjkSupport} so the lens
+ * renders on the exact line the insertion targets. (Like the insertion, this is
+ * a regex over source text — it does not skip a commented-out `% \documentclass`
+ * — but anchor and insertion stay consistent because both use this match.)
  */
 export function documentClassOffset(source: string): number | null {
   const match = matchDocumentClass(source);

@@ -46,16 +46,20 @@ let cachedCaps: LaTeXCapabilities | null = null;
 
 export function getLatexCapabilities(): Promise<LaTeXCapabilities> {
   if (!capsPromise) {
-    capsPromise = api.compile
+    const chain: Promise<LaTeXCapabilities> = api.compile
       .getLaTeXCapabilities()
       .then((caps) => {
         cachedCaps = caps;
         return caps;
       })
       .catch((error) => {
-        capsPromise = null; // allow the next call to retry
+        // Allow the next call to retry — but only clear the cache if it still
+        // points at THIS chain, so we don't clobber a concurrent refresh's
+        // newer probe.
+        if (capsPromise === chain) capsPromise = null;
         throw error;
       });
+    capsPromise = chain;
   }
   return capsPromise;
 }
@@ -88,14 +92,16 @@ export function isLocalLatexEngine(engine: string): boolean {
 
 /**
  * Synchronous best-effort resolution for non-compile readers (agent/chat
- * context, telemetry, displays) that must not surface the raw `auto` sentinel.
- * Returns `engine` unchanged unless it is `auto`, in which case it resolves
- * against the last cached probe — or falls back to the WASM engine if no probe
- * has completed yet. Never spawns work.
+ * context, telemetry, displays). Returns `engine` unchanged unless it is
+ * `auto` AND the probe has already completed, in which case it maps to the
+ * concrete engine that will actually run. If no probe result is cached yet we
+ * return `auto` verbatim — an honest "not yet resolved" beats guessing
+ * `wasm-xetex` when the machine may actually resolve to local xelatex. Never
+ * spawns work.
  */
 export function resolveLatexEngineForDisplay(engine: string): string {
-  if (engine !== LATEX_ENGINES.AUTO) return engine;
-  return cachedCaps ? resolveAutoLatexEngine(cachedCaps) : WASM_FALLBACK;
+  if (engine !== LATEX_ENGINES.AUTO || !cachedCaps) return engine;
+  return resolveAutoLatexEngine(cachedCaps);
 }
 
 /** Fire-and-forget warm-up so the first compile doesn't block on the probe. */

@@ -53,8 +53,9 @@ export function registerCjkCodeLensProvider(
         return { lenses: [], dispose() {} };
       }
 
-      // Anchor on the REAL \documentclass (regex, same as the insertion), not a
-      // raw substring that would also match a commented-out `% \documentclass`.
+      // Anchor via the SAME \documentclass regex the insertion uses, so the lens
+      // always renders on the exact line the edit will land on (a plain substring
+      // search could match `\documentclassfoo` or a partial token elsewhere).
       const offset = documentClassOffset(source);
       const line = offset === null ? 1 : model.getPositionAt(offset).lineNumber;
 

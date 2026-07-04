@@ -252,10 +252,6 @@ export const StatusBar: React.FC = () => {
     }
 
     const options: CompileEngineOption[] = [];
-    // 'auto' (local-first, WASM fallback) is always offered and listed first —
-    // it's the default engine; omitting it here would make the reconcile effect
-    // below overwrite a persisted 'auto' with a concrete engine on mount.
-    options.push({ value: 'auto', label: getCompilerLabel('auto') });
     if (latexCaps.cli.xelatex.available) {
       options.push({ value: 'xelatex', label: getCompilerLabel('xelatex') });
     }
@@ -276,6 +272,13 @@ export const StatusBar: React.FC = () => {
     }
     if (latexCaps.wasm.lualatex.available) {
       options.push({ value: 'wasm-lualatex', label: getCompilerLabel('wasm-lualatex') });
+    }
+    // 'auto' (local-first, WASM fallback) is the default engine — list it first,
+    // but only when at least one real engine exists, so a truly-empty toolchain
+    // still trips the "no engine" empty-state and the reconcile effect below
+    // doesn't overwrite a persisted 'auto'.
+    if (options.length > 0) {
+      options.unshift({ value: 'auto', label: getCompilerLabel('auto') });
     }
     return options;
   }, [getCompilerLabel, latexCaps]);

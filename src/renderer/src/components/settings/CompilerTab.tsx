@@ -141,9 +141,6 @@ export const CompilerTab: FC = () => {
   const latexOptions = useMemo<{ value: LaTeXEngine; label: string }[]>(() => {
     const options: { value: LaTeXEngine; label: string }[] = [];
     if (latexCaps) {
-      // `auto` is always offered and listed first — it resolves to a local
-      // engine when available, else the WASM engine.
-      options.push({ value: 'auto', label: t('compiler.auto') });
       if (latexCaps.cli.xelatex.available) {
         options.push({ value: 'xelatex', label: t('compiler.xelatexRecommended') });
       }
@@ -164,6 +161,12 @@ export const CompilerTab: FC = () => {
       }
       if (latexCaps.wasm.lualatex.available) {
         options.push({ value: 'wasm-lualatex', label: t('compiler.wasmLualatex') });
+      }
+      // `auto` (resolves to a local engine if available, else WASM) is the
+      // default — listed first, but only when at least one real engine exists
+      // so a zero-engine environment still surfaces the "no engine" warning.
+      if (options.length > 0) {
+        options.unshift({ value: 'auto', label: t('compiler.auto') });
       }
     }
     return options;
