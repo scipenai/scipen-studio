@@ -49,7 +49,9 @@ export function getLatexCapabilities(): Promise<LaTeXCapabilities> {
     const chain: Promise<LaTeXCapabilities> = api.compile
       .getLaTeXCapabilities()
       .then((caps) => {
-        cachedCaps = caps;
+        // Only record if this is still the current probe — a concurrent
+        // refresh may have superseded us with a newer result.
+        if (capsPromise === chain) cachedCaps = caps;
         return caps;
       })
       .catch((error) => {

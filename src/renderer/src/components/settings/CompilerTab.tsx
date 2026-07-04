@@ -177,9 +177,12 @@ export const CompilerTab: FC = () => {
     latexOptions.length > 0 && !latexOptions.some((opt) => opt.value === currentLatexEngine);
 
   // When `auto` is selected, show which concrete engine it resolves to so the
-  // choice isn't opaque.
+  // choice isn't opaque. Suppressed when no engine is available at all
+  // (latexOptions empty) so it can't contradict the "no engine" warning.
   const autoResolvedEngine =
-    currentLatexEngine === 'auto' && latexCaps ? resolveAutoLatexEngine(latexCaps) : null;
+    currentLatexEngine === 'auto' && latexCaps && latexOptions.length > 0
+      ? resolveAutoLatexEngine(latexCaps)
+      : null;
 
   useEffect(() => {
     if (!currentLatexEngineUnavailable || latexOptions.length === 0) return;

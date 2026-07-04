@@ -64,6 +64,7 @@ vi.mock('../../../src/renderer/src/locales', () => ({
         'statusBar.saved': 'Saved',
         'statusBar.selectCompileEngine': 'Select compile engine',
         'statusBar.localCompiler': 'Local compiler',
+        'compiler.auto': 'Auto',
         'compiler.xelatexRecommended': 'XeLaTeX',
         'compiler.lualatex': 'LuaLaTeX',
         'compiler.pdflatex': 'pdfLaTeX',
@@ -179,7 +180,10 @@ describe('StatusBar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select compile engine' }));
 
     const menu = screen.getByRole('menu', { name: 'Local compiler' });
-    const xelatex = await screen.findByRole('menuitemradio', { name: 'XeLaTeX' });
+    // 'Auto' is the first menu item (the default engine); the persisted
+    // 'xelatex' is the selected one, so it receives focus when the menu opens.
+    const auto = await screen.findByRole('menuitemradio', { name: 'Auto' });
+    const xelatex = screen.getByRole('menuitemradio', { name: 'XeLaTeX' });
     const lualatex = screen.getByRole('menuitemradio', { name: 'LuaLaTeX' });
     const wasmLua = screen.getByRole('menuitemradio', { name: 'WASM LuaTeX' });
 
@@ -189,7 +193,7 @@ describe('StatusBar', () => {
     expect(lualatex).toHaveFocus();
 
     fireEvent.keyDown(menu, { key: 'Home' });
-    expect(xelatex).toHaveFocus();
+    expect(auto).toHaveFocus();
 
     fireEvent.keyDown(menu, { key: 'ArrowUp' });
     expect(wasmLua).toHaveFocus();
@@ -222,8 +226,11 @@ describe('StatusBar', () => {
     expect(screen.queryByRole('menuitemradio', { name: 'LuaLaTeX' })).not.toBeInTheDocument();
     expect(screen.queryByRole('menuitemradio', { name: 'Tectonic' })).not.toBeInTheDocument();
     expect(screen.getByRole('menuitemradio', { name: 'WASM XeTeX' })).toBeInTheDocument();
+    // The persisted 'xelatex' is unavailable, so the reconcile effect resets it
+    // to the first option — now 'auto' (the local-first default), not a specific
+    // concrete engine.
     await waitFor(() => {
-      expect(mocks.updateCompiler).toHaveBeenCalledWith({ engine: 'pdflatex' });
+      expect(mocks.updateCompiler).toHaveBeenCalledWith({ engine: 'auto' });
     });
   });
 
