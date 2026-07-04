@@ -5,14 +5,20 @@
 
 /** LaTeX compilation engine */
 export const LATEX_ENGINES = {
+  /**
+   * Resolve at compile time: prefer a locally-installed engine (xelatex →
+   * lualatex → tectonic), falling back to the WASM engine when none is found.
+   * See resolveAutoLatexEngine in CompileService.
+   */
+  AUTO: 'auto',
   TECTONIC: 'tectonic',
   PDFLATEX: 'pdflatex',
   XELATEX: 'xelatex',
   LUALATEX: 'lualatex',
 } as const;
 
-/** Default LaTeX engine */
-export const DEFAULT_LATEX_ENGINE = LATEX_ENGINES.XELATEX;
+/** Default LaTeX engine — local-first via {@link LATEX_ENGINES.AUTO}. */
+export const DEFAULT_LATEX_ENGINE = LATEX_ENGINES.AUTO;
 
 /** Overleaf default compiler */
 export const DEFAULT_OVERLEAF_COMPILER = LATEX_ENGINES.PDFLATEX;

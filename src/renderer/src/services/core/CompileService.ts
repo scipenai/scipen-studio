@@ -20,12 +20,31 @@ import {
   WASMCompilerProvider,
 } from './CompilerProviders';
 import { CompilerRegistry, type CompilerProvider } from './LanguageFeatureRegistry';
+import {
+  getLatexCapabilities,
+  isLocalLatexEngine,
+  resolveAutoLatexEngine,
+} from './latexEngineResolver';
 
 const logger = createLogger('CompileService');
 
+/**
+ * Fallback engine used when the `auto`-resolved local engine turns out to be
+ * unusable (e.g. the binary vanished after the capability probe).
+ */
+const AUTO_WASM_FALLBACK = 'wasm-xetex';
+
+/** Detect a "the LaTeX binary isn't actually available" failure. */
+function isMissingEngineFailure(result: CompileResult): boolean {
+  const haystack = [result.log ?? '', ...(result.errors ?? [])].join('\n');
+  return /not found|ENOENT|command not found|Please install|is not recognized/i.test(haystack);
+}
+
 // ====== Type Definitions ======
 
-export type LatexEngine = 'pdflatex' | 'xelatex' | 'lualatex' | 'tectonic';
+// 'auto' is a settings-level selection resolved to a concrete engine by
+// _resolveAutoEngine before provider routing; providers never see it.
+export type LatexEngine = 'auto' | 'pdflatex' | 'xelatex' | 'lualatex' | 'tectonic';
 export type WasmEngine = 'wasm-pdftex' | 'wasm-xetex' | 'wasm-lualatex';
 export type TypstEngine = 'typst' | 'tinymist' | 'wasm-typst';
 export type CompileEngine = LatexEngine | WasmEngine | TypstEngine;
@@ -110,6 +129,8 @@ export class CompileService implements IDisposable {
 
   private readonly _compilerRegistry: CompilerRegistry;
   private _currentProvider: CompilerProvider | null = null;
+  /** True when the current compile's engine came from resolving `auto` to a local engine. */
+  private _autoResolvedLocal = false;
 
   // ====== Event Definitions ======
 
@@ -179,6 +200,23 @@ export class CompileService implements IDisposable {
     this._currentProvider?.cancel?.();
   }
 
+  /**
+   * Resolve the `auto` engine (local-first) to a concrete engine using the
+   * cached capability probe. No-op for any explicit engine selection. Records
+   * whether the result is a local engine so {@link _doCompile} can decide
+   * whether a runtime failure warrants the WASM fallback.
+   */
+  private async _resolveAutoEngine(options: CompileOptions): Promise<CompileOptions> {
+    this._autoResolvedLocal = false;
+    if (options.engine !== 'auto') return options;
+
+    const caps = await getLatexCapabilities();
+    const resolved = resolveAutoLatexEngine(caps);
+    this._autoResolvedLocal = isLocalLatexEngine(resolved);
+    this.log('info', `Auto engine resolved to: ${resolved}`);
+    return { ...options, engine: resolved as CompileEngine };
+  }
+
   private async _doCompile(
     filePath: string,
     content: string,
@@ -195,6 +233,10 @@ export class CompileService implements IDisposable {
     let result: CompileResult;
 
     try {
+      // Resolve the `auto` engine (local-first) before provider routing —
+      // downstream providers only understand concrete engine names.
+      options = await this._resolveAutoEngine(options);
+
       const provider = this._compilerRegistry.getCompilerForFile(filePath, options);
 
       if (!provider) {
@@ -220,6 +262,28 @@ export class CompileService implements IDisposable {
       this._currentProvider = provider;
       result = await provider.compile(filePath, content, options);
       this._currentProvider = null;
+
+      // `auto` fallback: if the local engine we chose turns out to be missing
+      // at runtime, retry once on the WASM engine so a compile never dead-ends
+      // on a stale capability probe. Only fires for auto-resolved local runs.
+      if (
+        !result.success &&
+        this._autoResolvedLocal &&
+        isLocalLatexEngine(options.engine) &&
+        isMissingEngineFailure(result)
+      ) {
+        this.log(
+          'warning',
+          `Local engine "${options.engine}" unavailable; falling back to ${AUTO_WASM_FALLBACK} (WASM).`
+        );
+        const wasmOptions = { ...options, engine: AUTO_WASM_FALLBACK as CompileEngine };
+        const wasmProvider = this._compilerRegistry.getCompilerForFile(filePath, wasmOptions);
+        if (wasmProvider) {
+          this._currentProvider = wasmProvider;
+          result = await wasmProvider.compile(filePath, content, wasmOptions);
+          this._currentProvider = null;
+        }
+      }
 
       result.sourceFile = filePath;
       result.time = Date.now() - startTime;

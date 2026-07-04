@@ -12,6 +12,10 @@ import { api } from '../../api';
 import { useTranslation } from '../../locales';
 import { createLogger } from '../../services/LogService';
 import { getSettingsService } from '../../services/core/ServiceRegistry';
+import {
+  refreshLatexCapabilities,
+  resolveAutoLatexEngine,
+} from '../../services/core/latexEngineResolver';
 import { useProjectPath, useSettings } from '../../services/core/hooks';
 import type { LaTeXEngine, TypstEngine } from '../../types';
 import {
@@ -54,8 +58,9 @@ export const CompilerTab: FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-    api.compile
-      .getLaTeXCapabilities()
+    // Fresh probe on panel open — also refreshes the shared cache the `auto`
+    // resolver reads, so installing TeX Live mid-session is picked up here.
+    refreshLatexCapabilities()
       .then((caps) => {
         if (cancelled) return;
         setLatexCaps(caps);
@@ -136,6 +141,9 @@ export const CompilerTab: FC = () => {
   const latexOptions = useMemo<{ value: LaTeXEngine; label: string }[]>(() => {
     const options: { value: LaTeXEngine; label: string }[] = [];
     if (latexCaps) {
+      // `auto` is always offered and listed first — it resolves to a local
+      // engine when available, else the WASM engine.
+      options.push({ value: 'auto', label: t('compiler.auto') });
       if (latexCaps.cli.xelatex.available) {
         options.push({ value: 'xelatex', label: t('compiler.xelatexRecommended') });
       }
@@ -164,6 +172,11 @@ export const CompilerTab: FC = () => {
   const currentLatexEngine = settings.compiler.engine;
   const currentLatexEngineUnavailable =
     latexOptions.length > 0 && !latexOptions.some((opt) => opt.value === currentLatexEngine);
+
+  // When `auto` is selected, show which concrete engine it resolves to so the
+  // choice isn't opaque.
+  const autoResolvedEngine =
+    currentLatexEngine === 'auto' && latexCaps ? resolveAutoLatexEngine(latexCaps) : null;
 
   useEffect(() => {
     if (!currentLatexEngineUnavailable || latexOptions.length === 0) return;
@@ -208,6 +221,12 @@ export const CompilerTab: FC = () => {
           </select>
         )}
       </SettingItem>
+
+      {autoResolvedEngine && (
+        <div className="mb-4 p-2 rounded-lg text-xs bg-[var(--color-accent-muted)] border border-[var(--color-accent)]/30 text-[var(--color-accent)]">
+          {t('compiler.autoResolved', { engine: autoResolvedEngine })}
+        </div>
+      )}
 
       {currentLatexEngineUnavailable && (
         <div className="mb-4 p-2 rounded-lg text-xs bg-[var(--color-warning-muted)] border border-[var(--color-warning)]/30 text-[var(--color-warning)]">

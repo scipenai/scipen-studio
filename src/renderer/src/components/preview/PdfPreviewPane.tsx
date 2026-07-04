@@ -51,13 +51,11 @@ import { useTranslation } from '../../locales';
 import { CompileLogPanel } from './CompileLogPanel';
 import { usePulseHighlight } from './usePdfMotion';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
-  import.meta.url
-).toString();
-
-// CMap URL required for CJK character rendering (resolved at runtime)
-const CMAP_URL = new URL(/* @vite-ignore */ 'pdfjs-dist/cmaps/', import.meta.url).toString();
+// workerSrc + CMAP_URL come from the single config point (pdfjsRuntime); the
+// side-effect import wires GlobalWorkerOptions.workerSrc. Previously this file
+// redefined CMAP_URL against `import.meta.url` (pointing at the JS chunk, not
+// the served /cmaps/), which broke CJK rendering with "unexpected EOF in bcmap".
+import { CMAP_URL } from '../../services/pdf/pdfjsRuntime';
 
 // Thumbnail generation task ID for scheduler deduplication and cancellation
 const THUMBNAIL_TASK_ID = 'preview-generate-thumbnails';
@@ -398,7 +396,13 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
         cMapPacked: boolean;
       } = {
         data: data.buffer.slice(0) as ArrayBuffer,
-        disableFontFace: false,
+        // disableFontFace MUST be true for embedded CJK/CID fonts (e.g. Fandol
+        // from ctex/XeLaTeX). With it false, pdf.js routes glyphs through the
+        // browser @font-face engine, which can't map CID fonts that lack a
+        // ToUnicode table — Chinese then renders blank while Latin/math are
+        // fine. true makes pdf.js rasterize glyph outlines itself, which
+        // renders CJK correctly (verified against poppler output).
+        disableFontFace: true,
         useSystemFonts: true,
         cMapUrl: CMAP_URL,
         cMapPacked: true,

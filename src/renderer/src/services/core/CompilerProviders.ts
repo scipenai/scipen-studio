@@ -8,7 +8,6 @@ import { api } from '../../api';
 import { t } from '../../locales';
 import { createLogger } from '../LogService';
 import { BusyTexEngine, type BusyTexEngineType } from '../BusyTexEngine';
-import { autoInjectCjkPreamble } from '../cjkFontRegistry';
 import { TypstWasmEngine } from '../TypstWasmEngine';
 import { getSettingsService } from './ServiceRegistry';
 import type { CompileResult, LatexEngine, TypstEngine } from './CompileService';
@@ -35,12 +34,14 @@ export class LaTeXCompilerProvider implements CompilerProvider {
       file: filePath,
     });
 
+    // `auto` is resolved to a concrete engine by CompileService before routing,
+    // so it never reaches this provider — narrow it out for the IPC contract.
     const compileOptions: {
-      engine?: LatexEngine;
+      engine?: Exclude<LatexEngine, 'auto'>;
       mainFile?: string;
       projectPath?: string;
     } = {
-      engine: options.engine as LatexEngine,
+      engine: options.engine as Exclude<LatexEngine, 'auto'>,
     };
 
     if (options.mainFile) {
@@ -452,22 +453,14 @@ export class WASMCompilerProvider implements CompilerProvider {
       const settings = getSettingsService().getSettings().compiler;
       this.engine.setTexliveEndpoint(settings.texliveEndpoint || '');
 
-      // Mount the bundled CJK font set for Unicode-capable engines only.
-      // pdftex can't speak Unicode → loading fonts there is pure waste.
-      // The engine itself dedupes repeat calls; cost is bounded to the
-      // first xetex/lualatex compile after each provider lifecycle.
-      // Failure here is non-fatal: a missing font asset means Latin-only
-      // documents still compile, and Chinese ones get the same "font not
-      // found" they'd get without us trying — log and continue.
-      if (engineType === 'xetex' || engineType === 'lualatex') {
-        try {
-          await this.engine.mountCjkFonts();
-        } catch (err) {
-          logger.warn('CJK font mount failed; CJK documents will fail to render', {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
+      // CJK note: scipen no longer mounts private fonts or injects a shim.
+      // Chinese documents use standard `\usepackage{ctex}`; ctex/xeCJK and
+      // the fonts are resolved from the TeX Live tree — served on demand by
+      // the remote endpoint. The BusyTeX worker caches fetched files for the
+      // lifetime of the worker (in /tmp/texlive_remote + kpse cache), so a
+      // second CJK compile in the same session doesn't re-download. Only the
+      // first CJK compile after an app launch pays the network cost.
+      // This keeps the user's source portable to any standard toolchain.
 
       // Each compile gets a fresh in-memory FS (BusyTeX semantics);
       // flushWorkDir just resets the renderer-side staging list.
@@ -475,7 +468,7 @@ export class WASMCompilerProvider implements CompilerProvider {
 
       // Stage project sources into the worker FS.
       const stageT0 = performance.now();
-      await this.writeProjectFiles(filePath, content, options, engineType);
+      await this.writeProjectFiles(filePath, content, options);
       logger.info('WASM stage done', {
         stageMs: Math.round(performance.now() - stageT0),
       });
@@ -535,43 +528,24 @@ export class WASMCompilerProvider implements CompilerProvider {
   }
 
   /**
-   * Stage all project sources into the worker FS. Current file uses the
-   * (possibly unsaved) editor content; siblings are batch-read from disk.
+   * Stage all project sources into the worker FS verbatim. Current file uses
+   * the (possibly unsaved) editor content; siblings are batch-read from disk.
    * Paths are project-relative so BusyTeX reconstructs the source tree;
    * parent directories are created implicitly by the virtual filesystem.
    *
-   * Transparently injects `\usepackage{scipencjk}` into whichever file
-   * ends up as the compile entrypoint (typically `options.mainFile`, else
-   * the current file). The injection is per-compile only — on-disk source
-   * is never written back. See {@link autoInjectCjkPreamble} for the
-   * exact rules and SyncTeX-preserving placement.
+   * No source mutation happens here: CJK support is the document's own
+   * responsibility (standard `\usepackage{ctex}`), kept portable by design.
    */
   private async writeProjectFiles(
     currentFilePath: string,
     content: string,
-    options: CompilerOptions,
-    engineType: BusyTexEngineType
+    options: CompilerOptions
   ): Promise<void> {
     const engine = this.engine!;
     const projectPath = options.projectPath;
     const currentRelativePath = this.toWasmRelativePath(currentFilePath, projectPath);
-    const mainRelativePath = this.resolveMainFile(currentFilePath, options);
 
-    // If the file being edited IS the main entry, inject now and we're done
-    // with the special-case. Otherwise the injection happens below when we
-    // encounter the main file in the disk batch.
-    const currentIsMain = currentRelativePath === mainRelativePath;
-    if (currentIsMain) {
-      const { source, injected } = autoInjectCjkPreamble(content, engineType);
-      if (injected) {
-        logger.info('Auto-injected scipencjk for CJK content', {
-          file: currentRelativePath,
-        });
-      }
-      await engine.writeFile(currentRelativePath, source);
-    } else {
-      await engine.writeFile(currentRelativePath, content);
-    }
+    await engine.writeFile(currentRelativePath, content);
 
     if (!projectPath) return;
 
@@ -586,19 +560,6 @@ export class WASMCompilerProvider implements CompilerProvider {
     for (const [absolutePath, fileContent] of Object.entries(batchResult)) {
       const relativePath = this.toWasmRelativePath(absolutePath, projectPath);
       if (relativePath === currentRelativePath) continue;
-      // Only the main file gets auto-injection — \documentclass lives there,
-      // and child \input{...} files are content-only (injecting into them
-      // would either no-op or land an extra \usepackage past \begin{document}).
-      if (!currentIsMain && relativePath === mainRelativePath) {
-        const { source, injected } = autoInjectCjkPreamble(fileContent, engineType);
-        if (injected) {
-          logger.info('Auto-injected scipencjk for CJK content', {
-            file: relativePath,
-          });
-        }
-        await engine.writeFile(relativePath, source);
-        continue;
-      }
       await engine.writeFile(relativePath, fileContent);
     }
   }

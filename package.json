@@ -23,7 +23,7 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "npm run build:workers && electron-vite dev",
+    "dev": "npm run copy:public-assets && npm run build:workers && electron-vite dev",
     "build": "npm run prebuild && npm run typecheck:all && electron-vite build && npm run build:workers",
     "build:win": "npm run prebuild && npm run typecheck:all && electron-vite build && npm run build:workers && electron-builder --win --x64",
     "build:mac": "npm run prebuild && npm run typecheck:all && electron-vite build && npm run build:workers && electron-builder --mac",

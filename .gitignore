@@ -139,3 +139,6 @@ public/wasm/busytex/
 public/wasm/typst-ts/typst_ts_web_compiler*
 public/wasm/typst-ts/manifest.json
 public/wasm/typst-ts/fonts/
+
+# Reference clones studied during development (not part of the app)
+reference/

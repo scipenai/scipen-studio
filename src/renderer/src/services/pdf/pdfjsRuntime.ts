@@ -13,7 +13,15 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).toString();
 
-/** CMap directory required for CJK glyph rendering (resolved at runtime). */
-export const CMAP_URL = new URL(/* @vite-ignore */ 'pdfjs-dist/cmaps/', import.meta.url).toString();
+/**
+ * CMap directory required for CJK glyph rendering. The `.bcmap` files are copied
+ * from `pdfjs-dist/cmaps` into the renderer's `public/cmaps/` by
+ * `scripts/copy-public-assets.js`, so they're served at the renderer root.
+ * Resolve against the document URL (dev http:// and prod file:// both work),
+ * mirroring how BusyTexEngine loads its worker — NOT against `import.meta.url`,
+ * which points at the bundled JS chunk where no cmaps exist (that produced
+ * "unexpected EOF in bcmap" and blank CJK).
+ */
+export const CMAP_URL = new URL('./cmaps/', window.location.href).toString();
 
 export { pdfjsLib };

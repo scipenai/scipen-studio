@@ -333,7 +333,14 @@ export function setupShortcuts(editor: Editor, monacoInstance: Monaco): void {
 
 /**
  * Save current file (local-first: every file goes through local save + Overleaf sync).
+ *
+ * Exported as {@link saveActiveFile} for programmatic saves (e.g. the CJK
+ * one-click support action) that mutate the model and then need to persist.
  */
+export async function saveActiveFile(): Promise<void> {
+  return handleSaveCommand();
+}
+
 async function handleSaveCommand(): Promise<void> {
   const editorService = getEditorService();
   const uiService = getUIService();

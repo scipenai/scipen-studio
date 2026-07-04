@@ -276,7 +276,9 @@
     "syncTexLocalSupport": "pdfLaTeX、XeLaTeX、LuaLaTeX 和 Tectonic 支持 SyncTeX。",
     "syncTexWasmSupport": "LaTeX WASM 引擎(pdftex / xetex / lualatex)支持会话级 SyncTeX。",
     "syncTexTypstSupport": "Typst 引擎(三档全部)目前不支持 SyncTeX,代码与 PDF 双向跳转暂不可用。",
-    "syncTexOverleafSupport": "Overleaf 支持源码与 PDF 双向同步。"
+    "syncTexOverleafSupport": "Overleaf 支持源码与 PDF 双向同步。",
+    "auto": "自动 (推荐)",
+    "autoResolved": "将使用：{{engine}}"
   },
   "modelPicker": {},
   "aiConfig": {},
@@ -446,7 +448,7 @@
   "chat": {
     "rename": "重命名",
     "delete": "删除",
-    "inputPlaceholder": "输入问题... (回车发送)",
+    "inputPlaceholder": "问点什么 (Enter 发送, Shift+Enter 换行, @ 引用文件)",
     "fileReference": "引用文件",
     "stopGeneration": "停止生成",
     "sendMessage": "发送消息",
@@ -503,7 +505,6 @@
     "statusWaiting": "等待回复…",
     "usageInOut": "输入 {{in}} · 输出 {{out}}",
     "usageCached": " · 缓存 {{cached}}",
-    "inputPlaceholder": "问点什么 (Enter 发送, Shift+Enter 换行, @ 引用文件)",
     "initializing": "初始化中…",
     "send": "发送",
     "stop": "停止",
@@ -1118,5 +1119,8 @@
       "refresh": "立即刷新",
       "close": "关闭"
     }
+  },
+  "cjk": {
+    "addSupport": "添加中文支持 (ctex)"
   }
 }
