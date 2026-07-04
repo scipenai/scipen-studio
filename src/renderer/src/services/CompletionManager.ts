@@ -56,6 +56,19 @@ const LATEX_COMMANDS: CompletionItem[] = [
     detail: 'Document class',
   },
   {
+    // Standard, portable Chinese document skeleton. Uses `ctex` + the Fandol
+    // font set, which ships with every TeX Live — so the same source compiles
+    // in scipen, on a local install, and on Overleaf without any private
+    // package. See cjkSupport.ts for the one-click variant.
+    label: '\\ctexart',
+    kind: 'snippet',
+    insertText:
+      '\\documentclass[UTF8,fontset=fandol]{ctexart}\n\\begin{document}\n${1:content}\n\\end{document}',
+    detail: 'Chinese document (ctexart + Fandol)',
+    documentation:
+      'Standard Chinese document skeleton. Portable to any LaTeX toolchain — no scipen-specific package.',
+  },
+  {
     label: '\\usepackage',
     kind: 'command',
     insertText: '\\usepackage{${1:package}}',
@@ -1110,10 +1123,11 @@ IMPORTANT RULES:
       return 'instant';
     }
 
-    // Natural language characters: debounced trigger
-    // allow-cjk: regex literal must accept CJK input from user keystrokes
-    if (/[a-zA-Z0-9一-龥]/.test(char)) {
-      // allow-cjk: regex literal
+    // Natural language characters: debounced trigger. The allow-cjk marker must
+    // sit on the same line as the CJK literal (see scripts/check-no-cjk.js), so
+    // keep the regex on its own statement rather than inline in the `if`.
+    const isNaturalLanguageChar = /[a-zA-Z0-9一-龥]/.test(char); // allow-cjk: regex accepts CJK keystrokes
+    if (isNaturalLanguageChar) {
       return 'debounced';
     }
 

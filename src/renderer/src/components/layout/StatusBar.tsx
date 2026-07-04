@@ -215,6 +215,8 @@ export const StatusBar: React.FC = () => {
   const getCompilerLabel = useCallback(
     (engine: string): string => {
       switch (engine) {
+        case 'auto':
+          return t('compiler.auto');
         case 'pdflatex':
           return t('compiler.pdflatex');
         case 'xelatex':
@@ -270,6 +272,13 @@ export const StatusBar: React.FC = () => {
     }
     if (latexCaps.wasm.lualatex.available) {
       options.push({ value: 'wasm-lualatex', label: getCompilerLabel('wasm-lualatex') });
+    }
+    // 'auto' (local-first, WASM fallback) is the default engine — list it first,
+    // but only when at least one real engine exists, so a truly-empty toolchain
+    // still trips the "no engine" empty-state and the reconcile effect below
+    // doesn't overwrite a persisted 'auto'.
+    if (options.length > 0) {
+      options.unshift({ value: 'auto', label: getCompilerLabel('auto') });
     }
     return options;
   }, [getCompilerLabel, latexCaps]);

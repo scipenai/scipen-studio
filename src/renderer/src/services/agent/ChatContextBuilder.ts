@@ -19,6 +19,7 @@
 
 import { truncateToBytes } from '../../../../../shared/utils/text';
 import { getEditorService, getProjectService, getSettingsService, getUIService } from '../core';
+import { resolveLatexEngineForDisplay } from '../core/latexEngineResolver';
 import { recentEditsTracker } from './RecentEditsTracker';
 import { buildProjectIntel } from './ChatContextIntelBuilder';
 import type {
@@ -239,8 +240,9 @@ function pickEngine(
   compiler: { engine?: string; typstEngine?: string }
 ): string | undefined {
   if (projectType === 'typst') return compiler.typstEngine ?? undefined;
-  // latex / mixed
-  return compiler.engine ?? undefined;
+  // latex / mixed — resolve the 'auto' sentinel so downstream agent context
+  // reports the concrete engine that will actually run, not "auto".
+  return compiler.engine ? resolveLatexEngineForDisplay(compiler.engine) : undefined;
 }
 
 function extractSelectionText(

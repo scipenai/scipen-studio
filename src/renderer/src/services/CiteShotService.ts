@@ -90,8 +90,14 @@ export class CiteShotService {
     contentList: MinerUContentList | null
   ): Promise<CiteShotResult> {
     const region = this.planRegion(pdfBuf.byteLength, contentList);
-    const doc = await pdfjsLib.getDocument({ data: pdfBuf, cMapUrl: CMAP_URL, cMapPacked: true })
-      .promise;
+    // disableFontFace: true so embedded CJK/CID fonts (Fandol etc.) rasterize
+    // correctly — see the note in PdfPreviewPane.loadPdfDoc.
+    const doc = await pdfjsLib.getDocument({
+      data: pdfBuf,
+      cMapUrl: CMAP_URL,
+      cMapPacked: true,
+      disableFontFace: true,
+    }).promise;
     try {
       const canvas = await this.renderPage(doc, region.pageIdx);
       const dataUrl = region.bbox

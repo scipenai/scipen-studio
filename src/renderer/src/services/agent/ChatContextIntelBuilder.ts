@@ -19,6 +19,8 @@
  */
 
 import type { AppSettings } from '../../types';
+import { extractDocumentClassName, extractPackageNames } from '../../utils/latexPreamble';
+import { resolveLatexEngineForDisplay } from '../core/latexEngineResolver';
 
 const MAX_OUTPUT_BYTES = 4096;
 const CONTENT_WINDOW_LINES = 20;
@@ -49,8 +51,8 @@ export function buildProjectIntel(input: IntelInputs): string | undefined {
 
   const sections: string[] = [];
 
-  const docClass = extractDocumentClass(input.activeFileContent);
-  const packages = extractPackages(input.activeFileContent);
+  const docClass = extractDocumentClassName(input.activeFileContent);
+  const packages = extractPackageNames(input.activeFileContent);
   const macros = extractMacros(input.activeFileContent);
   if (docClass || packages.length > 0 || macros.length > 0) {
     const lines = ['## Document'];
@@ -79,7 +81,7 @@ export function buildProjectIntel(input: IntelInputs): string | undefined {
   if (input.lastCompile) {
     const lc = input.lastCompile;
     const status = lc.success ? '✓ success' : '✗ failed';
-    const engine = lc.engine ?? input.settings.compiler.engine;
+    const engine = resolveLatexEngineForDisplay(lc.engine ?? input.settings.compiler.engine);
     const duration = lc.durationMs ? ` in ${(lc.durationMs / 1000).toFixed(1)}s` : '';
     sections.push(
       `## Last compile\n- ${status} (engine: ${engine})${duration}\n- ${lc.errorCount} error(s), ${lc.warningCount} warning(s)`
@@ -93,29 +95,6 @@ export function buildProjectIntel(input: IntelInputs): string | undefined {
 }
 
 // ============ Extractors ============
-
-/** `\documentclass[options]{class}` → "class" (options stripped for brevity). */
-function extractDocumentClass(src: string): string | null {
-  const m = /\\documentclass(?:\[[^\]]*\])?\{([^}]+)\}/.exec(src);
-  return m ? m[1].trim() : null;
-}
-
-/** `\usepackage[opts]{name1,name2}` → flat list of package names. */
-function extractPackages(src: string): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const re = /\\usepackage(?:\[[^\]]*\])?\{([^}]+)\}/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(src)) !== null) {
-    for (const pkg of m[1].split(',')) {
-      const name = pkg.trim();
-      if (!name || seen.has(name)) continue;
-      seen.add(name);
-      out.push(name);
-    }
-  }
-  return out;
-}
 
 /** `\newcommand{\foo}{…}` / `\renewcommand{\foo}{…}` / `\DeclareMathOperator{\foo}{…}`. */
 function extractMacros(src: string): string[] {

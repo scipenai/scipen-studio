@@ -35,7 +35,9 @@ import {
 } from '../../services/core/hooks';
 import { registerLSPProviders } from '../../utils/LSPProviderRegistry';
 import { citePreviewService } from '../../services/CitePreviewService';
+import { warmLatexCapabilities } from '../../services/core/latexEngineResolver';
 import { registerCiteCompletionProviders } from './CiteCompletionProvider';
+import { registerCjkCodeLensProvider } from './CjkCodeLensProvider';
 import { getModelCache } from '../../utils/ModelCache';
 import { EditorToolbar } from './components';
 import {
@@ -284,6 +286,10 @@ export const EditorPane: React.FC = React.memo(() => {
       registerLSPProviders(monacoInstance);
       citePreviewService.initialize(editor, monacoInstance);
       registerCiteCompletionProviders(monacoInstance);
+      registerCjkCodeLensProvider(monacoInstance, editor);
+      // Warm the LaTeX capability probe off the first-compile hot path so the
+      // default 'auto' engine resolves without blocking the initial compile.
+      warmLatexCapabilities();
       setupLSPDiagnostics(editor, monacoInstance);
 
       try {
@@ -380,6 +386,13 @@ export const EditorPane: React.FC = React.memo(() => {
 
     return () => {
       disposables.dispose();
+      // Recreate the store so a subsequent mount (React StrictMode double-mounts
+      // in dev, or any real remount) registers into a fresh, non-disposed store.
+      // Without this, the next mount's `.add()` calls hit the disposed store and
+      // log "[DisposableStore] Adding to disposed store, disposing immediately",
+      // silently dropping the newly-registered disposables. The reset runs during
+      // StrictMode's unmount phase, before the remount's onMount re-registers.
+      disposablesRef.current = new DisposableStore();
     };
   }, []);
 

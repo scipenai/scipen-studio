@@ -68,9 +68,11 @@ export class ActiveRecommendationService {
   /** Called when the editor mounts (EditorPane handleEditorMount). Registers listeners + pulls initial state. */
   attachEditor(editor: Editor): void {
     this.editor = editor;
+    const contentSub = editor.onDidChangeModelContent(() => this.scheduleQuery());
+    const cursorSub = editor.onDidChangeCursorPosition(() => this.scheduleQuery());
     this.disposers.push(
-      editor.onDidChangeModelContent(() => this.scheduleQuery()).dispose,
-      editor.onDidChangeCursorPosition(() => this.scheduleQuery()).dispose
+      () => contentSub.dispose(),
+      () => cursorSub.dispose()
     );
 
     if (!this.unsubProgress) {

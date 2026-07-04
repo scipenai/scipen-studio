@@ -12,6 +12,10 @@ import { api } from '../../api';
 import { useTranslation } from '../../locales';
 import { createLogger } from '../../services/LogService';
 import { getSettingsService } from '../../services/core/ServiceRegistry';
+import {
+  refreshLatexCapabilities,
+  resolveAutoLatexEngine,
+} from '../../services/core/latexEngineResolver';
 import { useProjectPath, useSettings } from '../../services/core/hooks';
 import type { LaTeXEngine, TypstEngine } from '../../types';
 import {
@@ -54,8 +58,9 @@ export const CompilerTab: FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-    api.compile
-      .getLaTeXCapabilities()
+    // Fresh probe on panel open — also refreshes the shared cache the `auto`
+    // resolver reads, so installing TeX Live mid-session is picked up here.
+    refreshLatexCapabilities()
       .then((caps) => {
         if (cancelled) return;
         setLatexCaps(caps);
@@ -157,6 +162,12 @@ export const CompilerTab: FC = () => {
       if (latexCaps.wasm.lualatex.available) {
         options.push({ value: 'wasm-lualatex', label: t('compiler.wasmLualatex') });
       }
+      // `auto` (resolves to a local engine if available, else WASM) is the
+      // default — listed first, but only when at least one real engine exists
+      // so a zero-engine environment still surfaces the "no engine" warning.
+      if (options.length > 0) {
+        options.unshift({ value: 'auto', label: t('compiler.auto') });
+      }
     }
     return options;
   }, [latexCaps, t]);
@@ -164,6 +175,14 @@ export const CompilerTab: FC = () => {
   const currentLatexEngine = settings.compiler.engine;
   const currentLatexEngineUnavailable =
     latexOptions.length > 0 && !latexOptions.some((opt) => opt.value === currentLatexEngine);
+
+  // When `auto` is selected, show which concrete engine it resolves to so the
+  // choice isn't opaque. Suppressed when no engine is available at all
+  // (latexOptions empty) so it can't contradict the "no engine" warning.
+  const autoResolvedEngine =
+    currentLatexEngine === 'auto' && latexCaps && latexOptions.length > 0
+      ? resolveAutoLatexEngine(latexCaps)
+      : null;
 
   useEffect(() => {
     if (!currentLatexEngineUnavailable || latexOptions.length === 0) return;
@@ -208,6 +227,12 @@ export const CompilerTab: FC = () => {
           </select>
         )}
       </SettingItem>
+
+      {autoResolvedEngine && (
+        <div className="mb-4 p-2 rounded-lg text-xs bg-[var(--color-accent-muted)] border border-[var(--color-accent)]/30 text-[var(--color-accent)]">
+          {t('compiler.autoResolved', { engine: autoResolvedEngine })}
+        </div>
+      )}
 
       {currentLatexEngineUnavailable && (
         <div className="mb-4 p-2 rounded-lg text-xs bg-[var(--color-warning-muted)] border border-[var(--color-warning)]/30 text-[var(--color-warning)]">

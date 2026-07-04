@@ -120,6 +120,7 @@ export interface FilePdfPreviewState {
 }
 
 export type LaTeXEngine =
+  | 'auto'
   | 'tectonic'
   | 'pdflatex'
   | 'xelatex'

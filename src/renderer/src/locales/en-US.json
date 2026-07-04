@@ -276,7 +276,9 @@
     "syncTexLocalSupport": "pdfLaTeX, XeLaTeX, LuaLaTeX, and Tectonic support SyncTeX.",
     "syncTexWasmSupport": "LaTeX WASM engines (pdftex / xetex / lualatex) have session-scoped SyncTeX support.",
     "syncTexTypstSupport": "No Typst engine currently supports SyncTeX; source/PDF bidirectional jump is unavailable.",
-    "syncTexOverleafSupport": "Overleaf supports bidirectional source/PDF sync."
+    "syncTexOverleafSupport": "Overleaf supports bidirectional source/PDF sync.",
+    "auto": "Auto (recommended)",
+    "autoResolved": "Will use: {{engine}}"
   },
   "aiConfig": {},
   "modelPicker": {},
@@ -446,7 +448,7 @@
   "chat": {
     "rename": "Rename",
     "delete": "Delete",
-    "inputPlaceholder": "Ask a question... (Enter to send)",
+    "inputPlaceholder": "Ask anything (Enter to send, Shift+Enter for newline, @ to reference files)",
     "fileReference": "Reference a file",
     "stopGeneration": "Stop generation",
     "sendMessage": "Send message",
@@ -503,7 +505,6 @@
     "statusWaiting": "Waiting for reply…",
     "usageInOut": "tokens in {{in}} · out {{out}}",
     "usageCached": " · cached {{cached}}",
-    "inputPlaceholder": "Ask anything (Enter to send, Shift+Enter for newline, @ to reference files)",
     "initializing": "Initializing…",
     "send": "Send",
     "stop": "Stop",
@@ -1118,5 +1119,8 @@
       "refresh": "Refresh now",
       "close": "Close"
     }
+  },
+  "cjk": {
+    "addSupport": "Add Chinese support (ctex)"
   }
 }
