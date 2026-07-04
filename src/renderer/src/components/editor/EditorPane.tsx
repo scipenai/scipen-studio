@@ -35,6 +35,7 @@ import {
 } from '../../services/core/hooks';
 import { registerLSPProviders } from '../../utils/LSPProviderRegistry';
 import { citePreviewService } from '../../services/CitePreviewService';
+import { warmLatexCapabilities } from '../../services/core/latexEngineResolver';
 import { registerCiteCompletionProviders } from './CiteCompletionProvider';
 import { registerCjkCodeLensProvider } from './CjkCodeLensProvider';
 import { getModelCache } from '../../utils/ModelCache';
@@ -286,6 +287,9 @@ export const EditorPane: React.FC = React.memo(() => {
       citePreviewService.initialize(editor, monacoInstance);
       registerCiteCompletionProviders(monacoInstance);
       registerCjkCodeLensProvider(monacoInstance, editor);
+      // Warm the LaTeX capability probe off the first-compile hot path so the
+      // default 'auto' engine resolves without blocking the initial compile.
+      warmLatexCapabilities();
       setupLSPDiagnostics(editor, monacoInstance);
 
       try {

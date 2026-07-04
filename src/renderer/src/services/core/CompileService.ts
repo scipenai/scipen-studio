@@ -34,10 +34,20 @@ const logger = createLogger('CompileService');
  */
 const AUTO_WASM_FALLBACK = 'wasm-xetex';
 
-/** Detect a "the LaTeX binary isn't actually available" failure. */
+/**
+ * Detect a "the LaTeX binary isn't actually available" failure — narrowly.
+ *
+ * The compile worker emits `<engine> not found. Please install ...` (and sets
+ * `error.code === 'ENOENT'`) only when the binary itself is missing. We must
+ * NOT match the far more common LaTeX `! LaTeX Error: File \`foo.sty' not
+ * found.` / `Font ... not found`, which would trigger a pointless (and also
+ * failing) WASM re-compile and bury the real, actionable error.
+ */
 function isMissingEngineFailure(result: CompileResult): boolean {
   const haystack = [result.log ?? '', ...(result.errors ?? [])].join('\n');
-  return /not found|ENOENT|command not found|Please install|is not recognized/i.test(haystack);
+  return /\bENOENT\b|not found\.\s*please install|command not found|is not recognized as/i.test(
+    haystack
+  );
 }
 
 // ====== Type Definitions ======
@@ -129,8 +139,6 @@ export class CompileService implements IDisposable {
 
   private readonly _compilerRegistry: CompilerRegistry;
   private _currentProvider: CompilerProvider | null = null;
-  /** True when the current compile's engine came from resolving `auto` to a local engine. */
-  private _autoResolvedLocal = false;
 
   // ====== Event Definitions ======
 
@@ -202,19 +210,33 @@ export class CompileService implements IDisposable {
 
   /**
    * Resolve the `auto` engine (local-first) to a concrete engine using the
-   * cached capability probe. No-op for any explicit engine selection. Records
+   * cached capability probe. No-op for any explicit engine selection. Returns
    * whether the result is a local engine so {@link _doCompile} can decide
-   * whether a runtime failure warrants the WASM fallback.
+   * whether a runtime failure warrants the WASM fallback — kept as a return
+   * value (not instance state) so it can't leak across compiles.
    */
-  private async _resolveAutoEngine(options: CompileOptions): Promise<CompileOptions> {
-    this._autoResolvedLocal = false;
-    if (options.engine !== 'auto') return options;
+  private async _resolveAutoEngine(
+    options: CompileOptions
+  ): Promise<{ options: CompileOptions; autoResolvedLocal: boolean }> {
+    if (options.engine !== 'auto') return { options, autoResolvedLocal: false };
 
-    const caps = await getLatexCapabilities();
-    const resolved = resolveAutoLatexEngine(caps);
-    this._autoResolvedLocal = isLocalLatexEngine(resolved);
+    let resolved: string;
+    try {
+      resolved = resolveAutoLatexEngine(await getLatexCapabilities());
+    } catch (error) {
+      // Probe failed (e.g. transient IPC error). Don't dead-end the compile —
+      // fall back to the always-available WASM engine. getLatexCapabilities
+      // clears its cache on rejection so a later compile can retry detection.
+      logger.warn('LaTeX capability probe failed; auto falls back to WASM', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      resolved = AUTO_WASM_FALLBACK;
+    }
     this.log('info', `Auto engine resolved to: ${resolved}`);
-    return { ...options, engine: resolved as CompileEngine };
+    return {
+      options: { ...options, engine: resolved as CompileEngine },
+      autoResolvedLocal: isLocalLatexEngine(resolved),
+    };
   }
 
   private async _doCompile(
@@ -235,7 +257,8 @@ export class CompileService implements IDisposable {
     try {
       // Resolve the `auto` engine (local-first) before provider routing —
       // downstream providers only understand concrete engine names.
-      options = await this._resolveAutoEngine(options);
+      const autoResolution = await this._resolveAutoEngine(options);
+      options = autoResolution.options;
 
       const provider = this._compilerRegistry.getCompilerForFile(filePath, options);
 
@@ -266,12 +289,7 @@ export class CompileService implements IDisposable {
       // `auto` fallback: if the local engine we chose turns out to be missing
       // at runtime, retry once on the WASM engine so a compile never dead-ends
       // on a stale capability probe. Only fires for auto-resolved local runs.
-      if (
-        !result.success &&
-        this._autoResolvedLocal &&
-        isLocalLatexEngine(options.engine) &&
-        isMissingEngineFailure(result)
-      ) {
+      if (!result.success && autoResolution.autoResolvedLocal && isMissingEngineFailure(result)) {
         this.log(
           'warning',
           `Local engine "${options.engine}" unavailable; falling back to ${AUTO_WASM_FALLBACK} (WASM).`

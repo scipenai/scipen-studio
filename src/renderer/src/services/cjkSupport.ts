@@ -17,6 +17,8 @@
  *              native install. This mirrors TeXlyre, which special-cases nothing.
  */
 
+import { extractPackageNames, matchDocumentClass } from '../utils/latexPreamble';
+
 /**
  * Regex catching any CJK Unified Ideograph (BMP block U+4E00-U+9FFF +
  * Extension A U+3400-U+4DBF). Covers the overwhelming majority of Han
@@ -31,22 +33,10 @@
 const CJK_HAN_REGEX = /[\u3400-\u4dbf\u4e00-\u9fff]/;
 
 /**
- * Matches `\documentclass[opts]{class}` (with optional whitespace and an
- * optional `[options]` block). We need the END of this token to know where
- * to splice the one-click `\usepackage{ctex}`.
- *
- * Caveat: this is a regex over LaTeX source, not a parser. The first match
- * wins, which IS the real `\documentclass` in virtually all real documents.
+ * Classes/packages that already configure CJK rendering. If the user wrote any
+ * of these, the document is "driving" its own CJK setup and we must not offer to
+ * add another package. Match is case-sensitive (LaTeX macros are).
  */
-const DOCUMENTCLASS_REGEX = /\\documentclass\s*(?:\[[^\]]*\])?\s*\{[^}]+\}/;
-
-/**
- * Macros that already configure CJK rendering one way or another. If the
- * user wrote any of these, the document is already "driving" its own CJK
- * setup and we must not offer to add another package. Match is case-
- * sensitive (LaTeX macros are). Also matches a `ctex*` document class.
- */
-const USER_PACKAGE_REGEX = /\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/g;
 const CTEX_DOCUMENTCLASS_REGEX = /\\documentclass\s*(?:\[[^\]]*\])?\s*\{ctex[a-z]*\}/;
 const USER_CJK_PACKAGE_NAMES = new Set([
   'ctex',
@@ -77,17 +67,7 @@ export function containsCjk(source: string): boolean {
  */
 export function hasCjkSupport(source: string): boolean {
   if (CTEX_DOCUMENTCLASS_REGEX.test(source)) return true;
-  // Reset lastIndex so successive calls don't skip matches (regex is /g).
-  USER_PACKAGE_REGEX.lastIndex = 0;
-  let match: RegExpExecArray | null = USER_PACKAGE_REGEX.exec(source);
-  while (match !== null) {
-    const names = match[1].split(',').map((s) => s.trim());
-    for (const name of names) {
-      if (USER_CJK_PACKAGE_NAMES.has(name)) return true;
-    }
-    match = USER_PACKAGE_REGEX.exec(source);
-  }
-  return false;
+  return extractPackageNames(source).some((name) => USER_CJK_PACKAGE_NAMES.has(name));
 }
 
 /**
@@ -96,13 +76,23 @@ export function hasCjkSupport(source: string): boolean {
  * `\documentclass{...}` we can anchor the insertion to.
  */
 export function shouldOfferCjkSupport(source: string): boolean {
-  return containsCjk(source) && !hasCjkSupport(source) && DOCUMENTCLASS_REGEX.test(source);
+  return containsCjk(source) && !hasCjkSupport(source) && matchDocumentClass(source) !== null;
+}
+
+/**
+ * Character offset of the real `\documentclass{...}` in `source`, or null.
+ * Used to anchor the CodeLens on the same line the insertion targets (a plain
+ * substring search would also match a commented-out `% \documentclass`).
+ */
+export function documentClassOffset(source: string): number | null {
+  const match = matchDocumentClass(source);
+  return match?.index ?? null;
 }
 
 export interface CjkInsertion {
   /** Rewritten source with `\usepackage{ctex}` added. */
   source: string;
-  /** 0-based line index the package was inserted on (for the editor to reveal). */
+  /** 1-based line number the package was inserted on (for the editor to reveal). */
   line: number;
 }
 
@@ -115,7 +105,7 @@ export interface CjkInsertion {
  * should have gated on {@link shouldOfferCjkSupport} first).
  */
 export function insertCjkSupport(source: string): CjkInsertion | null {
-  const match = source.match(DOCUMENTCLASS_REGEX);
+  const match = matchDocumentClass(source);
   if (!match || match.index === undefined) return null;
 
   // Find the end of the line \documentclass sits on, and splice a new line
@@ -128,10 +118,11 @@ export function insertCjkSupport(source: string): CjkInsertion | null {
 
   const before = source.slice(0, insertAt);
   const after = source.slice(insertAt);
-  const lineOfInsertion = before.split('\n').length; // 0-based index of the new line
+  // The inserted package sits on the line after the ones already in `before`.
+  const line = before.split('\n').length + 1;
 
   return {
     source: `${before}\n${CJK_SUPPORT_PACKAGE}${after}`,
-    line: lineOfInsertion,
+    line,
   };
 }

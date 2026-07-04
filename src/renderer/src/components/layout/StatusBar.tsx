@@ -215,6 +215,8 @@ export const StatusBar: React.FC = () => {
   const getCompilerLabel = useCallback(
     (engine: string): string => {
       switch (engine) {
+        case 'auto':
+          return t('compiler.auto');
         case 'pdflatex':
           return t('compiler.pdflatex');
         case 'xelatex':
@@ -250,6 +252,10 @@ export const StatusBar: React.FC = () => {
     }
 
     const options: CompileEngineOption[] = [];
+    // 'auto' (local-first, WASM fallback) is always offered and listed first —
+    // it's the default engine; omitting it here would make the reconcile effect
+    // below overwrite a persisted 'auto' with a concrete engine on mount.
+    options.push({ value: 'auto', label: getCompilerLabel('auto') });
     if (latexCaps.cli.xelatex.available) {
       options.push({ value: 'xelatex', label: getCompilerLabel('xelatex') });
     }

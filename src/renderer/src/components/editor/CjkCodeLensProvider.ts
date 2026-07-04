@@ -16,77 +16,54 @@ import type { Monaco } from '@monaco-editor/react';
 import type * as monaco from 'monaco-editor';
 import { t } from '../../locales';
 import { createLogger } from '../../services/LogService';
-import { insertCjkSupport, shouldOfferCjkSupport } from '../../services/cjkSupport';
+import {
+  documentClassOffset,
+  insertCjkSupport,
+  shouldOfferCjkSupport,
+} from '../../services/cjkSupport';
 import { saveActiveFile } from './hooks/editorSetup';
 
 const logger = createLogger('CjkCodeLens');
 
-/**
- * Registered once per Monaco instance. The command handler resolves the model
- * from the CodeLens argument (not a captured editor), so it stays correct even
- * if the editor is remounted.
- */
-let registered = false;
+// The provider is registered once on the (single) Monaco languages service, but
+// the command must be re-minted on every editor mount: `editor.addCommand` ties
+// the command to that editor instance, so a captured id dies when the editor is
+// disposed (React StrictMode double-mount, or any EditorPane remount). We keep
+// the *current* editor + command id in module refs the once-registered provider
+// reads live, so the lens always dispatches to a live command on the live editor.
+let providerRegistered = false;
+let activeEditor: monaco.editor.IStandaloneCodeEditor | null = null;
+let commandId: string | null = null;
 
 export function registerCjkCodeLensProvider(
   monacoInstance: Monaco,
   editor: monaco.editor.IStandaloneCodeEditor
 ): void {
-  if (registered) return;
-  registered = true;
+  // Point at the current editor and mint a fresh command every mount.
+  activeEditor = editor;
+  commandId = editor.addCommand(0, () => applyCjkSupport()) as string | null;
 
-  // `addCommand` needs an editor to mint a command id, but the handler below
-  // does not depend on that editor instance — it operates on the model passed
-  // via the lens argument and persists through the shared save flow.
-  const commandId = editor.addCommand(0, (_ctx: unknown, uri?: string) => {
-    const model = uri
-      ? monacoInstance.editor.getModel(monacoInstance.Uri.parse(uri))
-      : editor.getModel();
-    if (!model) return;
+  if (providerRegistered) return;
+  providerRegistered = true;
 
-    const result = insertCjkSupport(model.getValue());
-    if (!result) return;
-
-    // Single full-range replace: one undo step, and the content-change tracker
-    // marks the tab dirty so the save below actually writes to disk.
-    model.pushEditOperations(
-      null,
-      [{ range: model.getFullModelRange(), text: result.source }],
-      () => null
-    );
-
-    void saveActiveFile();
-    logger.info('Inserted standard CJK support', { line: result.line });
-  }) as string | null;
-
-  const disposable = monacoInstance.languages.registerCodeLensProvider('latex', {
+  monacoInstance.languages.registerCodeLensProvider('latex', {
     provideCodeLenses(model: monaco.editor.ITextModel) {
-      if (!commandId || !shouldOfferCjkSupport(model.getValue())) {
+      const source = model.getValue();
+      if (!commandId || !shouldOfferCjkSupport(source)) {
         return { lenses: [], dispose() {} };
       }
 
-      // Anchor the lens on the \documentclass line.
-      const match = model.findMatches(
-        '\\documentclass',
-        false, // searchOnlyEditableRange
-        false, // isRegex
-        false, // matchCase
-        null, // wordSeparators
-        false, // captureMatches
-        1 // limit
-      )[0];
-      const line = match ? match.range.startLineNumber : 1;
+      // Anchor on the REAL \documentclass (regex, same as the insertion), not a
+      // raw substring that would also match a commented-out `% \documentclass`.
+      const offset = documentClassOffset(source);
+      const line = offset === null ? 1 : model.getPositionAt(offset).lineNumber;
 
       return {
         lenses: [
           {
             range: new monacoInstance.Range(line, 1, line, 1),
             id: 'scipen-cjk-support',
-            command: {
-              id: commandId,
-              title: t('cjk.addSupport'),
-              arguments: [model.uri.toString()],
-            },
+            command: { id: commandId, title: t('cjk.addSupport') },
           },
         ],
         dispose() {},
@@ -96,9 +73,25 @@ export function registerCjkCodeLensProvider(
       return lens;
     },
   });
+}
 
-  // Provider lives for the app lifetime (single Monaco instance); we don't
-  // hold the disposable because there's no unregister path, matching how the
-  // cite/inline providers are registered.
-  void disposable;
+/**
+ * Insert standard CJK support into the active editor's document and persist it.
+ * Editing and saving both go through the active editor / active tab so they
+ * always target the same document.
+ */
+function applyCjkSupport(): void {
+  const editor = activeEditor;
+  const model = editor?.getModel();
+  if (!editor || !model) return;
+
+  const result = insertCjkSupport(model.getValue());
+  if (!result) return;
+
+  // Single full-range replace via the editor: one undo step, and the
+  // content-change tracker marks the tab dirty so the save writes to disk.
+  editor.executeEdits('cjk-support', [{ range: model.getFullModelRange(), text: result.source }]);
+  editor.revealLineInCenter(result.line);
+  void saveActiveFile();
+  logger.info('Inserted standard CJK support', { line: result.line });
 }
