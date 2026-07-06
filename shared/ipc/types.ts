@@ -68,7 +68,6 @@ export interface LaTeXCompileOptions {
 export interface LaTeXCompileResult {
   success: boolean;
   pdfPath?: string;
-  pdfData?: string;
   synctexPath?: string;
   errors?: LaTeXError[];
   warnings?: LaTeXWarning[];

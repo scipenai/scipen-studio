@@ -273,12 +273,6 @@ export function useFilePdfPreview(filePath: string | null) {
   );
 }
 
-/** Returns current PDF URL. */
-export function usePdfUrl() {
-  const service = getUIService();
-  return useServiceEvent(service.onDidChangePdf, () => service.pdfUrl);
-}
-
 /** Returns current PDF highlight position. */
 export function usePdfHighlight() {
   const service = getUIService();

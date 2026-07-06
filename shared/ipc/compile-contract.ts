@@ -71,8 +71,6 @@ export interface TypstCompileResult {
   success: boolean;
   pdfPath?: string;
   pdfBuffer?: Uint8Array;
-  /** @deprecated Use pdfBuffer instead */
-  pdfData?: string;
   errors: string[];
   warnings?: string[];
   log?: string;
@@ -94,8 +92,10 @@ export interface CompileCancelResult {
  * Result of `Compile_WriteWasmArtifacts`.
  *
  * WASM compile output (PDF + `.synctex.gz` as raw bytes) is persisted into
- * a fresh `os.tmpdir()` subdir so the main-process `synctex` CLI can read
- * them. The renderer only ever consumes the two file paths.
+ * `outputDir` (the project directory, matching the local compiler's output
+ * path) so the main-process `synctex` CLI can read them and the on-disk PDF
+ * stays consistent with the in-memory preview. The renderer only ever
+ * consumes the two file paths.
  */
 export interface CompileWasmArtifactsResult {
   pdfPath: string;
@@ -125,7 +125,7 @@ export interface IPCCompileContract {
     };
   };
   [IpcChannel.Compile_WriteWasmArtifacts]: {
-    args: [pdfBuffer: Uint8Array, synctexBuffer: Uint8Array, baseName?: string];
+    args: [pdfBuffer: Uint8Array, synctexBuffer: Uint8Array, baseName: string, outputDir: string];
     result: CompileWasmArtifactsResult;
   };
   [IpcChannel.LaTeX_GetCapabilities]: {

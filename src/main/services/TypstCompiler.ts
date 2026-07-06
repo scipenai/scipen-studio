@@ -66,7 +66,6 @@ export interface TypstCompilationOptions {
 export interface TypstCompilationResult {
   success: boolean;
   pdfPath?: string;
-  pdfData?: string;
   pdfBuffer?: Uint8Array;
   errors?: string[];
   warnings?: string[];
@@ -236,7 +235,6 @@ export class TypstCompiler extends EventEmitter implements ICompiler {
       const result: CompileResult = {
         success: legacyResult.success,
         outputPath: legacyResult.pdfPath,
-        outputData: legacyResult.pdfData,
         outputBuffer: legacyResult.pdfBuffer,
         errors: legacyResult.errors || [],
         warnings: legacyResult.warnings || [],

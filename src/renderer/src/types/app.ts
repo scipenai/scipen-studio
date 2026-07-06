@@ -49,7 +49,6 @@ export interface ParsedLogEntry {
 export interface CompilationResult {
   success: boolean;
   pdfPath?: string;
-  pdfData?: ArrayBuffer;
   synctexPath?: string;
   errors?: string[];
   warnings?: string[];

@@ -66,7 +66,6 @@ export function useCompilation({
             });
             uiService.setPdfPath(result.pdfPath);
             uiService.setPdfData(pdfBuffer);
-            uiService.setPdfUrl(null);
             uiService.addCompilationLog({ type: 'info', message: `PDF path: ${result.pdfPath}` });
           } catch (readError) {
             console.error('Cannot read PDF file:', readError);
@@ -91,36 +90,12 @@ export function useCompilation({
             });
             uiService.setPdfPath(result.pdfPath ?? null);
             uiService.setPdfData(buffer);
-            uiService.setPdfUrl(null);
             uiService.addCompilationLog({
               type: 'info',
               message: `PDF size: ${(buffer.byteLength / 1024).toFixed(1)} KB`,
             });
           } catch (e) {
             logger.error('PDF data processing failed', e);
-          }
-        } else if (result.pdfData) {
-          try {
-            const binaryString = atob(result.pdfData);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
-            const pdfBuffer = bytes.buffer.slice(0);
-            uiService.updateFilePdfPreview(filePath, {
-              pdfPath: result.pdfPath ?? null,
-              pdfData: pdfBuffer,
-              isStale: false,
-            });
-            uiService.setPdfPath(result.pdfPath ?? null);
-            uiService.setPdfData(pdfBuffer);
-            uiService.setPdfUrl(null);
-            uiService.addCompilationLog({
-              type: 'info',
-              message: `PDF size: ${(bytes.length / 1024).toFixed(1)} KB (Base64)`,
-            });
-          } catch (e) {
-            logger.error('PDF Base64 decode failed', e);
           }
         }
 

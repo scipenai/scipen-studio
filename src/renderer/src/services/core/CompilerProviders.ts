@@ -487,18 +487,19 @@ export class WASMCompilerProvider implements CompilerProvider {
         };
       }
 
-      // Persist the WASM output (PDF + .synctex.gz) to a temp dir so the
-      // rest of the pipeline treats it exactly like a CLI compile: the PDF
-      // is loaded from `pdfPath` and SyncTeX resolves via the main-process
-      // `synctex` CLI against the on-disk `.synctex.gz`. This disk handoff
-      // is the canonical (and only) output path — a failure here is a real
-      // error and propagates to the outer catch.
+      // Persist the WASM output (PDF + .synctex.gz) to the project directory
+      // — the same path the local compiler writes to ({projectDir}/{baseName}.pdf)
+      // — so the on-disk PDF is the single source of truth. A failure here is
+      // a real error and propagates to the outer catch.
       const baseName = stripExtension(basename(mainFileName)) || 'main';
+      const mainFileAbs = options.mainFile || filePath;
+      const outputDir = dirname(mainFileAbs);
       const writeT0 = performance.now();
       const artifacts = await api.compile.writeWasmArtifacts(
         result.pdf!,
         result.synctex ?? new Uint8Array(),
-        baseName
+        baseName,
+        outputDir
       );
       logger.info('WASM artifacts persisted', {
         writeMs: Math.round(performance.now() - writeT0),
@@ -610,6 +611,11 @@ export class WASMCompilerProvider implements CompilerProvider {
 
 function basename(p: string): string {
   return p.split(/[/\\]/).pop() || p;
+}
+
+function dirname(p: string): string {
+  const idx = p.replace(/\\/g, '/').lastIndexOf('/');
+  return idx >= 0 ? p.slice(0, idx) || '/' : '.';
 }
 
 function stripExtension(name: string): string {

@@ -275,8 +275,8 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
       z
         .string()
         .max(128)
-        .regex(/^[A-Za-z0-9_.-]+$/)
-        .optional(), // baseName (no path separators)
+        .regex(/^[A-Za-z0-9_.-]+$/), // baseName (no path separators)
+      safePathSchema, // outputDir (project directory, matches local compiler output)
     ]),
   ],
   [

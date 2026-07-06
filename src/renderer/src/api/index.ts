@@ -373,15 +373,22 @@ export const compile = {
       typst: { isCompiling: boolean };
     }>(IpcChannel.Compile_GetStatus),
   /**
-   * Persist a BusyTeX WASM compile result to a temp dir on disk so the
+   * Persist a BusyTeX WASM compile result to the project directory on disk so
+   * the on-disk PDF matches the local compiler's output path and the
    * main-process `synctex` CLI can read it. Returns the on-disk paths.
    */
-  writeWasmArtifacts: (pdfBuffer: Uint8Array, synctexBuffer: Uint8Array, baseName?: string) =>
+  writeWasmArtifacts: (
+    pdfBuffer: Uint8Array,
+    synctexBuffer: Uint8Array,
+    baseName: string,
+    outputDir: string
+  ) =>
     invoke<{ pdfPath: string; synctexPath: string }>(
       IpcChannel.Compile_WriteWasmArtifacts,
       pdfBuffer,
       synctexBuffer,
-      baseName
+      baseName,
+      outputDir
     ),
 };
 
