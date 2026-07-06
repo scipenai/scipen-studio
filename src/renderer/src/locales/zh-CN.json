@@ -255,7 +255,7 @@
     "wasmXetex": "XeLaTeX WASM",
     "wasmLualatex": "LuaLaTeX WASM",
     "texliveEndpoint": "TexLive 包服务地址",
-    "texliveEndpointDesc": "WASM 编译时按需拉取 TeX 宏包/字体的服务地址。默认指向 BusyTeX 上游官方端点；自建可换成 http://your-host:5001/，留空则关闭远程兜底。",
+    "texliveEndpointDesc": "WASM 编译时按需拉取 TeX 宏包/字体的服务地址。默认指向 BusyTeX 上游官方端点；自建可换成 http://your-host:5001/。留空则使用默认端点。",
     "typstEngine": "Typst 编译器",
     "typstEngineDesc": "选择用于生成 Typst PDF 的编译后端;选项动态根据本机检测结果显示",
     "tinymist": "本机 Tinymist",

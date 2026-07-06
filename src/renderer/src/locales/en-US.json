@@ -255,7 +255,7 @@
     "wasmXetex": "XeLaTeX WASM",
     "wasmLualatex": "LuaLaTeX WASM",
     "texliveEndpoint": "TexLive Package Server",
-    "texliveEndpointDesc": "URL for on-demand TeX package/font fetching during WASM compilation. Defaults to the BusyTeX upstream endpoint; replace with http://your-host:5001/ for self-hosted, leave empty to disable remote fallback.",
+    "texliveEndpointDesc": "URL for on-demand TeX package/font fetching during WASM compilation. Defaults to the BusyTeX upstream endpoint; replace with http://your-host:5001/ for self-hosted. Leave empty to use the default endpoint.",
     "typstEngine": "Typst Compiler",
     "typstEngineDesc": "Select the compiler backend used for Typst PDF generation; options shown depend on what is detected on this machine",
     "tinymist": "Local Tinymist",

@@ -20,6 +20,14 @@ export const LATEX_ENGINES = {
 /** Default LaTeX engine — local-first via {@link LATEX_ENGINES.AUTO}. */
 export const DEFAULT_LATEX_ENGINE = LATEX_ENGINES.AUTO;
 
+/**
+ * Default on-demand TeX Live endpoint for the WASM engine. Missing packages
+ * (ctex/xeCJK/fandol, tikz libraries, etc.) are fetched from here at compile
+ * time. Used as the settings default AND as the fallback when the user's
+ * configured endpoint is blank.
+ */
+export const DEFAULT_TEXLIVE_ENDPOINT = 'https://texlive2026.texlyre.org';
+
 /** Overleaf default compiler */
 export const DEFAULT_OVERLEAF_COMPILER = LATEX_ENGINES.PDFLATEX;
 
