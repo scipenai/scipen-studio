@@ -21,8 +21,6 @@ import type { CompileMessage } from '../services/compiler/interfaces/ICompiler';
 import type { ISyncTeXService } from '../services/interfaces';
 import { createTypedHandlers } from './typedIpc';
 import { promises as fs } from 'node:fs';
-import { randomBytes } from 'node:crypto';
-import os from 'node:os';
 import path from 'node:path';
 
 const logger = createLogger('CompileHandlers');
@@ -171,8 +169,7 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
           }));
           return {
             success: result.success,
-            pdfPath: result.outputPath, // ICompiler uses outputPath
-            pdfData: result.outputData, // @deprecated - ICompiler uses outputData (Base64)
+            pdfPath: result.outputPath,
             pdfBuffer: result.outputBuffer, // High-perf: binary zero-copy transfer
             synctexPath: result.synctexPath,
             errors,
@@ -235,16 +232,21 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
         }
       },
 
-      // Persist BusyTeX WASM artifacts (pdf + .synctex.gz) to a fresh temp
-      // directory so the main-process `synctex` CLI can read them via the
-      // same code path as a CLI-compiled result. Buffer is the renderer's
-      // Uint8Array — it crosses the IPC boundary as a Node Buffer.
-      [IpcChannel.Compile_WriteWasmArtifacts]: async (pdfBuffer, synctexBuffer, baseName) => {
+      // Persist BusyTeX WASM artifacts (pdf + .synctex.gz) to the project
+      // directory (outputDir) so the on-disk PDF matches the local compiler's
+      // output path — the single source of truth on disk. Buffer is the
+      // renderer's Uint8Array — it crosses the IPC boundary as a Node Buffer.
+      [IpcChannel.Compile_WriteWasmArtifacts]: async (
+        pdfBuffer,
+        synctexBuffer,
+        baseName,
+        outputDir
+      ) => {
         const safeName = baseName && /^[A-Za-z0-9_.-]+$/.test(baseName) ? baseName : 'main';
-        const tempDir = path.join(os.tmpdir(), `scipen-wasm-${randomBytes(8).toString('hex')}`);
-        await fs.mkdir(tempDir, { recursive: true });
-        const pdfPath = path.join(tempDir, `${safeName}.pdf`);
-        const synctexPath = path.join(tempDir, `${safeName}.synctex.gz`);
+        const safeOutputDir = assertPathSecurity(outputDir, 'write');
+        await fs.mkdir(safeOutputDir, { recursive: true });
+        const pdfPath = path.join(safeOutputDir, `${safeName}.pdf`);
+        const synctexPath = path.join(safeOutputDir, `${safeName}.synctex.gz`);
         await fs.writeFile(pdfPath, Buffer.from(pdfBuffer));
         await fs.writeFile(synctexPath, Buffer.from(synctexBuffer));
         return { pdfPath, synctexPath };
@@ -309,7 +311,6 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
           return {
             success: result.success,
             pdfPath: result.outputPath,
-            pdfData: result.outputData, // @deprecated - kept for backward compatibility
             pdfBuffer: result.outputBuffer, // High-perf: binary zero-copy transfer
             errors: result.errors || [],
             warnings: result.warnings || [],

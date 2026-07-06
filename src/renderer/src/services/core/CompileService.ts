@@ -79,8 +79,6 @@ export interface CompileResult {
   /** Source file path that triggered the compile, used to disambiguate per-file results */
   sourceFile?: string;
   pdfPath?: string;
-  /** @deprecated Use pdfBuffer instead, Base64 encoding is inefficient */
-  pdfData?: string;
   pdfBuffer?: ArrayBuffer | Uint8Array;
   synctexPath?: string;
   synctexBuffer?: Uint8Array;

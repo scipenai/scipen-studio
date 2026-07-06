@@ -105,13 +105,6 @@ export interface CompileResult {
   outputPath?: string;
 
   /**
-   * Output file content (Base64 encoded)
-   * @deprecated Use outputBuffer instead, Base64 encoding is inefficient
-   * Used for in-memory preview, avoids file I/O
-   */
-  outputData?: string;
-
-  /**
    * Output file binary data
    * High-performance zero-copy transmission method, more efficient than Base64
    */

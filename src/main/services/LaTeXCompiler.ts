@@ -52,7 +52,6 @@ export interface CompilationOptions {
 export interface CompilationResult {
   success: boolean;
   pdfPath?: string;
-  pdfData?: string;
   pdfBuffer?: Uint8Array;
   synctexPath?: string;
   errors?: string[];

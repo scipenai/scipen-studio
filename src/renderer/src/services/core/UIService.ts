@@ -11,6 +11,7 @@ import {
   type IDisposable,
 } from '../../../../../shared/utils';
 import type { CompilationResult, FilePdfPreviewState, ParsedLogEntry } from '../../types';
+import { api } from '../../api';
 import { getStorageService } from '../StorageService';
 import { type CompileResult, getCompileServiceAsync } from './CompileService';
 import {
@@ -152,9 +153,10 @@ export class UIService implements IDisposable {
   private _compilationResult: CompilationResult | null = null;
   private _pdfPath: string | null = null;
   private _pdfData: ArrayBuffer | null = null;
-  private _pdfUrl: string | null = null; // Custom protocol URL for efficient local PDF loading
   private _compilationLogs: CompilationLog[] = [];
   private _filePdfPreviews = new Map<string, FilePdfPreviewState>();
+  /** Tracks the file path that syncPdfPreviewForFile is syncing for, used to guard async disk loads against tab switches. */
+  private _pdfSyncTargetPath: string | null = null;
 
   // SyncTeX
   private _synctexPath: string | null = null;
@@ -405,13 +407,6 @@ export class UIService implements IDisposable {
             const compilationResult: CompilationResult = {
               success: result.success,
               pdfPath: result.pdfPath,
-              // pdfData is set separately by EditorPane via setPdfData()
-              pdfData:
-                result.pdfBuffer instanceof ArrayBuffer
-                  ? result.pdfBuffer
-                  : result.pdfBuffer instanceof Uint8Array
-                    ? (result.pdfBuffer.slice().buffer as ArrayBuffer)
-                    : undefined,
               synctexPath: result.synctexPath,
               errors: result.errors,
               warnings: result.warnings,
@@ -675,18 +670,6 @@ export class UIService implements IDisposable {
     this.setRightPanelTab('paper');
   }
 
-  /**
-   * Set PDF custom protocol URL (for efficient local PDF loading, avoid IPC transfer)
-   */
-  setPdfUrl(url: string | null): void {
-    this._pdfUrl = url;
-    this._onDidChangePdf.fire({ path: this._pdfPath, data: this._pdfData });
-  }
-
-  get pdfUrl(): string | null {
-    return this._pdfUrl;
-  }
-
   getFilePdfPreview(filePath: string | null): FilePdfPreviewState | null {
     if (!filePath) return null;
     return this._filePdfPreviews.get(filePath) ?? null;
@@ -721,24 +704,79 @@ export class UIService implements IDisposable {
   }
 
   private syncPdfPreviewForFile(filePath: string | null): void {
+    this._pdfSyncTargetPath = filePath;
+
     if (!filePath) {
       this.setPdfPath(null);
       this.setPdfData(null);
-      this.setPdfUrl(null);
       return;
     }
 
     const preview = this._filePdfPreviews.get(filePath);
-    if (!preview || preview.isStale) {
-      this.setPdfPath(null);
-      this.setPdfData(null);
-      this.setPdfUrl(null);
+    if (preview && !preview.isStale) {
+      this.setPdfPath(preview.pdfPath);
+      this.setPdfData(preview.pdfData);
       return;
     }
 
-    this.setPdfPath(preview.pdfPath);
-    this.setPdfData(preview.pdfData);
-    this.setPdfUrl(null);
+    if (preview?.isStale) {
+      // Keep showing the stale PDF data so the user sees something,
+      // but don't reload from disk — isStale stays true until a recompile.
+      this.setPdfPath(preview.pdfPath);
+      this.setPdfData(preview.pdfData);
+      return;
+    }
+
+    // No cached preview at all — try loading an existing PDF from disk
+    this.setPdfPath(null);
+    this.setPdfData(null);
+    this._tryLoadPdfFromDisk(filePath);
+  }
+
+  /**
+   * Fire-and-forget: when a source file (.tex/.typ) is opened and no cached
+   * PDF exists, check if a compiled .pdf sits next to it on disk (e.g. from
+   * a previous session or an external compiler). If found, load it into the
+   * preview so the user sees their document immediately.
+   *
+   * Guards against tab-switch races via `_pdfSyncTargetPath`.
+   */
+  private async _tryLoadPdfFromDisk(sourceFilePath: string): Promise<void> {
+    const pdfPath = this._derivePdfPath(sourceFilePath);
+    if (!pdfPath) return;
+
+    try {
+      const exists = await api.file.exists(pdfPath);
+      if (!exists) return;
+      if (this._pdfSyncTargetPath !== sourceFilePath) return;
+
+      const pdfData = await api.file.readBinary(pdfPath);
+      if (this._pdfSyncTargetPath !== sourceFilePath) return;
+
+      this.updateFilePdfPreview(sourceFilePath, {
+        pdfPath,
+        pdfData,
+        isStale: false,
+      });
+      this.setPdfPath(pdfPath);
+      this.setPdfData(pdfData);
+
+      const synctexPath = pdfPath.replace(/\.pdf$/i, '.synctex.gz');
+      const synctexExists = await api.file.exists(synctexPath);
+      if (synctexExists && this._pdfSyncTargetPath === sourceFilePath) {
+        this.setSynctexPath(synctexPath);
+        this.setSynctexProjectRoot(null);
+      }
+    } catch {
+      // No PDF on disk is a normal state — silently ignore
+    }
+  }
+
+  /** Derive the expected PDF output path from a source file path. */
+  private _derivePdfPath(sourceFilePath: string): string | null {
+    const ext = sourceFilePath.match(/\.[^.]+$/)?.[0]?.toLowerCase() || '';
+    if (!['.tex', '.latex', '.ltx', '.typ'].includes(ext)) return null;
+    return sourceFilePath.slice(0, -ext.length) + '.pdf';
   }
 
   // ====== Compilation Logs ======
