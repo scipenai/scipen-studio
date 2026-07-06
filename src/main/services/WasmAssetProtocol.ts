@@ -33,6 +33,17 @@ const logger = createLogger('WasmAssetProtocol');
 
 export const WASM_ASSET_PROTOCOL = 'scipen-wasm';
 
+/**
+ * Reserved host under {@link WASM_ASSET_PROTOCOL} for proxying the BusyTeX
+ * on-demand TeX Live fetch. The worker builds
+ * `scipen-wasm://texlive-remote/<base64url(endpoint)>/<format>/<name>` and the
+ * MAIN process fetches the real `<endpoint>/<format>/<name>` on its behalf —
+ * the worker's own `file://` origin can't do that cross-origin request in a
+ * packaged app, but main (net.fetch) has no such restriction. See
+ * {@link handleTexliveRemote}.
+ */
+const TEXLIVE_REMOTE_HOST = 'texlive-remote';
+
 let isRegistered = false;
 
 /**
@@ -108,6 +119,12 @@ export function registerWasmAssetProtocol(): void {
       // Parse `scipen-wasm://busytex/busytex.js` into a path inside wasm/.
       // Chromium puts the first segment in `url.host` for standard schemes.
       const url = new URL(request.url);
+
+      // BusyTeX on-demand TeX Live fetch — proxied through main (see host doc).
+      if (url.host === TEXLIVE_REMOTE_HOST) {
+        return await handleTexliveRemote(url);
+      }
+
       const requestPath = decodeURIComponent(`${url.host}${url.pathname}`);
       const filePath = path.normalize(path.join(wasmRoot, requestPath));
 
@@ -149,6 +166,61 @@ export function registerWasmAssetProtocol(): void {
 
   isRegistered = true;
   logger.info(`[WasmAssetProtocol] Handler registered: ${WASM_ASSET_PROTOCOL}://`);
+}
+
+/**
+ * Proxy a BusyTeX on-demand TeX Live request to the real remote endpoint.
+ *
+ * URL shape: `scipen-wasm://texlive-remote/<base64url(endpoint)>/<format>/<name>`.
+ * The endpoint base is carried in the path (base64url) so main needs no shared
+ * state with the renderer. We fetch `<endpoint>/<format>/<name>` from main via
+ * `net.fetch` — not subject to the `file://`-origin cross-origin restriction
+ * that blocks the worker's own XHR in packaged builds — and preserve the real
+ * status so BusyTeX records a proper 404 "miss".
+ */
+async function handleTexliveRemote(url: URL): Promise<Response> {
+  const segments = url.pathname.replace(/^\/+/, '').split('/');
+  const encodedBase = segments.shift();
+  if (!encodedBase || segments.length === 0) {
+    return new Response('Bad Request', { status: 400 });
+  }
+
+  let endpointBase: string;
+  try {
+    endpointBase = Buffer.from(
+      encodedBase.replace(/-/g, '+').replace(/_/g, '/'),
+      'base64'
+    ).toString('utf8');
+  } catch {
+    return new Response('Bad Request', { status: 400 });
+  }
+
+  // Only proxy plain http(s) endpoints — never file:// or other schemes.
+  if (!/^https?:\/\/\S+$/i.test(endpointBase)) {
+    logger.warn('[WasmAssetProtocol] Rejected non-http texlive endpoint');
+    return new Response('Forbidden', { status: 403 });
+  }
+
+  // `segments` keep their percent-encoding (url.pathname is not decoded), so
+  // the reconstructed URL matches what the worker asked for.
+  const remoteUrl = `${endpointBase.replace(/\/+$/, '')}/${segments.join('/')}`;
+
+  try {
+    const response = await net.fetch(remoteUrl);
+    const headers = new Headers(response.headers);
+    headers.set('Access-Control-Allow-Origin', '*');
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  } catch (error) {
+    logger.warn('[WasmAssetProtocol] TeX Live proxy fetch failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    // 502 (not 404) so BusyTeX doesn't cache this as a permanent "miss".
+    return new Response('Bad Gateway', { status: 502 });
+  }
 }
 
 function getMimeType(filePath: string): string {

@@ -29,7 +29,7 @@ import {
 } from '../../../../../shared/utils';
 import { ConfigKeys, api } from '../../api';
 import { OPENAI_BASE_URL, OVERLEAF_SERVER_URL } from '../../constants/api';
-import { DEFAULT_LATEX_ENGINE } from '../../constants/latex';
+import { DEFAULT_LATEX_ENGINE, DEFAULT_TEXLIVE_ENDPOINT } from '../../constants/latex';
 import { DELAYS, TIMEOUTS } from '../../constants/timing';
 import type { AppSettings } from '../../types';
 
@@ -96,7 +96,7 @@ export const defaultSettings: AppSettings = {
     outputDirectory: './output',
     cleanAuxFiles: true,
     stopOnFirstError: false,
-    texliveEndpoint: 'https://texlive2026.texlyre.org',
+    texliveEndpoint: DEFAULT_TEXLIVE_ENDPOINT,
     // Empty by default: the Typst engine ships with a full CJK font set
     // (Libertinus + NewCM + DejaVu + Noto Serif/Sans/Mono CJK SC, ~54MB)
     // baked into the installer via `download:typst-wasm:cjk`, so no

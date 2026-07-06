@@ -5,6 +5,7 @@
  */
 
 import { api } from '../../api';
+import { DEFAULT_TEXLIVE_ENDPOINT } from '../../constants/latex';
 import { t } from '../../locales';
 import { createLogger } from '../LogService';
 import { BusyTexEngine, type BusyTexEngineType } from '../BusyTexEngine';
@@ -451,7 +452,12 @@ export class WASMCompilerProvider implements CompilerProvider {
       }
 
       const settings = getSettingsService().getSettings().compiler;
-      this.engine.setTexliveEndpoint(settings.texliveEndpoint || '');
+      // Fall back to the default endpoint when the setting is blank. A fresh
+      // install ships the default, so an empty value almost always means the
+      // field got cleared by accident (not a deliberate "disable remote") —
+      // and with no endpoint, WASM CJK silently dies with "ctex.sty not found"
+      // because ctex/xeCJK/fonts can't be fetched. Defaulting keeps it working.
+      this.engine.setTexliveEndpoint(settings.texliveEndpoint?.trim() || DEFAULT_TEXLIVE_ENDPOINT);
 
       // CJK note: scipen no longer mounts private fonts or injects a shim.
       // Chinese documents use standard `\usepackage{ctex}`; ctex/xeCJK and
