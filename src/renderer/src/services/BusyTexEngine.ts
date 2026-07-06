@@ -276,11 +276,16 @@ export class BusyTexEngine {
 
   /**
    * Configure the remote TeX Live endpoint. Missing packages are fetched
-   * lazily via `kpse_remote.js` (synchronous XHR inside the worker). The
-   * endpoint is forwarded with the next `compile` message.
+   * lazily via a synchronous XHR inside the worker.
+   *
+   * The raw https endpoint is wrapped in the `scipen-wasm://texlive-remote/...`
+   * proxy so the fetch is serviced by the MAIN process (net.fetch). The worker
+   * runs from a `file://` origin in packaged builds, where a direct cross-origin
+   * XHR to https is blocked by Chromium — the same reason the engine's data
+   * packages already load through `scipen-wasm://`. See WasmAssetProtocol.
    */
   setTexliveEndpoint(url: string): void {
-    this.remoteEndpoint = url || undefined;
+    this.remoteEndpoint = url ? toTexliveProxyEndpoint(url) : undefined;
   }
 
   /**
@@ -443,6 +448,20 @@ function scrapeSignals(log: string): BusyTexSignals {
  */
 function resolveAssetUrl(fileName: string): string {
   return `${BUSYTEX_BASE_URL}/${fileName}`;
+}
+
+/**
+ * Wrap a raw TeX Live endpoint into the `scipen-wasm://texlive-remote/...`
+ * proxy the main process services. The kpse fetcher concatenates
+ * `endpoint + '/' + format + '/' + name`, so we hand it a base whose path
+ * carries the real endpoint (base64url) — main decodes it and fetches on our
+ * behalf. Already-wrapped or non-http endpoints are returned unchanged.
+ */
+function toTexliveProxyEndpoint(url: string): string {
+  if (url.startsWith('scipen-wasm://')) return url;
+  if (!/^https?:\/\//i.test(url)) return url;
+  const b64 = btoa(url).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `scipen-wasm://texlive-remote/${b64}`;
 }
 
 /**
