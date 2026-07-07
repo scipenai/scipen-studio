@@ -214,8 +214,6 @@ describe('IPC Security - Path-Related Channels', () => {
     IpcChannel.LSP_FormatTypst,
     IpcChannel.Compile_LaTeX,
     IpcChannel.Compile_Typst,
-    IpcChannel.SyncTeX_Forward,
-    IpcChannel.SyncTeX_Backward,
   ];
 
   it('all path-related channels should have schema definitions', () => {

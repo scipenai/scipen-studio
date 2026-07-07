@@ -15,8 +15,6 @@ import type {
   LaTeXCompileResult,
   LaTeXError,
   LaTeXWarning,
-  SyncTeXForwardResult,
-  SyncTeXBackwardResult,
   OverleafConfig,
   OverleafProjectDTO,
 } from '../shared/ipc/types';
@@ -30,8 +28,6 @@ export type {
   LaTeXCompileResult,
   LaTeXError,
   LaTeXWarning,
-  SyncTeXForwardResult,
-  SyncTeXBackwardResult,
   OverleafConfig,
   OverleafProjectDTO,
 };
@@ -102,10 +98,6 @@ interface ElectronAPI {
     typst: { available: boolean; version: string | null };
   }>;
   getTypstCapabilities: () => Promise<import('../shared/ipc/compile-contract').TypstCapabilities>;
-
-  // ============ SyncTeX Bidirectional Sync ============
-  synctexForward: (texFile: string, line: number, column: number, pdfFile: string) => Promise<SyncTeXForwardResult | null>;
-  synctexBackward: (pdfFile: string, page: number, x: number, y: number) => Promise<SyncTeXBackwardResult | null>;
 
   // ============ External Links ============
   openExternal: (url: string) => Promise<void>;

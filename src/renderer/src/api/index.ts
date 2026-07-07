@@ -91,18 +91,13 @@ export type {
   LogEntry,
 };
 
-import type {
-  LaTeXCompileResult,
-  OverleafProjectDTO,
-  SyncTeXBackwardResult,
-  SyncTeXForwardResult,
-} from '../../../../shared/ipc/types';
+import type { LaTeXCompileResult, OverleafProjectDTO } from '../../../../shared/ipc/types';
 
 // Legacy `shared/types/chat` types (ChatMessage / ChatSession / ChatStreamEvent
 // / SendMessageOptions) belonged to the deleted builtin chat path; SNACA owns
 // its own message shapes via `services/agent/ChatStreamStore`.
 
-export type { LaTeXCompileResult, SyncTeXForwardResult, SyncTeXBackwardResult, OverleafProjectDTO };
+export type { LaTeXCompileResult, OverleafProjectDTO };
 
 // ==================== Local type definitions (file-scoped only) ====================
 
@@ -374,8 +369,8 @@ export const compile = {
     }>(IpcChannel.Compile_GetStatus),
   /**
    * Persist a BusyTeX WASM compile result to the project directory on disk so
-   * the on-disk PDF matches the local compiler's output path and the
-   * main-process `synctex` CLI can read it. Returns the on-disk paths.
+   * the on-disk PDF matches the local compiler's output path and the renderer
+   * can read the sibling `.synctex.gz` for in-process sync. Returns the paths.
    */
   writeWasmArtifacts: (
     pdfBuffer: Uint8Array,
@@ -390,43 +385,6 @@ export const compile = {
       baseName,
       outputDir
     ),
-};
-
-// ==================== SyncTeX API ====================
-
-interface ForwardSyncResult {
-  page: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface InverseSyncResult {
-  file: string;
-  line: number;
-  column: number;
-}
-
-export const synctex = {
-  /**
-   * Forward sync: source location → PDF position.
-   *
-   * `projectRoot` is required when the .synctex.gz was produced by the
-   * BusyTeX WASM engine (records relative paths). The main process
-   * rebases `texFile` against `projectRoot` before invoking `synctex`.
-   */
-  forward: (texFile: string, line: number, column: number, pdfFile: string, projectRoot?: string) =>
-    invoke<ForwardSyncResult | null>(
-      IpcChannel.SyncTeX_Forward,
-      texFile,
-      line,
-      column,
-      pdfFile,
-      projectRoot
-    ),
-  backward: (pdfFile: string, page: number, x: number, y: number, projectRoot?: string) =>
-    invoke<InverseSyncResult | null>(IpcChannel.SyncTeX_Backward, pdfFile, page, x, y, projectRoot),
 };
 
 // ==================== AI API ====================
@@ -1020,7 +978,6 @@ export const api = {
   overleafLive,
   project,
   compile,
-  synctex,
   ai,
   lsp,
   overleaf,

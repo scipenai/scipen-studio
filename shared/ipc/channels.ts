@@ -73,8 +73,6 @@ export enum IpcChannel {
    * enable/disable engine options instead of hardcoding what's installed.
    */
   Typst_GetCapabilities = 'typst:get-capabilities',
-  SyncTeX_Forward = 'synctex-forward',
-  SyncTeX_Backward = 'synctex-backward',
 
   // ====== LSP (Language Server Protocol) ======
   LSP_GetProcessInfo = 'lsp:get-process-info',

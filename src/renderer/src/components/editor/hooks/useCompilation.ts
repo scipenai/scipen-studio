@@ -11,6 +11,7 @@ import { useCallback } from 'react';
 import { api } from '../../../api';
 import { t } from '../../../locales';
 import { createLogger } from '../../../services/LogService';
+import { getSyncTeXService } from '../../../services/SyncTeXService';
 import {
   type CompileOptions,
   type CompileResult,
@@ -99,16 +100,18 @@ export function useCompilation({
           }
         }
 
+        // Load the on-disk `.synctex.gz` into the in-memory source map so
+        // bidirectional sync resolves in-process (no external `synctex` CLI).
+        // Both CLI and BusyTeX WASM compiles write a `.synctex.gz` next to the
+        // PDF; the JS parser handles either engine's recorded paths. `force`
+        // because a recompile rewrites the same path with new bytes; the
+        // service's last-request-wins guard drops this load if the user
+        // switches tabs before it resolves.
         if (result.synctexPath) {
-          uiService.setSynctexPath(result.synctexPath);
+          void getSyncTeXService().loadFromPath(result.synctexPath, true);
+        } else {
+          getSyncTeXService().clear();
         }
-        // BusyTeX WASM compiles return a projectRoot — its `.synctex.gz`
-        // records MEMFS-absolute paths under `/home/web_user/project_dir/`
-        // that main-process SyncTeXService rebases against this root.
-        // CLI compiles record host-absolute paths and leave projectRoot
-        // unset; resetting on every run prevents a stale anchor from a
-        // previous WASM compile leaking into the next CLI compile.
-        uiService.setSynctexProjectRoot(result.projectRoot ?? null);
         if (result.buildId) {
           uiService.setRemoteBuildId(result.buildId);
         }

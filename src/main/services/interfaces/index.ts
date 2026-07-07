@@ -19,13 +19,6 @@ export type {
   FileChangeEvent,
 } from './IFileSystemService';
 
-// ====== SyncTeX Services ======
-export type {
-  ISyncTeXService,
-  ForwardSyncResult,
-  InverseSyncResult,
-} from './ISyncTeXService';
-
 // ====== Compiler Registry ======
 export type { ICompilerRegistry } from './ICompilerRegistry';
 

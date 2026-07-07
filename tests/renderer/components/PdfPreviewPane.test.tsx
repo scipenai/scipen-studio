@@ -72,8 +72,6 @@ vi.mock('../../../src/renderer/src/services/core/ServiceRegistry', () => ({
   getUIService: () => ({
     requestAIErrorAnalysis: mockState.requestAIErrorAnalysis,
     setPdfHighlight: vi.fn(),
-    synctexPath: null,
-    synctexProjectRoot: null,
   }),
 }));
 

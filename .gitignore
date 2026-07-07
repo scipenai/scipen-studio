@@ -67,6 +67,8 @@ temp/
 *.toc
 *.synctex.gz
 *.synctex(busy)
+# ...but keep the checked-in SyncTeX parser test fixture
+!tests/renderer/fixtures/*.synctex.gz
 
 # Knowledge base (local storage)
 KnowledgeBase/

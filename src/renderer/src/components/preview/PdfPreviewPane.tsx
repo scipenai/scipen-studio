@@ -25,8 +25,10 @@ import {
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type React from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { openFileInEditor } from '../../services/core/FileOpenService';
+import { useTranslation } from '../../locales';
 import { getSyncTeXService } from '../../services/SyncTeXService';
+import type { PdfHighlight } from '../../services/core';
+import { openFileInEditor } from '../../services/core/FileOpenService';
 import {
   TaskPriority,
   cancelIdleTask,
@@ -38,16 +40,14 @@ import {
   getUIService,
 } from '../../services/core/ServiceRegistry';
 import {
-  useCompilationResult,
   useActiveTabPath,
+  useCompilationResult,
   useIsCompiling,
   usePdfData,
   usePdfHighlight,
   useZoteroPdf,
 } from '../../services/core/hooks';
 import { DOMScheduler, SchedulePriority } from '../../utils/DOMScheduler';
-import type { PdfHighlight } from '../../services/core';
-import { useTranslation } from '../../locales';
 import { CompileLogPanel } from './CompileLogPanel';
 import { usePulseHighlight } from './usePdfMotion';
 
@@ -327,6 +327,11 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const pagesContainerRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
+  // While true, the page auto-fits the container width (default and after
+  // "fit width"); a manual zoom flips it off so resizing no longer overrides
+  // the user's chosen scale. Prevents the page from overflowing the panel
+  // when the preview pane is dragged narrower.
+  const fitModeRef = useRef(true);
   const currentZoomPercent = Math.round(scale * 100);
   const presetZoomOptions = useMemo(() => [50, 75, 100, 125, 150, 200], []);
   const zoomSelectValue = presetZoomOptions.includes(currentZoomPercent)
@@ -636,17 +641,28 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     [totalPages, viewMode]
   );
 
+  // Width the last fit was computed for; lets the ResizeObserver skip refits
+  // when the container width hasn't actually changed (avoids re-fit churn).
+  const lastFitWidthRef = useRef(0);
+
   const fitToWidth = useCallback(() => {
     if (!containerRef.current || !pdfDoc) return;
 
+    fitModeRef.current = true;
     pdfDoc.getPage(1).then((page) => {
       const container = containerRef.current;
       if (!container) return;
+      const clientWidth = container.clientWidth;
       const containerStyle = window.getComputedStyle(container);
       const horizontalPadding =
         Number.parseFloat(containerStyle.paddingLeft || '0') +
         Number.parseFloat(containerStyle.paddingRight || '0');
-      const containerWidth = container.clientWidth - horizontalPadding - 24;
+      const containerWidth = clientWidth - horizontalPadding - 24;
+      // Container not laid out yet (collapsed pane / pre-layout measure) —
+      // don't clamp scale to the 0.5 floor off a zero width; wait for the next
+      // resize when a real width is available.
+      if (containerWidth <= 0) return;
+      lastFitWidthRef.current = clientWidth;
       const viewport = page.getViewport({ scale: 1 });
       const newScale = containerWidth / viewport.width;
       setScale(Math.min(Math.max(newScale, 0.5), 3));
@@ -657,8 +673,32 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   // default to fitting container width instead of a fixed 120% — reuse fitToWidth; the container is already mounted by then.
   useEffect(() => {
     if (!pdfDoc || totalPages === 0) return;
+    fitModeRef.current = true;
     fitToWidth();
   }, [pdfDoc, totalPages, fitToWidth]);
+
+  // Keep the page fitted when the preview pane is resized (panel drag / window
+  // resize). Only auto-refits while the user hasn't manually zoomed, so a
+  // narrower pane never leaves a stale scale that overflows the container.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !pdfDoc) return;
+    let raf = 0;
+    const observer = new ResizeObserver(() => {
+      if (!fitModeRef.current) return;
+      // Ignore zero-width (hidden/collapsed) and no-op width changes so the
+      // observer doesn't clamp to 0.5 or thrash when only the height changed.
+      const width = container.clientWidth;
+      if (width <= 0 || width === lastFitWidthRef.current) return;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => fitToWidth());
+    });
+    observer.observe(container);
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, [pdfDoc, fitToWidth]);
 
   const handleZoomInputCommit = useCallback(() => {
     const parsed = Number.parseInt(zoomInput, 10);
@@ -667,6 +707,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
       return;
     }
     const clamped = Math.min(300, Math.max(50, parsed));
+    fitModeRef.current = false;
     setScale(clamped / 100);
   }, [currentZoomPercent, zoomInput]);
 
@@ -690,29 +731,26 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     }
   }, [activeTabPath, compilationResult?.pdfPath, pdfBytes]);
 
-  const zoomIn = useCallback(() => setScale((s) => Math.min(3, s + 0.1)), []);
-  const zoomOut = useCallback(() => setScale((s) => Math.max(0.5, s - 0.1)), []);
+  const zoomIn = useCallback(() => {
+    fitModeRef.current = false;
+    setScale((s) => Math.min(3, s + 0.1));
+  }, []);
+  const zoomOut = useCallback(() => {
+    fitModeRef.current = false;
+    setScale((s) => Math.max(0.5, s - 0.1));
+  }, []);
   const handleScaleChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     if (e.target.value === 'custom') {
       return;
     }
+    fitModeRef.current = false;
     setScale(Number(e.target.value) / 100);
   }, []);
 
   // PDF page click handler (SyncTeX reverse sync: navigate from PDF to source code)
-  const handlePageClick = useCallback(async (pageNum: number, x: number, y: number) => {
-    const uiService = getUIService();
-    const synctexPath = uiService.synctexPath;
-
+  const handlePageClick = useCallback((pageNum: number, x: number, y: number) => {
     try {
-      const syncTeXService = getSyncTeXService();
-      const result = await syncTeXService.backward(
-        pageNum,
-        x,
-        y,
-        synctexPath,
-        uiService.synctexProjectRoot ?? undefined
-      );
+      const result = getSyncTeXService().backward(pageNum, x, y);
 
       if (result?.file && result.line !== undefined) {
         window.dispatchEvent(
@@ -730,8 +768,9 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     }
   }, []);
 
-  // zotero paper PDFs have no .synctex → disable reverse-sync clicks (pass undefined to turn off),
-  // avoiding backward() throwing when synctexPath is missing.
+  // Zotero paper PDFs have no .synctex → disable reverse-sync clicks entirely
+  // (pass undefined) so a click can't dispatch a jump against a stale compile
+  // source map still resident in the singleton SyncTeXService.
   const pageClickHandler = source === 'zotero' ? undefined : handlePageClick;
 
   // SyncTeX landing highlight only exists for compilation artifacts (zotero papers have no synctex); only forward to the hit page, others get null.
@@ -1252,7 +1291,12 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
           <div
             ref={containerRef}
             className="flex-1 overflow-auto"
-            style={{ background: 'color-mix(in srgb, var(--color-bg-void) 72%, #4b5563 28%)' }}
+            style={{
+              background: 'color-mix(in srgb, var(--color-bg-void) 72%, #4b5563 28%)',
+              // Reserve the vertical-scrollbar gutter so toggling it never
+              // changes clientWidth and re-triggers a fit-to-width refit.
+              scrollbarGutter: 'stable',
+            }}
           >
             {viewMode === 'scroll' ? (
               <div ref={pagesContainerRef} className="flex flex-col items-center py-4 gap-4">
@@ -1294,7 +1338,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                   highlight={
                     activeHighlight && activeHighlight.page === currentPage ? activeHighlight : null
                   }
-                  onPageClick={handlePageClick}
+                  onPageClick={pageClickHandler}
                 />
               </div>
             )}

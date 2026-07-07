@@ -11,6 +11,7 @@ import { api } from '../../../api';
 import { useDelayer, useWindowEvent } from '../../../hooks';
 import { t } from '../../../locales';
 import { createLogger } from '../../../services/LogService';
+import { getSyncTeXService } from '../../../services/SyncTeXService';
 import { getEditorService, getUIService } from '../../../services/core/ServiceRegistry';
 import { getLanguageForFile } from '../../../utils';
 
@@ -109,43 +110,33 @@ export function useSyncTeX({ editorRef, activeTabPath }: UseSyncTeXParams): UseS
 
       if (!position || (!uiService.pdfData && !uiService.pdfPath)) return;
 
-      const synctexPath = uiService.synctexPath;
       const editorService = getEditorService();
       const currentPath = editorService.activeTabPath;
 
-      if (!currentPath || !synctexPath) {
+      if (!currentPath || !getSyncTeXService().isAvailable()) {
         uiService.addCompilationLog({ type: 'warning', message: t('syncTeX.compileFirst') });
         return;
       }
 
-      api.synctex
-        .forward(
-          currentPath,
-          position.lineNumber,
-          position.column,
-          synctexPath,
-          uiService.synctexProjectRoot ?? undefined
-        )
-        .then((result) => {
-          if (result && result.page !== undefined) {
-            uiService.setPdfHighlight({
-              page: result.page,
-              x: result.x || 0,
-              y: result.y || 0,
-              width: result.width || 50,
-              height: result.height || 20,
-            });
-            uiService.addCompilationLog({
-              type: 'info',
-              message: t('syncTeX.jumpToPage', { page: String(result.page) }),
-            });
-          } else {
-            uiService.addCompilationLog({
-              type: 'warning',
-              message: t('syncTeX.positionNotFound'),
-            });
-          }
+      const result = getSyncTeXService().forward(currentPath, position.lineNumber);
+      if (result && result.page !== undefined) {
+        uiService.setPdfHighlight({
+          page: result.page,
+          x: result.x || 0,
+          y: result.y || 0,
+          width: result.width || 50,
+          height: result.height || 20,
         });
+        uiService.addCompilationLog({
+          type: 'info',
+          message: t('syncTeX.jumpToPage', { page: String(result.page) }),
+        });
+      } else {
+        uiService.addCompilationLog({
+          type: 'warning',
+          message: t('syncTeX.positionNotFound'),
+        });
+      }
     });
   }, [syncTexDelayer]);
 

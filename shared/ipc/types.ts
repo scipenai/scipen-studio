@@ -90,22 +90,6 @@ export interface LaTeXWarning {
   type: 'underfull' | 'overfull' | 'citation' | 'reference' | 'other';
 }
 
-// ====== SyncTeX ======
-
-export interface SyncTeXForwardResult {
-  page: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface SyncTeXBackwardResult {
-  file: string;
-  line: number;
-  column: number;
-}
-
 // ====== Overleaf ======
 
 export interface OverleafConfig {

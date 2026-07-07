@@ -77,11 +77,13 @@ Object.defineProperty(window, 'matchMedia', {
 
 // ====== Mock Browser APIs ======
 
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-}));
+// Regular function (not arrow) so `new ResizeObserver(...)` is constructable
+// under vitest's Mock — the renderer now creates one for fit-to-width.
+global.ResizeObserver = vi.fn(function (this: Record<string, unknown>) {
+  this.observe = vi.fn();
+  this.unobserve = vi.fn();
+  this.disconnect = vi.fn();
+}) as unknown as typeof ResizeObserver;
 
 global.IntersectionObserver = vi.fn().mockImplementation(() => ({
   observe: vi.fn(),

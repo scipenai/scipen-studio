@@ -10,8 +10,8 @@ import {
   type Event,
   type IDisposable,
 } from '../../../../../shared/utils';
-import type { CompilationResult, FilePdfPreviewState, ParsedLogEntry } from '../../types';
 import { api } from '../../api';
+import type { CompilationResult, FilePdfPreviewState, ParsedLogEntry } from '../../types';
 import { getStorageService } from '../StorageService';
 import { type CompileResult, getCompileServiceAsync } from './CompileService';
 import {
@@ -158,15 +158,8 @@ export class UIService implements IDisposable {
   /** Tracks the file path that syncPdfPreviewForFile is syncing for, used to guard async disk loads against tab switches. */
   private _pdfSyncTargetPath: string | null = null;
 
-  // SyncTeX
-  private _synctexPath: string | null = null;
-  /**
-   * Project root that `_synctexPath`'s recorded paths are relative to.
-   * Only set for BusyTeX WASM compiles — CLI compiles record absolute
-   * paths and leave this null. Threaded into the synctex CLI invocation
-   * so the renderer doesn't need to know about engine type.
-   */
-  private _synctexProjectRoot: string | null = null;
+  // SyncTeX availability is owned by the renderer SyncTeXService
+  // (getSyncTeXService().isAvailable()); no separate path state is kept here.
   private _remoteBuildId: string | null = null;
   private _pdfHighlight: PdfHighlight | null = null;
 
@@ -480,13 +473,6 @@ export class UIService implements IDisposable {
   get compilationLogs(): CompilationLog[] {
     return this._compilationLogs;
   }
-  get synctexPath(): string | null {
-    return this._synctexPath;
-  }
-
-  get synctexProjectRoot(): string | null {
-    return this._synctexProjectRoot;
-  }
   get remoteBuildId(): string | null {
     return this._remoteBuildId;
   }
@@ -709,6 +695,7 @@ export class UIService implements IDisposable {
     if (!filePath) {
       this.setPdfPath(null);
       this.setPdfData(null);
+      void this._syncSourceMapForPdf(null, null);
       return;
     }
 
@@ -716,6 +703,8 @@ export class UIService implements IDisposable {
     if (preview && !preview.isStale) {
       this.setPdfPath(preview.pdfPath);
       this.setPdfData(preview.pdfData);
+      // Rebind the source map to the shown PDF so sync matches this tab.
+      void this._syncSourceMapForPdf(preview.pdfPath, filePath);
       return;
     }
 
@@ -724,6 +713,7 @@ export class UIService implements IDisposable {
       // but don't reload from disk — isStale stays true until a recompile.
       this.setPdfPath(preview.pdfPath);
       this.setPdfData(preview.pdfData);
+      void this._syncSourceMapForPdf(preview.pdfPath, filePath);
       return;
     }
 
@@ -731,6 +721,49 @@ export class UIService implements IDisposable {
     this.setPdfPath(null);
     this.setPdfData(null);
     this._tryLoadPdfFromDisk(filePath);
+  }
+
+  /**
+   * Bind the in-memory SyncTeX source map to a displayed PDF by loading its
+   * sibling `.synctex.gz`. Keeps the PDF and its synctex a matched pair so
+   * bidirectional sync always resolves against the PDF actually on screen.
+   *
+   * `targetFilePath` is the file this bind is FOR; every async step re-checks
+   * `_pdfSyncTargetPath` against it and aborts if a newer tab switch superseded
+   * this call, so a slow disk read can never install/clear a map for the wrong
+   * tab. `SyncTeXService.loadFromPath` applies the same last-request-wins guard
+   * internally as a second line of defence.
+   */
+  private async _syncSourceMapForPdf(
+    pdfPath: string | null,
+    targetFilePath: string | null
+  ): Promise<void> {
+    const { getSyncTeXService } = await import('../SyncTeXService');
+    if (this._pdfSyncTargetPath !== targetFilePath) return;
+
+    if (!pdfPath) {
+      getSyncTeXService().clear();
+      return;
+    }
+
+    const synctexPath = pdfPath.replace(/\.pdf$/i, '.synctex.gz');
+    try {
+      const exists = await api.file.exists(synctexPath);
+      if (this._pdfSyncTargetPath !== targetFilePath) return;
+      if (exists) await getSyncTeXService().loadFromPath(synctexPath);
+      else getSyncTeXService().clear();
+    } catch {
+      if (this._pdfSyncTargetPath === targetFilePath) getSyncTeXService().clear();
+    }
+  }
+
+  /**
+   * Public entry to (re)bind the PDF preview + source map for a file. Needed
+   * when a caller activates a tab that is already active (EditorService's
+   * `setActiveTab` no-ops, so no tab-change event fires to trigger the sync).
+   */
+  refreshPdfPreviewForFile(filePath: string | null): void {
+    this.syncPdfPreviewForFile(filePath);
   }
 
   /**
@@ -761,12 +794,9 @@ export class UIService implements IDisposable {
       this.setPdfPath(pdfPath);
       this.setPdfData(pdfData);
 
-      const synctexPath = pdfPath.replace(/\.pdf$/i, '.synctex.gz');
-      const synctexExists = await api.file.exists(synctexPath);
-      if (synctexExists && this._pdfSyncTargetPath === sourceFilePath) {
-        this.setSynctexPath(synctexPath);
-        this.setSynctexProjectRoot(null);
-      }
+      // Bind the source map to this disk-loaded PDF (loads sibling .synctex.gz
+      // if present; the JS parser handles CLI- or WASM-produced paths alike).
+      await this._syncSourceMapForPdf(pdfPath, sourceFilePath);
     } catch {
       // No PDF on disk is a normal state — silently ignore
     }
@@ -802,16 +832,6 @@ export class UIService implements IDisposable {
 
   clearCompilationLogs(): void {
     this._compilationLogs = [];
-  }
-
-  // ============ SyncTeX ============
-
-  setSynctexPath(path: string | null): void {
-    this._synctexPath = path;
-  }
-
-  setSynctexProjectRoot(projectRoot: string | null): void {
-    this._synctexProjectRoot = projectRoot;
   }
 
   setRemoteBuildId(buildId: string | null): void {

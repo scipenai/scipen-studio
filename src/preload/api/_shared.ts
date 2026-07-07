@@ -65,8 +65,6 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
 
   // ====== Compilation ======
   IpcChannel.Compile_LaTeX,
-  IpcChannel.SyncTeX_Forward,
-  IpcChannel.SyncTeX_Backward,
   IpcChannel.Compile_Typst,
   IpcChannel.Compile_Cancel,
   IpcChannel.Compile_GetStatus,
