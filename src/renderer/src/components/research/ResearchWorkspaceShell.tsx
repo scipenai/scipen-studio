@@ -1,7 +1,7 @@
 import { FolderKanban, MessageSquareText, PanelLeft, PanelRight } from 'lucide-react';
 import { useCallback, useEffect, useMemo } from 'react';
 import type React from 'react';
-import { Group, Panel, useDefaultLayout } from 'react-resizable-panels';
+import { Group, Panel } from 'react-resizable-panels';
 import { api } from '../../api';
 import { useLazyModule } from '../../hooks/useLazyModule';
 import {
@@ -178,15 +178,6 @@ export const ResearchWorkspaceShell: React.FC = () => {
     preview: { minSize: 22, maxSize: 60, className: 'min-w-0' },
   };
 
-  // v4 replaces v3's `autoSaveId` with an explicit save/restore hook. `panelIds` lists all three
-  // (chat/editor/preview) because panels are conditionally rendered by visibility, and the ids must
-  // cover every panel that can mount. A fresh id (`-v7`) avoids reading v3's incompatible stored format.
-  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
-    id: 'research-workspace-v7',
-    panelIds: [PANEL_DOM_IDS.chat, PANEL_DOM_IDS.editor, PANEL_DOM_IDS.preview],
-    storage: localStorage,
-  });
-
   return (
     <WorkspaceShell
       header={
@@ -258,12 +249,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
 
       {/* p-3 = outer gap between cards and the canvas edge (matches the w-3 inner gap on resize handles, ~12px on all sides). */}
       <div className="h-full p-3">
-        <Group
-          orientation="horizontal"
-          defaultLayout={defaultLayout}
-          onLayoutChanged={onLayoutChanged}
-          className="h-full"
-        >
+        <Group orientation="horizontal" className="h-full">
           {visiblePanels.flatMap((panel, index) => {
             const cfg = panelProps[panel];
             const nodes: React.ReactNode[] = [];
@@ -274,9 +260,10 @@ export const ResearchWorkspaceShell: React.FC = () => {
               <Panel
                 key={panel}
                 id={PANEL_DOM_IDS[panel]}
-                defaultSize={PANEL_DEFAULT_SIZE[panel]}
-                minSize={cfg.minSize}
-                maxSize={cfg.maxSize}
+                // v4 requires sizes as unit-bearing strings (bare numbers are NOT percentages).
+                defaultSize={`${PANEL_DEFAULT_SIZE[panel]}%`}
+                minSize={`${cfg.minSize}%`}
+                maxSize={cfg.maxSize !== undefined ? `${cfg.maxSize}%` : undefined}
                 className={cfg.className}
               >
                 {/* Floating card: rounded + thin border + light shadow, floats above the canvas. */}

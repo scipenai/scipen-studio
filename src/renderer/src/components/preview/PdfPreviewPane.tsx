@@ -655,7 +655,10 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
       const containerWidth = container.clientWidth - horizontalPadding - 24;
       const viewport = page.getViewport({ scale: 1 });
       const newScale = containerWidth / viewport.width;
-      setScale(Math.min(Math.max(newScale, 0.5), 3));
+      // Fit-to-width must be allowed below the 50% manual-zoom floor: a narrow preview panel
+      // (e.g. 26% of the window) needs <50% to actually fit an A4 page, otherwise the page
+      // renders wider than the panel and overflows horizontally.
+      setScale(Math.min(Math.max(newScale, 0.1), 3));
     });
   }, [pdfDoc]);
 
@@ -665,6 +668,28 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     if (!pdfDoc || totalPages === 0) return;
     fitToWidth();
   }, [pdfDoc, totalPages, fitToWidth]);
+
+  // Re-fit to width when the container is resized (e.g. dragging the panel divider). Without this
+  // the PDF keeps a fixed zoom and, once the panel is narrower than the page, overflows / mis-lays out.
+  // Debounced so it refits after the drag settles rather than re-rendering every page each frame.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !pdfDoc) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let lastWidth = container.clientWidth;
+    const observer = new ResizeObserver(() => {
+      const width = container.clientWidth;
+      if (Math.abs(width - lastWidth) < 2) return;
+      lastWidth = width;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => fitToWidth(), 180);
+    });
+    observer.observe(container);
+    return () => {
+      observer.disconnect();
+      if (timer) clearTimeout(timer);
+    };
+  }, [pdfDoc, fitToWidth]);
 
   const handleZoomInputCommit = useCallback(() => {
     const parsed = Number.parseInt(zoomInput, 10);
@@ -1075,13 +1100,13 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     return (
       <div className="h-full flex flex-col bg-[var(--color-bg-secondary)]">
         <div
-          className="flex min-h-[54px] items-center justify-between border-b px-4 py-2.5"
+          className="flex min-h-[54px] flex-wrap items-center justify-between gap-y-2 border-b px-4 py-2.5"
           style={{
             borderBottomColor: 'var(--color-border-subtle)',
             background: 'color-mix(in srgb, var(--color-bg-elevated) 92%, transparent)',
           }}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <div
               className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-[var(--color-accent)] ring-1 ring-inset"
               style={{
