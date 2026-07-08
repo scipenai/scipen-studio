@@ -267,6 +267,9 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
+  // pdf.js v6 removed PDFDocumentProxy.destroy(); teardown now goes through the loading task,
+  // so we keep its handle alongside the doc and destroy that to release the worker/document.
+  const loadingTaskRef = useRef<pdfjsLib.PDFDocumentLoadingTask | null>(null);
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(false);
   const [showThumbnails, setShowThumbnails] = useState(false);
@@ -373,7 +376,8 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
       }
     } else {
       setPdfBytes(null);
-      pdfDocRef.current?.destroy();
+      void loadingTaskRef.current?.destroy();
+      loadingTaskRef.current = null;
       pdfDocRef.current = null;
       setPdfDoc(null);
       setTotalPages(0);
@@ -411,7 +415,8 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
       const loadingTask = pdfjsLib.getDocument(loadingParams);
       const doc = await loadingTask.promise;
 
-      pdfDocRef.current?.destroy();
+      void loadingTaskRef.current?.destroy();
+      loadingTaskRef.current = loadingTask;
       pdfDocRef.current = doc;
       setPdfDoc(doc);
       setTotalPages(doc.numPages);
@@ -434,7 +439,8 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     return () => {
       cancelIdleTask(THUMBNAIL_TASK_ID);
       thumbnailGenerationTokenRef.current += 1;
-      pdfDocRef.current?.destroy();
+      void loadingTaskRef.current?.destroy();
+      loadingTaskRef.current = null;
       pdfDocRef.current = null;
     };
   }, []);

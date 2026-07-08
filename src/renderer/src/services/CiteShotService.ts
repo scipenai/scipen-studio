@@ -92,12 +92,14 @@ export class CiteShotService {
     const region = this.planRegion(pdfBuf.byteLength, contentList);
     // disableFontFace: true so embedded CJK/CID fonts (Fandol etc.) rasterize
     // correctly — see the note in PdfPreviewPane.loadPdfDoc.
-    const doc = await pdfjsLib.getDocument({
+    // pdf.js v6 removed PDFDocumentProxy.destroy(); destroy via the loading task instead.
+    const loadingTask = pdfjsLib.getDocument({
       data: pdfBuf,
       cMapUrl: CMAP_URL,
       cMapPacked: true,
       disableFontFace: true,
-    }).promise;
+    });
+    const doc = await loadingTask.promise;
     try {
       const canvas = await this.renderPage(doc, region.pageIdx);
       const dataUrl = region.bbox
@@ -105,7 +107,7 @@ export class CiteShotService {
         : canvas.toDataURL('image/jpeg', JPEG_QUALITY);
       return { status: 'ok', dataUrl };
     } finally {
-      void doc.destroy();
+      void loadingTask.destroy();
     }
   }
 
