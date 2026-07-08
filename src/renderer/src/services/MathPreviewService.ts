@@ -66,7 +66,7 @@ class MathHoverWidget implements Monaco.editor.IContentWidget {
     };
 
     this.domNode.innerHTML = `
-      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.17.0/dist/katex.min.css">
       <style>
         .math-preview-card {
           background-color: var(--color-bg-elevated);
