@@ -132,7 +132,7 @@ export class InlineEditService implements IInlineEditService {
 
       const result = streamText({
         model,
-        system: SYSTEM_PROMPT,
+        instructions: SYSTEM_PROMPT,
         prompt: userPrompt,
         maxOutputTokens: cfg.maxTokens,
         temperature: cfg.temperature,

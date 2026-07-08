@@ -65,14 +65,14 @@
     "setup": "npm install && npm run download:lsp"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.1",
-    "@ai-sdk/openai": "^3.0.1",
+    "@ai-sdk/anthropic": "^4.0.9",
+    "@ai-sdk/openai": "^4.0.8",
     "@gsap/react": "~2.1.2",
     "@monaco-editor/react": "^4.7.0",
     "@parcel/watcher": "^2.5.4",
     "@tailwindcss/typography": "^0.5.19",
     "@types/fs-extra": "^11.0.4",
-    "ai": "^6.0.3",
+    "ai": "^7.0.17",
     "autoprefixer": "^10.4.22",
     "clsx": "^2.1.1",
     "diff-match-patch": "^1.0.5",

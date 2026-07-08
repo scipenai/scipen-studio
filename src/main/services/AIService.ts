@@ -176,7 +176,7 @@ export class AIService implements IAIService {
     try {
       const { text } = await generateText({
         model,
-        system: COMPLETION_SYSTEM_PROMPT,
+        instructions: COMPLETION_SYSTEM_PROMPT,
         prompt: `Continue writing the following content:\n\n${context}`,
         maxOutputTokens: 256,
         temperature: 0.7,
@@ -200,7 +200,7 @@ export class AIService implements IAIService {
 
       const { text } = await generateText({
         model,
-        system: TITLE_SYSTEM_PROMPT,
+        instructions: TITLE_SYSTEM_PROMPT,
         prompt: userMessage.trim().slice(0, 2000),
         maxOutputTokens: 32,
         temperature: 0.3,
@@ -236,7 +236,7 @@ export class AIService implements IAIService {
     try {
       const { text } = await generateText({
         model,
-        system: systemPrompt,
+        instructions: systemPrompt,
         messages: formattedMessages,
         maxOutputTokens: this.currentConfig?.maxTokens || 4096,
         temperature: this.currentConfig?.temperature || 0.7,
@@ -280,7 +280,7 @@ export class AIService implements IAIService {
 
       const result = streamText({
         model,
-        system: systemPrompt,
+        instructions: systemPrompt,
         messages: formattedMessages,
         maxOutputTokens: this.currentConfig.maxTokens,
         temperature: this.currentConfig.temperature,
