@@ -104,6 +104,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
+      # selection-hook v2 added Linux support (X11/Wayland); its native build needs these headers.
+      - name: Install Linux native build deps (selection-hook)
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxtst-dev libxfixes-dev libevdev-dev libwayland-dev
+
       - name: Install dependencies
         run: npm ci
 
