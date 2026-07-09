@@ -1,16 +1,11 @@
 /**
  * @file Compilation IPC Contract
- * @description Compilation types and channel contract (LaTeX, Typst, SyncTeX)
+ * @description Compilation types and channel contract (LaTeX, Typst)
  * @depends ipc/channels, ipc/types
  */
 
 import { IpcChannel } from './channels';
-import type {
-  LaTeXCompileOptions,
-  LaTeXCompileResult,
-  SyncTeXForwardResult,
-  SyncTeXBackwardResult,
-} from './types';
+import type { LaTeXCompileOptions, LaTeXCompileResult } from './types';
 
 // ====== Compilation Types ======
 
@@ -139,13 +134,5 @@ export interface IPCCompileContract {
   [IpcChannel.Typst_GetCapabilities]: {
     args: [];
     result: TypstCapabilities;
-  };
-  [IpcChannel.SyncTeX_Forward]: {
-    args: [texFile: string, line: number, column: number, pdfFile: string, projectRoot?: string];
-    result: SyncTeXForwardResult | null;
-  };
-  [IpcChannel.SyncTeX_Backward]: {
-    args: [pdfFile: string, page: number, x: number, y: number, projectRoot?: string];
-    result: SyncTeXBackwardResult | null;
   };
 }

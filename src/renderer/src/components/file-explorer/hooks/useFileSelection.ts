@@ -4,11 +4,12 @@
  */
 
 import { useCallback } from 'react';
-import type { FileNode } from '../../../types';
 import { api } from '../../../api';
-import { getEditorService, getUIService } from '../../../services/core';
-import { getLanguageForFile } from '../../../utils';
 import { updateFileIndex } from '../../../services/InlineCompletionService';
+import { getSyncTeXService } from '../../../services/SyncTeXService';
+import { getEditorService, getUIService } from '../../../services/core';
+import type { FileNode } from '../../../types';
+import { getLanguageForFile } from '../../../utils';
 
 interface UseFileSelectionOptions {
   projectPath: string | null;
@@ -171,6 +172,10 @@ async function handlePdfSelect(pdfPath: string, node: FileNode): Promise<void> {
   }
 
   if (sourcePath) {
+    // If the source tab is already active, setActiveTab no-ops and fires no
+    // tab-change event, so syncPdfPreviewForFile never runs — bind the preview
+    // explicitly in that case (below). Capture before we (maybe) switch tabs.
+    const sourceAlreadyActive = editorService.activeTabPath === sourcePath;
     const existingTab = editorService.getTab(sourcePath);
     if (existingTab) {
       editorService.setActiveTab(sourcePath);
@@ -196,7 +201,12 @@ async function handlePdfSelect(pdfPath: string, node: FileNode): Promise<void> {
     uiService.setEditorVisible(true);
     uiService.setPreviewVisible(true);
     uiService.setRightPanelTab('preview');
-    // syncPdfPreviewForFile (triggered by tab change) will load the PDF from disk
+    // Normally the tab-change from setActiveTab/addTab triggers
+    // syncPdfPreviewForFile to load the PDF from disk. When the source was
+    // already the active tab no event fires, so bind the preview explicitly.
+    if (sourceAlreadyActive) {
+      uiService.refreshPdfPreviewForFile(sourcePath);
+    }
   } else {
     // No source file — load the PDF directly into the preview
     try {
@@ -210,8 +220,9 @@ async function handlePdfSelect(pdfPath: string, node: FileNode): Promise<void> {
 
       const synctexPath = pdfPath.replace(/\.pdf$/i, '.synctex.gz');
       if (await api.file.exists(synctexPath)) {
-        uiService.setSynctexPath(synctexPath);
-        uiService.setSynctexProjectRoot(null);
+        await getSyncTeXService().loadFromPath(synctexPath);
+      } else {
+        getSyncTeXService().clear();
       }
     } catch (error) {
       console.error('[FileExplorer] Failed to load PDF:', error);

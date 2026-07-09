@@ -82,14 +82,6 @@ export interface CompileResult {
   pdfBuffer?: ArrayBuffer | Uint8Array;
   synctexPath?: string;
   synctexBuffer?: Uint8Array;
-  /**
-   * Project root that the synctex file's paths are recorded relative to.
-   * Required for BusyTeX WASM compiles (records relative paths); omit
-   * for CLI compiles (records absolute paths). Consumers thread this
-   * into `syncTeXService.forward/backward` so the main-process synctex
-   * CLI can rebase its `-i` argument correctly.
-   */
-  projectRoot?: string;
   log?: string;
   errors?: string[];
   warnings?: string[];

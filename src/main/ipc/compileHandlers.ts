@@ -1,13 +1,14 @@
 /**
  * @file Compilation IPC handlers (Type-Safe)
- * @description Handles LaTeX/Typst compilation and SyncTeX sync via IPC.
- * @depends CompilerRegistry, ISyncTeXService, PathSecurityService
+ * @description Handles LaTeX/Typst compilation via IPC. SyncTeX is resolved
+ *   entirely in the renderer (see renderer SyncTeXService) — no main-process
+ *   `synctex` CLI involvement.
+ * @depends CompilerRegistry, PathSecurityService
  * @security All file paths are validated via PathSecurityService before compilation
  *
  * Architecture:
  * - Compilers are lazy-loaded via CompilerRegistry
  * - Dynamic compiler selection by file extension or engine name
- * - SyncTeX service injected for bidirectional sync
  */
 
 import { IpcChannel } from '../../../shared/ipc/channels';
@@ -18,7 +19,6 @@ import type { TypstCompiler } from '../services/TypstCompiler';
 import { resolveWasmRoot } from '../services/WasmAssetProtocol';
 import { CompilerRegistry } from '../services/compiler/CompilerRegistry';
 import type { CompileMessage } from '../services/compiler/interfaces/ICompiler';
-import type { ISyncTeXService } from '../services/interfaces';
 import { createTypedHandlers } from './typedIpc';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -118,21 +118,13 @@ export interface CompileTypstOptions {
   projectPath?: string;
 }
 
-/** Compile handler dependencies (injected at registration) */
-export interface CompileHandlersDeps {
-  /** SyncTeX service for bidirectional source-PDF sync */
-  syncTeXService: ISyncTeXService;
-}
-
 // ====== Handler Registration ======
 
 /**
  * Register compilation-related IPC handlers.
  * @sideeffect Registers handlers on ipcMain for compile operations
  */
-export function registerCompileHandlers(deps: CompileHandlersDeps): void {
-  const { syncTeXService } = deps;
-
+export function registerCompileHandlers(): void {
   const handlers = createTypedHandlers(
     {
       // LaTeX compilation via CompilerRegistry (lazy instantiation)
@@ -194,41 +186,6 @@ export function registerCompileHandlers(deps: CompileHandlersDeps): void {
               },
             ],
           };
-        }
-      },
-
-      // SyncTeX forward sync: source location -> PDF position
-      [IpcChannel.SyncTeX_Forward]: async (texFile, line, column, pdfFile, projectRoot) => {
-        try {
-          const safeTexFile = assertPathSecurity(texFile, 'read');
-          const safePdfFile = assertPathSecurity(pdfFile, 'read');
-          const safeProjectRoot = projectRoot ? assertPathSecurity(projectRoot, 'read') : undefined;
-
-          const result = await syncTeXService.forwardSync(
-            safePdfFile,
-            safeTexFile,
-            line,
-            column,
-            safeProjectRoot
-          );
-          return result;
-        } catch (error) {
-          console.error('SyncTeX forward sync failed:', error);
-          return null;
-        }
-      },
-
-      // SyncTeX backward sync: PDF position -> source location
-      [IpcChannel.SyncTeX_Backward]: async (pdfFile, page, x, y, projectRoot) => {
-        try {
-          const safePdfFile = assertPathSecurity(pdfFile, 'read');
-          const safeProjectRoot = projectRoot ? assertPathSecurity(projectRoot, 'read') : undefined;
-
-          const result = await syncTeXService.inverseSync(safePdfFile, page, x, y, safeProjectRoot);
-          return result;
-        } catch (error) {
-          console.error('SyncTeX backward sync failed:', error);
-          return null;
         }
       },
 

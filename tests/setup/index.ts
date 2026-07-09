@@ -14,7 +14,6 @@ export {
   // Individual Mock Factories
   createMockAIService,
   createMockFileSystemService,
-  createMockSyncTeXService,
   createMockOverleafService,
   createMockCompilerRegistry,
   // Utilities
@@ -24,7 +23,6 @@ export {
   type MockContainerOptions,
   type MockAIServiceOptions,
   type MockFileSystemServiceOptions,
-  type MockSyncTeXServiceOptions,
   type MockOverleafServiceOptions,
   type MockFn,
 } from './MockServiceContainer';

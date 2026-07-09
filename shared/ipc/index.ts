@@ -19,8 +19,6 @@ export type {
   LaTeXCompileResult,
   LaTeXError,
   LaTeXWarning,
-  SyncTeXForwardResult,
-  SyncTeXBackwardResult,
   OverleafConfig,
   OverleafProjectDTO,
   ParsedLogEntry,

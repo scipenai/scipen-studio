@@ -10,7 +10,7 @@ export {
   registerInlineEditHandlers,
   type InlineEditHandlersDeps,
 } from './inlineEditHandlers';
-export { registerCompileHandlers, type CompileHandlersDeps } from './compileHandlers';
+export { registerCompileHandlers } from './compileHandlers';
 export { registerWindowHandlers, type WindowHandlersDeps } from './windowHandlers';
 export { registerLSPHandlers, type LSPHandlersDeps } from './lspHandlers';
 export { registerConfigHandlers } from './configHandlers';

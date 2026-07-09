@@ -8,7 +8,6 @@ import type * as monaco from 'monaco-editor';
 import { startTransition } from 'react';
 import { api } from '../../../api';
 import { t } from '../../../locales';
-import { triggerOverleafSyncAfterSave } from '../../../utils/overleaf-sync-helper';
 import {
   getNextWordFromSuggestion,
   resetPartialAccept,
@@ -22,9 +21,6 @@ import {
 } from '../../../services/LSPService';
 import { createLogger } from '../../../services/LogService';
 import { getSyncTeXService } from '../../../services/SyncTeXService';
-import { findCitationKeyAt } from '../citationKeyScan';
-import { getZoteroBibMirror } from '../../../services/zotero/ZoteroBibMirror';
-import { getActiveRecommendationService } from '../../../services/zotero/ActiveRecommendationService';
 import {
   getEditorService,
   getSettingsService,
@@ -33,6 +29,10 @@ import {
 } from '../../../services/core';
 import { SyncEventType } from '../../../services/core/PreviewTypes';
 import { inlineEditController } from '../../../services/inlineEdit';
+import { getActiveRecommendationService } from '../../../services/zotero/ActiveRecommendationService';
+import { getZoteroBibMirror } from '../../../services/zotero/ZoteroBibMirror';
+import { triggerOverleafSyncAfterSave } from '../../../utils/overleaf-sync-helper';
+import { findCitationKeyAt } from '../citationKeyScan';
 
 const logger = createLogger('EditorSetup');
 
@@ -149,17 +149,17 @@ let syncTexDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 /**
  * Performs SyncTeX forward sync (from source code to PDF)
  */
-function performSyncTexForward(lineNumber: number, column: number): void {
+function performSyncTexForward(lineNumber: number): void {
   if (syncTexDebounceTimer) {
     clearTimeout(syncTexDebounceTimer);
   }
 
   syncTexDebounceTimer = setTimeout(() => {
-    PerformSyncTexForwardFormatted(lineNumber, column);
+    PerformSyncTexForwardFormatted(lineNumber);
   }, 300);
 }
 
-function PerformSyncTexForwardFormatted(lineNumber: number, column: number): void {
+function PerformSyncTexForwardFormatted(lineNumber: number): void {
   const uiService = getUIService();
 
   if (!uiService.pdfData && !uiService.pdfPath) {
@@ -167,53 +167,40 @@ function PerformSyncTexForwardFormatted(lineNumber: number, column: number): voi
     return;
   }
 
-  performLocalSyncTeX(lineNumber, column, uiService);
+  performLocalSyncTeX(lineNumber, uiService);
 }
 
-function performLocalSyncTeX(
-  lineNumber: number,
-  column: number,
-  uiService: ReturnType<typeof getUIService>
-): void {
+function performLocalSyncTeX(lineNumber: number, uiService: ReturnType<typeof getUIService>): void {
   const editorService = getEditorService();
   const currentPath = editorService.activeTabPath;
-  const synctexPath = uiService.synctexPath;
 
-  if (!currentPath) {
+  if (!currentPath || !getSyncTeXService().isAvailable()) {
     uiService.addCompilationLog({ type: 'warning', message: t('syncTeX.compileFirst') });
     return;
   }
 
-  const syncTeXService = getSyncTeXService();
-  syncTeXService
-    .forward(
-      currentPath,
-      lineNumber,
-      column,
-      synctexPath,
-      uiService.synctexProjectRoot ?? undefined
-    )
-    .then((result) => {
-      if (result) {
-        uiService.setPdfHighlight({
-          page: result.page || 1,
-          x: result.x || 0,
-          y: result.y || 0,
-          width: result.width || 50,
-          height: result.height || 20,
-        });
-        uiService.addCompilationLog({
-          type: 'info',
-          message: t('syncTeX.jumpToPage', { page: String(result.page) }),
-        });
-      }
+  const result = getSyncTeXService().forward(currentPath, lineNumber);
+  if (result) {
+    uiService.setPdfHighlight({
+      page: result.page || 1,
+      x: result.x || 0,
+      y: result.y || 0,
+      width: result.width || 50,
+      height: result.height || 20,
     });
+    uiService.addCompilationLog({
+      type: 'info',
+      message: t('syncTeX.jumpToPage', { page: String(result.page) }),
+    });
+  } else {
+    uiService.addCompilationLog({ type: 'warning', message: t('syncTeX.positionNotFound') });
+  }
 }
 
 export function setupSyncTexClick(editor: Editor): void {
   editor.onMouseDown((e: monaco.editor.IEditorMouseEvent) => {
     if (!e.event.ctrlKey || !e.target.position) return;
-    const { lineNumber, column } = e.target.position;
+    const { lineNumber } = e.target.position;
 
     // Cite has priority: cursor on \cite{key} / @key → open the Zotero PDF; otherwise SyncTeX.
     const model = editor.getModel();
@@ -224,7 +211,7 @@ export function setupSyncTexClick(editor: Editor): void {
         return; // cite matched — never fall through to SyncTeX
       }
     }
-    performSyncTexForward(lineNumber, column);
+    performSyncTexForward(lineNumber);
   });
 }
 
@@ -320,7 +307,7 @@ export function setupShortcuts(editor: Editor, monacoInstance: Monaco): void {
     () => {
       const position = editor.getPosition();
       if (position) {
-        performSyncTexForward(position.lineNumber, position.column);
+        performSyncTexForward(position.lineNumber);
       }
     }
   );

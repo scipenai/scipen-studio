@@ -1,0 +1,343 @@
+/**
+ * @file synctexParser.ts - Pure-JS SyncTeX (.synctex.gz) parser
+ * @description Parses a `.synctex(.gz)` file entirely in the renderer — no
+ *   external `synctex` CLI, no TeX install required. This is what makes
+ *   bidirectional sync work for WASM-only users (BusyTeX) whose machines have
+ *   no TeX Live / MiKTeX (and therefore no `synctex` binary).
+ *
+ *   Ported from TexLyre's `latexSynctexParser.ts` (MIT), adapted to use
+ *   `fflate` for gunzip and self-contained types.
+ *
+ * Coordinate system: SyncTeX records positions in "scaled points" (sp),
+ * origin at the page top-left, Y increasing downward — the same convention
+ * pdf.js's default viewport uses. We convert sp → pt (÷65536) and never flip
+ * Y, so results feed the PDF preview overlay directly.
+ *
+ * Path matching: SyncTeX records the input file paths as the compiler saw
+ * them — host-absolute for CLI compiles, MEMFS-absolute
+ * (`/home/web_user/project_dir/...`) for BusyTeX. Matching is done by
+ * relative-path suffix / basename so both styles resolve without any
+ * project-root rebasing.
+ */
+
+import { gunzipSync } from 'fflate';
+
+/** A single highlight rectangle in PDF points (top-left origin, Y-down). */
+export interface SyncTexRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface SyncTexForwardResult {
+  page: number;
+  rects: SyncTexRect[];
+}
+
+export interface SyncTexReverseResult {
+  /** File path exactly as recorded in the synctex file (may be MEMFS/absolute/relative). */
+  file: string;
+  line: number;
+  column?: number;
+}
+
+export interface SyncTexSourceMap {
+  forward(file: string, line: number): SyncTexForwardResult | null;
+  reverse(page: number, x: number, y: number): SyncTexReverseResult | null;
+}
+
+const SP_TO_PT = 1 / 65536;
+const CONTAINER_HEIGHT_LINE_MULTIPLE = 16;
+const FALLBACK_VERTICAL_LINE_TOLERANCE = 1.5;
+
+interface Box {
+  page: number;
+  file: string;
+  line: number;
+  column: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  depth: number;
+  isVbox: boolean;
+}
+
+interface Index {
+  byFileLine: Map<string, Box[]>;
+  byPage: Map<number, Box[]>;
+}
+
+/** Gunzip when the gzip magic (0x1f 0x8b) is present, else treat as UTF-8 text. */
+const decode = (bytes: Uint8Array): string => {
+  const gzip = bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  return new TextDecoder('utf-8').decode(gzip ? gunzipSync(bytes) : bytes);
+};
+
+/**
+ * Canonicalize a path for comparison: backslashes → `/`, collapse `/./` and
+ * duplicate slashes (TeX records e.g. `/cwd/./main.tex`), then strip a leading
+ * `./` or `/` and BusyTeX's `_` sentinels. Keeps directory-qualified matching
+ * robust so it doesn't have to fall back to bare-basename matching.
+ */
+const normalize = (file: string): string =>
+  file
+    .replace(/\\/g, '/')
+    .replace(/\/\.\//g, '/')
+    .replace(/\/{2,}/g, '/')
+    .replace(/^\.?\/+/, '')
+    .replace(/^_+/, '');
+
+const parseRecord = (
+  line: string
+): {
+  tag: number;
+  line: number;
+  column: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  depth: number;
+} | null => {
+  const colon = line.indexOf(':');
+  if (colon === -1) return null;
+
+  const prefix = line.substring(1, colon).split(',');
+  const tag = Number.parseInt(prefix[0], 10);
+  const lineNum = Number.parseInt(prefix[1], 10);
+  if (Number.isNaN(tag) || Number.isNaN(lineNum)) return null;
+
+  const rest = line.substring(colon + 1).split(/[,:]/);
+  const x = Number.parseInt(rest[0], 10);
+  const y = Number.parseInt(rest[1], 10);
+  if (Number.isNaN(x) || Number.isNaN(y)) return null;
+
+  return {
+    tag,
+    line: lineNum,
+    column: prefix.length > 2 ? Number.parseInt(prefix[2], 10) : -1,
+    x,
+    y,
+    width: Number.parseInt(rest[2], 10) || 0,
+    height: Number.parseInt(rest[3], 10) || 0,
+    depth: Number.parseInt(rest[4], 10) || 0,
+  };
+};
+
+const buildIndex = (text: string): Index => {
+  const inputs = new Map<number, string>();
+  const byFileLine = new Map<string, Box[]>();
+  const byPage = new Map<number, Box[]>();
+  let page = 0;
+  let inContent = false;
+
+  for (const raw of text.split('\n')) {
+    if (!raw) continue;
+
+    if (raw.startsWith('Input:')) {
+      const parts = raw.substring(6).split(':');
+      const tag = Number.parseInt(parts[0], 10);
+      if (parts.length >= 2 && !Number.isNaN(tag)) {
+        inputs.set(tag, parts.slice(1).join(':').trim());
+      }
+      continue;
+    }
+
+    if (!inContent) {
+      if (raw === 'Content:') inContent = true;
+      continue;
+    }
+
+    if (raw.startsWith('Postamble:')) break;
+
+    const kind = raw[0];
+
+    if (kind === '{') {
+      const n = Number.parseInt(raw.substring(1), 10);
+      if (!Number.isNaN(n)) {
+        page = n;
+        if (!byPage.has(page)) byPage.set(page, []);
+      }
+      continue;
+    }
+
+    if (kind === '}') {
+      page = 0;
+      continue;
+    }
+
+    if (kind !== 'h' && kind !== '[' && kind !== '(') continue;
+
+    const fields = parseRecord(raw);
+    if (!fields) continue;
+
+    const file = inputs.get(fields.tag);
+    if (!file || page === 0) continue;
+
+    const box: Box = {
+      page,
+      file,
+      line: fields.line,
+      column: fields.column,
+      x: fields.x * SP_TO_PT,
+      y: fields.y * SP_TO_PT,
+      width: fields.width * SP_TO_PT,
+      height: fields.height * SP_TO_PT,
+      depth: fields.depth * SP_TO_PT,
+      isVbox: kind === '[',
+    };
+
+    const key = `${file}:${fields.line}`;
+    const list = byFileLine.get(key);
+    if (list) list.push(box);
+    else byFileLine.set(key, [box]);
+
+    byPage.get(page)?.push(box);
+  }
+
+  return { byFileLine, byPage };
+};
+
+export function parseSynctex(bytes: Uint8Array): SyncTexSourceMap {
+  const index = buildIndex(decode(bytes));
+
+  return {
+    forward(file: string, line: number): SyncTexForwardResult | null {
+      const target = normalize(file);
+      const targetBase = target.split('/').pop() ?? '';
+      const fileOf = (key: string): string => key.substring(0, key.lastIndexOf(':'));
+
+      // Tiered filename match: 3 = exact, 2 = path-suffix, 1 = basename only.
+      // We resolve against the BEST tier present, so a directory-qualified
+      // query never falls back to a same-basename file in another folder
+      // (chapters/intro.tex vs appendix/intro.tex → wrong page), yet a query
+      // that can ONLY match by basename — an absolute host path with no open
+      // project vs a BusyTeX MEMFS-recorded path — still resolves.
+      const rankOf = (indexed: string): number => {
+        const n = normalize(indexed);
+        if (n === target) return 3;
+        if (n.endsWith(`/${target}`) || target.endsWith(`/${n}`)) return 2;
+        if (targetBase && n.split('/').pop() === targetBase) return 1;
+        return 0;
+      };
+
+      let bestRank = 0;
+      for (const key of index.byFileLine.keys()) {
+        const r = rankOf(fileOf(key));
+        if (r > bestRank) bestRank = r;
+      }
+      if (bestRank === 0) return null;
+
+      let exact: Box[] = [];
+      let nearest: Box[] = [];
+      let nearestDelta = Number.POSITIVE_INFINITY;
+
+      for (const [key, boxes] of index.byFileLine) {
+        if (rankOf(fileOf(key)) !== bestRank) continue;
+
+        const blockLine = Number.parseInt(key.substring(key.lastIndexOf(':') + 1), 10);
+        if (blockLine === line) {
+          exact = exact.concat(boxes);
+          continue;
+        }
+
+        const delta = Math.abs(blockLine - line);
+        if (delta < nearestDelta) {
+          nearestDelta = delta;
+          nearest = boxes.slice();
+        } else if (delta === nearestDelta) {
+          nearest = nearest.concat(boxes);
+        }
+      }
+
+      const candidates = exact.length > 0 ? exact : nearest;
+      if (candidates.length === 0) return null;
+
+      const page = candidates[0].page;
+      const onPage = candidates.filter((b) => b.page === page && b.width > 0);
+      if (onPage.length === 0) return null;
+
+      const rects = onPage.map((b) => ({
+        x: b.x,
+        y: b.y - b.height,
+        width: b.width,
+        height: b.height + b.depth,
+      }));
+
+      return { page, rects };
+    },
+
+    reverse(page: number, x: number, y: number): SyncTexReverseResult | null {
+      const boxes = index.byPage.get(page);
+      if (!boxes?.length) return null;
+
+      const lineHeights = boxes
+        .filter((b) => !b.isVbox && b.height + b.depth > 0)
+        .map((b) => b.height + b.depth)
+        .sort((a, b) => a - b);
+      const medianLineHeight = lineHeights.length
+        ? lineHeights[Math.floor(lineHeights.length / 2)]
+        : 0;
+      const maxBoxHeight =
+        medianLineHeight > 0
+          ? medianLineHeight * CONTAINER_HEIGHT_LINE_MULTIPLE
+          : Number.POSITIVE_INFINITY;
+
+      const selectBox = (applyCap: boolean): Box | null => {
+        let bestContained: Box | null = null;
+        let bestScore = Number.POSITIVE_INFINITY;
+        let closest: Box | null = null;
+        let closestDist = Number.POSITIVE_INFINITY;
+
+        for (const b of boxes) {
+          const boxHeight = b.height + b.depth;
+          if (applyCap && boxHeight > maxBoxHeight) continue;
+
+          const top = b.y - b.height;
+          const bottom = b.y + b.depth;
+          const right = b.x + b.width;
+
+          if (x >= b.x && x <= right && y >= top && y <= bottom) {
+            const cx = b.x + b.width / 2;
+            const cy = (top + bottom) / 2;
+            const dx = x - cx;
+            const dy = y - cy;
+            const area = b.width * (boxHeight || 1) || 1;
+            const score = (dx * dx + dy * dy) * Math.sqrt(area);
+            if (bestContained === null || score < bestScore) {
+              bestScore = score;
+              bestContained = b;
+            }
+          } else if (applyCap) {
+            const cx = Math.max(b.x, Math.min(x, right));
+            const cy = Math.max(top, Math.min(y, bottom));
+            const dx = x - cx;
+            const dy = y - cy;
+            const lineHeight = boxHeight || 1;
+            if (Math.abs(dy) > lineHeight * FALLBACK_VERTICAL_LINE_TOLERANCE) continue;
+            const dist = dx * dx + dy * dy;
+            if (dist < closestDist) {
+              closestDist = dist;
+              closest = b;
+            }
+          }
+        }
+
+        return bestContained ?? closest;
+      };
+
+      const hit = selectBox(true) ?? selectBox(false);
+      if (!hit) return null;
+
+      const line = hit.isVbox ? Math.max(1, hit.line - 1) : hit.line;
+
+      return {
+        file: hit.file,
+        line,
+        column: hit.column >= 0 ? hit.column : undefined,
+      };
+    },
+  };
+}

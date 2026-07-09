@@ -9,11 +9,8 @@ import { vi } from 'vitest';
 import type {
   AIConfig,
   FileNode,
-  ForwardSyncResult,
   IAIService,
   IFileSystemService,
-  ISyncTeXService,
-  InverseSyncResult,
   StreamChunk,
 } from '../../src/main/services/interfaces';
 
@@ -137,25 +134,6 @@ export function createMockFileSystemService(
   return service;
 }
 
-// ============ Mock SyncTeX Service ============
-
-export interface MockSyncTeXServiceOptions {
-  forwardResult?: ForwardSyncResult | null;
-  inverseResult?: InverseSyncResult | null;
-}
-
-export function createMockSyncTeXService(options: MockSyncTeXServiceOptions = {}): ISyncTeXService {
-  const {
-    forwardResult = { page: 1, x: 100, y: 200, width: 400, height: 20 },
-    inverseResult = { file: 'main.tex', line: 10, column: 0 },
-  } = options;
-
-  return {
-    forwardSync: vi.fn().mockResolvedValue(forwardResult),
-    inverseSync: vi.fn().mockResolvedValue(inverseResult),
-  };
-}
-
 // ============ Mock Overleaf Service ============
 
 export interface MockOverleafServiceOptions {
@@ -223,7 +201,6 @@ export function createMockCompilerRegistry() {
 export interface MockContainerOptions {
   aiService?: IAIService;
   fileSystemService?: IFileSystemService;
-  syncTeXService?: ISyncTeXService;
   overleafService?: IOverleafService;
   compilerRegistry?: ReturnType<typeof createMockCompilerRegistry>;
 }
@@ -242,11 +219,6 @@ export function createMockContainer(options: MockContainerOptions = {}): Service
   container.registerSingleton(
     ServiceNames.FILE_SYSTEM,
     () => options.fileSystemService || createMockFileSystemService()
-  );
-
-  container.registerSingleton(
-    ServiceNames.SYNCTEX,
-    () => options.syncTeXService || createMockSyncTeXService()
   );
 
   container.registerSingleton(
@@ -271,7 +243,6 @@ export function createMockHandlerDeps<T extends Record<string, unknown>>(
   const defaultDeps = {
     aiService: createMockAIService(),
     fileSystemService: createMockFileSystemService(),
-    syncTeXService: createMockSyncTeXService(),
     overleafService: createMockOverleafService(),
     compilerRegistry: createMockCompilerRegistry(),
     getMainWindow: vi.fn(() => null),

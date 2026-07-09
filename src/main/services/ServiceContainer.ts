@@ -205,7 +205,6 @@ export const ServiceNames = {
   LATEX_COMPILER: 'latexCompiler',
   OVERLEAF_COMPILER: 'overleafCompiler',
   OVERLEAF_FILE_SYSTEM: 'overleafFileSystem',
-  SYNCTEX: 'synctex',
   CONFIG: 'config',
   LOGGER: 'logger',
   TRACE: 'trace',

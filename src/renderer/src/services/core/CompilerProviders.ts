@@ -515,7 +515,6 @@ export class WASMCompilerProvider implements CompilerProvider {
         success: true,
         pdfPath: artifacts.pdfPath,
         synctexPath: result.synctex ? artifacts.synctexPath : undefined,
-        projectRoot: options.projectPath,
         log: result.log,
         warnings: this.parseWarnings(result.log),
       };

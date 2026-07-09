@@ -279,42 +279,6 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
       safePathSchema, // outputDir (project directory, matches local compiler output)
     ]),
   ],
-  [
-    IpcChannel.SyncTeX_Forward,
-    z.tuple([
-      safePathSchema, // texFile
-      z
-        .number()
-        .int()
-        .min(0)
-        .max(1000000), // line
-      z
-        .number()
-        .int()
-        .min(0)
-        .max(1000000), // column
-      safePathSchema, // pdfFile
-      safePathSchema.optional(), // projectRoot
-    ]),
-  ],
-  [
-    IpcChannel.SyncTeX_Backward,
-    z.tuple([
-      safePathSchema, // pdfFile
-      z
-        .number()
-        .int()
-        .min(1)
-        .max(10000), // page
-      z
-        .number()
-        .min(0), // x
-      z
-        .number()
-        .min(0), // y
-      safePathSchema.optional(), // projectRoot
-    ]),
-  ],
 
   // ==================== AI Operations ====================
   [

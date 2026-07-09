@@ -23,7 +23,6 @@ import {
   getAIService,
   getFileSystemService,
   getSelectionServiceFromContainer,
-  getSyncTeXServiceFromContainer,
   registerServices,
   shutdownServices,
   warmupServices,
@@ -819,7 +818,6 @@ function registerIpcHandlers() {
   // All services obtained from ServiceContainer (DI pattern)
   const fileSystemService = getFileSystemService();
   const aiService = getAIService();
-  const syncTeXService = getSyncTeXServiceFromContainer();
 
   // Getter functions for dependency injection
   const getMainWindow = () => mainWindow;
@@ -849,9 +847,7 @@ function registerIpcHandlers() {
     inlineEdit: getServiceContainer().get(ServiceNames.INLINE_EDIT),
   });
   // ====== Register Compile Handlers ======
-  registerCompileHandlers({
-    syncTeXService,
-  });
+  registerCompileHandlers();
 
   // ====== Register Window Handlers ======
   registerWindowHandlers({

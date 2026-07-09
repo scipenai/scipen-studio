@@ -19,7 +19,6 @@ import { createInlineEditService } from './InlineEditService';
 import { getLSPProcessClient } from './LSPProcessClient';
 import { LaTeXCompiler } from './LaTeXCompiler';
 import { SelectionService } from './SelectionService';
-import { createSyncTeXService } from './SyncTeXService';
 import { StudioOverleafLiveService } from './StudioOverleafLiveService';
 import { createSnacaSidecarService } from './agent/SnacaSidecarService';
 import { createEditorProtocolClient } from './agent/EditorProtocolClient';
@@ -37,12 +36,7 @@ import { app, BrowserWindow } from 'electron';
 
 import { TraceService } from './TraceService';
 import type { IConfigManager } from './interfaces';
-import type {
-  IAIService,
-  IFileSystemService,
-  ISelectionService,
-  ISyncTeXService,
-} from './interfaces';
+import type { IAIService, IFileSystemService, ISelectionService } from './interfaces';
 
 // ====== Worker Client Imports ======
 
@@ -73,8 +67,6 @@ export function registerServices(): void {
   container.registerSingleton(ServiceNames.LATEX_COMPILER, () => {
     return new LaTeXCompiler();
   });
-  // Lazy init: SyncTeX service is rarely used at startup
-  container.registerLazy<ISyncTeXService>(ServiceNames.SYNCTEX, () => createSyncTeXService());
 
   // ====== AI Services ======
 
@@ -275,10 +267,6 @@ export function getFileSystemService(): IFileSystemService {
 
 export function getAIService(): IAIService {
   return getServiceContainer().get<IAIService>(ServiceNames.AI);
-}
-
-export function getSyncTeXServiceFromContainer(): ISyncTeXService {
-  return getServiceContainer().get<ISyncTeXService>(ServiceNames.SYNCTEX);
 }
 
 export function getSelectionServiceFromContainer(): ISelectionService {
