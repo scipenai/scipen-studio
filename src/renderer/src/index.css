@@ -699,6 +699,18 @@ body {
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace !important;
 }
 
+/* Monaco's button tooltips (the "workbench hover", e.g. the find widget's "Close (Escape)"
+   label) render outside .monaco-editor in a `.context-view` and pop up directly over the button.
+   Being pointer-interactive, the tooltip steals the mouseup between mousedown and mouseup, so the
+   `click` never lands on the button — the find widget's Close/Find-in-Selection buttons become
+   unclickable and their tooltip flickers. Making the hover click-through lets the mouseup fall
+   through to the button. `:has()` scopes this to hover context-views only, leaving menus/dropdowns
+   (which share `.context-view`) interactive. */
+.workbench-hover-container,
+.context-view:has(.workbench-hover-container) {
+  pointer-events: none !important;
+}
+
 .monaco-editor .view-line {
   /* Enable ligatures for better code readability */
   font-feature-settings: "liga" on, "calt" on !important;
