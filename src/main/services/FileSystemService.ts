@@ -68,6 +68,28 @@ export class FileSystemService extends EventEmitter implements IFileSystemServic
     return normalized;
   }
 
+  /**
+   * Align a watcher-reported path's root prefix to `watchedPath`'s casing.
+   *
+   * On Windows the native watcher may report the project-root prefix (notably
+   * the drive letter) in a different case than the path the project was opened
+   * with. The renderer keys its incremental file-tree updates on an exact
+   * root-prefix match, so that casing drift silently drops every event. Here we
+   * restore the exact root casing the UI holds while preserving the real casing
+   * of the file/dir name portion. No-op off Windows or before watching starts.
+   */
+  private reconcileWatchedPathPrefix(filePath: string): string {
+    if (process.platform !== 'win32' || !this.watchedPath) return filePath;
+    const root = this.watchedPath;
+    if (filePath.length < root.length) return filePath;
+    const prefix = filePath.slice(0, root.length);
+    if (prefix === root) return filePath;
+    if (prefix.toLowerCase() === root.toLowerCase()) {
+      return root + filePath.slice(root.length);
+    }
+    return filePath;
+  }
+
   // Only exclude essential directories/system files, avoid filtering user files by extension
   private ignorePatterns = [
     '.git',
@@ -161,7 +183,10 @@ export class FileSystemService extends EventEmitter implements IFileSystemServic
    * Detects renames by correlating unlink + add events in same directory.
    */
   private handleFileChange(event: FileChangeEvent): void {
-    const { type, path: filePath, mtime } = event;
+    const { type, mtime } = event;
+    // Align the root-prefix casing to `watchedPath` so events forwarded to the
+    // renderer (and cache/rename bookkeeping below) share a consistent root.
+    const filePath = this.reconcileWatchedPathPrefix(event.path);
     const normalizedPath = this.normalizeCachePath(filePath);
 
     switch (type) {
@@ -170,7 +195,7 @@ export class FileSystemService extends EventEmitter implements IFileSystemServic
         if (cachedMtime !== undefined && mtime && Math.abs(mtime - cachedMtime) > 100) {
           logger.info('[FileSystemService] External change detected:', filePath);
           getFileCacheService().invalidate(filePath);
-          this.emit('file-changed', event);
+          this.emit('file-changed', { type: 'change', path: filePath, mtime });
         }
         if (mtime) {
           this.fileMtimeCache.set(normalizedPath, mtime);
