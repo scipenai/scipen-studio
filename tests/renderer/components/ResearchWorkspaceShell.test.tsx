@@ -2,9 +2,13 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ResearchWorkspaceShell } from '../../../src/renderer/src/components/research/ResearchWorkspaceShell';
 
+// react-resizable-panels v4: PanelGroup->Group, PanelResizeHandle->Separator, plus the
+// useDefaultLayout persistence hook.
 vi.mock('react-resizable-panels', () => ({
   Panel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  PanelGroup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Separator: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  useDefaultLayout: () => ({ defaultLayout: undefined, onLayoutChanged: () => {} }),
 }));
 
 vi.mock('../../../src/renderer/src/api', () => ({

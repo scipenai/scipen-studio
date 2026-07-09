@@ -77,13 +77,13 @@ Object.defineProperty(window, 'matchMedia', {
 
 // ====== Mock Browser APIs ======
 
-// Regular function (not arrow) so `new ResizeObserver(...)` is constructable
-// under vitest's Mock — the renderer now creates one for fit-to-width.
-global.ResizeObserver = vi.fn(function (this: Record<string, unknown>) {
-  this.observe = vi.fn();
-  this.unobserve = vi.fn();
-  this.disconnect = vi.fn();
-}) as unknown as typeof ResizeObserver;
+// Constructable class (not an arrow-returning vi.fn) so `new ResizeObserver(cb)` works —
+// PdfPreviewPane and react-resizable-panels construct one.
+global.ResizeObserver = class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as unknown as typeof ResizeObserver;
 
 global.IntersectionObserver = vi.fn().mockImplementation(() => ({
   observe: vi.fn(),

@@ -276,5 +276,8 @@ export function useZoteroWizard(): ZoteroWizardController {
  * unnecessary re-renders.
  */
 export function useZoteroWizardController(): { open: () => void } {
-  return { open: openZoteroWizard };
+  // Stable object identity: consumers put this in effect deps (e.g. AgentChatInput's
+  // cite-candidate effect). Returning a fresh object each render caused an infinite
+  // setState loop ("Maximum update depth exceeded").
+  return useMemo(() => ({ open: openZoteroWizard }), []);
 }

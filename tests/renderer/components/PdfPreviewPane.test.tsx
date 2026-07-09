@@ -25,7 +25,8 @@ const mockState = vi.hoisted(() => {
 
 vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
   GlobalWorkerOptions: {},
-  getDocument: vi.fn(() => ({ promise: Promise.resolve(mockState.pdfDoc) })),
+  // pdf.js v6: teardown moved from the document proxy to the loading task, so the task exposes destroy().
+  getDocument: vi.fn(() => ({ promise: Promise.resolve(mockState.pdfDoc), destroy: vi.fn() })),
 }));
 
 vi.mock('framer-motion', () => ({

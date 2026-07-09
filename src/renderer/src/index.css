@@ -1,6 +1,21 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind v4: single import replaces the v3 base/components/utilities directives.
+   `@config` keeps the existing JS config (theme tokens, hsl(var(--x)) colors, keyframes,
+   typography plugin) so the design-token system migrates without a CSS-first rewrite. */
+@import "tailwindcss";
+@config "../../../tailwind.config.cjs";
+
+/* Tailwind v4 compat: v4's Preflight defaults bare `border`/`divide` color to
+   `currentColor`; v3's Preflight defaulted to gray-200. The app has 100+ bare `border`
+   utilities that relied on that default, so restore it (this is exactly what v3 emitted). */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, #e5e7eb);
+  }
+}
 
 /* ============================================================
  * SciPen Studio - "Midnight Manuscript" Design System v4
@@ -595,7 +610,11 @@ body {
   
   .scipen-card--interactive,
   .card-interactive {
-    @apply card cursor-pointer transition-all duration-200;
+    /* Tailwind v4 forbids @apply-ing custom classes (e.g. `card`); inline the card base here. */
+    @apply rounded-xl cursor-pointer transition-all duration-200;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    box-shadow: var(--shadow-md);
   }
   
   .scipen-card--interactive:hover,
@@ -678,6 +697,18 @@ body {
 /* ===== Monaco Editor Customizations ===== */
 .monaco-editor {
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace !important;
+}
+
+/* Monaco's button tooltips (the "workbench hover", e.g. the find widget's "Close (Escape)"
+   label) render outside .monaco-editor in a `.context-view` and pop up directly over the button.
+   Being pointer-interactive, the tooltip steals the mouseup between mousedown and mouseup, so the
+   `click` never lands on the button — the find widget's Close/Find-in-Selection buttons become
+   unclickable and their tooltip flickers. Making the hover click-through lets the mouseup fall
+   through to the button. `:has()` scopes this to hover context-views only, leaving menus/dropdowns
+   (which share `.context-view`) interactive. */
+.workbench-hover-container,
+.context-view:has(.workbench-hover-container) {
+  pointer-events: none !important;
 }
 
 .monaco-editor .view-line {
