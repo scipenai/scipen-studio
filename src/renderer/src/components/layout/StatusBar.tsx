@@ -456,7 +456,7 @@ export const StatusBar: React.FC = () => {
         {/* Save Status */}
         {saveStatus === 'saved' && (
           <div
-            className="flex items-center gap-1.5 px-3 h-full flex-shrink-0 text-[11px] font-medium animate-in fade-in duration-200"
+            className="flex items-center gap-1.5 px-3 h-full flex-shrink-0 text-[11px] font-medium animate-fade-in"
             style={{
               borderRight: '1px solid var(--color-border-subtle)',
               color: 'var(--color-success)',

@@ -1,7 +1,7 @@
 import { FolderKanban, MessageSquareText, PanelLeft, PanelRight } from 'lucide-react';
 import { useCallback, useEffect, useMemo } from 'react';
 import type React from 'react';
-import { Panel, PanelGroup } from 'react-resizable-panels';
+import { Group, Panel } from 'react-resizable-panels';
 import { api } from '../../api';
 import { useLazyModule } from '../../hooks/useLazyModule';
 import {
@@ -40,8 +40,12 @@ import { PreviewPanel, usePreviewTitle } from './PreviewPanel';
 //   the component does not mount until next interaction = user-perceived "have to click twice"). useLazyModule
 //   uses "import -> setState" at default priority, commits reliably, and preserves code-split.
 
-/** Fixed order of panels in PanelGroup (react-resizable-panels relies on `order` to keep ordering across add/remove). */
-const PANEL_ORDER: Record<PanelId, number> = { chat: 1, editor: 2, preview: 3 };
+/** Stable Panel ids (react-resizable-panels v4 keys persisted layout by these). */
+const PANEL_DOM_IDS: Record<PanelId, string> = {
+  chat: 'research-chat',
+  editor: 'research-editor',
+  preview: 'research-preview',
+};
 
 export const ResearchWorkspaceShell: React.FC = () => {
   const uiService = useMemo(() => getUIService(), []);
@@ -245,7 +249,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
 
       {/* p-3 = outer gap between cards and the canvas edge (matches the w-3 inner gap on resize handles, ~12px on all sides). */}
       <div className="h-full p-3">
-        <PanelGroup direction="horizontal" autoSaveId="research-workspace-v6" className="h-full">
+        <Group orientation="horizontal" className="h-full">
           {visiblePanels.flatMap((panel, index) => {
             const cfg = panelProps[panel];
             const nodes: React.ReactNode[] = [];
@@ -255,11 +259,11 @@ export const ResearchWorkspaceShell: React.FC = () => {
               // Key is the panel identity -> when other panels toggle, this panel's instance stays in place and is not remounted.
               <Panel
                 key={panel}
-                id={`research-${panel}`}
-                order={PANEL_ORDER[panel]}
-                defaultSize={PANEL_DEFAULT_SIZE[panel]}
-                minSize={cfg.minSize}
-                maxSize={cfg.maxSize}
+                id={PANEL_DOM_IDS[panel]}
+                // v4 requires sizes as unit-bearing strings (bare numbers are NOT percentages).
+                defaultSize={`${PANEL_DEFAULT_SIZE[panel]}%`}
+                minSize={`${cfg.minSize}%`}
+                maxSize={cfg.maxSize !== undefined ? `${cfg.maxSize}%` : undefined}
                 className={cfg.className}
               >
                 {/* Floating card: rounded + thin border + light shadow, floats above the canvas. */}
@@ -270,7 +274,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
             );
             return nodes;
           })}
-        </PanelGroup>
+        </Group>
       </div>
     </WorkspaceShell>
   );

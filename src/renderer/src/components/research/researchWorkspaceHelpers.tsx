@@ -6,9 +6,9 @@
  *   linear mode machine.
  */
 
-import { PanelResizeHandle } from 'react-resizable-panels';
+import { Separator } from 'react-resizable-panels';
 
-/** Default size ratios for the three panels (autoSaveId persistence takes precedence once stored). */
+/** Default size ratios for the three panels (persisted layout takes precedence once stored). */
 export const PANEL_DEFAULT_SIZE = {
   chat: 30,
   editor: 44,
@@ -25,7 +25,7 @@ export const PANEL_DEFAULT_SIZE = {
  * or active toggle needed.
  */
 export const WorkspaceResizeHandle = () => (
-  <PanelResizeHandle className="group relative w-3 bg-transparent transition-colors">
+  <Separator className="group relative w-3 bg-transparent transition-colors">
     <div className="absolute left-1/2 top-1/2 h-10 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-transparent transition-colors group-hover:bg-[var(--color-accent-muted)]" />
-  </PanelResizeHandle>
+  </Separator>
 );
