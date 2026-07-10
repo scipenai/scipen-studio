@@ -84,16 +84,19 @@ pub fn build_messages_request_with_cache(
 ///
 /// Two paths:
 ///
-/// 1. **Segmented** (`req.system_segments` non-empty): emit each
-///    non-empty segment as its own `SystemBlock`, and place a single
-///    `cache_control: ephemeral` breakpoint on the LAST cacheable
-///    segment that appears BEFORE the first volatile segment. Marking
-///    later segments would cache content that already includes a
-///    per-turn-volatile slice, silently defeating the cache.
+/// 1. **Segmented** (`req.system_segments` non-empty): the engine has
+///    told us explicitly which slices are stable enough to cache.
+///    Emit each non-empty segment as its own `SystemBlock`, and place
+///    a single `cache_control: ephemeral` breakpoint on the LAST
+///    cacheable segment that appears BEFORE the first volatile
+///    segment. Marking later segments would cache content that
+///    already includes a per-turn-volatile slice, which silently
+///    defeats the cache.
 ///
 /// 2. **Legacy** (only `req.system` set): concat top-level + history
-///    system into a single block, cache_control attached when caching
-///    is enabled. Backwards-compatible with the summariser path.
+///    system into a single block, with cache_control attached when
+///    caching is enabled. Backwards-compatible with existing call
+///    sites (e.g. summariser path).
 fn build_system_field(
     req: &MessageRequest,
     extra_system: Option<String>,
@@ -101,10 +104,10 @@ fn build_system_field(
 ) -> Option<SystemField> {
     if !req.system_segments.is_empty() {
         let mut segs: Vec<SystemSegment> = Vec::new();
-        // History-derived system was persisted in the thread, not
-        // generated this turn — treat it as stable and slot it before
-        // the engine's segments so the volatile suffix still controls
-        // where the cache breakpoint lands.
+        // Treat history-derived system as stable: it was persisted in
+        // the thread, not generated this turn. Slot it before the
+        // engine-supplied segments so the engine's volatile suffix
+        // still controls where the cache breakpoint lands.
         if let Some(extra) = extra_system {
             segs.push(SystemSegment {
                 text: extra,
@@ -158,7 +161,9 @@ fn build_system_field(
     };
     system_text.map(|t| {
         if enable_cache {
-            SystemField::Blocks(vec![SystemBlock::text(t).with_cache_control(EPHEMERAL_CACHE)])
+            SystemField::Blocks(vec![
+                SystemBlock::text(t).with_cache_control(EPHEMERAL_CACHE)
+            ])
         } else {
             SystemField::Text(t)
         }
@@ -383,17 +388,11 @@ mod tests {
 
     #[test]
     fn role_system_in_history_merged_into_system() {
-        let r = req(vec![
-            Message::system_text("Helpful style"),
-            user("hi"),
-        ])
-        .with_system("Top-level");
+        let r =
+            req(vec![Message::system_text("Helpful style"), user("hi")]).with_system("Top-level");
         let wire = build_messages_request(&r, false).unwrap();
         // Top-level + history system_text concatenated with blank line.
-        assert_eq!(
-            system_text_of(&wire),
-            Some("Top-level\n\nHelpful style")
-        );
+        assert_eq!(system_text_of(&wire), Some("Top-level\n\nHelpful style"));
     }
 
     #[test]
@@ -419,7 +418,10 @@ mod tests {
         match &wire.system {
             Some(SystemField::Blocks(bs)) => {
                 assert_eq!(bs.len(), 1);
-                assert!(bs[0].cache_control.is_some(), "system block missing cache_control");
+                assert!(
+                    bs[0].cache_control.is_some(),
+                    "system block missing cache_control"
+                );
             }
             other => panic!("expected blocks form, got {other:?}"),
         }
@@ -577,9 +579,13 @@ mod tests {
         let wire = build_messages_request(&r, false).unwrap();
         let blocks = &wire.messages[0].content;
         assert_eq!(blocks.len(), 3);
-        assert!(matches!(&blocks[0], WireContentBlock::Thinking { text, .. } if text == "planning"));
+        assert!(
+            matches!(&blocks[0], WireContentBlock::Thinking { text, .. } if text == "planning")
+        );
         assert!(matches!(&blocks[1], WireContentBlock::Text { text } if text == "let me check"));
-        assert!(matches!(&blocks[2], WireContentBlock::ToolUse { id, name, .. } if id == "call_1" && name == "Read"));
+        assert!(
+            matches!(&blocks[2], WireContentBlock::ToolUse { id, name, .. } if id == "call_1" && name == "Read")
+        );
     }
 
     #[test]
@@ -597,7 +603,9 @@ mod tests {
             } => {
                 assert_eq!(tool_use_id, "call_1");
                 assert_eq!(content.len(), 1);
-                assert!(matches!(&content[0], WireContentBlock::Text { text } if text == "the file content"));
+                assert!(
+                    matches!(&content[0], WireContentBlock::Text { text } if text == "the file content")
+                );
                 assert!(!is_error);
             }
             other => panic!("expected ToolResult, got {other:?}"),

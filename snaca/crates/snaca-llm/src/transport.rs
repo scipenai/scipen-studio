@@ -1,18 +1,68 @@
-//! Shared HTTP streaming diagnostics for provider clients.
+//! Shared HTTP plumbing for provider clients.
 //!
-//! "transport error: error decoding response body" is reqwest's flattened
-//! Display for any I/O failure while pulling chunks off a response body
-//! (H2 RST, chunked decode, TLS read, server-side abort after a 200). The
-//! raw `reqwest::Error` only renders its own kind — the underlying cause
-//! lives in its `source()` chain. Providers route both DeepSeek and
-//! Anthropic streams through here so the cause is captured before it's
-//! collapsed into `LlmError::Transport`, and so the log distinguishes
-//! "server closed before sending anything" from "stream broke mid-body".
+//! - Streaming diagnostics: "transport error: error decoding response
+//!   body" is reqwest's flattened Display for any I/O failure while
+//!   pulling chunks off a response body (H2 RST, chunked decode, TLS
+//!   read, server-side abort after a 200). The raw `reqwest::Error`
+//!   only renders its own kind — the underlying cause lives in its
+//!   `source()` chain. Providers route both DeepSeek and Anthropic
+//!   streams through [`wrap_byte_stream`] so the cause is captured
+//!   before it's collapsed into `LlmError::Transport`, and so the log
+//!   distinguishes "server closed before sending anything" from
+//!   "stream broke mid-body".
+//! - Error response handling: [`retry_after_header`] +
+//!   [`classify_error`] factor out the non-2xx response handling that
+//!   each provider mod.rs would otherwise repeat across the
+//!   stream/non-stream code paths.
 
+use crate::classify::classify_http_error;
 use crate::error::{LlmError, LlmResult};
 use bytes::Bytes;
 use futures::stream::{Stream, StreamExt};
 use tracing::{debug, warn};
+
+/// Read the `Retry-After` header as an owned string. Returns `None`
+/// when the header is absent or not valid UTF-8.
+pub fn retry_after_header(resp: &reqwest::Response) -> Option<String> {
+    resp.headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+}
+
+/// Provider-side error envelope view. Both Anthropic
+/// (`{error: {type, message}}`) and DeepSeek
+/// (`{error: {type, message, code}}`) implement this so the shared
+/// [`classify_error`] path doesn't need to know which provider produced
+/// the body.
+pub trait ProviderErrorView {
+    fn error_type(&self) -> Option<&str>;
+    fn error_code(&self) -> Option<&str> {
+        None
+    }
+    fn error_message(&self) -> &str;
+}
+
+/// Map a non-2xx response body to a structured [`LlmError`]. Tries to
+/// parse the provider's error envelope first; falls back to the raw
+/// body when parsing fails. Mirrors what every provider mod.rs used to
+/// hand-roll, with the same precedence rules as
+/// [`classify_http_error`].
+pub fn classify_error<E>(status: u16, retry_after: Option<&str>, bytes: &[u8]) -> LlmError
+where
+    E: ProviderErrorView + for<'de> serde::Deserialize<'de>,
+{
+    let env = serde_json::from_slice::<E>(bytes).ok();
+    let body_str = String::from_utf8_lossy(bytes);
+    classify_http_error(
+        status,
+        retry_after,
+        env.as_ref().and_then(|e| e.error_type()),
+        env.as_ref().and_then(|e| e.error_code()),
+        env.as_ref().map(|e| e.error_message()),
+        &body_str,
+    )
+}
 
 /// Emit a one-line debug log of the response headers that matter when a
 /// streaming body fails to decode. Cheap; no-op unless debug logging is on.

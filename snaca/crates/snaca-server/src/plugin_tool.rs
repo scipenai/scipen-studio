@@ -12,15 +12,15 @@
 //! drop out automatically.
 
 use async_trait::async_trait;
+use serde_json::Value;
 use snaca_channel_host::PluginHandle;
 use snaca_channel_protocol::methods::ToolAdvertiseParams;
 use snaca_tools_api::{
+    context::ToolContext,
     error::{ToolError, ToolResult},
     output::ToolOutput,
     tool::{ApprovalRequirement, Tool, ToolCapabilities},
-    context::ToolContext,
 };
-use serde_json::Value;
 use std::sync::Arc;
 
 pub struct PluginTool {
@@ -40,10 +40,7 @@ impl PluginTool {
         format!("plugin__{plugin_name}__{tool_name}")
     }
 
-    pub fn from_advertised(
-        handle: PluginHandle,
-        params: ToolAdvertiseParams,
-    ) -> Arc<dyn Tool> {
+    pub fn from_advertised(handle: PluginHandle, params: ToolAdvertiseParams) -> Arc<dyn Tool> {
         let qualified_name = Self::qualified_name(handle.name(), &params.name);
         Arc::new(PluginTool {
             qualified_name,

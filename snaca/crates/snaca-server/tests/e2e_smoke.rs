@@ -12,9 +12,7 @@
 
 use async_trait::async_trait;
 use snaca_core::{Message, MessageId, Role, Usage};
-use snaca_llm::{
-    LlmClient, LlmResult, MessageRequest, MessageResponse, ProviderCaps, StopReason,
-};
+use snaca_llm::{LlmClient, LlmResult, MessageRequest, MessageResponse, ProviderCaps, StopReason};
 use snaca_server::{Config, Runtime};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};

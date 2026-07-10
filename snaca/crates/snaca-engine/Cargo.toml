@@ -10,6 +10,7 @@ description = "SNACA agent engine: turn loop, compaction, approval state machine
 
 [dependencies]
 snaca-core.workspace = true
+snaca-agent-api.workspace = true
 snaca-tools-api.workspace = true
 snaca-llm.workspace = true
 snaca-state.workspace = true
@@ -33,3 +34,4 @@ snaca-tools.workspace = true
 snaca-skills.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 tempfile = "3"
+tracing-subscriber = { workspace = true }

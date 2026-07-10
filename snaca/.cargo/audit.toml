@@ -1,0 +1,15 @@
+[advisories]
+ignore = [
+    # Transitive through openlark -> tokio-tungstenite -> rustls-native-certs.
+    # Keep this visible in config until the Lark plugin dependency chain can
+    # move off rustls-pemfile.
+    "RUSTSEC-2025-0134",
+    # Present in Cargo.lock through sqlx's optional MySQL support, but SNACA
+    # enables only SQLite. `cargo tree --workspace --target all -i rsa` shows
+    # this crate is not reachable from the current workspace feature graph.
+    "RUSTSEC-2023-0071",
+    # Present in Cargo.lock through optional fastembed/tokenizers support.
+    # The default open-source build does not enable snaca-memory/fastembed;
+    # keep this visible until tokenizers stops depending on paste.
+    "RUSTSEC-2024-0436",
+]

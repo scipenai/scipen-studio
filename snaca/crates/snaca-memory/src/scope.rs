@@ -71,9 +71,7 @@ impl std::str::FromStr for MemoryScope {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::from_dir_name(s).ok_or_else(|| {
-            format!(
-                "unknown memory scope `{s}`; valid: user|project|reference|feedback"
-            )
+            format!("unknown memory scope `{s}`; valid: user|project|reference|feedback")
         })
     }
 }

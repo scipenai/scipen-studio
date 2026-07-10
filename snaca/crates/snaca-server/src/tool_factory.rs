@@ -37,11 +37,7 @@ pub struct LayeredToolFactory {
 }
 
 impl LayeredToolFactory {
-    pub fn new(
-        base: ToolRegistry,
-        mcp: Arc<McpManager>,
-        skills: Arc<dyn SkillProvider>,
-    ) -> Self {
+    pub fn new(base: ToolRegistry, mcp: Arc<McpManager>, skills: Arc<dyn SkillProvider>) -> Self {
         Self {
             base,
             mcp,
@@ -55,7 +51,9 @@ impl LayeredToolFactory {
     /// than a panic — production calls this exactly once during `Runtime::build`.
     pub fn set_plugins(&self, plugins: Arc<PluginRegistry>) {
         if self.plugins.set(plugins).is_err() {
-            tracing::warn!("LayeredToolFactory::set_plugins called twice; keeping first registration");
+            tracing::warn!(
+                "LayeredToolFactory::set_plugins called twice; keeping first registration"
+            );
         }
     }
 }

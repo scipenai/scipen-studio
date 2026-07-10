@@ -188,10 +188,12 @@ async fn multi_edit_chain_is_atomic_via_engine() {
 
 #[tokio::test]
 async fn read_tracker_carries_across_turns_on_same_thread() {
-    // Regression for the wedged-loop bug: a user pinging the bot
-    // mid-task used to reset the read_tracker and force a re-Read
-    // before any Edit. The tracker is now thread-scoped — Edit in
-    // turn 2 succeeds with no Read, because turn 1's Read is recorded.
+    // Regression for the wedged-loop bug: when a user pings the bot
+    // mid-task ("how's it going?"), the new turn used to reset the
+    // read_tracker and force the model to re-Read every file before
+    // any Edit. The tracker is now thread-scoped — Edit in turn 2
+    // succeeds with no Read at all, because the Read from turn 1 is
+    // still recorded.
     let tmp = tempfile::tempdir().unwrap();
     let layout = WorkspaceLayout::new(tmp.path()).unwrap();
     let db = Database::open_in_memory().await.unwrap();
@@ -204,14 +206,15 @@ async fn read_tracker_carries_across_turns_on_same_thread() {
     std::fs::write(&target, "hello world\n").unwrap();
 
     let llm = Arc::new(MockLlmClient::new());
-    // Turn 1: Read, then terminate.
+    // Turn 1: Read the file, then terminate.
     llm.enqueue(assistant_tool_call(vec![(
         "call_r",
         "Read",
         json!({"path": "notes.md"}),
     )]));
     llm.enqueue(assistant_text("read"));
-    // Turn 2: Edit without re-Reading. Per-turn tracker would error.
+    // Turn 2: Edit *without* re-Reading. If the tracker were per-turn
+    // this would error with "must be Read before editing".
     llm.enqueue(assistant_tool_call(vec![(
         "call_e",
         "Edit",
@@ -228,6 +231,7 @@ async fn read_tracker_carries_across_turns_on_same_thread() {
     );
     let thread = ThreadId::new("chat_persist");
 
+    // Turn 1
     engine
         .handle_turn(TurnRequest {
             tenant_id: tenant.clone(),
@@ -240,6 +244,7 @@ async fn read_tracker_carries_across_turns_on_same_thread() {
         .await
         .unwrap();
 
+    // Turn 2 — same thread, no Read.
     engine
         .handle_turn(TurnRequest {
             tenant_id: tenant.clone(),
@@ -259,8 +264,8 @@ async fn read_tracker_carries_across_turns_on_same_thread() {
 #[tokio::test]
 async fn read_tracker_independent_across_threads() {
     // Sibling regression: tracker is per-thread, so a Read on thread A
-    // does NOT satisfy the gate on thread B. Edit on B without its own
-    // Read must still fail (file untouched).
+    // does NOT satisfy the "Read before Edit" gate on thread B. Edit
+    // on thread B without its own Read must still fail.
     let tmp = tempfile::tempdir().unwrap();
     let layout = WorkspaceLayout::new(tmp.path()).unwrap();
     let db = Database::open_in_memory().await.unwrap();
@@ -273,12 +278,15 @@ async fn read_tracker_independent_across_threads() {
     std::fs::write(&target, "hello world\n").unwrap();
 
     let llm = Arc::new(MockLlmClient::new());
+    // Thread A: Read.
     llm.enqueue(assistant_tool_call(vec![(
         "call_r",
         "Read",
         json!({"path": "notes.md"}),
     )]));
     llm.enqueue(assistant_text("read on A"));
+    // Thread B: try to Edit without Read. Edit should fail with a
+    // tool_error; the model then enqueues a terminal text.
     llm.enqueue(assistant_tool_call(vec![(
         "call_e",
         "Edit",
@@ -294,6 +302,7 @@ async fn read_tracker_independent_across_threads() {
         EngineConfig::default_for("mock-model"),
     );
 
+    // Thread A: Read.
     engine
         .handle_turn(TurnRequest {
             tenant_id: tenant.clone(),
@@ -306,6 +315,8 @@ async fn read_tracker_independent_across_threads() {
         .await
         .unwrap();
 
+    // Thread B: Edit-without-Read should leave the file untouched
+    // (Edit errors at the tracker gate; the model recovers with text).
     engine
         .handle_turn(TurnRequest {
             tenant_id: tenant,

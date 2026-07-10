@@ -59,9 +59,12 @@ pub enum LlmError {
     /// fragments did not parse as valid JSON. Distinct from
     /// `MalformedResponse` so the engine can detect this specific
     /// failure and retry the request once in non-streaming mode —
-    /// DeepSeek with long Chinese tool args can emit broken SSE deltas
-    /// while its non-streaming endpoint returns the same arguments as a
-    /// single complete string field, sidestepping the concat bug.
+    /// providers (notably DeepSeek with long Chinese tool args) can
+    /// emit broken SSE deltas while their non-streaming endpoint
+    /// returns the same arguments as a single complete string field,
+    /// which sidesteps the streaming concat bug. `message` is the
+    /// human-readable description (preserved verbatim in the Display
+    /// impl so log output matches the old `MalformedResponse` shape).
     #[error("provider returned malformed response: {message}")]
     MalformedToolArgs {
         tool: String,
@@ -74,6 +77,18 @@ pub enum LlmError {
     /// codes are mapped to the structured variants above.
     #[error("provider error {code}: {message}")]
     Provider { code: String, message: String },
+
+    /// The provider's content-moderation layer rejected the request
+    /// (DeepSeek `Content Exists Risk`, OpenAI `content_filter`, Qwen
+    /// `data_inspection_failed`, ...). Distinct from `Provider` because
+    /// the engine has a special recovery path: the offending content is
+    /// almost always a *persisted* history message (e.g. a WebSearch
+    /// tool_result carrying flagged external text), so replaying the
+    /// thread bricks every subsequent turn. The engine localizes and
+    /// redacts the poison message rather than surfacing a hard error.
+    /// Not retryable — the retry wrapper must pass it straight through.
+    #[error("content filtered by provider {code}: {message}")]
+    ContentFiltered { code: String, message: String },
 
     #[error("operation timed out")]
     Timeout,

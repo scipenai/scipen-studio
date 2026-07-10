@@ -247,11 +247,7 @@ impl McpPool {
     /// Build SNACA `Tool` instances for the given `(tenant, project)`.
     /// Returns an empty Vec on connection failure (logged) so a misbehaving
     /// MCP server doesn't kill the whole turn.
-    pub async fn tools_for(
-        &self,
-        tenant: &TenantId,
-        project: &ProjectId,
-    ) -> Vec<Arc<dyn Tool>> {
+    pub async fn tools_for(&self, tenant: &TenantId, project: &ProjectId) -> Vec<Arc<dyn Tool>> {
         let client = match self.client_for(tenant, project).await {
             Ok(c) => c,
             Err(e) => {
@@ -267,8 +263,7 @@ impl McpPool {
             .tools()
             .iter()
             .filter_map(|tool| {
-                McpTool::new(client.clone(), tool.clone())
-                    .map(|t| Arc::new(t) as Arc<dyn Tool>)
+                McpTool::new(client.clone(), tool.clone()).map(|t| Arc::new(t) as Arc<dyn Tool>)
             })
             .collect()
     }

@@ -124,8 +124,8 @@ impl Tool for WebFetchTool {
     }
 
     async fn execute(&self, input: Value, _ctx: &ToolContext) -> ToolResult {
-        let input: WebFetchInput = serde_json::from_value(input)
-            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let input: WebFetchInput =
+            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
 
         let url = validate_and_normalize_url(&input.url)?;
         let started = Instant::now();
@@ -154,7 +154,10 @@ impl Tool for WebFetchTool {
                 .and_then(|v| v.to_str().ok())
                 .map(|loc| {
                     // Resolve relative Locations against the response URL.
-                    final_url.join(loc).map(|u| u.to_string()).unwrap_or_else(|_| loc.to_string())
+                    final_url
+                        .join(loc)
+                        .map(|u| u.to_string())
+                        .unwrap_or_else(|_| loc.to_string())
                 })
                 .unwrap_or_else(|| final_url.to_string());
             return Ok(ToolOutput::text(format!(
@@ -206,7 +209,7 @@ impl Tool for WebFetchTool {
 
         let kind = classify_content(&content_type);
         let markdown = match kind {
-            ContentKind::Html => html2md::parse_html(&body),
+            ContentKind::Html => html_to_markdown(&body),
             ContentKind::TextLike => body,
             ContentKind::Unsupported => {
                 return Err(ToolError::Execution(format!(
@@ -223,7 +226,12 @@ impl Tool for WebFetchTool {
 
         let mut out = String::new();
         out.push_str(&format!("# Fetched: {final_url}\n"));
-        if let Some(p) = input.prompt.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(p) = input
+            .prompt
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             out.push_str(&format!("[intent: {p}]\n"));
         }
         out.push_str(&format!(
@@ -284,6 +292,168 @@ fn truncate_chars(s: &str, max: usize) -> String {
     out
 }
 
+fn html_to_markdown(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut chars = html.chars().peekable();
+    let mut skip_until: Option<&'static str> = None;
+
+    while let Some(ch) = chars.next() {
+        if ch == '<' {
+            let mut tag = String::new();
+            for c in chars.by_ref() {
+                if c == '>' {
+                    break;
+                }
+                tag.push(c);
+            }
+
+            let tag_lc = tag.trim().to_ascii_lowercase();
+            if let Some(end) = skip_until {
+                if tag_lc.starts_with(end) {
+                    skip_until = None;
+                }
+                continue;
+            }
+
+            let tag_name = tag_lc
+                .trim_start_matches('/')
+                .split_whitespace()
+                .next()
+                .unwrap_or("");
+
+            match tag_name {
+                "!doctype" | "meta" | "link" | "head" => {}
+                "script" => skip_until = Some("/script"),
+                "style" => skip_until = Some("/style"),
+                "br" => out.push('\n'),
+                "p" | "div" | "section" | "article" | "header" | "footer" | "tr" => {
+                    push_blank_line(&mut out)
+                }
+                "h1" => push_heading(&mut out, "# "),
+                "h2" => push_heading(&mut out, "## "),
+                "h3" => push_heading(&mut out, "### "),
+                "h4" => push_heading(&mut out, "#### "),
+                "h5" => push_heading(&mut out, "##### "),
+                "h6" => push_heading(&mut out, "###### "),
+                "li" => {
+                    push_blank_line(&mut out);
+                    out.push_str("- ");
+                }
+                "td" | "th" => {
+                    trim_trailing_spaces(&mut out);
+                    if !out.ends_with('\n') && !out.ends_with("| ") {
+                        out.push_str(" | ");
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
+
+        if ch == '&' {
+            let mut entity = String::new();
+            while let Some(&next) = chars.peek() {
+                chars.next();
+                if next == ';' {
+                    break;
+                }
+                if entity.len() > 12 {
+                    entity.push(next);
+                    break;
+                }
+                entity.push(next);
+            }
+            out.push_str(&decode_html_entity(&entity));
+        } else if ch.is_whitespace() {
+            push_collapsed_space(&mut out);
+        } else {
+            out.push(ch);
+        }
+    }
+
+    normalise_markdown_whitespace(out)
+}
+
+fn push_heading(out: &mut String, marker: &str) {
+    push_blank_line(out);
+    out.push_str(marker);
+}
+
+fn push_blank_line(out: &mut String) {
+    trim_trailing_spaces(out);
+    if out.is_empty() {
+        return;
+    }
+    if out.ends_with("\n\n") {
+        return;
+    }
+    if out.ends_with('\n') {
+        out.push('\n');
+    } else {
+        out.push_str("\n\n");
+    }
+}
+
+fn push_collapsed_space(out: &mut String) {
+    if out.is_empty() || out.ends_with(char::is_whitespace) {
+        return;
+    }
+    out.push(' ');
+}
+
+fn trim_trailing_spaces(out: &mut String) {
+    while out.ends_with(' ') || out.ends_with('\t') {
+        out.pop();
+    }
+}
+
+fn decode_html_entity(entity: &str) -> String {
+    match entity {
+        "amp" => "&".into(),
+        "lt" => "<".into(),
+        "gt" => ">".into(),
+        "quot" => "\"".into(),
+        "apos" | "#39" => "'".into(),
+        "nbsp" => " ".into(),
+        _ if entity.starts_with("#x") || entity.starts_with("#X") => {
+            u32::from_str_radix(&entity[2..], 16)
+                .ok()
+                .and_then(char::from_u32)
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| format!("&{entity};"))
+        }
+        _ if entity.starts_with('#') => entity[1..]
+            .parse::<u32>()
+            .ok()
+            .and_then(char::from_u32)
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| format!("&{entity};")),
+        _ => format!("&{entity};"),
+    }
+}
+
+fn normalise_markdown_whitespace(s: String) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut blank_lines = 0usize;
+    for line in s.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            blank_lines += 1;
+            if blank_lines <= 1 && !out.is_empty() {
+                out.push('\n');
+            }
+            continue;
+        }
+        blank_lines = 0;
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.trim().to_string()
+}
+
 async fn read_capped(response: reqwest::Response) -> Result<String, ToolError> {
     let mut buf = Vec::<u8>::new();
     let mut resp = response;
@@ -325,8 +495,8 @@ fn validate_and_normalize_url(raw: &str) -> Result<Url, ToolError> {
         )));
     }
 
-    let mut parsed = Url::parse(raw)
-        .map_err(|e| ToolError::InvalidInput(format!("invalid url: {e}")))?;
+    let mut parsed =
+        Url::parse(raw).map_err(|e| ToolError::InvalidInput(format!("invalid url: {e}")))?;
 
     // Upgrade http -> https. set_scheme returns Err(()) for opaque-URL
     // mismatches but http<->https is a supported transition.
@@ -466,10 +636,7 @@ mod tests {
     async fn rejects_credentials_in_url() {
         let tool = WebFetchTool::new();
         let err = tool
-            .execute(
-                json!({ "url": "https://user:pass@example.com/" }),
-                &ctx(),
-            )
+            .execute(json!({ "url": "https://user:pass@example.com/" }), &ctx())
             .await
             .unwrap_err();
         assert!(matches!(err, ToolError::InvalidInput(_)), "got {err:?}");
@@ -479,7 +646,10 @@ mod tests {
     async fn rejects_overlong_url() {
         let tool = WebFetchTool::new();
         let long = format!("https://example.com/{}", "a".repeat(3000));
-        let err = tool.execute(json!({ "url": long }), &ctx()).await.unwrap_err();
+        let err = tool
+            .execute(json!({ "url": long }), &ctx())
+            .await
+            .unwrap_err();
         assert!(matches!(err, ToolError::InvalidInput(_)), "got {err:?}");
     }
 
@@ -523,10 +693,10 @@ mod tests {
 
     #[test]
     fn html_to_markdown_strips_tags() {
-        let md = html2md::parse_html("<h1>Title</h1><p>hello <b>world</b></p>");
-        assert!(md.contains("Title"));
-        assert!(md.contains("hello"));
+        let md = html_to_markdown("<h1>Title</h1><p>hello <b>world</b> &amp; team</p>");
+        assert!(md.contains("# Title"));
         assert!(md.contains("world"));
+        assert!(md.contains("& team"));
         assert!(!md.contains("<h1"));
         assert!(!md.contains("<p"));
     }
@@ -548,12 +718,18 @@ mod tests {
 
     #[test]
     fn classify_content_kinds() {
-        assert_eq!(classify_content("text/html; charset=utf-8"), ContentKind::Html);
+        assert_eq!(
+            classify_content("text/html; charset=utf-8"),
+            ContentKind::Html
+        );
         assert_eq!(classify_content("application/xhtml+xml"), ContentKind::Html);
         assert_eq!(classify_content("text/plain"), ContentKind::TextLike);
         assert_eq!(classify_content("text/markdown"), ContentKind::TextLike);
         assert_eq!(classify_content(""), ContentKind::TextLike);
-        assert_eq!(classify_content("application/pdf"), ContentKind::Unsupported);
+        assert_eq!(
+            classify_content("application/pdf"),
+            ContentKind::Unsupported
+        );
         assert_eq!(classify_content("image/png"), ContentKind::Unsupported);
     }
 

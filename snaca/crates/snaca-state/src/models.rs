@@ -5,16 +5,16 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use snaca_core::{ContentBlock, MessageId, ProjectId, Role, SessionId, TenantId, ThreadId, ToolUseId};
+use snaca_core::{
+    ContentBlock, MessageId, ProjectId, Role, SessionId, TenantId, ThreadId, ToolUseId,
+};
 
 #[derive(Debug, Clone)]
 pub struct NewThread {
     pub id: ThreadId,
     pub tenant_id: TenantId,
     pub project_id: ProjectId,
-    /// User-facing thread title. Defaults to "New conversation" on the SQL
-    /// side when omitted; callers should usually supply a value to keep the
-    /// in-memory `Display` consistent.
+    /// scipen-studio fork: initial editor-mode title.
     pub title: String,
 }
 
@@ -23,14 +23,15 @@ pub struct ThreadRow {
     pub id: ThreadId,
     pub tenant_id: TenantId,
     pub project_id: ProjectId,
+    /// scipen-studio fork: editor-mode thread title (IM-mode DBs backfill
+    /// via the `migrate_threads_add_title` in-place migration).
     pub title: String,
     pub created_at: DateTime<Utc>,
 }
 
-/// Aggregated thread metadata for list views. `last_active_at` is the most
-/// recent message timestamp (falling back to `created_at` when the thread
-/// has no messages yet); `turn_count` is the number of user-role messages
-/// in the thread.
+/// scipen-studio fork: aggregated thread metadata for the editor's thread
+/// list. `last_active_at` is the most recent message time (falls back to
+/// `created_at`); `turn_count` counts user messages.
 #[derive(Debug, Clone)]
 pub struct ThreadSummaryRow {
     pub thread: ThreadRow,
@@ -44,10 +45,8 @@ pub struct NewMessage {
     pub session_id: SessionId,
     pub role: Role,
     pub content: Vec<ContentBlock>,
-    /// Optional binding to the in-memory turn that produced this message.
-    /// Host UIs use it to re-attach thinking trace / tool calls / edit
-    /// proposals after a hydrate. Pass `None` for user messages and any
-    /// pre-turn system messages.
+    /// scipen-studio fork: associates a persisted message with the
+    /// in-memory turn (thinking trace, tool calls) that emitted it.
     pub turn_id: Option<String>,
 }
 
@@ -59,7 +58,13 @@ pub struct MessageRow {
     pub role: Role,
     pub content: Vec<ContentBlock>,
     pub created_at: DateTime<Utc>,
+    /// scipen-studio fork: turn association for host UIs. `None` in
+    /// IM-mode / legacy rows.
     pub turn_id: Option<String>,
+    /// Set when the engine localized this message as the cause of a
+    /// provider content-moderation rejection. When present, `load_history`
+    /// substitutes a neutral placeholder for the body. `None` = not redacted.
+    pub redacted_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone)]
@@ -80,20 +85,6 @@ pub struct ChatBinding {
     pub user_id: String,
     pub project_id: ProjectId,
     pub bound_at: DateTime<Utc>,
-}
-
-/// One row of `memory_vectors` — an embedding for one memory entry.
-/// `(tenant_id, project_id, scope, name)` is the natural primary key.
-#[derive(Debug, Clone)]
-pub struct MemoryVector {
-    pub tenant_id: TenantId,
-    pub project_id: ProjectId,
-    /// Stored as the lowercase scope name (`user` / `project` / `reference` / `feedback`).
-    pub scope: String,
-    pub name: String,
-    pub model_id: String,
-    pub embedding: Vec<f32>,
-    pub updated_at: DateTime<Utc>,
 }
 
 /// Latest compaction record for a thread. The engine consults this on

@@ -18,12 +18,19 @@
 //! deltas to the IM the user sent the request from.
 
 use async_trait::async_trait;
+use snaca_llm::LlmError;
 use snaca_llm::StreamEvent;
 use std::sync::Mutex;
 
 #[async_trait]
 pub trait TurnEventListener: Send + Sync {
     async fn on_event(&self, event: &StreamEvent);
+
+    /// Called when the engine discards a failed streaming attempt and
+    /// re-issues the same LLM request. Listeners that keep per-stream
+    /// text buffers should reset them here so the next attempt replaces
+    /// partial output instead of appending to it.
+    async fn on_stream_retry(&self, _attempt: u8, _error: &LlmError) {}
 }
 
 /// Default listener — observes nothing. Used by `handle_turn_with_gate`

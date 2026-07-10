@@ -20,7 +20,9 @@ pub mod manifest;
 pub mod methods;
 
 pub use errors::ErrorCode;
-pub use jsonrpc::{JsonRpcError, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, RequestId};
+pub use jsonrpc::{
+    JsonRpcError, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, RequestId,
+};
 pub use manifest::{ChannelCapabilities, PluginInfo, PluginManifest};
 
 /// The protocol version this crate implements.

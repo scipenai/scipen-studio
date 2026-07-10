@@ -67,8 +67,8 @@ impl Tool for GlobTool {
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> ToolResult {
-        let input: GlobInput = serde_json::from_value(input)
-            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let input: GlobInput =
+            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
 
         let matcher: GlobMatcher = GlobBuilder::new(&input.pattern)
             .literal_separator(true)
@@ -188,10 +188,7 @@ mod tests {
     async fn path_outside_workspace_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let err = GlobTool
-            .execute(
-                json!({"pattern": "*", "path": "../"}),
-                &ctx(dir.path()),
-            )
+            .execute(json!({"pattern": "*", "path": "../"}), &ctx(dir.path()))
             .await
             .unwrap_err();
         assert!(matches!(err, ToolError::PathOutsideWorkspace(_)));

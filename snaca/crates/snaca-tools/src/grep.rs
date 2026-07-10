@@ -145,8 +145,8 @@ impl Tool for GrepTool {
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> ToolResult {
-        let input: GrepInput = serde_json::from_value(input)
-            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let input: GrepInput =
+            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
 
         let regex = RegexBuilder::new(&input.pattern)
             .case_insensitive(input.case_insensitive)
@@ -482,7 +482,11 @@ mod tests {
             .unwrap()
             .render_text();
         let lines: Vec<&str> = out.lines().filter(|l| !l.starts_with('<')).collect();
-        assert_eq!(lines.len(), 2, "head_limit=2 should yield 2 files; got: {out}");
+        assert_eq!(
+            lines.len(),
+            2,
+            "head_limit=2 should yield 2 files; got: {out}"
+        );
         assert!(out.contains("<truncated: showed 2 of 5"), "got: {out}");
     }
 
@@ -502,7 +506,10 @@ mod tests {
             .await
             .unwrap()
             .render_text();
-        assert!(!out.contains("<truncated"), "should not truncate; got: {out}");
+        assert!(
+            !out.contains("<truncated"),
+            "should not truncate; got: {out}"
+        );
         assert!(out.matches("f").count() >= 3, "all 3 files; got: {out}");
     }
 

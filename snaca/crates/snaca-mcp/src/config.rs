@@ -33,7 +33,6 @@ pub enum McpTransport {
     },
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerConfig {
     /// Logical name used to namespace tools as `mcp__<name>__<tool>`.
@@ -273,20 +272,14 @@ mod tests {
             "mcp__svc__do_something"
         );
         // Multi-char separator runs don't bloat into multiple underscores.
-        assert_eq!(
-            qualified_tool_name("svc", "a---b"),
-            "mcp__svc__a_b"
-        );
+        assert_eq!(qualified_tool_name("svc", "a---b"), "mcp__svc__a_b");
     }
 
     #[test]
     fn tool_name_normalisation_prefixes_leading_digit() {
         // Anthropic's tool regex requires `[a-zA-Z_]` first — leading
         // digits get an underscore prepended.
-        assert_eq!(
-            qualified_tool_name("svc", "2do"),
-            "mcp__svc___2do"
-        );
+        assert_eq!(qualified_tool_name("svc", "2do"), "mcp__svc___2do");
     }
 
     #[test]

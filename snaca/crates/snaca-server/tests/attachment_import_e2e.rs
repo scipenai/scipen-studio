@@ -1,20 +1,22 @@
-//! End-to-end test for the IM-attachment-import flow.
+//! End-to-end test for the IM-attachment-staging flow.
 //!
 //! Boots a real `Runtime` with a single mock plugin that:
 //!   - auto-injects one `event.message_received` carrying an `Attachment`
 //!   - serves that attachment's bytes when the host calls `file.download`
 //!
-//! The dispatcher should pull the attachment, run it through
-//! `engine.import_attachment`, and write a memory entry under the
-//! project's reference scope. We assert by reading the on-disk memory
-//! tree once the round trip completes.
+//! The dispatcher should pull the attachment and drop it into the
+//! project's workspace dir as a regular file. We assert by reading
+//! the file off disk after the round trip completes.
+//!
+//! Note: the dispatcher used to also chunk + embed each attachment
+//! into the memory vector store. That pipeline was removed when the
+//! engine adopted the frozen-snapshot memory model — attachments now
+//! live only as workspace files; the LLM decides whether to persist
+//! anything via `MemoryWrite`.
 
 use async_trait::async_trait;
 use snaca_core::{Message, MessageId, ProjectId, Role, TenantId, Usage};
-use snaca_llm::{
-    LlmClient, LlmResult, MessageRequest, MessageResponse, ProviderCaps, StopReason,
-};
-use snaca_memory::{MemoryScope, MemoryStore};
+use snaca_llm::{LlmClient, LlmResult, MessageRequest, MessageResponse, ProviderCaps, StopReason};
 use snaca_server::{Config, Runtime};
 use snaca_workspace::WorkspaceLayout;
 use std::path::PathBuf;
@@ -39,6 +41,8 @@ fn snaca_cli_binary() -> PathBuf {
 struct ConstantLlm {
     text: String,
     calls: AtomicUsize,
+    last_user_text: std::sync::Mutex<Option<String>>,
+    user_texts: std::sync::Mutex<Vec<String>>,
 }
 
 impl ConstantLlm {
@@ -46,6 +50,8 @@ impl ConstantLlm {
         Self {
             text: text.into(),
             calls: AtomicUsize::new(0),
+            last_user_text: std::sync::Mutex::new(None),
+            user_texts: std::sync::Mutex::new(Vec::new()),
         }
     }
 }
@@ -64,8 +70,27 @@ impl LlmClient for ConstantLlm {
             ..Default::default()
         }
     }
-    async fn create_message(&self, _req: MessageRequest) -> LlmResult<MessageResponse> {
+    async fn create_message(&self, req: MessageRequest) -> LlmResult<MessageResponse> {
         self.calls.fetch_add(1, Ordering::Relaxed);
+        let last_user_text = req
+            .messages
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::User)
+            .map(|m| {
+                m.content
+                    .iter()
+                    .filter_map(|b| match b {
+                        snaca_core::ContentBlock::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            });
+        if let Some(text) = last_user_text.clone() {
+            self.user_texts.lock().unwrap().push(text);
+        }
+        *self.last_user_text.lock().unwrap() = last_user_text;
         Ok(MessageResponse {
             id: "constant".into(),
             message: Message {
@@ -85,7 +110,7 @@ impl LlmClient for ConstantLlm {
 }
 
 #[tokio::test]
-async fn attachment_lands_as_memory_entry_before_turn() {
+async fn attachment_lands_in_workspace_dir() {
     let _ = tracing_subscriber::fmt::try_init();
     let tmp = tempfile::tempdir().unwrap();
     let data_root = tmp.path().join("data");
@@ -93,7 +118,7 @@ async fn attachment_lands_as_memory_entry_before_turn() {
     let cli_bin = snaca_cli_binary();
 
     // Inject one user message + one attachment. The dispatcher should
-    // import the attachment first, then run the turn.
+    // stage the attachment into the workspace dir, then run the turn.
     let cfg = format!(
         r#"
 [server]
@@ -106,6 +131,9 @@ id = "default"
 [llm]
 api_key = "ignored"
 model = "constant"
+
+[engine]
+memory_extractor = false
 
 [[plugins]]
 name = "mock"
@@ -129,50 +157,52 @@ args = [
         .await
         .expect("runtime starts");
 
-    // The mock plugin's `inject_tenant_id`/`inject_chat_id` defaults
-    // give us deterministic routing. Project is the chat-id-derived
-    // auto slug.
     let tenant = TenantId::new("mock-tenant");
     let project = ProjectId::auto_from_chat("mock-chat");
 
-    // Wait up to 10s for the attachment to land in the memory tree.
-    // The dispatcher imports synchronously *before* the LLM turn, so
-    // an entry under `reference/` is the success signal.
+    // Wait up to 10s for the attachment to land in the workspace dir.
+    // The dispatcher stages synchronously *before* the LLM turn, so
+    // the file appearing under `<workspace>/spec.md` is the success
+    // signal.
     let layout = WorkspaceLayout::new(std::fs::canonicalize(&data_root).unwrap()).unwrap();
-    let store = MemoryStore::new(layout.memory_dir(&tenant, &project));
+    let workspace_dir = layout.workspace_dir(&tenant, &project);
+    let target = workspace_dir.join("spec.md");
 
     let deadline = Instant::now() + Duration::from_secs(10);
-    let mut names = Vec::new();
     while Instant::now() < deadline {
-        names = store.list(MemoryScope::Reference).await.unwrap_or_default();
-        if !names.is_empty() {
+        if target.exists() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert!(
-        !names.is_empty(),
-        "expected an attachment-derived memory entry; got: {names:?}"
+        target.exists(),
+        "expected attachment to land in workspace dir at {}",
+        target.display()
     );
-    let landed = names.iter().any(|n| n.contains("spec"));
-    assert!(landed, "expected `spec`-derived entry; got names: {names:?}");
-
-    // Read the entry and confirm the inlined content actually made
-    // it through file.download → import_one.
-    let stem = names.iter().find(|n| n.contains("spec")).unwrap().clone();
-    let entry = store.read(MemoryScope::Reference, &stem).await.unwrap();
+    let body = std::fs::read_to_string(&target).expect("read staged attachment");
     assert!(
-        entry.content.contains("kebab-case"),
-        "import did not preserve content; got: {:?}",
-        entry.content
+        body.contains("kebab-case"),
+        "staged attachment lost its content; got: {body:?}"
     );
 
-    // The LLM was eventually invoked too — attachment import must
+    // The LLM was eventually invoked too — attachment staging must
     // not block the turn from running.
-    assert!(
-        llm.calls.load(Ordering::Relaxed) >= 1,
-        "LLM should have been called at least once after attachment import"
-    );
+    wait_for_llm_calls(&llm, 1).await;
 
     runtime.shutdown().await;
+}
+
+async fn wait_for_llm_calls(llm: &ConstantLlm, expected: usize) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        if llm.calls.load(Ordering::Relaxed) >= expected {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!(
+        "LLM call count stayed below {expected}; got {}",
+        llm.calls.load(Ordering::Relaxed)
+    );
 }

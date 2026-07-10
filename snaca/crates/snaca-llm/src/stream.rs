@@ -33,7 +33,10 @@ pub enum StreamEvent {
     /// blocks the deltas concatenate; for tool_use blocks the
     /// `ToolInputJson` deltas concatenate into the final JSON object the
     /// model is building.
-    ContentBlockDelta { index: u32, delta: ContentDelta },
+    ContentBlockDelta {
+        index: u32,
+        delta: ContentDelta,
+    },
 
     ContentBlockStop {
         index: u32,
@@ -70,12 +73,18 @@ pub enum ContentBlockStart {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ContentDelta {
-    Text { text: String },
-    Thinking { text: String },
+    Text {
+        text: String,
+    },
+    Thinking {
+        text: String,
+    },
     /// Anthropic / DeepSeek both stream tool-call arguments as a sequence
     /// of JSON-string fragments (`partial_json`); the engine concatenates
     /// them to recover the full input object.
-    ToolInputJson { partial_json: String },
+    ToolInputJson {
+        partial_json: String,
+    },
 }
 
 /// Convert a non-streaming `MessageResponse` into a synthetic event
@@ -93,10 +102,9 @@ pub fn synthesize_events(resp: MessageResponse) -> Vec<StreamEvent> {
     for (idx, block) in resp.message.content.into_iter().enumerate() {
         let index = idx as u32;
         let (start, delta) = match block {
-            ContentBlock::Text { text } => (
-                ContentBlockStart::Text,
-                Some(ContentDelta::Text { text }),
-            ),
+            ContentBlock::Text { text } => {
+                (ContentBlockStart::Text, Some(ContentDelta::Text { text }))
+            }
             ContentBlock::Thinking { text, .. } => (
                 ContentBlockStart::Thinking,
                 Some(ContentDelta::Thinking { text }),
@@ -113,7 +121,10 @@ pub fn synthesize_events(resp: MessageResponse) -> Vec<StreamEvent> {
             // ToolResult / Image don't appear in assistant responses.
             _ => continue,
         };
-        events.push(StreamEvent::ContentBlockStart { index, block: start });
+        events.push(StreamEvent::ContentBlockStart {
+            index,
+            block: start,
+        });
         if let Some(d) = delta {
             events.push(StreamEvent::ContentBlockDelta { index, delta: d });
         }
@@ -163,7 +174,10 @@ pub struct StreamAccumulator {
 #[derive(Debug, Clone)]
 enum PartialBlock {
     Text(String),
-    Thinking { text: String, signature: Option<String> },
+    Thinking {
+        text: String,
+        signature: Option<String>,
+    },
     ToolUse {
         id: String,
         name: String,
@@ -194,10 +208,9 @@ impl PartialBlock {
             (PartialBlock::Thinking { text: buf, .. }, ContentDelta::Thinking { text }) => {
                 buf.push_str(&text)
             }
-            (
-                PartialBlock::ToolUse { args, .. },
-                ContentDelta::ToolInputJson { partial_json },
-            ) => args.push_str(&partial_json),
+            (PartialBlock::ToolUse { args, .. }, ContentDelta::ToolInputJson { partial_json }) => {
+                args.push_str(&partial_json)
+            }
             // Mismatched (e.g. text delta on a thinking block) — ignored.
             // Providers don't do this in practice; if they did, dropping
             // is safer than panicking.
@@ -222,8 +235,7 @@ impl PartialBlock {
                         // output budget mid-argument. Surface that as
                         // the cause — the parse error alone leaves the
                         // operator guessing.
-                        let max_tokens_hit =
-                            matches!(stop_reason, Some(StopReason::MaxTokens));
+                        let max_tokens_hit = matches!(stop_reason, Some(StopReason::MaxTokens));
                         let preview = preview_args(&args);
                         let hint = if max_tokens_hit {
                             " (stop_reason=max_tokens — raise engine.max_tokens \
@@ -264,7 +276,10 @@ fn preview_args(args: &str) -> String {
     }
     let head: String = args.chars().take(HEAD).collect();
     let tail: String = args.chars().skip(len - TAIL).collect();
-    format!("{head}…[{trimmed} chars elided]…{tail}", trimmed = len - HEAD - TAIL)
+    format!(
+        "{head}…[{trimmed} chars elided]…{tail}",
+        trimmed = len - HEAD - TAIL
+    )
 }
 
 impl StreamAccumulator {
@@ -382,14 +397,15 @@ mod tests {
 
     #[test]
     fn synthesize_text_only() {
-        let events = synthesize_events(resp(
-            vec![ContentBlock::text("hello")],
-            StopReason::EndTurn,
-        ));
+        let events =
+            synthesize_events(resp(vec![ContentBlock::text("hello")], StopReason::EndTurn));
         assert!(matches!(events[0], StreamEvent::MessageStart { .. }));
         assert!(matches!(
             &events[1],
-            StreamEvent::ContentBlockStart { index: 0, block: ContentBlockStart::Text }
+            StreamEvent::ContentBlockStart {
+                index: 0,
+                block: ContentBlockStart::Text
+            }
         ));
         assert!(matches!(
             &events[2],
@@ -401,7 +417,10 @@ mod tests {
         ));
         assert!(matches!(
             events[4],
-            StreamEvent::MessageDelta { stop_reason: Some(StopReason::EndTurn), .. }
+            StreamEvent::MessageDelta {
+                stop_reason: Some(StopReason::EndTurn),
+                ..
+            }
         ));
         assert!(matches!(events[5], StreamEvent::MessageStop));
     }
@@ -409,10 +428,7 @@ mod tests {
     #[test]
     fn accumulator_text_only_round_trip() {
         let mut acc = StreamAccumulator::new();
-        let resp_in = resp(
-            vec![ContentBlock::text("Hello world")],
-            StopReason::EndTurn,
-        );
+        let resp_in = resp(vec![ContentBlock::text("Hello world")], StopReason::EndTurn);
         let id = resp_in.id.clone();
         let synthesized = synthesize_events(resp_in);
         for ev in synthesized {

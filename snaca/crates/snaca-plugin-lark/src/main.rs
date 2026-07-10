@@ -58,7 +58,7 @@ use snaca_channel_protocol::{
     manifest::{ChannelCapabilities, PluginInfo, PluginManifest},
     methods::{
         host_to_plugin, plugin_to_host, Attachment, FileUploadParams, FileUploadResult,
-        InitializeParams, MessageReceivedParams, MessageRecalledParams, MessageSendParams,
+        InitializeParams, MessageRecalledParams, MessageReceivedParams, MessageSendParams,
         MessageSendResult,
     },
     PROTOCOL_VERSION,
@@ -111,8 +111,7 @@ async fn main() -> Result<()> {
 }
 
 fn init_tracing() {
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     // ANSI off: stderr is captured by `snaca-channel-host`'s `stderr_task`
     // and re-logged through the host's own tracing layer. Leaving colour
     // escapes in the line means the host receives raw 0x1B bytes and
@@ -193,12 +192,12 @@ struct LarkConfig {
 
 impl LarkConfig {
     fn from_env() -> Result<Self> {
-        let app_id = std::env::var("LARK_APP_ID")
-            .context("LARK_APP_ID must be set in plugins.env")?;
+        let app_id =
+            std::env::var("LARK_APP_ID").context("LARK_APP_ID must be set in plugins.env")?;
         let app_secret = std::env::var("LARK_APP_SECRET")
             .context("LARK_APP_SECRET must be set in plugins.env")?;
-        let base_url = std::env::var("LARK_BASE_URL")
-            .unwrap_or_else(|_| "https://open.feishu.cn".to_string());
+        let base_url =
+            std::env::var("LARK_BASE_URL").unwrap_or_else(|_| "https://open.feishu.cn".to_string());
         let tenant_id = std::env::var("LARK_TENANT_ID").unwrap_or_default();
         let plugin_token = std::env::var("SNACA_PLUGIN_TOKEN").unwrap_or_default();
         Ok(Self {
@@ -386,6 +385,8 @@ async fn handle_request(cfg: Arc<LarkConfig>, req: JsonRpcRequest) -> JsonRpcRes
         host_to_plugin::MESSAGE_SEND => handle_message_send(cfg, id, req).await,
         host_to_plugin::MESSAGE_UPDATE => handle_message_update(cfg, id, req).await,
         host_to_plugin::APPROVAL_PRESENT => handle_approval_present(cfg, id, req).await,
+        host_to_plugin::QUESTION_PRESENT => handle_question_present(cfg, id, req).await,
+        host_to_plugin::QUESTION_CANCEL => handle_question_cancel(cfg, id, req).await,
         host_to_plugin::FILE_DOWNLOAD => handle_file_download(cfg, id, req).await,
         host_to_plugin::FILE_UPLOAD => handle_file_upload(cfg, id, req).await,
         other => {
@@ -517,6 +518,28 @@ fn lark_send_query<'a>(
     q
 }
 
+/// Drain a Lark Open API response into its JSON body, after verifying
+/// both the HTTP status and the response envelope's `code` field — Lark
+/// returns HTTP 200 with a non-zero `code` for many logical failures
+/// (auth, permission, message-too-old, etc.) so a status-only check
+/// silently swallows them. `label` is used as the error context so the
+/// log/return chain still names the originating call site.
+async fn validate_lark_response(resp: reqwest::Response, label: &str) -> Result<Value> {
+    let status = resp.status();
+    let json: Value = resp
+        .json()
+        .await
+        .with_context(|| format!("read {label} response"))?;
+    if !status.is_success() {
+        anyhow::bail!("{label} failed: HTTP {status} body={json}");
+    }
+    let code = json.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+    if code != 0 {
+        anyhow::bail!("{label} returned code {code}: {json}");
+    }
+    Ok(json)
+}
+
 async fn send_text(
     cfg: &LarkConfig,
     receive_id: &str,
@@ -547,15 +570,7 @@ async fn send_text(
         .send()
         .await
         .context("POST /im/v1/messages")?;
-    let status = resp.status();
-    let json: Value = resp.json().await.context("read send response")?;
-    if !status.is_success() {
-        anyhow::bail!("lark send failed: HTTP {status} body={json}");
-    }
-    let code = json.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
-    if code != 0 {
-        anyhow::bail!("lark send returned code {code}: {json}");
-    }
+    let json = validate_lark_response(resp, "lark send").await?;
     let message_id = json
         .pointer("/data/message_id")
         .and_then(|v| v.as_str())
@@ -629,9 +644,7 @@ fn markdown_for_lark(input: &str, mode: MarkdownMode) -> String {
         //      grid (or v1 flattens it to bullets).
         if looks_like_table_row(body_no_eol)
             && i + 1 < lines.len()
-            && looks_like_table_row(
-                lines[i + 1].trim_end_matches('\n').trim_end_matches('\r'),
-            )
+            && looks_like_table_row(lines[i + 1].trim_end_matches('\n').trim_end_matches('\r'))
         {
             let mut end = i + 1;
             while end < lines.len() {
@@ -645,9 +658,7 @@ fn markdown_for_lark(input: &str, mode: MarkdownMode) -> String {
             // separator row without fighting the borrow checker.
             let mut block: Vec<String> = lines[i..end]
                 .iter()
-                .map(|s| {
-                    s.trim_end_matches('\n').trim_end_matches('\r').to_string()
-                })
+                .map(|s| s.trim_end_matches('\n').trim_end_matches('\r').to_string())
                 .collect();
             let has_sep = block.iter().any(|l| is_table_separator(l));
             if !has_sep {
@@ -711,8 +722,7 @@ fn markdown_for_lark(input: &str, mode: MarkdownMode) -> String {
         let stripped = body_no_eol.trim_start();
         let leading_ws_len = body_no_eol.len() - stripped.len();
         let hashes = stripped.chars().take_while(|c| *c == '#').count();
-        let is_header =
-            (1..=6).contains(&hashes) && stripped.as_bytes().get(hashes) == Some(&b' ');
+        let is_header = (1..=6).contains(&hashes) && stripped.as_bytes().get(hashes) == Some(&b' ');
         if !is_header {
             out.push_str(line);
             i += 1;
@@ -958,15 +968,7 @@ async fn send_card(
         .send()
         .await
         .context("POST /im/v1/messages (card)")?;
-    let status = resp.status();
-    let json: Value = resp.json().await.context("read card send response")?;
-    if !status.is_success() {
-        anyhow::bail!("lark card send failed: HTTP {status} body={json}");
-    }
-    let code = json.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
-    if code != 0 {
-        anyhow::bail!("lark card send returned code {code}: {json}");
-    }
+    let json = validate_lark_response(resp, "lark card send").await?;
     let message_id = json
         .pointer("/data/message_id")
         .and_then(|v| v.as_str())
@@ -1001,15 +1003,7 @@ async fn create_cardkit_card(cfg: &LarkConfig, card: &Value) -> Result<String> {
         .send()
         .await
         .context("POST /cardkit/v1/cards")?;
-    let status = resp.status();
-    let json: Value = resp.json().await.context("read cardkit create response")?;
-    if !status.is_success() {
-        anyhow::bail!("cardkit create failed: HTTP {status} body={json}");
-    }
-    let code = json.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
-    if code != 0 {
-        anyhow::bail!("cardkit create returned code {code}: {json}");
-    }
+    let json = validate_lark_response(resp, "cardkit create").await?;
     let card_id = json
         .pointer("/data/card_id")
         .and_then(|v| v.as_str())
@@ -1055,15 +1049,7 @@ async fn send_im_with_card_id(
         .send()
         .await
         .context("POST /im/v1/messages (cardkit)")?;
-    let status = resp.status();
-    let json: Value = resp.json().await.context("read cardkit send response")?;
-    if !status.is_success() {
-        anyhow::bail!("lark cardkit-im send failed: HTTP {status} body={json}");
-    }
-    let code = json.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
-    if code != 0 {
-        anyhow::bail!("lark cardkit-im send returned code {code}: {json}");
-    }
+    let json = validate_lark_response(resp, "lark cardkit-im send").await?;
     let message_id = json
         .pointer("/data/message_id")
         .and_then(|v| v.as_str())
@@ -1120,15 +1106,7 @@ async fn patch_card_value(cfg: &LarkConfig, message_id: &str, card: &Value) -> R
         .send()
         .await
         .context("PATCH /im/v1/messages/{id}")?;
-    let status = resp.status();
-    let json: Value = resp.json().await.context("read patch response")?;
-    if !status.is_success() {
-        anyhow::bail!("lark patch failed: HTTP {status} body={json}");
-    }
-    let code = json.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
-    if code != 0 {
-        anyhow::bail!("lark patch returned code {code}: {json}");
-    }
+    validate_lark_response(resp, "lark patch").await?;
     Ok(())
 }
 
@@ -1159,6 +1137,13 @@ async fn handle_card_action(
             return Ok(());
         }
     };
+    // Question cards carry `snaca_question_token` instead of
+    // `snaca_callback_token`; route those out to the question handler
+    // before falling through to the approval path so the two flows
+    // stay disjoint.
+    if value.get("snaca_question_token").is_some() {
+        return handle_question_card_action(cfg, tx, envelope, value).await;
+    }
     let token = match value.get("snaca_callback_token").and_then(|v| v.as_str()) {
         Some(t) => t.to_string(),
         None => {
@@ -1407,6 +1392,611 @@ fn build_approval_card(request_text: &str, callback_token: &str) -> Value {
     })
 }
 
+// ============================ AskUserQuestion ============================
+//
+// Mirror of the approval flow above, specialised for structured
+// multiple-choice prompts.
+//
+// Two card flavours, picked automatically based on the question shape:
+//
+// - **Simple flavour** (`needs_form() == false`): single-question,
+//   single-select, no Other affordance. One row of buttons — one click
+//   submits the answer. Best UX for the common case.
+//
+// - **Form flavour** (`needs_form() == true`): any multi-question,
+//   multi-select, or `allow_other` request. Renders inside a `form`
+//   wrapper with `select_static` / `multi_select_static` pickers + an
+//   `input` field for Other text + a single submit button at the
+//   bottom. All answers arrive in one `form_value` payload.
+//
+// State / token / patch lifecycle mirrors APPROVAL_CARDS exactly so
+// operators only need to learn one mental model.
+
+const QUESTION_FORM_NAME: &str = "snaca_question_form";
+const PREVIEW_MAX_CHARS: usize = 2000;
+
+/// Pending question cards keyed by `callback_token`. Same lifetime
+/// rules as `APPROVAL_CARDS`: populated on `question.present`, drained
+/// on the user's click (or evicted lazily when a stale click finds
+/// nothing).
+#[derive(Clone)]
+struct QuestionCardState {
+    message_id: String,
+    /// Full set of questions exactly as the host sent them. Used to
+    /// rebuild the finalized card (show which option the user picked).
+    questions: Vec<snaca_channel_protocol::methods::Question>,
+}
+
+static QUESTION_CARDS: OnceLock<StdMutex<HashMap<String, QuestionCardState>>> = OnceLock::new();
+
+fn question_card_registry() -> &'static StdMutex<HashMap<String, QuestionCardState>> {
+    QUESTION_CARDS.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+async fn handle_question_present(
+    cfg: Arc<LarkConfig>,
+    id: RequestId,
+    req: JsonRpcRequest,
+) -> JsonRpcResponse {
+    use snaca_channel_protocol::methods::QuestionPresentParams;
+    let params: QuestionPresentParams =
+        match req.params.and_then(|v| serde_json::from_value(v).ok()) {
+            Some(p) => p,
+            None => {
+                return JsonRpcResponse::err(
+                    id,
+                    JsonRpcError::new(
+                        ErrorCode::InvalidParams.as_i32(),
+                        "invalid question.present params",
+                    ),
+                );
+            }
+        };
+    if params.questions.is_empty() {
+        return JsonRpcResponse::err(
+            id,
+            JsonRpcError::new(
+                ErrorCode::InvalidParams.as_i32(),
+                "question.present requires at least one question",
+            ),
+        );
+    }
+    if params.questions.len() > 4 {
+        return JsonRpcResponse::err(
+            id,
+            JsonRpcError::new(
+                ErrorCode::InvalidParams.as_i32(),
+                "question.present accepts at most 4 questions per call",
+            ),
+        );
+    }
+    let receive_id = params.chat_id.clone();
+    let receive_id_type = if receive_id.starts_with("ou_") {
+        "open_id"
+    } else {
+        "chat_id"
+    };
+    let card = build_question_card(&params.questions, &params.callback_token);
+    match post_card_message(&cfg, &receive_id, receive_id_type, &card).await {
+        Ok(message_id) => {
+            question_card_registry()
+                .lock()
+                .expect("question card registry mutex poisoned")
+                .insert(
+                    params.callback_token.clone(),
+                    QuestionCardState {
+                        message_id: message_id.clone(),
+                        questions: params.questions.clone(),
+                    },
+                );
+            JsonRpcResponse::ok(id, json!({"message_id": message_id}))
+        }
+        Err(e) => {
+            warn!(error = %e, "question.present send failed");
+            JsonRpcResponse::err(
+                id,
+                JsonRpcError::new(
+                    ErrorCode::PlatformError.as_i32(),
+                    format!("question card send failed: {e}"),
+                ),
+            )
+        }
+    }
+}
+
+/// True if the question set needs the form-flavour card. Single-q +
+/// single-select + no Other is the "click one button = done" path;
+/// anything else needs `form` + submit so we can collect all values
+/// in one round trip.
+fn needs_form(questions: &[snaca_channel_protocol::methods::Question]) -> bool {
+    if questions.len() != 1 {
+        return true;
+    }
+    let q = &questions[0];
+    q.multi_select || q.allow_other
+}
+
+/// Click handler for a question card. Two arrival modes:
+///
+/// 1. **Simple-flavour single click** (`snaca_option_id` is present on
+///    `value`). The card's option button was clicked directly; we
+///    treat it as a one-question one-answer submission.
+///
+/// 2. **Form-flavour submit** (`snaca_action == "submit_form"` and
+///    `event.action.form_value` is populated). Pull every `q_<i>` and
+///    `q_<i>__other` from the form payload and assemble one answer
+///    per question.
+async fn handle_question_card_action(
+    cfg: &LarkConfig,
+    tx: &mpsc::UnboundedSender<JsonRpcMessage>,
+    envelope: &Value,
+    value: &Value,
+) -> Result<()> {
+    use snaca_channel_protocol::methods::{QuestionAnswer, QuestionCallbackParams};
+    let token = match value.get("snaca_question_token").and_then(|v| v.as_str()) {
+        Some(t) => t.to_string(),
+        None => {
+            debug!("question card action missing snaca_question_token; ignoring");
+            return Ok(());
+        }
+    };
+    let user_id = envelope
+        .pointer("/event/operator/open_id")
+        .or_else(|| envelope.pointer("/event/operator/user_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let decided_at = Utc::now();
+
+    // Resolve answers depending on flavour.
+    let card_state = question_card_registry()
+        .lock()
+        .expect("question card registry mutex poisoned")
+        .get(&token)
+        .cloned();
+    let answers: Vec<QuestionAnswer> = if value.get("snaca_action").and_then(|v| v.as_str())
+        == Some("submit_form")
+    {
+        let form_value = envelope.pointer("/event/action/form_value");
+        let Some(state) = card_state.as_ref() else {
+            debug!(token = %token, "form submit landed without registry state; nothing to resolve");
+            return Ok(());
+        };
+        parse_form_answers(state, form_value)
+    } else {
+        let qid = value
+            .get("snaca_qid")
+            .and_then(|v| v.as_str())
+            .unwrap_or("q_0")
+            .to_string();
+        let option_id = value
+            .get("snaca_option_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        vec![QuestionAnswer {
+            question_id: qid,
+            selected_option_ids: if option_id.is_empty() {
+                vec![]
+            } else {
+                vec![option_id]
+            },
+            other_text: None,
+            notes: None,
+        }]
+    };
+
+    let cb = QuestionCallbackParams {
+        auth: cfg.plugin_token.clone(),
+        callback_token: token.clone(),
+        answers: answers.clone(),
+        user_id: user_id.clone(),
+        decided_at: decided_at.to_rfc3339(),
+    };
+    let notif = JsonRpcNotification::new(
+        plugin_to_host::EVENT_QUESTION_CALLBACK,
+        Some(serde_json::to_value(cb).expect("question callback serialises")),
+    );
+    if tx.send(JsonRpcMessage::Notification(notif)).is_err() {
+        warn!("stdout writer closed; dropping question callback");
+    }
+
+    // Drain the registry slot and PATCH the card to its "已收到" state
+    // so the user can't submit again. Scope the lock guard tightly so
+    // it's dropped before any `.await` (MutexGuard is `!Send`).
+    let drained = question_card_registry()
+        .lock()
+        .expect("question card registry mutex poisoned")
+        .remove(&token);
+    if let Some(state) = drained {
+        let finalized = build_finalized_question_card(
+            &state.questions,
+            &answers,
+            &user_id,
+            &decided_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+        );
+        if let Err(e) = patch_card_value(cfg, &state.message_id, &finalized).await {
+            warn!(
+                error = %e,
+                message_id = %state.message_id,
+                "question card finalize patch failed; leaving inputs in place"
+            );
+        }
+    } else {
+        debug!(
+            token = %token,
+            "no question card registry entry; skipping finalize patch"
+        );
+    }
+    Ok(())
+}
+
+/// Pull every `q_<i>` + `q_<i>__other` pair out of `form_value` and
+/// emit one [`QuestionAnswer`] per question in `state.questions`. A
+/// missing key (user left the picker untouched) yields an empty
+/// `selected_option_ids`; a present Other text overrides the
+/// `selected_option_ids` to empty and surfaces as `other_text`.
+fn parse_form_answers(
+    state: &QuestionCardState,
+    form_value: Option<&Value>,
+) -> Vec<snaca_channel_protocol::methods::QuestionAnswer> {
+    use snaca_channel_protocol::methods::QuestionAnswer;
+    state
+        .questions
+        .iter()
+        .map(|q| {
+            let key = &q.id; // we use the qid verbatim as the form field name
+            let other_key = format!("{}__other", key);
+            let raw = form_value.and_then(|fv| fv.get(key));
+            let selected_option_ids: Vec<String> = match raw {
+                Some(Value::String(s)) if !s.is_empty() => vec![s.clone()],
+                Some(Value::Array(arr)) => arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+                _ => vec![],
+            };
+            let other_text = form_value
+                .and_then(|fv| fv.get(&other_key))
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            QuestionAnswer {
+                question_id: q.id.clone(),
+                // If the user typed Other text, treat it as authoritative
+                // and clear the picker selection. Otherwise keep what
+                // they picked.
+                selected_option_ids: if other_text.is_some() {
+                    vec![]
+                } else {
+                    selected_option_ids
+                },
+                other_text,
+                notes: None,
+            }
+        })
+        .collect()
+}
+
+/// Build the interactive question card. Picks simple-flavour
+/// (buttons) or form-flavour (pickers + submit) automatically.
+fn build_question_card(
+    questions: &[snaca_channel_protocol::methods::Question],
+    callback_token: &str,
+) -> Value {
+    if needs_form(questions) {
+        build_question_card_form(questions, callback_token)
+    } else {
+        build_question_card_simple(&questions[0], callback_token)
+    }
+}
+
+/// Simple-flavour: one row of buttons, one click = answer. Matches
+/// the P1 behaviour exactly; preserved because it's the best UX for
+/// the common "pick one" case.
+fn build_question_card_simple(
+    question: &snaca_channel_protocol::methods::Question,
+    callback_token: &str,
+) -> Value {
+    let prompt = render_question_prompt(question);
+    let buttons: Vec<Value> = question
+        .options
+        .iter()
+        .map(|opt| {
+            json!({
+                "tag": "button",
+                "text": {"tag": "plain_text", "content": opt.label},
+                "type": "primary",
+                "value": {
+                    "snaca_question_token": callback_token,
+                    "snaca_qid": question.id,
+                    "snaca_option_id": opt.id,
+                }
+            })
+        })
+        .collect();
+
+    let mut elements = vec![json!({"tag": "div", "text": {"tag": "lark_md", "content": prompt}})];
+    elements.extend(render_option_details(&question.options));
+    elements.push(json!({"tag": "action", "actions": buttons}));
+
+    json!({
+        "config": {"wide_screen_mode": true},
+        "header": {
+            "title": {"tag": "plain_text", "content": "❓ 请选择"},
+            "template": "blue"
+        },
+        "elements": elements,
+    })
+}
+
+/// Form-flavour: every question becomes a `select_static` or
+/// `multi_select_static` picker (named after the qid), optionally
+/// followed by an `input` for Other text. Sections separated by `hr`.
+/// One submit button at the bottom delivers everything in a single
+/// `form_value`.
+fn build_question_card_form(
+    questions: &[snaca_channel_protocol::methods::Question],
+    callback_token: &str,
+) -> Value {
+    let mut form_elements: Vec<Value> = Vec::new();
+    for (i, q) in questions.iter().enumerate() {
+        if i > 0 {
+            form_elements.push(json!({"tag": "hr"}));
+        }
+        form_elements.push(json!({
+            "tag": "div",
+            "text": {"tag": "lark_md", "content": render_question_prompt(q)}
+        }));
+        form_elements.extend(render_option_details(&q.options));
+        let opts: Vec<Value> = q
+            .options
+            .iter()
+            .map(|o| {
+                json!({
+                    "text": {"tag": "plain_text", "content": o.label},
+                    "value": o.id,
+                })
+            })
+            .collect();
+        let picker_tag = if q.multi_select {
+            "multi_select_static"
+        } else {
+            "select_static"
+        };
+        let placeholder = if q.multi_select {
+            "可多选"
+        } else {
+            "请选择"
+        };
+        form_elements.push(json!({
+            "tag": picker_tag,
+            "name": q.id,
+            "placeholder": {"tag": "plain_text", "content": placeholder},
+            "options": opts,
+        }));
+        if q.allow_other {
+            form_elements.push(json!({
+                "tag": "input",
+                "name": format!("{}__other", q.id),
+                "placeholder": {"tag": "plain_text", "content": "其他(选 \"其他\" 时填写)"},
+            }));
+        }
+    }
+    form_elements.push(json!({
+        "tag": "action",
+        "actions": [{
+            "tag": "button",
+            "text": {"tag": "plain_text", "content": "✅ 提交"},
+            "type": "primary",
+            "form_action_type": "submit",
+            "value": {
+                "snaca_question_token": callback_token,
+                "snaca_action": "submit_form",
+            }
+        }]
+    }));
+
+    json!({
+        "config": {"wide_screen_mode": true},
+        "header": {
+            "title": {"tag": "plain_text", "content": "❓ 请回答" },
+            "template": "blue"
+        },
+        "elements": [{
+            "tag": "form",
+            "name": QUESTION_FORM_NAME,
+            "elements": form_elements,
+        }],
+    })
+}
+
+/// Render the question prompt (with optional header chip) as a single
+/// markdown string. Shared by both card flavours and the finalized
+/// card so the layout stays consistent.
+fn render_question_prompt(question: &snaca_channel_protocol::methods::Question) -> String {
+    let chip = question
+        .header
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|h| format!("`{h}` · "))
+        .unwrap_or_default();
+    format!("{chip}**{}**", question.question)
+}
+
+/// Render per-option descriptions / preview as `note` elements. Each
+/// non-empty description becomes one line under the option name;
+/// preview content gets its own note block per option so code/markdown
+/// formatting survives. Returns an empty vec when no extras exist —
+/// don't pad the card.
+fn render_option_details(
+    options: &[snaca_channel_protocol::methods::QuestionOption],
+) -> Vec<Value> {
+    let descriptions: Vec<String> = options
+        .iter()
+        .filter_map(|o| {
+            o.description
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .map(|d| format!("**{}** — {d}", o.label))
+        })
+        .collect();
+    let mut out: Vec<Value> = Vec::new();
+    if !descriptions.is_empty() {
+        out.push(json!({
+            "tag": "note",
+            "elements": [{"tag": "lark_md", "content": descriptions.join("\n")}]
+        }));
+    }
+    for o in options {
+        if let Some(preview) = o.preview.as_deref().filter(|s| !s.is_empty()) {
+            let truncated = if preview.chars().count() > PREVIEW_MAX_CHARS {
+                let head: String = preview.chars().take(PREVIEW_MAX_CHARS).collect();
+                format!("{head}…\n_(preview truncated)_")
+            } else {
+                preview.to_string()
+            };
+            out.push(json!({
+                "tag": "note",
+                "elements": [{"tag": "lark_md", "content": format!("**{}**\n{truncated}", o.label)}]
+            }));
+        }
+    }
+    out
+}
+
+/// "User has answered" version of the question card. Renders one
+/// `✅ Q…: 已选「…」` line per question + actor mention + timestamp.
+/// PATCHes the live card so it stops being interactive.
+fn build_finalized_question_card(
+    questions: &[snaca_channel_protocol::methods::Question],
+    answers: &[snaca_channel_protocol::methods::QuestionAnswer],
+    user_id: &str,
+    timestamp: &str,
+) -> Value {
+    let actor = if user_id.is_empty() {
+        String::new()
+    } else {
+        format!(" by <at id=\"{user_id}\"></at>")
+    };
+    let mut lines: Vec<String> = Vec::new();
+    for q in questions {
+        let answer = answers.iter().find(|a| a.question_id == q.id);
+        let summary = match answer {
+            Some(a) => {
+                let labels: Vec<String> = a
+                    .selected_option_ids
+                    .iter()
+                    .filter_map(|sid| {
+                        q.options
+                            .iter()
+                            .find(|o| &o.id == sid)
+                            .map(|o| o.label.clone())
+                    })
+                    .collect();
+                match (labels.is_empty(), a.other_text.as_deref()) {
+                    (true, Some(txt)) => format!("「其他: {txt}」"),
+                    (false, Some(txt)) => format!("「{}」+ 其他: {txt}", labels.join(", ")),
+                    (false, None) => format!("「{}」", labels.join(", ")),
+                    (true, None) => "(未选择)".to_string(),
+                }
+            }
+            None => "(未回答)".to_string(),
+        };
+        lines.push(format!("✅ **{}** — {summary}", q.question));
+    }
+    let summary = format!("{}\n\n{actor} · {timestamp}", lines.join("\n"));
+    json!({
+        "config": {"wide_screen_mode": true},
+        "header": {
+            "title": {"tag": "plain_text", "content": "❓ 已回答"},
+            "template": "green"
+        },
+        "elements": [
+            {"tag": "div", "text": {"tag": "lark_md", "content": summary}},
+        ]
+    })
+}
+
+/// Idempotent cancel: drain the registry entry (if any) and PATCH the
+/// card to a "⏰ 已超时" / "❌ 已取消" finalized state so the user sees
+/// the question is no longer answerable. Always responds OK — the host
+/// fires this fire-and-forget on timeout, so failure here is a UI
+/// blemish, not a correctness issue.
+async fn handle_question_cancel(
+    cfg: Arc<LarkConfig>,
+    id: RequestId,
+    req: JsonRpcRequest,
+) -> JsonRpcResponse {
+    use snaca_channel_protocol::methods::QuestionCancelParams;
+    let params: QuestionCancelParams = match req.params.and_then(|v| serde_json::from_value(v).ok())
+    {
+        Some(p) => p,
+        None => {
+            return JsonRpcResponse::err(
+                id,
+                JsonRpcError::new(
+                    ErrorCode::InvalidParams.as_i32(),
+                    "invalid question.cancel params",
+                ),
+            );
+        }
+    };
+    let state = question_card_registry()
+        .lock()
+        .expect("question card registry mutex poisoned")
+        .remove(&params.callback_token);
+    if let Some(state) = state {
+        let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let card = build_cancelled_question_card(&state.questions, &params.reason, &timestamp);
+        if let Err(e) = patch_card_value(&cfg, &state.message_id, &card).await {
+            warn!(
+                error = %e,
+                message_id = %state.message_id,
+                token = %params.callback_token,
+                "question card cancel patch failed; leaving card as-is"
+            );
+        }
+    } else {
+        debug!(
+            token = %params.callback_token,
+            "question.cancel for unknown token (already resolved or never registered); no-op"
+        );
+    }
+    JsonRpcResponse::ok(id, json!({}))
+}
+
+/// "Question no longer answerable" version of the card. Used by
+/// [`handle_question_cancel`] to replace interactive elements with a
+/// note so the user understands further clicks won't do anything.
+fn build_cancelled_question_card(
+    questions: &[snaca_channel_protocol::methods::Question],
+    reason: &str,
+    timestamp: &str,
+) -> Value {
+    let prompts: Vec<String> = questions
+        .iter()
+        .map(|q| format!("**{}**", q.question))
+        .collect();
+    let reason_label = match reason {
+        "timeout" => "⏰ 已超时",
+        "cancelled" | "" => "❌ 已取消",
+        other => other,
+    };
+    let summary = format!("{}\n\n{} · {timestamp}", prompts.join("\n"), reason_label);
+    json!({
+        "config": {"wide_screen_mode": true},
+        "header": {
+            "title": {"tag": "plain_text", "content": "❓ 已结束"},
+            "template": "grey"
+        },
+        "elements": [
+            {"tag": "div", "text": {"tag": "lark_md", "content": summary}},
+        ]
+    })
+}
+
 /// Handle a `im.message.reaction.{created,deleted}_v1` event.
 ///
 /// Reactions are visible at the chat layer but Lark's reaction event payload
@@ -1495,8 +2085,7 @@ async fn handle_reaction_event(
         if self_id == user_id {
             debug!(
                 emoji,
-                message_id,
-                "skipping bot's own reaction (self-id match)"
+                message_id, "skipping bot's own reaction (self-id match)"
             );
             return Ok(());
         }
@@ -1524,12 +2113,19 @@ async fn handle_reaction_event(
     // don't surface partial data to the engine.
     if chat_id.is_empty() {
         if message_id.is_empty() {
-            warn!(event_type, "reaction has no chat_id and no message_id; cannot route");
+            warn!(
+                event_type,
+                "reaction has no chat_id and no message_id; cannot route"
+            );
             return Ok(());
         }
         match fetch_message_chat_id(cfg, message_id).await {
             Ok(c) => {
-                debug!(message_id, chat_id = c.as_str(), "resolved chat_id via lookup");
+                debug!(
+                    message_id,
+                    chat_id = c.as_str(),
+                    "resolved chat_id via lookup"
+                );
                 chat_id = c;
             }
             Err(e) => {
@@ -1706,15 +2302,7 @@ async fn post_card_message(
         .send()
         .await
         .context("POST /im/v1/messages (approval card)")?;
-    let status = resp.status();
-    let json: Value = resp.json().await.context("read approval card response")?;
-    if !status.is_success() {
-        anyhow::bail!("approval card send failed: HTTP {status} body={json}");
-    }
-    let code = json.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
-    if code != 0 {
-        anyhow::bail!("approval card send returned code {code}: {json}");
-    }
+    let json = validate_lark_response(resp, "approval card send").await?;
     Ok(json
         .pointer("/data/message_id")
         .and_then(|v| v.as_str())
@@ -1726,7 +2314,8 @@ async fn post_card_message(
 /// is opaque from its point of view, but we encode enough information
 /// in it to make `file.download` stateless:
 /// - `file:<message_id>:<file_key>:<filename>` — generic file/audio/video
-/// - `image:<image_key>:<filename>` — image (different endpoint)
+/// - `image:<message_id>:<image_key>:<filename>` — inbound image resource
+/// - `image:<image_key>:<filename>` — legacy image id fallback
 async fn handle_file_download(
     cfg: Arc<LarkConfig>,
     id: RequestId,
@@ -1923,18 +2512,7 @@ async fn upload_and_send_file(
         .send()
         .await
         .context("POST /im/v1/files")?;
-    let status = upload_resp.status();
-    let upload_json: Value = upload_resp.json().await.context("read /im/v1/files response")?;
-    if !status.is_success() {
-        anyhow::bail!("lark file upload failed: HTTP {status} body={upload_json}");
-    }
-    let code = upload_json
-        .get("code")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(-1);
-    if code != 0 {
-        anyhow::bail!("lark file upload returned code {code}: {upload_json}");
-    }
+    let upload_json = validate_lark_response(upload_resp, "lark file upload").await?;
     let file_key = upload_json
         .pointer("/data/file_key")
         .and_then(|v| v.as_str())
@@ -1958,18 +2536,7 @@ async fn upload_and_send_file(
         .send()
         .await
         .context("POST /im/v1/messages (file)")?;
-    let send_status = send_resp.status();
-    let send_json: Value = send_resp
-        .json()
-        .await
-        .context("read /im/v1/messages (file) response")?;
-    if !send_status.is_success() {
-        anyhow::bail!("lark file message send failed: HTTP {send_status} body={send_json}");
-    }
-    let send_code = send_json.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
-    if send_code != 0 {
-        anyhow::bail!("lark file message send returned code {send_code}: {send_json}");
-    }
+    let send_json = validate_lark_response(send_resp, "lark file message send").await?;
     Ok(send_json
         .pointer("/data/message_id")
         .and_then(|v| v.as_str())
@@ -1984,9 +2551,10 @@ async fn upload_and_send_file(
 struct AttachmentRef {
     /// `Image` uses a different endpoint than `File`/`Audio`/etc.
     kind: AttachmentKind,
-    /// `Some(_)` for file/audio/video (Lark needs the originating
-    /// message_id alongside the file_key to authorise the fetch);
-    /// `None` for images (image_key is enough).
+    /// `Some(_)` for message resources (file/audio/video/image). Lark needs
+    /// the originating message_id alongside the resource key to authorise the
+    /// fetch. Older image ids did not include this, so `None` remains a legacy
+    /// fallback for images.
     message_id: Option<String>,
     /// Lark-side opaque key — `file_key` or `image_key` depending on kind.
     key: String,
@@ -2009,7 +2577,8 @@ fn build_file_id(message_id: &str, file_key: &str, filename: &str) -> String {
 /// Coerce a JSON number-or-string-shaped field to f64. Lark sometimes
 /// reports lat/long/size as bare numbers and sometimes as strings.
 fn num_or_str_f64(v: &Value) -> Option<f64> {
-    v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    v.as_f64()
+        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
 }
 
 // ---------------------------------------------------------------------
@@ -2238,8 +2807,8 @@ fn flatten_post_to_text(content_obj: &Value) -> String {
     out.trim().to_string()
 }
 
-fn build_image_id(image_key: &str, filename: &str) -> String {
-    format!("image:{}:{}", image_key, filename)
+fn build_image_id(message_id: &str, image_key: &str, filename: &str) -> String {
+    format!("image:{}:{}:{}", message_id, image_key, filename)
 }
 
 fn parse_attachment_id(s: &str) -> Option<AttachmentRef> {
@@ -2262,9 +2831,23 @@ fn parse_attachment_id(s: &str) -> Option<AttachmentRef> {
             },
         })
     } else if let Some(rest) = s.strip_prefix("image:") {
-        let mut parts = rest.splitn(2, ':');
-        let key = parts.next()?.to_string();
-        let name = parts.next()?.to_string();
+        let fields: Vec<&str> = rest.splitn(3, ':').collect();
+        let (message_id, key, name) = match fields.as_slice() {
+            // Current format: image:<message_id>:<image_key>:<filename>
+            [mid, key, name] => {
+                if mid.is_empty() {
+                    return None;
+                }
+                (
+                    Some((*mid).to_string()),
+                    (*key).to_string(),
+                    (*name).to_string(),
+                )
+            }
+            // Legacy format: image:<image_key>:<filename>
+            [key, name] => (None, (*key).to_string(), (*name).to_string()),
+            _ => return None,
+        };
         if key.is_empty() {
             return None;
         }
@@ -2275,7 +2858,7 @@ fn parse_attachment_id(s: &str) -> Option<AttachmentRef> {
         };
         Some(AttachmentRef {
             kind: AttachmentKind::Image,
-            message_id: None,
+            message_id,
             key,
             filename,
         })
@@ -2289,22 +2872,7 @@ async fn download_attachment(cfg: &LarkConfig, att: &AttachmentRef) -> Result<Ve
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
         .build()?;
-    let url = match att.kind {
-        AttachmentKind::File => {
-            let mid = att.message_id.as_deref().unwrap_or_default();
-            format!(
-                "{}/open-apis/im/v1/messages/{}/resources/{}?type=file",
-                cfg.base_url.trim_end_matches('/'),
-                mid,
-                att.key
-            )
-        }
-        AttachmentKind::Image => format!(
-            "{}/open-apis/im/v1/images/{}",
-            cfg.base_url.trim_end_matches('/'),
-            att.key
-        ),
-    };
+    let url = attachment_download_url(cfg, att);
     let resp = client
         .get(url)
         .bearer_auth(&token)
@@ -2318,6 +2886,36 @@ async fn download_attachment(cfg: &LarkConfig, att: &AttachmentRef) -> Result<Ve
     }
     let bytes = resp.bytes().await.context("read attachment body")?;
     Ok(bytes.to_vec())
+}
+
+fn attachment_download_url(cfg: &LarkConfig, att: &AttachmentRef) -> String {
+    match att.kind {
+        AttachmentKind::File => {
+            let mid = att.message_id.as_deref().unwrap_or_default();
+            format!(
+                "{}/open-apis/im/v1/messages/{}/resources/{}?type=file",
+                cfg.base_url.trim_end_matches('/'),
+                mid,
+                att.key
+            )
+        }
+        AttachmentKind::Image => {
+            if let Some(mid) = att.message_id.as_deref() {
+                format!(
+                    "{}/open-apis/im/v1/messages/{}/resources/{}?type=image",
+                    cfg.base_url.trim_end_matches('/'),
+                    mid,
+                    att.key
+                )
+            } else {
+                format!(
+                    "{}/open-apis/im/v1/images/{}",
+                    cfg.base_url.trim_end_matches('/'),
+                    att.key
+                )
+            }
+        }
+    }
 }
 
 /// Crude filename → MIME guesser. The import pipeline doesn't trust
@@ -2516,20 +3114,169 @@ async fn fetch_message_chat_id(cfg: &LarkConfig, message_id: &str) -> Result<Str
         .send()
         .await
         .context("GET /im/v1/messages/{id}")?;
-    let status = resp.status();
-    let body: Value = resp.json().await.context("read message response")?;
-    if !status.is_success() {
-        anyhow::bail!("lark fetch message failed: HTTP {status} body={body}");
-    }
-    let code = body.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
-    if code != 0 {
-        anyhow::bail!("lark fetch message returned code {code}: {body}");
-    }
+    let body = validate_lark_response(resp, "lark fetch message").await?;
     let chat_id = body
         .pointer("/data/items/0/chat_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("message response missing data.items[0].chat_id: {body}"))?;
     Ok(chat_id.to_string())
+}
+
+/// Fetch a message by id and render its body to text plus any
+/// downloadable attachments. Used to resolve the *quoted* message when a
+/// user replies to (引用) an earlier message: Lark only delivers the new
+/// reply text plus a `parent_id` pointing at the quoted message — the
+/// quoted body and its files are never inlined, so without this hop the
+/// engine never sees what the user was pointing at.
+///
+/// We reuse the same `GET /im/v1/messages/{id}` endpoint as
+/// `fetch_message_chat_id`. The response carries `msg_type` and a
+/// JSON-encoded `body.content`; we render `text`/`post` to text (typed
+/// marker otherwise) and extract `file`/`image`/`media` resources, keyed
+/// by the quoted message's own id so `file.download` resolves them.
+/// Returns `(text, attachments)` — text may be empty, attachments may be
+/// empty; the caller decides what's worth surfacing.
+async fn fetch_quoted_message(
+    cfg: &LarkConfig,
+    message_id: &str,
+) -> Result<(String, Vec<Attachment>)> {
+    let token = fetch_app_access_token(cfg).await?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()?;
+    let url = format!(
+        "{}/open-apis/im/v1/messages/{}",
+        cfg.base_url.trim_end_matches('/'),
+        message_id
+    );
+    let resp = client
+        .get(url)
+        .bearer_auth(&token)
+        .send()
+        .await
+        .context("GET /im/v1/messages/{id}")?;
+    let body = validate_lark_response(resp, "lark fetch quoted message").await?;
+    let item = body
+        .pointer("/data/items/0")
+        .ok_or_else(|| anyhow::anyhow!("message response missing data.items[0]: {body}"))?;
+    let msg_type = item
+        .pointer("/msg_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let content_raw = item
+        .pointer("/body/content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let content_obj: Value = serde_json::from_str(content_raw).unwrap_or(Value::Null);
+    let text = render_message_content_text(msg_type, &content_obj);
+    let attachments = extract_message_attachments(msg_type, &content_obj, message_id);
+    Ok((text, attachments))
+}
+
+/// Render a Lark message `(msg_type, parsed-content)` pair to plain text.
+/// Shared by the inbound handler's primary parse and by
+/// `fetch_message_text` (quoted-message resolution) so both produce the
+/// same rendering for a given message shape.
+fn render_message_content_text(msg_type: &str, content_obj: &Value) -> String {
+    match msg_type {
+        "text" => content_obj
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        "post" => flatten_post_to_text(content_obj),
+        "image" => "[image]".to_string(),
+        "file" | "audio" | "video" | "media" => {
+            let name = content_obj
+                .get("file_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("file");
+            format!("[{msg_type}: {name}]")
+        }
+        "sticker" => "[sticker]".to_string(),
+        "share_chat" => "[shared chat]".to_string(),
+        "share_user" => "[shared user]".to_string(),
+        "location" => "[location]".to_string(),
+        "interactive" => "[interactive card]".to_string(),
+        other => format!("[{other}]"),
+    }
+}
+
+/// Build the downloadable `Attachment`(s) for a message body. Shared by
+/// the inbound `file`/`image` arms and by quoted-message resolution so a
+/// file or image that the user *replied to* gets imported just like one
+/// they sent directly.
+///
+/// `message_id` is the id of the message that **owns** the resource — the
+/// current message for a direct send, the *parent* for a quote — because
+/// Lark's download endpoint is keyed by that id
+/// (`/im/v1/messages/{id}/resources/{key}`). Returns empty when the body
+/// carries no extractable resource or the required keys are missing; the
+/// caller decides whether that's a drop (direct send) or a no-op (quote).
+fn extract_message_attachments(
+    msg_type: &str,
+    content_obj: &Value,
+    message_id: &str,
+) -> Vec<Attachment> {
+    let mut out = Vec::new();
+    if message_id.is_empty() {
+        return out;
+    }
+    match msg_type {
+        "file" | "audio" | "video" | "media" => {
+            let file_key = content_obj
+                .get("file_key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if file_key.is_empty() {
+                return out;
+            }
+            let filename = content_obj
+                .get("file_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("attachment")
+                .to_string();
+            let size = content_obj
+                .get("file_size")
+                .and_then(|v| {
+                    // Lark sometimes reports size as a string, sometimes as a number.
+                    v.as_u64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                })
+                .unwrap_or(0);
+            out.push(Attachment {
+                id: build_file_id(message_id, file_key, &filename),
+                filename,
+                mime_type: content_obj
+                    .get("file_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("application/octet-stream")
+                    .to_string(),
+                size,
+            });
+        }
+        "image" => {
+            let image_key = content_obj
+                .get("image_key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if image_key.is_empty() {
+                return out;
+            }
+            // Images get a synthetic .png filename. The downloader serves
+            // the raw bytes regardless of actual format.
+            let filename = format!("{image_key}.png");
+            out.push(Attachment {
+                id: build_image_id(message_id, image_key, &filename),
+                filename,
+                mime_type: "image/png".to_string(),
+                size: 0,
+            });
+        }
+        _ => {}
+    }
+    out
 }
 
 // ---------------------------------------------------------------------
@@ -2784,7 +3531,7 @@ async fn handle_lark_payload(
     // resolve later via `file.download`. Every match arm below either
     // assigns `text` or returns early, so we leave it uninitialized
     // here rather than pay for a `String::new()` that's always discarded.
-    let text: String;
+    let mut text: String;
     let mut attachments: Vec<Attachment> = Vec::new();
     let inbound_msg_id = message
         .pointer("/message_id")
@@ -2804,8 +3551,7 @@ async fn handle_lark_payload(
     if is_message_expired_now(create_time_ms) {
         debug!(
             message_id = inbound_msg_id.as_str(),
-            create_time_ms,
-            "skipping expired message (older than 30min)"
+            create_time_ms, "skipping expired message (older than 30min)"
         );
         return Ok(());
     }
@@ -2834,64 +3580,27 @@ async fn handle_lark_payload(
             }
         }
         "file" | "audio" | "video" | "media" => {
-            let file_key = content_obj
-                .get("file_key")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if file_key.is_empty() || inbound_msg_id.is_empty() {
+            let atts = extract_message_attachments(message_type, &content_obj, &inbound_msg_id);
+            if atts.is_empty() {
                 warn!(message_type, "missing file_key or message_id; dropping");
                 return Ok(());
             }
-            let filename = content_obj
-                .get("file_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("attachment")
-                .to_string();
-            let size = content_obj
-                .get("file_size")
-                .and_then(|v| {
-                    // Lark sometimes reports size as a string, sometimes as a number.
-                    v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-                })
-                .unwrap_or(0);
-            attachments.push(Attachment {
-                id: build_file_id(&inbound_msg_id, file_key, &filename),
-                filename,
-                mime_type: content_obj
-                    .get("file_type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("application/octet-stream")
-                    .to_string(),
-                size,
-            });
             // Mention the filename in `content` so the LLM has a hint
             // about what was uploaded even before the import lands.
-            text = format!(
-                "[uploaded file: {}]",
-                attachments[0].filename
-            );
+            text = format!("[uploaded file: {}]", atts[0].filename);
+            attachments.extend(atts);
         }
         "image" => {
-            let image_key = content_obj
-                .get("image_key")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if image_key.is_empty() {
-                warn!("image message missing image_key; dropping");
+            // Images get a synthetic .png filename. The downloader serves
+            // the raw bytes regardless of actual format; the import
+            // pipeline won't run useful extraction over them until we add
+            // proper image support, but the bytes are captured.
+            let atts = extract_message_attachments(message_type, &content_obj, &inbound_msg_id);
+            if atts.is_empty() {
+                warn!("image message missing image_key or message_id; dropping");
                 return Ok(());
             }
-            // Images get a synthetic .png filename. The downloader
-            // serves the raw bytes regardless of actual format; the
-            // import pipeline won't run useful extraction over them
-            // until we add proper image support, but the bytes are
-            // captured.
-            let filename = format!("{image_key}.png");
-            attachments.push(Attachment {
-                id: build_image_id(image_key, &filename),
-                filename,
-                mime_type: "image/png".to_string(),
-                size: 0,
-            });
+            attachments.extend(atts);
             text = "[uploaded image]".to_string();
         }
         "post" => {
@@ -2987,6 +3696,50 @@ async fn handle_lark_payload(
         }
     }
 
+    // Quoted (引用/回复) message resolution. When a user replies to an
+    // earlier message, Lark delivers only the new reply text plus a
+    // `parent_id` (the immediately-quoted message) and, for replies
+    // inside a topic thread, a `root_id` (the thread's first message).
+    // The quoted body is never inlined, so without an extra hop the
+    // engine sees only the bare reply (e.g. "这个") and loses the thing
+    // the user was pointing at. We fetch the parent's text and prepend it
+    // as a clearly-marked quote block. Best-effort: any failure (deleted
+    // message, permission, API error) just logs and forwards the reply
+    // unchanged rather than dropping the event.
+    let parent_id = message
+        .pointer("/parent_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if !parent_id.is_empty() && parent_id != inbound_msg_id {
+        match fetch_quoted_message(cfg, parent_id).await {
+            Ok((quoted, quoted_atts)) => {
+                let quoted = quoted.trim();
+                if !quoted.is_empty() {
+                    debug!(
+                        parent_id,
+                        quoted_len = quoted.len(),
+                        quoted_attachments = quoted_atts.len(),
+                        "resolved quoted message for reply"
+                    );
+                    text = format!("[引用消息]\n{quoted}\n[/引用消息]\n\n{text}");
+                } else if !quoted_atts.is_empty() {
+                    debug!(
+                        parent_id,
+                        quoted_attachments = quoted_atts.len(),
+                        "quoted message has no text but carries attachments"
+                    );
+                }
+                // Pull the quoted message's files/images into this turn so
+                // the import pipeline downloads them just like a direct
+                // upload. The reply's own attachments (if any) come first.
+                attachments.extend(quoted_atts);
+            }
+            Err(e) => {
+                debug!(error = %e, parent_id, "could not resolve quoted message; forwarding reply without it");
+            }
+        }
+    }
+
     // Routing identifiers. For p2p chats the sender's open_id is the
     // natural reply target; for groups, it's the chat_id. We hand the
     // host the chat_id we should send back to so outbound can use it
@@ -3047,7 +3800,15 @@ async fn handle_lark_payload(
         content: text,
         mentions: Vec::new(),
         attachments,
-        reply_to: None,
+        // Carry the quoted message id so the host's assembler keeps a
+        // reply in its own batch rather than merging it with unrelated
+        // concurrent messages. Thread routing is unaffected (it derives
+        // from chat_id + project), so this only sharpens micro-batching.
+        reply_to: if parent_id.is_empty() {
+            None
+        } else {
+            Some(parent_id.to_string())
+        },
         received_at: Utc::now().to_rfc3339(),
     };
     let notif = JsonRpcNotification::new(
@@ -3060,14 +3821,90 @@ async fn handle_lark_payload(
     Ok(())
 }
 
-fn uuid_short() -> String {
-    uuid::Uuid::new_v4().simple().to_string()[..12].to_string()
-}
+use snaca_core::short_uuid as uuid_short;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn test_cfg(base_url: &str) -> LarkConfig {
+        LarkConfig {
+            app_id: "cli_a".to_string(),
+            app_secret: "secret".to_string(),
+            base_url: base_url.to_string(),
+            tenant_id: "tenant".to_string(),
+            plugin_token: "token".to_string(),
+        }
+    }
+
+    #[test]
+    fn render_content_text_unwraps_text_message() {
+        let body = json!({"text": "  hello there  "});
+        assert_eq!(render_message_content_text("text", &body), "hello there");
+    }
+
+    #[test]
+    fn render_content_text_flattens_post() {
+        let body = json!({
+            "title": "T",
+            "content": [[{"tag": "text", "text": "body line"}]]
+        });
+        assert_eq!(render_message_content_text("post", &body), "T\nbody line");
+    }
+
+    #[test]
+    fn render_content_text_marks_non_text_types() {
+        assert_eq!(render_message_content_text("image", &json!({})), "[image]");
+        assert_eq!(
+            render_message_content_text("file", &json!({"file_name": "spec.pdf"})),
+            "[file: spec.pdf]"
+        );
+        assert_eq!(
+            render_message_content_text("audio", &json!({"file_name": "voice.opus"})),
+            "[audio: voice.opus]"
+        );
+        // Unknown types still produce a typed marker, never a panic.
+        assert_eq!(render_message_content_text("todo", &json!({})), "[todo]");
+    }
+
+    #[test]
+    fn extract_attachments_builds_file_id_from_owning_message() {
+        let body = json!({
+            "file_key": "file_abc",
+            "file_name": "spec.pdf",
+            "file_type": "pdf",
+            "file_size": "2048"
+        });
+        let atts = extract_message_attachments("file", &body, "om_parent");
+        assert_eq!(atts.len(), 1);
+        assert_eq!(atts[0].id, "file:om_parent:file_abc:spec.pdf");
+        assert_eq!(atts[0].filename, "spec.pdf");
+        assert_eq!(atts[0].mime_type, "pdf");
+        // file_size tolerates the string shape Lark sometimes sends.
+        assert_eq!(atts[0].size, 2048);
+    }
+
+    #[test]
+    fn extract_attachments_builds_image_id_from_owning_message() {
+        let body = json!({"image_key": "img_xyz"});
+        let atts = extract_message_attachments("image", &body, "om_parent");
+        assert_eq!(atts.len(), 1);
+        assert_eq!(atts[0].id, "image:om_parent:img_xyz:img_xyz.png");
+        assert_eq!(atts[0].mime_type, "image/png");
+    }
+
+    #[test]
+    fn extract_attachments_empty_when_keys_or_owner_missing() {
+        // No file_key.
+        assert!(extract_message_attachments("file", &json!({}), "om_parent").is_empty());
+        // No owning message id (can't form a download URL).
+        assert!(extract_message_attachments("image", &json!({"image_key": "k"}), "").is_empty());
+        // Non-attachment type.
+        assert!(
+            extract_message_attachments("text", &json!({"text": "hi"}), "om_parent").is_empty()
+        );
+    }
 
     #[test]
     fn flatten_post_simple_text_only() {
@@ -3200,6 +4037,50 @@ mod tests {
     fn flatten_post_empty_returns_empty() {
         let body = json!({"title": "", "content": []});
         assert_eq!(flatten_post_to_text(&body), "");
+    }
+
+    #[test]
+    fn image_attachment_id_includes_message_id() {
+        let id = build_image_id("om_123", "img_abc", "img_abc.png");
+        assert_eq!(id, "image:om_123:img_abc:img_abc.png");
+
+        let parsed = parse_attachment_id(&id).expect("image id should parse");
+        assert_eq!(parsed.kind, AttachmentKind::Image);
+        assert_eq!(parsed.message_id.as_deref(), Some("om_123"));
+        assert_eq!(parsed.key, "img_abc");
+        assert_eq!(parsed.filename, "img_abc.png");
+    }
+
+    #[test]
+    fn legacy_image_attachment_id_still_parses() {
+        let parsed =
+            parse_attachment_id("image:img_legacy:img_legacy.png").expect("legacy id should parse");
+        assert_eq!(parsed.kind, AttachmentKind::Image);
+        assert_eq!(parsed.message_id, None);
+        assert_eq!(parsed.key, "img_legacy");
+        assert_eq!(parsed.filename, "img_legacy.png");
+    }
+
+    #[test]
+    fn inbound_image_download_uses_message_resource_endpoint() {
+        let cfg = test_cfg("https://open.feishu.cn/");
+        let att = parse_attachment_id("image:om_123:img_abc:img_abc.png").unwrap();
+
+        assert_eq!(
+            attachment_download_url(&cfg, &att),
+            "https://open.feishu.cn/open-apis/im/v1/messages/om_123/resources/img_abc?type=image"
+        );
+    }
+
+    #[test]
+    fn legacy_image_download_keeps_image_endpoint_fallback() {
+        let cfg = test_cfg("https://open.feishu.cn/");
+        let att = parse_attachment_id("image:img_legacy:img_legacy.png").unwrap();
+
+        assert_eq!(
+            attachment_download_url(&cfg, &att),
+            "https://open.feishu.cn/open-apis/im/v1/images/img_legacy"
+        );
     }
 
     #[test]
@@ -3337,10 +4218,7 @@ mod tests {
     #[test]
     fn share_user_prefers_user_id_over_open_id() {
         assert_eq!(
-            translate_message(
-                "share_user",
-                json!({"user_id": "ou_a", "open_id": "ou_b"})
-            ),
+            translate_message("share_user", json!({"user_id": "ou_a", "open_id": "ou_b"})),
             Some("[shared user: ou_a]".to_string())
         );
         assert_eq!(
@@ -3382,10 +4260,7 @@ mod tests {
     #[test]
     fn location_coords_only() {
         assert_eq!(
-            translate_message(
-                "location",
-                json!({"latitude": 1.0, "longitude": 2.0})
-            ),
+            translate_message("location", json!({"latitude": 1.0, "longitude": 2.0})),
             Some("[location: (1, 2)]".to_string())
         );
     }
@@ -3415,10 +4290,7 @@ mod tests {
     #[test]
     fn system_template_only() {
         assert_eq!(
-            translate_message(
-                "system",
-                json!({"template": "user left"})
-            ),
+            translate_message("system", json!({"template": "user left"})),
             Some("[system: user left]".to_string())
         );
     }
@@ -3482,8 +4354,7 @@ mod tests {
                 "action_time": "1715000000000",
             }
         });
-        let (mid, em, uid, act) =
-            extract_reaction(&env, "im.message.reaction.created_v1");
+        let (mid, em, uid, act) = extract_reaction(&env, "im.message.reaction.created_v1");
         assert_eq!(mid, "om_abc");
         assert_eq!(em, "THUMBSUP");
         assert_eq!(uid, "ou_xy");
@@ -3500,8 +4371,7 @@ mod tests {
                 "user_id": {"open_id": "ou_xy"},
             }
         });
-        let (_, em, _, act) =
-            extract_reaction(&env, "im.message.reaction.deleted_v1");
+        let (_, em, _, act) = extract_reaction(&env, "im.message.reaction.deleted_v1");
         assert_eq!(em, "DONE");
         assert_eq!(act, "removed");
     }
@@ -3547,8 +4417,7 @@ mod tests {
             other => panic!("expected Notification, got {other:?}"),
         };
         assert_eq!(notif.method, plugin_to_host::EVENT_MESSAGE_RECALLED);
-        let params: MessageRecalledParams =
-            serde_json::from_value(notif.params.unwrap()).unwrap();
+        let params: MessageRecalledParams = serde_json::from_value(notif.params.unwrap()).unwrap();
         assert_eq!(params.chat_id, "oc_chat_1");
         assert_eq!(params.message_id, "om_recall_1");
         assert!(
@@ -3597,8 +4466,7 @@ mod tests {
             JsonRpcMessage::Notification(n) => n,
             other => panic!("got {other:?}"),
         };
-        let params: MessageRecalledParams =
-            serde_json::from_value(notif.params.unwrap()).unwrap();
+        let params: MessageRecalledParams = serde_json::from_value(notif.params.unwrap()).unwrap();
         // Fallback timestamp is `Utc::now().to_rfc3339()` — assert
         // shape, not value (chrono RFC3339 always emits a 4-digit year
         // and ends in Z or +offset).
@@ -3613,20 +4481,38 @@ mod tests {
 
     #[test]
     fn markdown_h1_gets_bar_marker_and_bold() {
-        assert_eq!(markdown_for_lark("# Title\n", MarkdownMode::V1), "▎ **Title**\n");
+        assert_eq!(
+            markdown_for_lark("# Title\n", MarkdownMode::V1),
+            "▎ **Title**\n"
+        );
     }
 
     #[test]
     fn markdown_h2_gets_chevron_and_bold() {
-        assert_eq!(markdown_for_lark("## Section\n", MarkdownMode::V1), "▸ **Section**\n");
+        assert_eq!(
+            markdown_for_lark("## Section\n", MarkdownMode::V1),
+            "▸ **Section**\n"
+        );
     }
 
     #[test]
     fn markdown_h3_to_h6_are_just_bold() {
-        assert_eq!(markdown_for_lark("### Sub\n", MarkdownMode::V1), "**Sub**\n");
-        assert_eq!(markdown_for_lark("#### Deep\n", MarkdownMode::V1), "**Deep**\n");
-        assert_eq!(markdown_for_lark("##### Deeper\n", MarkdownMode::V1), "**Deeper**\n");
-        assert_eq!(markdown_for_lark("###### Deepest\n", MarkdownMode::V1), "**Deepest**\n");
+        assert_eq!(
+            markdown_for_lark("### Sub\n", MarkdownMode::V1),
+            "**Sub**\n"
+        );
+        assert_eq!(
+            markdown_for_lark("#### Deep\n", MarkdownMode::V1),
+            "**Deep**\n"
+        );
+        assert_eq!(
+            markdown_for_lark("##### Deeper\n", MarkdownMode::V1),
+            "**Deeper**\n"
+        );
+        assert_eq!(
+            markdown_for_lark("###### Deepest\n", MarkdownMode::V1),
+            "**Deepest**\n"
+        );
     }
 
     #[test]
@@ -3652,7 +4538,10 @@ mod tests {
     #[test]
     fn markdown_handles_seven_or_more_hashes_as_text() {
         // Spec caps headers at 6; `####### x` is plain text in standard MD.
-        assert_eq!(markdown_for_lark("####### nope\n", MarkdownMode::V1), "####### nope\n");
+        assert_eq!(
+            markdown_for_lark("####### nope\n", MarkdownMode::V1),
+            "####### nope\n"
+        );
     }
 
     #[test]
@@ -3660,7 +4549,10 @@ mod tests {
         // `#tag` is a hashtag, not a header.
         assert_eq!(markdown_for_lark("#tag\n", MarkdownMode::V1), "#tag\n");
         // `##broken` likewise.
-        assert_eq!(markdown_for_lark("##broken\n", MarkdownMode::V1), "##broken\n");
+        assert_eq!(
+            markdown_for_lark("##broken\n", MarkdownMode::V1),
+            "##broken\n"
+        );
     }
 
     #[test]
@@ -3675,7 +4567,10 @@ mod tests {
     fn markdown_handles_text_without_trailing_newline() {
         // Last line of LLM output sometimes has no newline. The function
         // shouldn't synthesise one.
-        assert_eq!(markdown_for_lark("# Title", MarkdownMode::V1), "▎ **Title**");
+        assert_eq!(
+            markdown_for_lark("# Title", MarkdownMode::V1),
+            "▎ **Title**"
+        );
         assert_eq!(markdown_for_lark("plain", MarkdownMode::V1), "plain");
     }
 
@@ -4008,5 +4903,187 @@ let x = 1;
         assert!(d.seen.contains_key("om_overflow"));
         assert!(!d.seen.contains_key("om_0"));
         assert_eq!(d.seen.len(), DEDUP_MAX_ENTRIES);
+    }
+
+    // ---------------------------------------------------------------------
+    // AskUserQuestion card tests
+    // ---------------------------------------------------------------------
+
+    use snaca_channel_protocol::methods::{Question, QuestionOption};
+
+    fn q(id: &str, multi: bool, allow_other: bool, options: &[(&str, &str)]) -> Question {
+        Question {
+            id: id.into(),
+            question: format!("{id}?"),
+            header: None,
+            options: options
+                .iter()
+                .map(|(oid, label)| QuestionOption {
+                    id: (*oid).into(),
+                    label: (*label).into(),
+                    description: None,
+                    preview: None,
+                })
+                .collect(),
+            multi_select: multi,
+            allow_other,
+        }
+    }
+
+    #[test]
+    fn needs_form_false_for_simple_single_select_no_other() {
+        let qs = vec![q("q_0", false, false, &[("opt_0", "A"), ("opt_1", "B")])];
+        assert!(!needs_form(&qs));
+    }
+
+    #[test]
+    fn needs_form_true_for_multi_select() {
+        let qs = vec![q("q_0", true, false, &[("opt_0", "A"), ("opt_1", "B")])];
+        assert!(needs_form(&qs));
+    }
+
+    #[test]
+    fn needs_form_true_for_allow_other() {
+        let qs = vec![q("q_0", false, true, &[("opt_0", "A"), ("opt_1", "B")])];
+        assert!(needs_form(&qs));
+    }
+
+    #[test]
+    fn needs_form_true_for_multiple_questions() {
+        let qs = vec![
+            q("q_0", false, false, &[("opt_0", "A"), ("opt_1", "B")]),
+            q("q_1", false, false, &[("opt_0", "X"), ("opt_1", "Y")]),
+        ];
+        assert!(needs_form(&qs));
+    }
+
+    #[test]
+    fn simple_card_has_button_per_option_no_form() {
+        let qs = vec![q("q_0", false, false, &[("opt_0", "A"), ("opt_1", "B")])];
+        let card = build_question_card(&qs, "tok-1");
+        let s = card.to_string();
+        // Action button row exists with both labels.
+        assert!(s.contains("\"A\""));
+        assert!(s.contains("\"B\""));
+        // No form wrapper / submit action.
+        assert!(!s.contains("\"form\""));
+        assert!(!s.contains("form_action_type"));
+        // Each button carries the per-option callback metadata.
+        assert!(s.contains("snaca_option_id"));
+        assert!(s.contains("snaca_qid"));
+    }
+
+    #[test]
+    fn form_card_uses_select_static_for_single_and_multi() {
+        let qs = vec![
+            q("q_0", false, true, &[("opt_0", "A"), ("opt_1", "B")]),
+            q("q_1", true, false, &[("opt_0", "X"), ("opt_1", "Y")]),
+        ];
+        let card = build_question_card(&qs, "tok-1");
+        let s = card.to_string();
+        assert!(s.contains("\"form\""));
+        assert!(s.contains("select_static"));
+        assert!(s.contains("multi_select_static"));
+        assert!(s.contains("form_action_type"));
+        assert!(s.contains("submit_form"));
+        // Other input present for q_0 only.
+        assert!(s.contains("q_0__other"));
+    }
+
+    #[test]
+    fn parse_form_answers_handles_single_multi_and_other() {
+        let questions = vec![
+            q("q_0", false, true, &[("opt_0", "A"), ("opt_1", "B")]),
+            q("q_1", true, false, &[("opt_0", "X"), ("opt_1", "Y")]),
+            q("q_2", false, true, &[("opt_0", "P"), ("opt_1", "Q")]),
+        ];
+        let state = QuestionCardState {
+            message_id: "m".into(),
+            questions,
+        };
+        let form_value = json!({
+            "q_0": "opt_1",                // single-select pick
+            "q_1": ["opt_0", "opt_1"],     // multi-select picks
+            "q_2": "opt_0",                // would-be pick, but
+            "q_2__other": "custom text"    // ...Other should override
+        });
+        let answers = parse_form_answers(&state, Some(&form_value));
+        assert_eq!(answers.len(), 3);
+        assert_eq!(answers[0].selected_option_ids, vec!["opt_1".to_string()]);
+        assert_eq!(answers[0].other_text, None);
+        assert_eq!(
+            answers[1].selected_option_ids,
+            vec!["opt_0".to_string(), "opt_1".to_string()]
+        );
+        assert!(answers[2].selected_option_ids.is_empty());
+        assert_eq!(answers[2].other_text.as_deref(), Some("custom text"));
+    }
+
+    #[test]
+    fn parse_form_answers_missing_fields_yield_empty_selection() {
+        let state = QuestionCardState {
+            message_id: "m".into(),
+            questions: vec![q("q_0", false, false, &[("opt_0", "A"), ("opt_1", "B")])],
+        };
+        let answers = parse_form_answers(&state, None);
+        assert_eq!(answers.len(), 1);
+        assert!(answers[0].selected_option_ids.is_empty());
+        assert!(answers[0].other_text.is_none());
+    }
+
+    #[test]
+    fn finalized_card_renders_multi_question_answers() {
+        use snaca_channel_protocol::methods::QuestionAnswer;
+        let questions = vec![
+            q("q_0", false, false, &[("opt_0", "A"), ("opt_1", "B")]),
+            q("q_1", true, true, &[("opt_0", "X"), ("opt_1", "Y")]),
+        ];
+        let answers = vec![
+            QuestionAnswer {
+                question_id: "q_0".into(),
+                selected_option_ids: vec!["opt_0".into()],
+                other_text: None,
+                notes: None,
+            },
+            QuestionAnswer {
+                question_id: "q_1".into(),
+                selected_option_ids: vec!["opt_1".into()],
+                other_text: Some("typed text".into()),
+                notes: None,
+            },
+        ];
+        let card = build_finalized_question_card(&questions, &answers, "u1", "2026-05-24 10:00:00");
+        let s = card.to_string();
+        // First answer label visible.
+        assert!(s.contains("「A」"));
+        // Second answer combines option + Other text.
+        assert!(s.contains("Y"));
+        assert!(s.contains("typed text"));
+        // Actor mention rendered.
+        assert!(s.contains("u1"));
+    }
+
+    #[test]
+    fn option_details_render_descriptions_and_preview_notes() {
+        let options = vec![
+            QuestionOption {
+                id: "opt_0".into(),
+                label: "OAuth".into(),
+                description: Some("delegated login".into()),
+                preview: Some("```rust\nfn x() {}\n```".into()),
+            },
+            QuestionOption {
+                id: "opt_1".into(),
+                label: "JWT".into(),
+                description: None,
+                preview: None,
+            },
+        ];
+        let notes = render_option_details(&options);
+        // Two notes: the descriptions summary + one preview block.
+        assert_eq!(notes.len(), 2);
+        let combined = serde_json::to_string(&notes).unwrap();
+        assert!(combined.contains("delegated login"));
+        assert!(combined.contains("fn x()"));
     }
 }

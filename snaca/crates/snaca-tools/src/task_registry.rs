@@ -213,10 +213,7 @@ impl TaskRegistry {
             *guard = None;
         });
 
-        self.tasks
-            .lock()
-            .unwrap()
-            .insert(id.clone(), handle);
+        self.tasks.lock().unwrap().insert(id.clone(), handle);
         Ok(id)
     }
 
@@ -243,11 +240,7 @@ impl TaskRegistry {
         let status = handle.status();
         let (stdout, stdout_truncated) = handle.stdout.lock().unwrap().snapshot();
         let (stderr, stderr_truncated) = handle.stderr.lock().unwrap().snapshot();
-        let elapsed_ms = handle
-            .started_at
-            .elapsed()
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let elapsed_ms = handle.started_at.elapsed().unwrap_or_default().as_millis() as u64;
         Some(TaskSnapshot {
             id: handle.id.clone(),
             cmd: handle.cmd.clone(),
@@ -375,7 +368,13 @@ mod tests {
         let reg = TaskRegistry::new();
         let (t, p, th) = tenant_project_thread();
         let id = reg
-            .spawn(t.clone(), p.clone(), th, "echo hello".into(), make_cmd("echo hello"))
+            .spawn(
+                t.clone(),
+                p.clone(),
+                th,
+                "echo hello".into(),
+                make_cmd("echo hello"),
+            )
             .unwrap();
         // Wait long enough for the child to finish + reaper to stamp status.
         for _ in 0..50 {
@@ -387,7 +386,11 @@ mod tests {
             }
         }
         let s = reg.snapshot(&id, &t, &p).expect("task missing");
-        assert!(matches!(s.status, TaskStatus::Exited(0)), "got {:?}", s.status);
+        assert!(
+            matches!(s.status, TaskStatus::Exited(0)),
+            "got {:?}",
+            s.status
+        );
         assert!(s.stdout.contains("hello"), "stdout: {:?}", s.stdout);
     }
 

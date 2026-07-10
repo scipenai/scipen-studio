@@ -26,10 +26,12 @@ use crate::config::EngineConfig;
 use crate::error::{EngineError, EngineResult};
 use crate::listener::{NoopListener, TurnEventListener};
 use crate::loop_guard::{LoopGuard, LoopGuardConfig};
+use crate::question_gate::{NoopQuestionGate, QuestionGate, QuestionGateSlot};
 use crate::tools_factory::RuntimeToolFactory;
 use chrono::Utc;
 use futures::StreamExt;
 use serde_json::{json, Value};
+use snaca_agent_api::{MemoryIndexRequest, MemoryProvider, MemoryProviderSlot, MemoryWriteRequest};
 use snaca_core::{
     ContentBlock, Message, MessageId, ProjectId, Role, SessionId, TenantId, ThreadId, ToolUseId,
     Usage,
@@ -44,11 +46,17 @@ use snaca_tools_api::{
     ToolRegistry, ToolResult,
 };
 use snaca_workspace::WorkspaceLayout;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
+
+/// scipen-studio fork: builds a per-turn reverse-RPC `ContextRequester`
+/// bound to the turn id. Registered via [`Engine::with_context_requester_factory`].
+pub type ContextRequesterFactory =
+    Arc<dyn Fn(String) -> Arc<dyn ContextRequester> + Send + Sync>;
 
 #[derive(Debug, Clone)]
 pub struct TurnRequest {
@@ -63,13 +71,10 @@ pub struct TurnRequest {
     /// generate a UUID — external recall can't reach UUID-keyed
     /// turns, only admin's thread-level abort.
     pub message_id: Option<String>,
-    /// Per-turn ephemeral system context, appended to the freshly
-    /// composed `system_prompt` for this turn only. Never persisted to
-    /// thread history and never surfaced in the user-visible message
-    /// log — it is recomputed and discarded every turn. Front-ends use
-    /// it to inject volatile ambient state (the editor's active file /
-    /// selection, an IM channel's current roster, …); `None` keeps the
-    /// turn identical to having no extra context.
+    /// scipen-studio fork: per-turn ephemeral system context, appended as
+    /// a *volatile* segment after the cacheable prefix. Hosts use it to
+    /// inject volatile ambient state (the editor's active file / selection).
+    /// `None` keeps the turn identical to having no extra context.
     pub ephemeral_system: Option<String>,
 }
 
@@ -90,6 +95,26 @@ pub struct TurnOutcome {
     pub outbound_files: Vec<OutboundFile>,
 }
 
+#[derive(Debug, Clone)]
+struct ToolFailureEvent {
+    tool: String,
+    input: Value,
+    input_signature: String,
+    error: String,
+}
+
+#[derive(Debug, Default)]
+struct ToolBatchResult {
+    blocks: Vec<ContentBlock>,
+    failures: Vec<ToolFailureEvent>,
+}
+
+#[derive(Debug)]
+struct ToolBlockOutcome {
+    block: ContentBlock,
+    failure: Option<ToolFailureEvent>,
+}
+
 #[derive(Clone)]
 pub struct Engine {
     llm: Arc<dyn LlmClient>,
@@ -101,50 +126,26 @@ pub struct Engine {
     state: Database,
     workspace: WorkspaceLayout,
     config: EngineConfig,
-    /// Optional embedder. When attached, the engine runs vector recall
-    /// against the project's memory store at turn start and splices the
-    /// top-k matches into the system prompt under a `## Relevant
-    /// Memories` heading. None disables retrieval; the rest of the turn
-    /// loop is unchanged.
-    embedder: Option<Arc<dyn snaca_memory::Embedder>>,
     /// Optional memory extractor. When attached, the engine fires it
     /// on a background task after every successful turn; proposals are
     /// written through the project's `MemoryStore`. None disables
     /// extraction.
     extractor: Option<crate::memory_extractor::SharedExtractor>,
-    /// Optional retrieval reranker. When attached, the engine pulls
-    /// `RECALL_POOL_SIZE` cosine candidates and asks the reranker to
-    /// pick the top `RECALL_TOP_K`. None falls back to a simple
-    /// truncation of the cosine top-k — same behaviour as M3 chunk 2.
-    reranker: Option<crate::reranker::SharedReranker>,
-    /// Optional sink notified whenever the background memory_extractor
-    /// successfully writes a memory entry. The editor crate wires this
-    /// to the JSON-RPC `memory.updated` notification so MemoryViewer
-    /// refreshes live. None disables broadcasting; the write still
-    /// happens.
-    memory_sink: Option<crate::memory_sink::SharedMemorySink>,
+    /// Optional SDK-level memory provider. When attached, MemoryRead /
+    /// MemoryWrite tools use this provider instead of deriving the
+    /// file-tree store from `workspace_root`; system-prompt index also
+    /// prefers this provider. None keeps the historical file-tree
+    /// memory behavior.
+    memory_provider: Option<Arc<dyn MemoryProvider>>,
     /// Optional background-task registry. When attached, Bash's
     /// `run_in_background = true` path can spawn long-lived tasks
     /// whose status is polled via the TaskOutput tool. Held as an
     /// opaque Arc so the engine doesn't need to know the concrete
     /// type (it lives in `snaca-tools`).
     task_registry: Option<Arc<dyn std::any::Any + Send + Sync>>,
-    /// Per-turn factory for reverse-RPC channels back to the editor host.
-    /// The wiring layer (snaca-editor) supplies a closure that takes
-    /// the current `turn_id` and returns an `Arc<dyn ContextRequester>`
-    /// scoped to that turn. None → host-context tools (zotero_*)
-    /// surface a clear "unavailable" error.
-    ///
-    /// Why per-turn rather than static: the requester captures
-    /// `turn_id` for host-side telemetry; a static instance would
-    /// either drop that signal or require interior mutability.
+    /// scipen-studio fork: per-turn factory building a reverse-RPC
+    /// `ContextRequester` (Zotero) injected into the tool `ToolContext`.
     context_requester_factory: Option<ContextRequesterFactory>,
-    /// Per-turn factory for the `QuestionGate` the `AskUserQuestion`
-    /// tool uses to ask the user a multiple-choice question and await
-    /// their answer. Per-turn (like `context_requester_factory`) so the
-    /// gate captures `turn_id` for routing the reverse-RPC. `None` =>
-    /// tool surfaces a clean `Unsupported` error (no interactive host).
-    question_gate_factory: Option<QuestionGateFactory>,
     /// Per-(thread, message) cancellation tokens for in-flight turns.
     /// The engine registers a token when `handle_turn_full` enters
     /// and removes it on exit (via `InflightGuard`); external
@@ -158,73 +159,64 @@ pub struct Engine {
     /// IM ids get a UUID fallback during turn entry; the value
     /// stored here is always non-empty.
     inflight: Arc<Mutex<HashMap<(ThreadId, String), CancellationToken>>>,
-    /// Per-thread ring of memories already surfaced through the recall
-    /// block in earlier turns. Retrieval filters these out before
-    /// picking the top-K so a long IM conversation doesn't re-splice
-    /// the same entries every turn — by then the model has already
-    /// seen them in prior context and re-listing just burns tokens.
-    /// Bounded at `SURFACED_RING_CAP` per thread; old entries roll out
-    /// and become eligible for resurfacing. In-memory only — process
-    /// restart resets dedup state, which is acceptable since recall
-    /// itself is also stateless across restarts.
-    surfaced_memories: SurfacedMemoryMap,
-    /// Per-thread Read tracker — shared across turns on the same thread.
-    /// Each `ReadTracker` is `Arc<Mutex<HashMap<...>>>`, so the engine
-    /// hands the same Arc to every turn on a thread and Edit/MultiEdit's
-    /// "Read before Edit" gate accumulates across user interrupts.
-    /// Without this, every user message reset the tracker and forced the
-    /// model to re-Read large files just to satisfy the gate — the wedged
-    /// loop `loop_guard` was tripping on. Mtime/size validation in edit.rs
-    /// still catches files that changed on disk. In-memory only.
+    /// Per-thread Read tracker — shared across turns on the same
+    /// thread. Each `ReadTracker` is itself `Arc<Mutex<HashMap<...>>>`,
+    /// so the engine just hands the same Arc to every turn on a given
+    /// thread and Edit/MultiEdit's "Read before Edit" gate accumulates
+    /// across user interrupts. Without this, every user message
+    /// ("你怎么样了？") reset the tracker and forced the model to
+    /// re-Read large files just to satisfy the gate — which is exactly
+    /// the wedged-model loop `loop_guard` was tripping on.
+    /// Mtime/size validation in edit.rs catches files that changed on
+    /// disk; the model's own "old_string not found" feedback handles
+    /// the case where it has forgotten the file from its context.
+    /// In-memory only — process restart drops trackers, which is
+    /// acceptable: the worst case is the model has to Read again.
     read_trackers: Arc<Mutex<HashMap<ThreadId, snaca_tools_api::ReadTracker>>>,
-    /// Per-thread one-shot hint about the previous turn's loop_guard trip.
-    /// Set when a turn aborts for repeated identical tool calls; the next
-    /// turn's system prompt picks it up, tells the model "don't repeat the
-    /// same call", then clears it.
+    /// Per-thread one-shot hint about the previous turn's loop_guard
+    /// trip. Set when `run_tool_calls` aborts a turn for repeated
+    /// identical tool calls; the next turn's system prompt picks it up
+    /// and tells the model "don't repeat the same call", then clears
+    /// it. Without this nudge, the next turn often re-walks into the
+    /// same loop because nothing in its context names the failure.
     loop_guard_hints: Arc<Mutex<HashMap<ThreadId, LoopGuardHint>>>,
     /// Per-project async lock for the memory extractor. Two
     /// `spawn_memory_extraction` tasks on the same project would
     /// otherwise race on `MemoryStore::regenerate_index` (last writer
-    /// wins on `MEMORY.md`) and on same-name entry files. Serialises
-    /// writes per project while different projects extract in parallel.
-    /// Held across awaits, so the inner lock is a `tokio::sync::Mutex`;
-    /// the outer `std::sync::Mutex` only guards the map's entry/insert
-    /// and is released before any await.
+    /// wins on `MEMORY.md`) and on same-name entry files. The lock
+    /// serialises writes per project while still letting different
+    /// projects (different chats sharing a bot) extract in parallel.
+    /// Held across awaits, so it's a `tokio::sync::Mutex`; the outer
+    /// `std::sync::Mutex` only guards the map's entry/insert and is
+    /// released before any await.
     extraction_locks: Arc<Mutex<HashMap<ProjectId, Arc<tokio::sync::Mutex<()>>>>>,
+    /// Per-thread frozen memory snapshot. Computed lazily on the
+    /// first turn that needs the system prompt; reused verbatim
+    /// across every subsequent turn on the same thread so the
+    /// LLM provider's prompt-prefix cache holds. `MemoryWrite`
+    /// tool calls and the post-turn extractor still hit disk —
+    /// in-session writes only become visible on the next thread.
+    /// Process-restart resets the cache; the next first turn
+    /// re-renders.
+    memory_snapshots: Arc<Mutex<HashMap<ThreadId, Arc<String>>>>,
+    /// Per-project file-tree memory stores shared by MemoryRead /
+    /// MemoryWrite tool calls. `MemoryStore` carries the last-seen
+    /// hashes used for external-drift detection, so constructing a
+    /// fresh store for every tool call would make the check toothless.
+    /// Process-local only; restart trusts the current disk state.
+    memory_stores: Arc<Mutex<HashMap<(String, String), snaca_memory::MemoryStore>>>,
 }
 
-/// One-shot hint about a loop_guard trip, injected into the next turn's
-/// system prompt so the model can break out of the loop. Short by
-/// design — just enough to recognise the call to avoid repeating.
+/// One-shot hint about a loop_guard trip, injected into the next
+/// turn's system prompt so the model can break out of the loop.
+/// Short by design — the snippet is only enough for the model to
+/// recognise the call it should avoid repeating, not a transcript.
 #[derive(Debug, Clone)]
 struct LoopGuardHint {
     tool: String,
     input_snippet: String,
     count: usize,
 }
-
-/// Closure that builds a per-turn reverse-RPC channel back to the
-/// editor host. Engine calls this once at the start of every turn that
-/// has tools attached; the returned requester is dropped when the turn
-/// ends. Stored as `Arc<dyn Fn>` so the engine can clone the factory
-/// across spawned tasks without `H: Clone`.
-pub type ContextRequesterFactory = Arc<dyn Fn(String) -> Arc<dyn ContextRequester> + Send + Sync>;
-
-/// Closure that builds a per-turn `QuestionGate` (takes `turn_id`).
-/// Same lifecycle/ownership story as [`ContextRequesterFactory`].
-pub type QuestionGateFactory =
-    Arc<dyn Fn(String) -> Arc<dyn crate::question_gate::QuestionGate> + Send + Sync>;
-
-/// One entry on the surfaced-memories dedup ring — the `(scope, name)`
-/// pair that uniquely identifies a memory file in a project.
-type SurfacedKey = (snaca_memory::MemoryScope, String);
-/// Per-thread ring buffer of `SurfacedKey`s. Backed by `VecDeque` so
-/// eviction at the front is O(1) when we roll past `SURFACED_RING_CAP`.
-type SurfacedRing = VecDeque<SurfacedKey>;
-/// Shared map of `ThreadId -> SurfacedRing`. Wrapped in
-/// `Arc<Mutex<…>>` because both turn entry and retrieval read from /
-/// write to it across awaits.
-type SurfacedMemoryMap = Arc<Mutex<HashMap<ThreadId, SurfacedRing>>>;
 
 /// RAII guard that removes a turn's cancellation token from the
 /// inflight map on drop, even if the turn panics or returns early.
@@ -257,18 +249,16 @@ impl Engine {
             state,
             workspace,
             config,
-            embedder: None,
             extractor: None,
-            reranker: None,
-            memory_sink: None,
+            memory_provider: None,
             task_registry: None,
             context_requester_factory: None,
-            question_gate_factory: None,
             inflight: Arc::new(Mutex::new(HashMap::new())),
-            surfaced_memories: Arc::new(Mutex::new(HashMap::new())),
             read_trackers: Arc::new(Mutex::new(HashMap::new())),
             loop_guard_hints: Arc::new(Mutex::new(HashMap::new())),
             extraction_locks: Arc::new(Mutex::new(HashMap::new())),
+            memory_snapshots: Arc::new(Mutex::new(HashMap::new())),
+            memory_stores: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -322,25 +312,6 @@ impl Engine {
         self
     }
 
-    /// Attach a per-turn factory for reverse-RPC channels. The wiring
-    /// layer supplies a closure that takes the current `turn_id` and
-    /// returns an `Arc<dyn ContextRequester>`. Engine calls it once at
-    /// turn entry and drops the result when the turn ends.
-    pub fn with_context_requester_factory(mut self, factory: ContextRequesterFactory) -> Self {
-        self.context_requester_factory = Some(factory);
-        self
-    }
-
-    /// Attach a per-turn factory for the `QuestionGate`. The wiring
-    /// layer supplies a closure that takes the current `turn_id` and
-    /// returns an `Arc<dyn QuestionGate>` bridging to the host's
-    /// interactive question card. Unset => `AskUserQuestion` surfaces a
-    /// clean `Unsupported` tool_error.
-    pub fn with_question_gate_factory(mut self, factory: QuestionGateFactory) -> Self {
-        self.question_gate_factory = Some(factory);
-        self
-    }
-
     /// Attach a runtime tool factory. The engine will call
     /// `factory.build(tenant, project)` once at the start of every turn
     /// and use the returned registry instead of the static one passed to
@@ -350,103 +321,70 @@ impl Engine {
         self
     }
 
-    /// Attach an embedder. With one in place, every turn embeds the
-    /// user's text and looks up the top-k closest memory entries; their
-    /// excerpts get spliced into the system prompt before the LLM call.
-    /// Without one (the default), only the static `MEMORY.md` index is
-    /// injected — the same as M3's first chunk.
-    pub fn with_embedder(mut self, embedder: Arc<dyn snaca_memory::Embedder>) -> Self {
-        self.embedder = Some(embedder);
+    /// Attach a memory provider. Built-in memory tools, project
+    /// memory index injection, and extractor writes prefer this
+    /// provider. Without one, the engine uses the existing file-tree
+    /// memory store under `WorkspaceLayout`.
+    pub fn with_memory_provider(mut self, provider: Arc<dyn MemoryProvider>) -> Self {
+        self.memory_provider = Some(provider);
         self
     }
 
-    /// Import an attachment's bytes into the project. Two side effects:
-    ///
-    /// 1. **Workspace drop**: bytes land at
-    ///    `<workspace>/<basename(filename)>` so the `Read` / `Glob` /
-    ///    `Bash` tools can open the file by name. This matches user
-    ///    expectations — "I uploaded `spec.pdf`, you should be able to
-    ///    read spec.pdf".
-    /// 2. **Memory import**: bytes also go through the standard bulk-
-    ///    import pipeline (extract → chunk → embed → store). Useful
-    ///    when the file is large enough that a future turn would
-    ///    benefit from vector recall over its content.
+    /// scipen-studio fork: attach a per-turn `ContextRequester` factory
+    /// (Zotero reverse-RPC to the editor host).
+    pub fn with_context_requester_factory(mut self, factory: ContextRequesterFactory) -> Self {
+        self.context_requester_factory = Some(factory);
+        self
+    }
+
+    /// Stage an attachment in the project's workspace dir. The bytes
+    /// land at `<workspace>/<basename(filename)>` so the `Read` /
+    /// `Glob` / `Bash` tools can open the file by name. Returns the
+    /// final path on success.
     ///
     /// Filename is sanitised to its basename — directory components
-    /// are stripped before either side-effect runs, defending against
-    /// a malicious / buggy plugin sending `../escape.txt`.
+    /// are stripped before write, defending against a malicious /
+    /// buggy plugin sending `../escape.txt`. Empty / dot-only names
+    /// fall back to `attachment.bin`.
     ///
-    /// Falls back to `HashEmbedder` when no production embedder is
-    /// configured — imports always produce embeddings, but they only
-    /// surface in retrieval if the engine has its own embedder
-    /// configured (so vector spaces match). With matching embedders,
-    /// imported attachments become retrievable on the next turn.
-    pub async fn import_attachment(
+    /// Note: this used to also push the bytes through a chunk, embed,
+    /// and memory-vector pipeline. That pipeline was removed when the
+    /// engine adopted the frozen-snapshot memory model — attachments
+    /// no longer auto-populate the memory tree. The dispatch layer
+    /// surfaces the staged file in the next turn's user message
+    /// (filename + size + optional preview); the LLM decides whether
+    /// to persist anything via `MemoryWrite`.
+    pub async fn stage_attachment(
         &self,
         tenant: &TenantId,
         project: &ProjectId,
-        bytes: Vec<u8>,
-        filename: String,
-    ) -> Result<snaca_memory::ImportReport, snaca_memory::MemoryError> {
-        // Workspace dir must exist before the memory tree under it.
-        // `WorkspaceError` doesn't auto-convert into `MemoryError`;
-        // map to its IO arm with the path/reason flattened in.
+        bytes: &[u8],
+        filename: &str,
+    ) -> std::io::Result<std::path::PathBuf> {
         self.workspace
             .ensure_project(tenant, project)
-            .map_err(|e| {
-                snaca_memory::MemoryError::Io(std::io::Error::other(format!(
-                    "ensure_project failed: {e}"
-                )))
-            })?;
+            .map_err(|e| std::io::Error::other(format!("ensure_project failed: {e}")))?;
 
-        // Side effect 1: workspace drop. Strip any path components
-        // from the filename — only the basename lands in the
-        // workspace dir. Empty / dot-only names get a fallback so we
-        // don't try to write `<workspace>/`.
-        let basename = std::path::Path::new(&filename)
+        let basename = std::path::Path::new(filename)
             .file_name()
             .and_then(|s| s.to_str())
             .filter(|s| !s.is_empty() && *s != "." && *s != "..")
             .unwrap_or("attachment.bin");
-        let workspace_dir = self.workspace.workspace_dir(tenant, project);
-        let target = workspace_dir.join(basename);
-        if let Err(e) = tokio::fs::write(&target, &bytes).await {
+        let target = self.workspace.workspace_dir(tenant, project).join(basename);
+        tokio::fs::write(&target, bytes).await.map_err(|e| {
             warn!(
                 error = %e,
                 path = %target.display(),
-                "attachment workspace drop failed; continuing with memory import only"
+                "attachment workspace drop failed"
             );
-        } else {
-            debug!(
-                path = %target.display(),
-                bytes = bytes.len(),
-                "attachment dropped into workspace"
-            );
-        }
-
-        let memory_dir = self.workspace.memory_dir(tenant, project);
-        let store = snaca_memory::MemoryStore::new(memory_dir);
-        let embedder: std::sync::Arc<dyn snaca_memory::Embedder> = match self.embedder.clone() {
-            Some(e) => e,
-            None => std::sync::Arc::new(snaca_memory::HashEmbedder::default()),
-        };
-        let indexed = snaca_memory::IndexedMemoryStore::new(
-            store,
-            self.state.clone(),
-            embedder,
-            tenant.clone(),
-            project.clone(),
+            e
+        })?;
+        debug!(
+            path = %target.display(),
+            bytes = bytes.len(),
+            "attachment dropped into workspace"
         );
-        snaca_memory::import_one(
-            &indexed,
-            snaca_memory::ImportSource {
-                bytes,
-                filename,
-                kind: None,
-            },
-            &snaca_memory::ImportConfig::default(),
-        )
-        .await
+        Ok(target)
     }
 
     /// Attach a memory extractor. With one in place, every successful
@@ -458,23 +396,6 @@ impl Engine {
         extractor: crate::memory_extractor::SharedExtractor,
     ) -> Self {
         self.extractor = Some(extractor);
-        self
-    }
-
-    /// Attach a retrieval reranker. With one in place, the engine
-    /// pulls `RECALL_POOL_SIZE` cosine candidates and asks the
-    /// reranker to pick the top `RECALL_TOP_K`. Without one, the
-    /// engine truncates the cosine top-k itself.
-    pub fn with_reranker(mut self, reranker: crate::reranker::SharedReranker) -> Self {
-        self.reranker = Some(reranker);
-        self
-    }
-
-    /// Attach a memory-event sink. Called best-effort after every
-    /// successful extractor write so the host can refresh its view
-    /// without polling.
-    pub fn with_memory_sink(mut self, sink: crate::memory_sink::SharedMemorySink) -> Self {
-        self.memory_sink = Some(sink);
         self
     }
 
@@ -508,8 +429,13 @@ impl Engine {
         req: TurnRequest,
         gate: Arc<dyn ApprovalGate>,
     ) -> EngineResult<TurnOutcome> {
-        self.handle_turn_full(req, gate, Arc::new(NoopListener))
-            .await
+        self.handle_turn_full(
+            req,
+            gate,
+            Arc::new(NoopListener),
+            Arc::new(NoopQuestionGate),
+        )
+        .await
     }
 
     /// Run a single turn with both an approval gate and a per-event
@@ -517,11 +443,18 @@ impl Engine {
     /// produced by the LLM round trips inside this turn — used by IM
     /// channels to render typing indicators / `update_message` deltas
     /// while the turn is still in flight.
+    ///
+    /// `question_gate` is consulted only by the `AskUserQuestion` tool
+    /// (when registered). Direct-embed deployments without an IM
+    /// channel pass `Arc::new(NoopQuestionGate)`; that gate returns
+    /// `Unsupported` so the tool surfaces a clean tool_error rather
+    /// than hanging.
     pub async fn handle_turn_full(
         &self,
         req: TurnRequest,
         gate: Arc<dyn ApprovalGate>,
         listener: Arc<dyn TurnEventListener>,
+        question_gate: Arc<dyn QuestionGate>,
     ) -> EngineResult<TurnOutcome> {
         let TurnRequest {
             tenant_id,
@@ -575,12 +508,12 @@ impl Engine {
         let session_id = SessionId::new();
         let outbound_slot: Arc<Mutex<Vec<OutboundFile>>> = Arc::new(Mutex::new(Vec::new()));
         // Per-thread Read tracker. Edit / MultiEdit consult this to
-        // enforce "Read before Edit" and to detect external modifications
-        // between Read and Edit. Shared across turns on the same thread so
-        // a "how's it going?" mid-task ping doesn't reset the gate and
-        // force the model to re-Read. edit.rs revalidates mtime/size on
-        // every call, so a file that changed on disk between turns still
-        // gets caught.
+        // enforce "Read before Edit" and to detect external
+        // modifications between Read and Edit. Shared across turns
+        // on the same thread so a "how's it going?" mid-task ping
+        // doesn't reset the gate and force the model to re-Read.
+        // edit.rs revalidates mtime/size on every call, so a file
+        // that changed on disk between turns still gets caught.
         let read_tracker: snaca_tools_api::ReadTracker = {
             let mut map = self
                 .read_trackers
@@ -598,7 +531,29 @@ impl Engine {
         )
         .with_outbound_files(outbound_slot.clone())
         .with_read_tracker(read_tracker)
-        .with_cancellation_token(cancel_token.clone());
+        .with_cancellation_token(cancel_token.clone())
+        .with_db_handle(Arc::new(self.state.clone()) as Arc<dyn std::any::Any + Send + Sync>)
+        .with_memory_write_approval(self.config.memory_write_approval);
+        let shared_memory_store = {
+            let key = (
+                tenant_id.as_str().to_string(),
+                project_id.as_str().to_string(),
+            );
+            let mut map = self
+                .memory_stores
+                .lock()
+                .expect("memory_stores mutex poisoned");
+            map.entry(key)
+                .or_insert_with(|| {
+                    snaca_memory::MemoryStore::new(
+                        self.workspace.memory_dir(&tenant_id, &project_id),
+                    )
+                })
+                .clone()
+        };
+        tool_ctx = tool_ctx.with_memory_store(
+            Arc::new(shared_memory_store) as Arc<dyn std::any::Any + Send + Sync>
+        );
         // Bash run_in_background + TaskOutput / TaskStop share a
         // process-wide registry attached to the engine. When not
         // attached the companion tools surface a clear "no registry"
@@ -606,24 +561,24 @@ impl Engine {
         if let Some(reg) = self.task_registry.clone() {
             tool_ctx = tool_ctx.with_task_registry(reg);
         }
-        // Per-turn reverse-RPC channel. Zotero context tools refuse
-        // gracefully when no factory is attached, so deployments
-        // without a paired editor host stay functional for everything
-        // else.
-        if let Some(factory) = self.context_requester_factory.clone() {
-            let requester = factory(turn_message_id.clone());
-            tool_ctx = tool_ctx.with_context_requester(requester);
+        if let Some(provider) = self.memory_provider.clone() {
+            tool_ctx = tool_ctx
+                .with_memory_provider(Arc::new(MemoryProviderSlot::new(provider))
+                    as Arc<dyn std::any::Any + Send + Sync>);
         }
-        // Per-turn QuestionGate for the AskUserQuestion tool. Wrapped in
-        // QuestionGateSlot (a Sized newtype) because `dyn QuestionGate`
-        // can't coerce to `dyn Any`; the tool downcasts it back. Unset
-        // factory => tool surfaces a clean Unsupported error.
-        if let Some(factory) = self.question_gate_factory.clone() {
-            let gate = factory(turn_message_id.clone());
-            tool_ctx = tool_ctx.with_question_gate(Arc::new(
-                crate::question_gate::QuestionGateSlot::new(gate),
-            )
+        // Question gate goes in as `Arc<QuestionGateSlot>` (a `Sized`
+        // wrapper around `Arc<dyn QuestionGate>`) because Rust won't
+        // coerce one trait object to another (`dyn QuestionGate` →
+        // `dyn Any`). The AskUserQuestion tool downcasts back to
+        // `QuestionGateSlot`. NoopQuestionGate is fine here too — the
+        // tool just surfaces a clean tool_error on Unsupported.
+        tool_ctx = tool_ctx
+            .with_question_gate(Arc::new(QuestionGateSlot::new(question_gate.clone()))
                 as Arc<dyn std::any::Any + Send + Sync>);
+        // scipen-studio fork: per-turn reverse-RPC channel for the Zotero
+        // context tools. Absent factory => tools return a clean error.
+        if let Some(factory) = self.context_requester_factory.clone() {
+            tool_ctx = tool_ctx.with_context_requester(factory(turn_message_id.clone()));
         }
 
         // Wrap the rest of the turn in `tokio::select!` so external
@@ -660,7 +615,7 @@ impl Engine {
                     session_id,
                     role: Role::User,
                     content: vec![ContentBlock::text(user_text)],
-                    turn_id: None,
+                    turn_id: Some(turn_message_id.clone()),
                 })
                 .await?;
 
@@ -670,12 +625,10 @@ impl Engine {
             // schema cache between rounds.
             let runtime_tools = self.runtime_tools(&tenant_id, &project_id).await;
             let tool_schemas = registry_schemas(&runtime_tools);
-            // Build the per-turn system prompt by splicing in MEMORY.md if
-            // any project memory has been recorded, plus optional vector
-            // recall against the user's text. Reading once per turn is
-            // fine — memory rarely changes mid-turn, and a stale read in the
-            // middle of an iteration would only mean the model misses an
-            // entry that was added a couple of seconds ago.
+            // Build the per-turn system prompt by splicing in the
+            // per-thread frozen memory snapshot. Memory writes made
+            // later in the same thread stay on disk until a new thread
+            // or explicit invalidation refreshes the snapshot.
             // Drain a one-shot loop_guard hint if the previous turn on
             // this thread tripped the guard. None on the common path.
             let loop_guard_hint = self
@@ -692,15 +645,13 @@ impl Engine {
                     loop_guard_hint.as_ref(),
                 )
                 .await;
-            // Splice the front-end's per-turn ephemeral context onto the
-            // tail as a *volatile* segment. It's recomputed every turn, so
-            // it must never enter the cacheable prefix — appended after the
-            // recall block, it leaves the cache breakpoint on the stable
-            // base+memory prefix while still reaching the model this turn.
-            let system_segments = match ephemeral_system {
+            // scipen-studio fork: splice the host's per-turn ephemeral
+            // context onto the tail as a *volatile* segment so it reaches
+            // the model without polluting the cacheable base+memory prefix.
+            let system_segments = match ephemeral_system.as_ref() {
                 Some(extra) if !extra.is_empty() => {
                     let mut segs = base_system_segments;
-                    segs.push(SystemSegment::volatile(extra));
+                    segs.push(SystemSegment::volatile(extra.clone()));
                     segs
                 }
                 _ => base_system_segments,
@@ -728,13 +679,30 @@ impl Engine {
             // error is the right move (something else is wrong).
             let mut prompt_too_long_attempts: u8 = 0;
             let max_compact_retries = self.config.compact_max_retries;
-            // Bounded recovery for `LlmError::MalformedToolArgs`: when the
-            // model itself emits broken JSON (not just an SSE-concat bug
-            // the non-streaming retry already fixes), persist a synthetic
-            // User message naming the parse error and re-enter the loop so
-            // the model sees *why* its response was rejected.
+            // Bounded recovery counter for `LlmError::MalformedToolArgs`.
+            // The provider-level non-streaming retry inside
+            // `call_llm_and_prerun` only patches SSE-concat bugs; when the
+            // model itself emits broken JSON (unescaped `"` inside a long
+            // Chinese tool payload is the recurring offender), both
+            // streaming and non-streaming land on the same malformed
+            // string and the error surfaces here. We then persist a
+            // synthetic User feedback message naming the column / tool /
+            // escaping rule and re-enter the loop — the model gets to see
+            // *why* its previous response was rejected and can self-correct.
+            // Bound this with the configured retry cap so a model that
+            // can't write valid JSON doesn't burn the whole iteration budget.
             let mut malformed_args_attempts: u8 = 0;
             let max_malformed_args_retries = self.config.malformed_tool_args_max_retries;
+            // Bounded recovery counter for `LlmError::ContentFiltered` —
+            // the provider's moderation layer rejecting the request because
+            // a *persisted* history message carries flagged content. Each
+            // strike localizes and redacts one poison message, then
+            // re-enters the loop. Bound so a thread whose poison can't be
+            // localized (e.g. it lives in a user message) degrades
+            // gracefully instead of looping.
+            let mut content_filter_attempts: u8 = 0;
+            let max_content_filter_retries = self.config.content_filter_max_retries;
+            let mut repeated_tool_failures: HashMap<(String, String), usize> = HashMap::new();
 
             loop {
                 if iterations >= self.config.max_iterations {
@@ -803,14 +771,23 @@ impl Engine {
                         args_len,
                         message,
                     })) if malformed_args_attempts < max_malformed_args_retries => {
-                        // Model emitted invalid JSON in a tool_use args block
-                        // AND the non-streaming retry already failed. Persist a
-                        // User-role feedback message naming the parse error and
-                        // re-enter the loop so the model can self-correct. We do
-                        // NOT persist any partial assistant content from the
-                        // failed turn — an assistant message with no valid
-                        // tool_use to pair a later tool_result would poison
-                        // providers that enforce the pairing.
+                        // Model emitted invalid JSON in a tool_use arguments
+                        // block AND the provider-level non-streaming retry
+                        // already failed (otherwise this error wouldn't have
+                        // bubbled up). The malformation is almost always an
+                        // unescaped `"` inside a long Chinese string payload
+                        // — the model can fix it if we tell it where. Persist
+                        // a User-role feedback message and re-enter the loop;
+                        // the next iteration's history will include our
+                        // feedback so the model knows what to correct.
+                        //
+                        // Note: we deliberately do NOT persist any partial
+                        // assistant content from the failed turn. The
+                        // streamed text/thinking blocks (if any) preceded the
+                        // broken tool_use, and an assistant message with no
+                        // valid tool_use to match a later tool_result would
+                        // poison subsequent turns on providers that enforce
+                        // the pairing (OpenAI / DeepSeek both do).
                         malformed_args_attempts += 1;
                         warn!(
                             thread_id = thread_id.as_str(),
@@ -823,15 +800,16 @@ impl Engine {
                         );
                         let feedback = format!(
                             "Your previous response attempted to call tool `{tool}` \
-                             but the JSON arguments could not be parsed.\n\n\
-                             Parser error: {message}\n\n\
-                             The most common cause is an unescaped `\"` inside a \
-                             JSON string value. Please retry the same tool call, \
-                             making sure every `\"` that appears INSIDE a JSON \
-                             string is escaped as `\\\"`. Chinese curly quotes \
-                             (`\u{201C}` and `\u{201D}`) do NOT need escaping. \
-                             Newlines inside string values must be `\\n`, not \
-                             literal line breaks. Backslashes must be `\\\\`."
+                         but the JSON arguments could not be parsed.\n\n\
+                         Parser error: {message}\n\n\
+                         The most common cause is an unescaped `\"` inside a \
+                         JSON string value. Please retry the same tool call, \
+                         making sure every `\"` that appears INSIDE a JSON \
+                         string is escaped as `\\\"`. Chinese curly quotes \
+                         (`\u{201C}` U+201C and `\u{201D}` U+201D) do NOT need \
+                         escaping. Newlines inside string values must be `\\n`, \
+                         not literal line breaks. Backslashes themselves must \
+                         be escaped as `\\\\`."
                         );
                         self.state
                             .append_message(&NewMessage {
@@ -839,17 +817,86 @@ impl Engine {
                                 session_id,
                                 role: Role::User,
                                 content: vec![ContentBlock::text(feedback)],
-                                turn_id: None,
+                                turn_id: Some(turn_message_id.clone()),
                             })
                             .await?;
                         continue;
+                    }
+                    Err(EngineError::Llm(e))
+                        if content_filter_attempts < max_content_filter_retries
+                            && is_content_filter_error(&e) =>
+                    {
+                        // Provider content-moderation rejection (DeepSeek
+                        // "Content Exists Risk" et al.). The flagged content
+                        // is almost always a persisted history message —
+                        // replaying it re-triggers the filter every turn and
+                        // bricks the thread. Localize the offending message
+                        // via binary search, mark it redacted (future
+                        // `load_history` substitutes a placeholder), and
+                        // retry. Withheld-error pattern: don't surface to the
+                        // channel while recovery can still run.
+                        content_filter_attempts += 1;
+                        warn!(
+                            thread_id = thread_id.as_str(),
+                            attempt = content_filter_attempts,
+                            max = max_content_filter_retries,
+                            error = %e,
+                            "provider content filter rejected the request; \
+                             localizing and redacting the poison history message"
+                        );
+                        match self
+                            .localize_and_redact_poison(&thread_id, &system_segments, &tool_schemas)
+                            .await?
+                        {
+                            PoisonLocation::Redacted(ids) => {
+                                warn!(
+                                    thread_id = thread_id.as_str(),
+                                    redacted = ids.len(),
+                                    "redacted poison message(s); retrying turn"
+                                );
+                                continue;
+                            }
+                            PoisonLocation::Unredactable => {
+                                // Poison sits in a user message or the system
+                                // prompt — we won't silently rewrite the
+                                // user's own words. Emit a graceful notice and
+                                // end the turn cleanly; the thread stays usable
+                                // for the next message.
+                                warn!(
+                                    thread_id = thread_id.as_str(),
+                                    "content-filter poison not in a redactable message; \
+                                     ending turn with degraded notice"
+                                );
+                                let notice = "抱歉，本轮对话中包含无法通过内容安全审核的内容，\
+                                    我暂时无法继续处理。请换一种表述，或开启一个新的话题。";
+                                self.state
+                                    .append_message(&NewMessage {
+                                        thread_id: thread_id.clone(),
+                                        session_id,
+                                        role: Role::Assistant,
+                                        content: vec![ContentBlock::text(notice)],
+                                        turn_id: Some(turn_message_id.clone()),
+                                    })
+                                    .await?;
+                                let outbound_files = drain_outbound(&outbound_slot);
+                                return Ok(TurnOutcome {
+                                    session_id,
+                                    assistant_text: notice.to_string(),
+                                    iterations,
+                                    usage: total_usage,
+                                    outbound_files,
+                                });
+                            }
+                        }
                     }
                     Err(e) => return Err(e),
                 };
                 total_usage.add(&resp.usage);
                 // Per-iteration cache visibility. `cache_creation_input_tokens`
-                // = cost of writing this turn's prefix to cache;
-                // `cache_read_input_tokens` = bill avoided by reading from it.
+                // = the cost of writing this turn's prefix to the cache;
+                // `cache_read_input_tokens` = bill avoided by reading from
+                // it. Cache hit rate = read / (read + creation + fresh_input).
+                // Logged at debug per-iteration; aggregated at turn end.
                 if resp.usage.cache_creation_input_tokens.is_some()
                     || resp.usage.cache_read_input_tokens.is_some()
                 {
@@ -863,14 +910,18 @@ impl Engine {
                     );
                 }
 
-                // Skip persisting an empty assistant response. A turn with no
-                // text/thinking/tool_use blocks would poison every later turn —
-                // DeepSeek/OpenAI reject an assistant message with neither
-                // `content` nor `tool_calls`. End the turn cleanly instead.
+                // Skip persisting an empty assistant response. A turn that
+                // produced no text / thinking / tool_use blocks at all would
+                // poison every subsequent turn — DeepSeek and OpenAI both
+                // reject an assistant message with neither `content` nor
+                // `tool_calls` set (`invalid_request_error: Invalid assistant
+                // message: content or tool_calls must be set`). End the turn
+                // cleanly so the thread stays usable.
                 if resp.message.content.is_empty() {
                     warn!(
                         thread_id = thread_id.as_str(),
                         iterations,
+                        stop_reason = ?resp.stop_reason,
                         "LLM returned no content blocks; ending turn without persisting empty assistant message"
                     );
                     let outbound_files = drain_outbound(&outbound_slot);
@@ -891,7 +942,7 @@ impl Engine {
                         session_id,
                         role: Role::Assistant,
                         content: resp.message.content.clone(),
-                        turn_id: None,
+                        turn_id: Some(turn_message_id.clone()),
                     })
                     .await?;
 
@@ -941,7 +992,10 @@ impl Engine {
                     let cache_read = total_usage.cache_read_input_tokens.unwrap_or(0);
                     // Hit rate among input-side billing: how much of this
                     // turn's input bytes were served from cache vs. paid
-                    // fresh. Stays 0 when no cache info is returned.
+                    // fresh. Denominator combines fresh input + cache-read +
+                    // cache-creation so the ratio reflects what the user
+                    // paid for end-to-end. Stays at 0 when no cache info is
+                    // returned (non-Anthropic provider or cache disabled).
                     let cache_denom = total_usage.input_tokens + cache_read + cache_creation;
                     let cache_hit_rate = if cache_denom > 0 {
                         cache_read as f64 / cache_denom as f64
@@ -1025,7 +1079,7 @@ impl Engine {
                 }
 
                 // Tool calls — execute each, then append a tool message with the results.
-                let tool_results = match self
+                let tool_batch = match self
                     .run_tool_calls(
                         &resp.message.content,
                         &assistant_msg.id,
@@ -1040,9 +1094,11 @@ impl Engine {
                     Ok(v) => v,
                     Err(EngineError::LoopGuardTripped { tool, count }) => {
                         // Stash a one-shot hint keyed by thread so the next
-                        // turn's system prompt can tell the model "you looped
-                        // on X — try something else". Without it, the next
-                        // turn often re-walks straight back into the loop.
+                        // turn's system prompt can tell the model "you
+                        // looped on X — try something else". Without this,
+                        // the next turn starts with no memory of why the
+                        // previous one died and often re-walks straight
+                        // back into the same loop.
                         let snippet = loop_guard_input_snippet(&resp.message.content, &tool);
                         if let Ok(mut map) = self.loop_guard_hints.lock() {
                             map.insert(
@@ -1059,7 +1115,7 @@ impl Engine {
                     Err(e) => return Err(e),
                 };
 
-                if tool_results.is_empty() {
+                if tool_batch.blocks.is_empty() {
                     // Model said "tool_use" but emitted no tool blocks — defensive
                     // exit; treat as terminal so we don't loop forever.
                     warn!("stop_reason=ToolUse but no ToolUse blocks; treating as terminal");
@@ -1079,10 +1135,40 @@ impl Engine {
                         thread_id: thread_id.clone(),
                         session_id,
                         role: Role::Tool,
-                        content: tool_results,
-                        turn_id: None,
+                        content: tool_batch.blocks,
+                        turn_id: Some(turn_message_id.clone()),
                     })
                     .await?;
+
+                if self.config.repeated_tool_failure_feedback {
+                    let mut feedback: Option<String> = None;
+                    for failure in tool_batch.failures {
+                        let key = (failure.tool.clone(), failure.input_signature.clone());
+                        let count = repeated_tool_failures.entry(key).or_insert(0);
+                        *count += 1;
+                        if *count >= 2 {
+                            feedback = Some(repeated_tool_failure_feedback(&failure, *count));
+                            warn!(
+                                tool = %failure.tool,
+                                count = *count,
+                                "repeated identical tool failure; injecting diagnostic feedback"
+                            );
+                            break;
+                        }
+                    }
+                    if let Some(text) = feedback {
+                        self.state
+                            .append_message(&NewMessage {
+                                thread_id: thread_id.clone(),
+                                session_id,
+                                role: Role::User,
+                                content: vec![ContentBlock::text(text)],
+                                turn_id: Some(turn_message_id.clone()),
+                            })
+                            .await?;
+                        continue;
+                    }
+                }
             }
         };
 
@@ -1133,8 +1219,7 @@ impl Engine {
                 id: thread_id.clone(),
                 tenant_id: tenant_id.clone(),
                 project_id: project_id.clone(),
-                // IM-side threads aren't user-titled; left blank.
-                title: String::new(),
+                title: "New conversation".to_string(),
             })
             .await;
         match insert_res {
@@ -1175,15 +1260,7 @@ impl Engine {
                         self.config.protect_first_n.max(1) as u32,
                     )
                     .await?;
-                head_rows
-                    .into_iter()
-                    .map(|r| Message {
-                        id: r.id,
-                        role: r.role,
-                        content: r.content,
-                        created_at: r.created_at,
-                    })
-                    .collect()
+                head_rows.into_iter().map(message_from_persisted).collect()
             } else {
                 Vec::new()
             };
@@ -1192,7 +1269,7 @@ impl Engine {
                 .messages_after(
                     thread_id,
                     &comp.summary_until_message_id,
-                    self.config.history_limit,
+                    self.config.conversation_history_limit,
                 )
                 .await?;
             let mut out = Vec::with_capacity(head.len() + live.len() + 1);
@@ -1211,55 +1288,226 @@ impl Engine {
                 ))],
                 created_at: comp.compacted_at,
             });
-            let live_msgs: Vec<Message> = live
-                .into_iter()
-                .map(|r| Message {
-                    id: r.id,
-                    role: r.role,
-                    content: r.content,
-                    created_at: r.created_at,
-                })
-                .collect();
+            let live_msgs: Vec<Message> = live.into_iter().map(message_from_persisted).collect();
             // Apply the byte cap to the live tail too — the summary
             // preamble already shrinks the history by definition, but
             // a single oversized post-compaction message (e.g. a
             // tool_result carrying a freshly extracted PDF body) can
             // still blow the window.
-            let bounded = enforce_history_byte_cap(live_msgs, self.config.history_max_bytes);
-            let repaired = repair_orphan_tool_uses(bounded);
+            let bounded = enforce_history_byte_cap(
+                live_msgs,
+                self.config.history_max_bytes,
+                self.config.compact_keep_recent,
+                self.config.max_tool_result_bytes,
+            );
             // Collapse old read-only tool_results so the model
             // doesn't re-pay token budget for stale Read/Grep
             // output on every turn after compaction. The kept tail
             // matches `compact_keep_recent` so the model still
-            // sees its most recent tool work verbatim.
+            // sees its most recent tool work verbatim. Pairing repair
+            // happens once at the request boundary
+            // (`ensure_tool_result_pairing` in `call_llm_and_prerun`)
+            // over the whole `head ++ summary ++ live` assembly.
+            //
+            // Order matters: byte-cap runs before collapse. A byte-cap
+            // marker is intentionally tiny (well under
+            // `collapse_tool_results_threshold`), so collapse leaves it
+            // alone and the two elision markers never fight.
             let collapsed = collapse_old_tool_results(
-                repaired,
+                bounded,
                 self.config.compact_keep_recent,
                 self.config.collapse_tool_results_threshold,
             );
             out.extend(collapsed);
             return Ok(out);
         }
-        let rows = self
-            .state
-            .recent_messages(thread_id, self.config.history_limit)
-            .await?;
-        let messages: Vec<Message> = rows
-            .into_iter()
-            .map(|r| Message {
-                id: r.id,
-                role: r.role,
-                content: r.content,
-                created_at: r.created_at,
-            })
-            .collect();
-        let bounded = enforce_history_byte_cap(messages, self.config.history_max_bytes);
-        let repaired = repair_orphan_tool_uses(bounded);
+        // Dual window: pull a generous candidate pool of raw rows, then
+        // size the kept window by *conversational* (User+Assistant)
+        // message count via a whole-prefix cut, so a couple of huge
+        // Role::Tool dumps can't evict the user's earlier goals/files
+        // the way a flat last-N-rows window does.
+        let pool_limit = self.config.pool_limit();
+        let rows = self.state.recent_messages(thread_id, pool_limit).await?;
+        let messages: Vec<Message> = rows.into_iter().map(message_from_persisted).collect();
+        let windowed =
+            trim_to_conversation_window(messages, self.config.conversation_history_limit as usize);
+        let bounded = enforce_history_byte_cap(
+            windowed,
+            self.config.history_max_bytes,
+            self.config.compact_keep_recent,
+            self.config.max_tool_result_bytes,
+        );
+        // Pairing repair is deferred to the request boundary
+        // (`ensure_tool_result_pairing` in `call_llm_and_prerun`).
         Ok(collapse_old_tool_results(
-            repaired,
+            bounded,
             self.config.compact_keep_recent,
             self.config.collapse_tool_results_threshold,
         ))
+    }
+
+    /// One localize-and-redact round for a `LlmError::ContentFiltered`.
+    ///
+    /// Loads the current thread window, then binary-searches the
+    /// redactable messages (tool_results + assistant messages) to the
+    /// single row whose content trips the provider's moderation filter,
+    /// marks it redacted, and returns [`PoisonLocation::Redacted`]. When
+    /// even redacting every redactable message can't clear the filter the
+    /// poison lives in a user message or the system prompt, which we won't
+    /// silently rewrite — returns [`PoisonLocation::Unredactable`] so the
+    /// caller can degrade gracefully.
+    ///
+    /// Each probe is a minimal (`max_tokens = 1`) LLM call: moderation acts
+    /// on the request *input*, so a one-token completion is enough to learn
+    /// whether a given redaction set passes. Probe count is
+    /// `O(log n)`-ish and hard-capped; the outer
+    /// `content_filter_max_retries` bounds how many rounds run in a turn,
+    /// so multiple independent poison messages are peeled off one per round.
+    async fn localize_and_redact_poison(
+        &self,
+        thread_id: &ThreadId,
+        system_segments: &[SystemSegment],
+        tool_schemas: &[ToolSchema],
+    ) -> EngineResult<PoisonLocation> {
+        let rows = self
+            .state
+            .recent_messages(thread_id, self.config.pool_limit())
+            .await?;
+        // Only rows that actually reach the model can be the culprit —
+        // build the probe history once with nothing redacted and keep the
+        // ids it contains. Rows that `build_probe_history` windows or
+        // byte-caps out (or collapses to an elision marker) can't affect a
+        // probe, so leaving them in `candidates` would only inflate the
+        // search and risk hitting `probe_cap` before isolating the poison.
+        let in_window: HashSet<MessageId> =
+            build_probe_history(&rows, &HashSet::new(), &self.config)
+                .iter()
+                .map(|m| m.id)
+                .collect();
+        // Redactable candidates: in-window tool_results and assistant
+        // messages that aren't already redacted. User messages are excluded
+        // — redacting them would rewrite the user's own words; if the poison
+        // is there we degrade instead. Already-redacted rows are held
+        // redacted by `build_probe_history` but aren't re-localized.
+        let candidates: Vec<MessageId> = rows
+            .iter()
+            .filter(|r| matches!(r.role, Role::Tool | Role::Assistant))
+            .filter(|r| r.redacted_at.is_none())
+            .filter(|r| in_window.contains(&r.id))
+            .map(|r| r.id)
+            .collect();
+        if candidates.is_empty() {
+            return Ok(PoisonLocation::Unredactable);
+        }
+
+        // Hard cap on probes so a pathological thread can't spin the LLM.
+        let probe_cap: u32 = 24;
+        let mut probes: u32 = 0;
+
+        // Coarse check: redact ALL candidates. If the filter still fires,
+        // the poison is outside the redactable set (user/system).
+        let all: HashSet<MessageId> = candidates.iter().copied().collect();
+        probes += 1;
+        if self
+            .probe_content_filter(system_segments, &rows, &all, tool_schemas)
+            .await?
+            == ProbeOutcome::Filtered
+        {
+            return Ok(PoisonLocation::Unredactable);
+        }
+
+        // Binary search for one offending row. Invariant across the loop:
+        //   probe(base)            == Filtered  (poison still present)
+        //   probe(base ∪ suspects) == Passed    (redacting suspects clears it)
+        // `base` starts empty — probe(∅) mirrors the real failing request.
+        let mut base: HashSet<MessageId> = HashSet::new();
+        let mut suspects: Vec<MessageId> = candidates;
+        while suspects.len() > 1 && probes < probe_cap {
+            let mid = suspects.len() / 2;
+            let left = suspects[..mid].to_vec();
+            let right = suspects[mid..].to_vec();
+
+            // Does redacting `right` (on top of base) clear the filter?
+            let mut set = base.clone();
+            set.extend(right.iter().copied());
+            probes += 1;
+            if self
+                .probe_content_filter(system_segments, &rows, &set, tool_schemas)
+                .await?
+                == ProbeOutcome::Passed
+            {
+                suspects = right;
+                continue;
+            }
+
+            // No — try `left` alone.
+            let mut set = base.clone();
+            set.extend(left.iter().copied());
+            probes += 1;
+            if self
+                .probe_content_filter(system_segments, &rows, &set, tool_schemas)
+                .await?
+                == ProbeOutcome::Passed
+            {
+                suspects = left;
+                continue;
+            }
+
+            // Neither half alone clears it → poison in BOTH halves. Hold
+            // `right` redacted (in memory only) and narrow into `left`. The
+            // invariant is preserved: probe(base ∪ right) is Filtered, and
+            // probe(base ∪ right ∪ left) == probe(base ∪ suspects) Passed.
+            // Only the finally-isolated row is ever persisted, so this
+            // never over-redacts innocent history.
+            base.extend(right.iter().copied());
+            suspects = left;
+        }
+
+        // Only persist a redaction when the search actually isolated a
+        // single row. If we exited because `probe_cap` was hit with more
+        // than one suspect left, `suspects[0]` is a guess that might be an
+        // innocent row (and might not even be the poison) — marking it would
+        // over-redact without healing. Degrade gracefully instead.
+        if suspects.len() != 1 {
+            warn!(
+                thread_id = thread_id.as_str(),
+                probes,
+                remaining = suspects.len(),
+                "content-filter localization hit the probe cap without isolating \
+                 a single row; degrading instead of guessing"
+            );
+            return Ok(PoisonLocation::Unredactable);
+        }
+
+        let target = suspects[0];
+        self.state.mark_message_redacted(&target).await?;
+        Ok(PoisonLocation::Redacted(vec![target]))
+    }
+
+    /// Minimal moderation probe: build the candidate history (with
+    /// `redact_ids` ∪ already-redacted rows neutralized), send it with
+    /// `max_tokens = 1`, and report whether the provider's content filter
+    /// fired. Non-moderation errors propagate — a transient during
+    /// localization aborts the round rather than silently mislabeling.
+    async fn probe_content_filter(
+        &self,
+        system_segments: &[SystemSegment],
+        rows: &[snaca_state::MessageRow],
+        redact_ids: &HashSet<MessageId>,
+        tool_schemas: &[ToolSchema],
+    ) -> EngineResult<ProbeOutcome> {
+        let history = build_probe_history(rows, redact_ids, &self.config);
+        let history = ensure_tool_result_pairing(history);
+        let req = MessageRequest::new(&self.config.model)
+            .with_system_segments(system_segments.to_vec())
+            .with_messages(history)
+            .with_tools(tool_schemas.to_vec())
+            .with_max_tokens(1);
+        match self.llm.create_message(req).await {
+            Ok(_) => Ok(ProbeOutcome::Passed),
+            Err(LlmError::ContentFiltered { .. }) => Ok(ProbeOutcome::Filtered),
+            Err(e) => Err(EngineError::Llm(e)),
+        }
     }
 
     /// Fire the configured `MemoryExtractor` on a background task. The
@@ -1273,16 +1521,15 @@ impl Engine {
         };
         let state = self.state.clone();
         let workspace = self.workspace.clone();
-        let sink = self.memory_sink.clone();
-        // Pull *all* recent messages from the thread the worker can
-        // see — same window the engine uses for retrieval, so the
-        // extractor sees the same context the LLM did.
-        let history_limit = self.config.history_limit;
-        let default_confidence = self.config.extractor_default_confidence;
+        let memory_provider = self.memory_provider.clone();
+        // Pull recent messages from the thread the worker can see. Use
+        // the conversational window's raw-row pool so the extractor sees
+        // roughly the same context the LLM did.
+        let pool_limit = self.config.pool_limit();
         // Per-project serial lock so two concurrent extractor tasks on
         // the same project don't trample each other's `MEMORY.md`
-        // regeneration or same-name entry writes. Map insert is fast and
-        // synchronous; the actual lock is held across awaits.
+        // regeneration or same-name entry writes. Map insert is fast
+        // and synchronous; the actual lock is held across awaits.
         let project_lock = {
             let mut map = self
                 .extraction_locks
@@ -1294,22 +1541,14 @@ impl Engine {
         };
         tokio::spawn(async move {
             let _g = project_lock.lock().await;
-            let rows = match state.recent_messages(&thread, history_limit).await {
+            let rows = match state.recent_messages(&thread, pool_limit).await {
                 Ok(r) => r,
                 Err(e) => {
                     warn!(error = %e, "extractor: history fetch failed");
                     return;
                 }
             };
-            let messages: Vec<Message> = rows
-                .into_iter()
-                .map(|r| Message {
-                    id: r.id,
-                    role: r.role,
-                    content: r.content,
-                    created_at: r.created_at,
-                })
-                .collect();
+            let messages: Vec<Message> = rows.into_iter().map(message_from_persisted).collect();
             let proposals = extractor.extract(&tenant, &project, &messages).await;
             if proposals.is_empty() {
                 return;
@@ -1328,42 +1567,75 @@ impl Engine {
                     );
                     continue;
                 }
-                // Wrap the proposal body in YAML frontmatter so recall
-                // can downweight by `confidence` and the index can audit
-                // `source`. Missing confidence falls back to the engine's
-                // configured default rather than full trust.
-                let confidence = proposal.confidence.unwrap_or(default_confidence);
+                // Wrap the proposal body in YAML frontmatter so the
+                // index can audit `source` and `created_at`. The
+                // legacy `confidence` field is no longer consumed
+                // (the vector recall layer that used it has been
+                // removed); proposal.confidence is still surfaced
+                // through the extractor → write log so operators can
+                // see what the extractor was thinking.
+                let confidence = proposal.confidence;
                 let meta = snaca_memory::MemoryMeta {
                     source: Some("extractor".into()),
-                    confidence: Some(confidence),
+                    confidence: None,
                     created_at: Some(chrono::Utc::now().to_rfc3339()),
                 };
                 let wrapped = snaca_memory::render_with_frontmatter(&meta, &proposal.content);
+                if let Some(provider) = memory_provider.clone() {
+                    let scope_str = proposal.scope.as_str().to_string();
+                    let name_str = proposal.name.clone();
+                    match provider
+                        .write(MemoryWriteRequest {
+                            tenant_id: tenant.clone(),
+                            project_id: project.clone(),
+                            scope: scope_str.clone(),
+                            name: name_str.clone(),
+                            content: wrapped,
+                        })
+                        .await
+                    {
+                        Ok(entry) => {
+                            debug!(
+                                scope = entry.scope.as_str(),
+                                name = entry.name.as_str(),
+                                confidence = ?confidence,
+                                "extractor wrote memory entry through provider"
+                            );
+                            // Fire-and-forget hook so observers can
+                            // mirror or invalidate caches. We don't
+                            // bubble errors — the hook is advisory.
+                            if let Err(e) = provider
+                                .on_memory_write(&snaca_agent_api::MemoryWriteCtx {
+                                    tenant_id: tenant.clone(),
+                                    project_id: project.clone(),
+                                    action: snaca_agent_api::MemoryWriteAction::Extractor,
+                                    scope: scope_str,
+                                    name: name_str,
+                                })
+                                .await
+                            {
+                                warn!(error = %e, "memory provider on_memory_write hook failed");
+                            }
+                        }
+                        Err(e) => warn!(
+                            scope = %proposal.scope,
+                            name = proposal.name.as_str(),
+                            error = %e,
+                            "extractor provider write failed"
+                        ),
+                    }
+                    continue;
+                }
                 match store
-                    .write(proposal.scope, &proposal.name, &wrapped)
+                    .write_force(proposal.scope, &proposal.name, &wrapped)
                     .await
                 {
-                    Ok(entry) => {
-                        debug!(
-                            scope = %entry.scope,
-                            name = entry.name.as_str(),
-                            confidence,
-                            "extractor wrote memory entry"
-                        );
-                        // The extractor writes through `MemoryStore::write`
-                        // which both creates and overwrites without
-                        // distinguishing. We can't tell created vs updated
-                        // cheaply here, so default to `Updated` — the host
-                        // refreshes the list on either and a stale "new"
-                        // badge is worse than a stale "modified" one.
-                        if let Some(s) = &sink {
-                            s.on_memory_changed(
-                                entry.scope,
-                                entry.name.as_str(),
-                                crate::memory_sink::MemoryAction::Updated,
-                            );
-                        }
-                    }
+                    Ok(entry) => debug!(
+                        scope = %entry.scope,
+                        name = entry.name.as_str(),
+                        confidence = ?confidence,
+                        "extractor wrote memory entry"
+                    ),
                     Err(e) => warn!(
                         scope = %proposal.scope,
                         name = proposal.name.as_str(),
@@ -1376,283 +1648,120 @@ impl Engine {
     }
 
     /// Compose the system prompt actually sent to the LLM for one turn:
-    /// base prompt + optional `## Project Memory` index + optional
-    /// `## Relevant Memories` recall. Both memory sections are
-    /// best-effort — IO or embedder failures fall back to the base
-    /// prompt rather than aborting the turn, since memory is auxiliary
-    /// context, not a hard requirement.
+    /// base prompt + frozen `## Project Memory` snapshot. The snapshot
+    /// is rendered once per thread and reused verbatim on every
+    /// subsequent turn — the entire prefix stays byte-stable so the
+    /// LLM provider's prompt cache holds. `MemoryWrite` calls and the
+    /// post-turn extractor still hit disk, but their effects only
+    /// surface in the next thread (or after an explicit
+    /// [`Self::invalidate_memory_snapshot`] call).
     ///
-    /// Returns the prompt as ordered [`SystemSegment`]s so the provider
-    /// layer can apply prompt-cache breakpoints precisely: the base +
-    /// MEMORY.md prefix is `cacheable`, the per-turn recall block is
-    /// not. DeepSeek/OpenAI flatten back to a single string.
+    /// IO failures degrade gracefully: a project with no memory tree
+    /// or a transient read error caches an empty snapshot for the
+    /// thread instead of bouncing the turn.
     async fn system_prompt_for(
         &self,
         tenant: &TenantId,
         project: &ProjectId,
         thread: &ThreadId,
-        user_query: &str,
+        _user_query: &str,
         loop_guard_hint: Option<&LoopGuardHint>,
     ) -> Vec<SystemSegment> {
-        let memory_dir = self.workspace.memory_dir(tenant, project);
-        let store = snaca_memory::MemoryStore::new(memory_dir);
-
-        let idx = match store.index_text().await {
-            Ok(s) => s,
-            Err(e) => {
-                warn!(error = %e, "memory index read failed; turning without memory preamble");
-                String::new()
-            }
-        };
-
-        let recall_block = if !user_query.trim().is_empty() {
-            self.retrieval_block(tenant, project, thread, &store, user_query)
+        // Live workspace file listing — recomputed every turn (cheap
+        // bounded dir read), even on the memory-snapshot cache-hit path,
+        // so the model's view of its files is never stale. It rides as a
+        // volatile segment, so this per-turn recompute never busts the
+        // cacheable memory prefix. The listing uses blocking `std::fs`
+        // syscalls (read_dir + per-entry metadata), so it runs on a
+        // `spawn_blocking` thread to keep it off the async executor; a
+        // panic falls back to an empty listing, matching the in-fn error
+        // handling.
+        let workspace_dir = self.workspace.workspace_dir(tenant, project);
+        let workspace_files =
+            tokio::task::spawn_blocking(move || render_workspace_files(&workspace_dir))
                 .await
-        } else {
-            String::new()
-        };
+                .unwrap_or_default();
+
+        // Cache hit on the second-and-later turns of a thread; this
+        // is the whole point of the frozen-snapshot model.
+        if let Some(cached) = self
+            .memory_snapshots
+            .lock()
+            .ok()
+            .and_then(|m| m.get(thread).cloned())
+        {
+            return compose_system_segments(
+                &self.config.system_prompt,
+                &cached,
+                "",
+                &workspace_files,
+                loop_guard_hint,
+            );
+        }
+
+        let snapshot_text = self.render_memory_snapshot(tenant, project).await;
+
+        if let Ok(mut map) = self.memory_snapshots.lock() {
+            map.insert(thread.clone(), Arc::new(snapshot_text.clone()));
+        }
 
         compose_system_segments(
             &self.config.system_prompt,
-            &idx,
-            &recall_block,
+            &snapshot_text,
+            "",
+            &workspace_files,
             loop_guard_hint,
         )
     }
 
-    /// Run vector recall against the project memory and render the
-    /// `## Relevant Memories` block. Returns an empty string when no
-    /// embedder is wired, the embedding fails, or no entry hits the
-    /// minimum-score threshold. Each hit gets its name + a short
-    /// excerpt of its content; the whole block is hard-capped at
-    /// `RECALL_MAX_BYTES` so a runaway memory tree can't bloat every
-    /// system prompt.
-    async fn retrieval_block(
-        &self,
-        tenant: &TenantId,
-        project: &ProjectId,
-        thread: &ThreadId,
-        store: &snaca_memory::MemoryStore,
-        query: &str,
-    ) -> String {
-        let Some(embedder) = self.embedder.clone() else {
-            return String::new();
-        };
-        let idx = snaca_memory::IndexedMemoryStore::new(
-            store.clone(),
-            self.state.clone(),
-            embedder,
-            tenant.clone(),
-            project.clone(),
-        );
-        // `MemoryWriteTool` writes directly through the file tree
-        // without touching the vector table (it doesn't carry a
-        // Database / Embedder handle by design). Catch the index up
-        // before searching — cheap when everything's already in sync.
-        if let Err(e) = idx.ensure_indexed().await {
-            warn!(error = %e, "ensure_indexed failed before recall; some entries may be missing");
+    /// Render the full memory tree as the frozen snapshot text used
+    /// inside `## Project Memory`. Pulled out of `system_prompt_for`
+    /// so tests and the future `on_session_switch` hook can call it
+    /// directly. IO errors are logged and surfaced as an empty
+    /// string — no memory beats a poisoned turn.
+    async fn render_memory_snapshot(&self, tenant: &TenantId, project: &ProjectId) -> String {
+        // SDK-injected provider: defer to its `index` text. We cannot
+        // call snaca-memory's snapshot renderer through the trait
+        // without leaking concrete types, so the provider's `index`
+        // is the snapshot for that case. The built-in
+        // `FileTreeMemoryProvider` returns `MEMORY.md` here, which
+        // is a structurally similar listing.
+        if let Some(provider) = self.memory_provider.clone() {
+            return match provider
+                .index(MemoryIndexRequest {
+                    tenant_id: tenant.clone(),
+                    project_id: project.clone(),
+                })
+                .await
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(error = %e, "memory provider index read failed; turning without memory preamble");
+                    String::new()
+                }
+            };
         }
-        // Pull a wider candidate pool when a reranker is attached;
-        // otherwise stop at the final cap (saves an entire DB read).
-        // Dedup against `surfaced_memories` thins the candidate set
-        // further down — request the pool size even without a
-        // reranker so dedup has room to drop entries without
-        // emptying the recall block.
-        let pool_size = if self.reranker.is_some() || self.surfaced_has_entries(thread) {
-            RECALL_POOL_SIZE
-        } else {
-            RECALL_TOP_K
-        };
-        let hits = match idx.search(query, pool_size).await {
-            Ok(h) => h,
+
+        let memory_dir = self.workspace.memory_dir(tenant, project);
+        let store = snaca_memory::MemoryStore::new(memory_dir);
+        match snaca_memory::render_snapshot(&store, &snaca_memory::RenderConfig::default()).await {
+            Ok(snap) => snap.text,
             Err(e) => {
-                warn!(error = %e, "memory vector recall failed; skipping retrieval block");
-                return String::new();
+                warn!(error = %e, "memory snapshot render failed; turning without memory preamble");
+                String::new()
             }
-        };
-        if hits.is_empty() {
-            return String::new();
-        }
-        // Apply the floor *before* rerank so we never ask the LLM to
-        // judge entries that even cosine thought were unrelated.
-        let mut filtered: Vec<_> = hits
-            .into_iter()
-            .filter(|h| h.score >= RECALL_MIN_SCORE)
-            .collect();
-        if filtered.is_empty() {
-            return String::new();
-        }
-        // Drop entries already surfaced through earlier turns on this
-        // thread — the model has seen them in recent context and a
-        // second copy just bloats the prompt. Falls back to the
-        // unfiltered set when dedup would empty the recall (better
-        // some repetition than zero hits).
-        let before_dedup = filtered.len();
-        let deduped: Vec<_> = {
-            let surfaced = self.surfaced_snapshot(thread);
-            filtered
-                .iter()
-                .filter(|h| !surfaced.contains(&(h.scope, h.name.clone())))
-                .cloned()
-                .collect()
-        };
-        if !deduped.is_empty() {
-            filtered = deduped;
-            if filtered.len() != before_dedup {
-                debug!(
-                    thread_id = thread.as_str(),
-                    kept = filtered.len(),
-                    skipped = before_dedup - filtered.len(),
-                    "filtered already-surfaced memories from recall pool"
-                );
-            }
-        }
-
-        // Rerank optional. Body lookup happens here so the reranker
-        // sees full content, not just names. Frontmatter parsing folds
-        // in two checks: the body shown to the model is post-frontmatter
-        // (no YAML leakage), and when an entry sets `confidence`
-        // explicitly we multiply cosine by it and drop hits below
-        // `recall_confidence_floor`. Legacy entries (no frontmatter) are
-        // not subject to this extra floor — `RECALL_MIN_SCORE` upstream
-        // is their only gate, preserving prior behaviour.
-        let floor = self.config.recall_confidence_floor;
-        let candidates: Vec<crate::reranker::RerankCandidate> = {
-            let mut out = Vec::with_capacity(filtered.len());
-            for h in filtered.drain(..) {
-                let (meta, body) = match store.read_with_meta(h.scope, &h.name).await {
-                    Ok(v) => v,
-                    Err(e) => {
-                        warn!(scope = %h.scope, name = %h.name, error = %e, "memory body read failed during recall");
-                        continue;
-                    }
-                };
-                let (adjusted, confidence_applied) = match meta.confidence {
-                    Some(c) => (h.score * c, Some(c)),
-                    None => (h.score, None),
-                };
-                if confidence_applied.is_some() && adjusted < floor {
-                    debug!(
-                        scope = %h.scope,
-                        name = %h.name,
-                        cosine = h.score,
-                        confidence = confidence_applied.unwrap_or(1.0),
-                        adjusted,
-                        floor,
-                        "recall: dropping low-confidence-adjusted hit"
-                    );
-                    continue;
-                }
-                out.push(crate::reranker::RerankCandidate {
-                    scope: h.scope,
-                    name: h.name,
-                    content: body,
-                    initial_score: adjusted,
-                });
-            }
-            out
-        };
-        if candidates.is_empty() {
-            return String::new();
-        }
-        let ranked: Vec<crate::reranker::RerankCandidate> = match &self.reranker {
-            Some(r) => r.rerank(query, candidates, RECALL_TOP_K).await,
-            None => {
-                // Sort by adjusted score; multiplying by confidence may
-                // have flipped the cosine ordering. `partial_cmp` can't
-                // fail on the floats here, but fall back defensively.
-                let mut v = candidates;
-                v.sort_by(|a, b| {
-                    b.initial_score
-                        .partial_cmp(&a.initial_score)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-                v.truncate(RECALL_TOP_K);
-                v
-            }
-        };
-        if ranked.is_empty() {
-            return String::new();
-        }
-
-        let mut out = String::new();
-        let mut included = 0usize;
-        let mut surfaced_this_call: Vec<SurfacedKey> = Vec::new();
-        for candidate in ranked {
-            let body_excerpt = excerpt(&candidate.content, RECALL_EXCERPT_BYTES);
-            let next = format!(
-                "### `{}/{}` (score {:.2})\n{}\n\n",
-                candidate.scope.as_str(),
-                candidate.name,
-                candidate.initial_score,
-                body_excerpt
-            );
-            if out.len() + next.len() > RECALL_MAX_BYTES {
-                break;
-            }
-            out.push_str(&next);
-            surfaced_this_call.push((candidate.scope, candidate.name.clone()));
-            included += 1;
-        }
-        if included == 0 {
-            return String::new();
-        }
-        // Record what we actually spliced in. Future turns on this
-        // thread filter their candidate pool against this ring, so a
-        // long conversation doesn't repeatedly re-spend its recall
-        // budget on the same entries.
-        self.record_surfaced(thread, &surfaced_this_call);
-        out
-    }
-
-    /// Snapshot of memories already shown in earlier recall blocks for
-    /// this thread. Returned as `HashSet` so callers can check
-    /// membership in `O(1)` while filtering. Empty when the thread has
-    /// no prior recall (the common case for new conversations).
-    fn surfaced_snapshot(&self, thread: &ThreadId) -> std::collections::HashSet<SurfacedKey> {
-        let Ok(guard) = self.surfaced_memories.lock() else {
-            return Default::default();
-        };
-        match guard.get(thread) {
-            Some(ring) => ring.iter().cloned().collect(),
-            None => Default::default(),
         }
     }
 
-    /// Whether the dedup ring has any entry for this thread. Cheaper
-    /// than `surfaced_snapshot` when we just need a boolean (sizing
-    /// the candidate pool). Returns false when the lock is poisoned
-    /// since the conservative move is "no dedup state".
-    fn surfaced_has_entries(&self, thread: &ThreadId) -> bool {
-        let Ok(guard) = self.surfaced_memories.lock() else {
-            return false;
-        };
-        guard.get(thread).is_some_and(|r| !r.is_empty())
-    }
-
-    /// Push the entries we just surfaced into the per-thread ring.
-    /// Ring capped at `SURFACED_RING_CAP` — old entries fall off the
-    /// front and become eligible to resurface, which is the right
-    /// trade-off: if the model needed an entry 30 turns ago, surfacing
-    /// it again is fine.
-    fn record_surfaced(&self, thread: &ThreadId, entries: &[SurfacedKey]) {
-        if entries.is_empty() {
-            return;
-        }
-        let Ok(mut guard) = self.surfaced_memories.lock() else {
-            return;
-        };
-        let ring = guard.entry(thread.clone()).or_default();
-        for entry in entries {
-            // Avoid duplicate consecutive entries: if the same memory
-            // came up twice in a row (rare but possible), don't
-            // double-count it against the ring capacity.
-            if !ring.iter().any(|e| e == entry) {
-                ring.push_back(entry.clone());
-                while ring.len() > SURFACED_RING_CAP {
-                    ring.pop_front();
-                }
-            }
+    /// Drop the cached frozen snapshot for `thread`. The next turn on
+    /// that thread re-renders from disk. Call this from session-reset
+    /// flows (future `/reset` slash command, or when the session id
+    /// is rolled forward by a compaction). No-op when the lock is
+    /// poisoned — the worst case is a stale prompt for one extra
+    /// turn.
+    pub fn invalidate_memory_snapshot(&self, thread: &ThreadId) {
+        if let Ok(mut map) = self.memory_snapshots.lock() {
+            map.remove(thread);
         }
     }
 
@@ -1678,16 +1787,75 @@ impl Engine {
         last_input_tokens: u32,
         keep_recent_override: Option<usize>,
     ) -> EngineResult<()> {
+        // Memory-provider hook before we touch anything: gives the
+        // provider a chance to mine durable facts from the
+        // soon-to-be-discarded middle band. We pass a best-effort
+        // transcript excerpt rather than the raw `Message` rows so
+        // the provider doesn't have to depend on snaca-state.
+        // Errors are logged and discarded — the hook is advisory.
+        if let Some(provider) = self.memory_provider.clone() {
+            // Pull the same window we'll compact, build a short
+            // transcript excerpt. Cheap relative to the LLM
+            // summarise call that follows.
+            let preview_rows = self
+                .state
+                .recent_messages(thread_id, self.config.pool_limit())
+                .await
+                .unwrap_or_default();
+            let mut excerpt = String::new();
+            for r in &preview_rows {
+                let mut text = String::new();
+                for block in &r.content {
+                    if let ContentBlock::Text { text: t } = block {
+                        if !text.is_empty() {
+                            text.push('\n');
+                        }
+                        text.push_str(t);
+                    }
+                }
+                if text.is_empty() {
+                    continue;
+                }
+                excerpt.push_str(&format!("[{:?}] {}\n", r.role, text));
+                if excerpt.len() > 8192 {
+                    break;
+                }
+            }
+            // We don't know the active TenantId/ProjectId at this
+            // call site — `maybe_compact_thread` only carries
+            // `thread_id`. Surface them via a parsed thread_id
+            // (the dispatcher uses `chat_id::project_id`); when
+            // that fails, fall back to empty ids so the hook still
+            // fires with the transcript excerpt the provider can
+            // act on.
+            let (parsed_tenant, parsed_project) = parse_thread_id_for_hook(thread_id);
+            let ctx = snaca_agent_api::PreCompactCtx {
+                tenant_id: parsed_tenant,
+                project_id: parsed_project,
+                thread_id: thread_id.as_str().to_string(),
+                reason: if keep_recent_override.is_some() {
+                    snaca_agent_api::CompactReason::ContextOverflowRetry
+                } else {
+                    snaca_agent_api::CompactReason::InputBudgetExceeded
+                },
+                transcript_excerpt: excerpt,
+            };
+            if let Err(e) = provider.on_pre_compact(&ctx).await {
+                warn!(error = %e, "memory provider on_pre_compact hook failed");
+            }
+        }
+
         let protect_last = keep_recent_override
             .unwrap_or(self.config.compact_keep_recent)
             .max(2);
         let protect_first = self.config.protect_first_n;
-        // Pull the entire thread's messages — `history_limit * 4` keeps a
-        // safe ceiling even when load_history is summary-spliced. We need
-        // the raw row order from oldest to newest to pick the cutoffs.
+        // Pull the entire thread's messages — `pool_limit()` (history_limit
+        // * 4, clamped) keeps a safe ceiling even when load_history is
+        // summary-spliced. We need the raw row order from oldest to newest
+        // to pick the cutoffs.
         let mut all = self
             .state
-            .recent_messages(thread_id, self.config.history_limit.saturating_mul(4))
+            .recent_messages(thread_id, self.config.pool_limit())
             .await?;
         // Need at least `protect_first + protect_last + 2` rows for a
         // non-trivial middle band. Below that, compaction would either
@@ -1718,19 +1886,24 @@ impl Engine {
         // tail = 0) since the kept tail was already sliced off
         // above — the summariser doesn't need to see verbatim
         // results for anything in this set.
-        let body_msgs: Vec<Message> = body_rows
-            .iter()
-            .map(|r| Message {
-                id: r.id,
-                role: r.role,
-                content: r.content.clone(),
-                created_at: r.created_at,
-            })
-            .collect();
+        // Neutralize any already-redacted (poison) rows here too — a
+        // summary request that renders their flagged content would itself
+        // trip the provider's content filter, so `message_from_persisted`
+        // substitutes the placeholder before the body is rendered.
+        let body_count = body_rows.len();
+        let body_msgs: Vec<Message> = body_rows.into_iter().map(message_from_persisted).collect();
         let body_collapsed =
             collapse_old_tool_results(body_msgs, 0, self.config.collapse_tool_results_threshold);
-        let body_text = render_for_summary(&body_collapsed);
-        let body_count = body_rows.len();
+        // Cap each block AND the aggregate so a band of large error / Bash
+        // / write bodies (which collapse leaves verbatim) can't blow the
+        // summary request — the request meant to rescue an over-long
+        // context. 16 KiB/block is ample for a gist; the total ceiling is
+        // the hard guarantee the request itself never overflows.
+        let body_text = render_for_summary(
+            &body_collapsed,
+            SUMMARY_BLOCK_MAX_BYTES,
+            SUMMARY_TOTAL_MAX_BYTES,
+        );
 
         // Build a single-shot summarization request. We deliberately
         // re-use the engine's LLM client and the same model — using a
@@ -1824,6 +1997,64 @@ impl Engine {
         listener: &dyn TurnEventListener,
         max_tokens_override: Option<u32>,
     ) -> EngineResult<(MessageResponse, PrerunCache)> {
+        // Single pairing-invariant gate over the *complete* assembled
+        // history. `load_history` splices `head ++ summary ++ live_tail`
+        // and an orphan tool_use/tool_result can sit on any seam; running
+        // the invariant here — the one choke point every *tool-bearing*
+        // request passes through, including the prompt-too-long
+        // shrink-retry — means no assembly path can send a malformed
+        // history to the provider. (The compaction-summary and memory
+        // extractor requests bypass this, but they render history to a
+        // single flat user-text message with no tool blocks, so they
+        // can't carry an orphan.)
+        let history = ensure_tool_result_pairing(history);
+        let mut attempt: u8 = 0;
+        loop {
+            match self
+                .call_llm_and_prerun_once(
+                    system_segments,
+                    history.clone(),
+                    tool_schemas.clone(),
+                    tools,
+                    tool_ctx,
+                    listener,
+                    max_tokens_override,
+                )
+                .await
+            {
+                Ok(v) => return Ok(v),
+                Err(EngineError::Llm(e))
+                    if matches!(e, LlmError::StreamInterrupted(_))
+                        && attempt < self.config.stream_interrupted_max_retries =>
+                {
+                    attempt += 1;
+                    let delay = stream_retry_delay(attempt);
+                    warn!(
+                        attempt,
+                        max = self.config.stream_interrupted_max_retries,
+                        delay_ms = delay.as_millis() as u64,
+                        error = %e,
+                        "LLM stream interrupted; retrying the same request"
+                    );
+                    listener.on_stream_retry(attempt, &e).await;
+                    tokio::time::sleep(delay).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn call_llm_and_prerun_once(
+        &self,
+        system_segments: &[SystemSegment],
+        history: Vec<Message>,
+        tool_schemas: Vec<ToolSchema>,
+        tools: &ToolRegistry,
+        tool_ctx: &ToolContext,
+        listener: &dyn TurnEventListener,
+        max_tokens_override: Option<u32>,
+    ) -> EngineResult<(MessageResponse, PrerunCache)> {
         let mut req = MessageRequest::new(&self.config.model)
             .with_system_segments(system_segments.to_vec())
             .with_messages(history)
@@ -1853,61 +2084,80 @@ impl Engine {
         // no write ancestor in this turn.
         let mut barrier_hit = false;
 
+        // Per-text-block fence scrubbers. The model occasionally
+        // echoes our injected `<memory-context>` / `<attachments>`
+        // fences back in its visible output. If we let those through
+        // they hit two surfaces we care about: the user-facing stream
+        // (via `listener`) and the next-turn transcript (via `acc`,
+        // which the extractor later reads). Scrubbing the text deltas
+        // right here — the single chokepoint every provider's stream
+        // flows through — kills both at once. Keyed by block index so
+        // interleaved blocks don't corrupt each other's partial-tag
+        // state; the kind tag lets the flush re-emit the right delta
+        // variant.
+        let mut text_scrubbers: HashMap<
+            u32,
+            (crate::memory_fence::StreamingScrubber, FenceTextKind),
+        > = HashMap::new();
+
         while let Some(ev) = stream.next().await {
             let ev = ev?;
-            listener.on_event(&ev).await;
+            for ev in scrub_stream_event(&mut text_scrubbers, ev) {
+                listener.on_event(&ev).await;
 
-            if self.config.stream_tool_execution {
-                match &ev {
-                    StreamEvent::ContentBlockStart {
-                        index,
-                        block: ContentBlockStart::ToolUse { id, name },
-                    } => {
-                        partials.insert(
-                            *index,
-                            StreamToolUse {
-                                id: id.clone(),
-                                name: name.clone(),
-                                args: String::new(),
-                            },
-                        );
-                    }
-                    StreamEvent::ContentBlockDelta {
-                        index,
-                        delta: ContentDelta::ToolInputJson { partial_json },
-                    } => {
-                        if let Some(p) = partials.get_mut(index) {
-                            p.args.push_str(partial_json);
+                if self.config.stream_tool_execution {
+                    match &ev {
+                        StreamEvent::ContentBlockStart {
+                            index,
+                            block: ContentBlockStart::ToolUse { id, name },
+                        } => {
+                            partials.insert(
+                                *index,
+                                StreamToolUse {
+                                    id: id.clone(),
+                                    name: name.clone(),
+                                    args: String::new(),
+                                },
+                            );
                         }
-                    }
-                    StreamEvent::ContentBlockStop { index } => {
-                        if let Some(p) = partials.remove(index) {
-                            // Even if the barrier is up, walk the
-                            // eligibility check so we get the same
-                            // log signal — but suppress spawning.
-                            let tool_name = p.name.clone();
-                            let eligible = is_streamable_tool(&tool_name, tools);
-                            if barrier_hit {
-                                debug!(
-                                    tool = %tool_name,
-                                    "skipping prerun: write barrier already hit this turn"
-                                );
-                            } else if !eligible {
-                                debug!(
-                                    tool = %tool_name,
-                                    "tool not eligible for prerun; setting write barrier for the rest of this turn"
-                                );
-                                barrier_hit = true;
-                            } else if let Some(h) = self.maybe_spawn_prerun(p, tools, tool_ctx) {
-                                handles.push(h);
+                        StreamEvent::ContentBlockDelta {
+                            index,
+                            delta: ContentDelta::ToolInputJson { partial_json },
+                        } => {
+                            if let Some(p) = partials.get_mut(index) {
+                                p.args.push_str(partial_json);
                             }
                         }
+                        StreamEvent::ContentBlockStop { index } => {
+                            if let Some(p) = partials.remove(index) {
+                                // Even if the barrier is up, walk the
+                                // eligibility check so we get the same
+                                // log signal — but suppress spawning.
+                                let tool_name = p.name.clone();
+                                let eligible = is_streamable_tool(&tool_name, tools);
+                                if barrier_hit {
+                                    debug!(
+                                        tool = %tool_name,
+                                        "skipping prerun: write barrier already hit this turn"
+                                    );
+                                } else if !eligible {
+                                    debug!(
+                                        tool = %tool_name,
+                                        "tool not eligible for prerun; setting write barrier for the rest of this turn"
+                                    );
+                                    barrier_hit = true;
+                                } else if let Some(h) = self.maybe_spawn_prerun(p, tools, tool_ctx)
+                                {
+                                    handles.push(h);
+                                }
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
-            }
 
-            acc.ingest(ev);
+                acc.ingest(ev);
+            }
         }
 
         // Drain pre-spawned tasks. By the time the model finishes
@@ -1940,9 +2190,10 @@ impl Engine {
                 // where escape sequences get corrupted between deltas.
                 // Re-issue the same request without streaming: the
                 // non-streaming endpoint returns `arguments` as a single
-                // complete string field, sidestepping the bug. Drop the
-                // prerun cache — its tool_use IDs came from the busted
-                // stream and won't match the new response's blocks.
+                // complete string field that doesn't go through SSE
+                // deltas, sidestepping the bug entirely. Drop the prerun
+                // cache — its tool_use IDs come from the busted stream
+                // and won't match the new response's blocks.
                 warn!(
                     tool = %tool,
                     args_len,
@@ -1950,7 +2201,9 @@ impl Engine {
                 );
                 let resp = self.llm.create_message(retry_req).await.map_err(|e| {
                     // If the retry also fails, surface the *original*
-                    // streaming error — that's the one to diagnose.
+                    // streaming error — that's the one the operator
+                    // needs to see to diagnose. Wrap the retry failure
+                    // as context.
                     warn!(error = %e, "non-streaming retry also failed");
                     EngineError::Llm(LlmError::MalformedToolArgs {
                         tool: tool.clone(),
@@ -2030,7 +2283,7 @@ impl Engine {
         tools: &ToolRegistry,
         loop_guard: Option<&mut LoopGuard>,
         mut prerun_cache: PrerunCache,
-    ) -> EngineResult<Vec<ContentBlock>> {
+    ) -> EngineResult<ToolBatchResult> {
         // 1. Collect every ToolUse block in original order. We keep
         // the position so the result list can be re-ordered to match
         // tool_use → tool_result (Anthropic / DeepSeek both require
@@ -2111,7 +2364,7 @@ impl Engine {
         // across parallel futures, so we move ownership up-front and
         // hand each future its own `Option`.
         let limit = self.config.concurrent_tool_limit.max(1);
-        let mut results: Vec<(usize, ContentBlock)> = Vec::with_capacity(pending.len());
+        let mut results: Vec<(usize, ToolBlockOutcome)> = Vec::with_capacity(pending.len());
         for seg in segments {
             // Take ownership of each segment's pending entries before
             // building futures so the parallel path doesn't need to
@@ -2162,7 +2415,7 @@ impl Engine {
                         (position, block)
                     }
                 });
-                let collected: Vec<(usize, ContentBlock)> = futures::stream::iter(futs)
+                let collected: Vec<(usize, ToolBlockOutcome)> = futures::stream::iter(futs)
                     .buffer_unordered(limit)
                     .collect()
                     .await;
@@ -2173,7 +2426,14 @@ impl Engine {
         // 5. Restore original tool_use order; buffer_unordered may
         // have completed them out of order.
         results.sort_by_key(|(pos, _)| *pos);
-        Ok(results.into_iter().map(|(_, b)| b).collect())
+        let mut batch = ToolBatchResult::default();
+        for (_, outcome) in results {
+            if let Some(failure) = outcome.failure {
+                batch.failures.push(failure);
+            }
+            batch.blocks.push(outcome.block);
+        }
+        Ok(batch)
     }
 
     // 9 args is over clippy's 7 default. Each is independently
@@ -2190,7 +2450,7 @@ impl Engine {
         gate: &dyn ApprovalGate,
         tools: &ToolRegistry,
         prebuilt: Option<ToolResult>,
-    ) -> ContentBlock {
+    ) -> ToolBlockOutcome {
         // Every `tool_use` block in the assistant message MUST get a
         // corresponding `tool_result` (or `tool_error`) block,
         // otherwise providers like DeepSeek reject the next history
@@ -2200,7 +2460,7 @@ impl Engine {
             .execute_one(
                 id,
                 name,
-                input,
+                input.clone(),
                 assistant_msg_id,
                 tool_ctx,
                 gate,
@@ -2208,7 +2468,12 @@ impl Engine {
                 prebuilt,
             )
             .await;
-        match outcome {
+        // Cap every result path at capture time (layer ① of the
+        // oversized-result defence): a single tool output that exceeds
+        // `max_tool_result_bytes` is truncated to a head+tail preview
+        // before it is ever persisted, so it can neither blow the model
+        // context on load nor blow the compaction-summary request.
+        let mut result = match outcome {
             Ok(Ok(out)) => {
                 // Block-list outputs (Read on .pdf / image /
                 // notebook) pass through straight as ToolResult
@@ -2218,11 +2483,24 @@ impl Engine {
                     snaca_tools_api::ToolOutput::Blocks(bs) => bs,
                     other => vec![ContentBlock::text(other.render_text())],
                 };
-                ContentBlock::tool_result(id.clone(), content)
+                ToolBlockOutcome {
+                    block: ContentBlock::tool_result(id.clone(), content),
+                    failure: None,
+                }
             }
             Ok(Err(e)) => {
                 warn!(tool = %name, error = %e, "tool execution returned error");
-                ContentBlock::tool_error(id.clone(), e.to_string())
+                let error = e.to_string();
+                let signature = input_signature(&input);
+                ToolBlockOutcome {
+                    block: ContentBlock::tool_error(id.clone(), error.clone()),
+                    failure: Some(ToolFailureEvent {
+                        tool: name.to_string(),
+                        input,
+                        input_signature: signature,
+                        error,
+                    }),
+                }
             }
             Err(engine_err) => {
                 warn!(
@@ -2230,9 +2508,21 @@ impl Engine {
                     error = %engine_err,
                     "engine-level error during tool dispatch; surfacing as tool_error"
                 );
-                ContentBlock::tool_error(id.clone(), format!("tool dispatch failed: {engine_err}"))
+                let error = format!("tool dispatch failed: {engine_err}");
+                let signature = input_signature(&input);
+                ToolBlockOutcome {
+                    block: ContentBlock::tool_error(id.clone(), error.clone()),
+                    failure: Some(ToolFailureEvent {
+                        tool: name.to_string(),
+                        input,
+                        input_signature: signature,
+                        error,
+                    }),
+                }
             }
-        }
+        };
+        result.block = cap_tool_result_block(result.block, self.config.max_tool_result_bytes);
+        result
     }
 
     /// Decide whether `tool` may run for this `(tenant, project)` and
@@ -2422,6 +2712,51 @@ impl Engine {
     }
 }
 
+fn snippet(s: &str, max_chars: usize) -> String {
+    let mut out = String::new();
+    let mut truncated = false;
+    for (idx, ch) in s.chars().enumerate() {
+        if idx >= max_chars {
+            truncated = true;
+            break;
+        }
+        out.push(ch);
+    }
+    if truncated {
+        out.push_str("...");
+    }
+    out
+}
+
+fn input_snippet(input: &Value) -> String {
+    let rendered = serde_json::to_string(input).unwrap_or_else(|_| input.to_string());
+    snippet(&rendered, 500)
+}
+
+fn error_snippet(error: &str) -> String {
+    let lines: Vec<&str> = error.lines().collect();
+    let start = lines.len().saturating_sub(20);
+    snippet(&lines[start..].join("\n"), 2000)
+}
+
+fn repeated_tool_failure_feedback(failure: &ToolFailureEvent, count: usize) -> String {
+    format!(
+        "Your previous identical tool call failed {count} times in this turn.\n\n\
+         Tool: `{tool}`\n\
+         Input: `{input}`\n\n\
+         Latest error excerpt:\n\
+         ```text\n{error}\n```\n\n\
+         Do not run this exact same `{tool}` call again. First inspect the \
+         error output, explain the likely root cause, and change the approach \
+         before retrying. For example, modify the command/script/arguments, \
+         restore corrupted inputs, or run a different diagnostic command that \
+         can disambiguate the failure.",
+        tool = failure.tool,
+        input = input_snippet(&failure.input),
+        error = error_snippet(&failure.error),
+    )
+}
+
 /// Drain the outbound-file queue collected during a turn. Returns
 /// an empty vec when no tool queued anything (the common case) or
 /// when the lock is poisoned — losing a queue on a poisoned lock is
@@ -2438,50 +2773,16 @@ fn drain_outbound(slot: &Arc<Mutex<Vec<OutboundFile>>>) -> Vec<OutboundFile> {
 /// produce schemas off any registry, including the per-turn ones built
 /// by the `RuntimeToolFactory`.
 fn registry_schemas(tools: &ToolRegistry) -> Vec<ToolSchema> {
-    tools
-        .schemas()
-        .iter()
-        .map(|s| ToolSchema {
-            name: s.name.clone(),
-            description: s.description.clone(),
-            input_schema: s.input_schema.clone(),
-        })
-        .collect()
+    tools.schemas().to_vec()
 }
 
-/// Top-k cap for vector recall. Five matches tracks Claude Code's
-/// default and keeps the prompt addition under a couple of hundred
-/// tokens for typical entry sizes.
-const RECALL_TOP_K: usize = 5;
-/// Candidate pool size when a reranker is attached. Cosine pulls
-/// `RECALL_POOL_SIZE`, the reranker filters down to `RECALL_TOP_K`.
-/// Twenty is the plan default — enough headroom to recover the right
-/// match when cosine ranks it 6th-10th, small enough that the LLM
-/// rerank prompt stays under ~1k tokens.
-const RECALL_POOL_SIZE: usize = 20;
-/// Minimum cosine similarity to include in the recall block. Below this
-/// the hit is more likely to confuse than to help — the LLM will treat
-/// off-topic excerpts as authoritative if we splice them in.
-const RECALL_MIN_SCORE: f32 = 0.10;
-/// Hard ceiling on the rendered recall block in bytes. Stops the system
-/// prompt from ballooning when a project has a few very long memories.
-const RECALL_MAX_BYTES: usize = 4 * 1024;
-/// Per-entry excerpt length. Longer entries are truncated mid-sentence
-/// with an ellipsis — the model can MemoryRead the full body if needed.
-const RECALL_EXCERPT_BYTES: usize = 400;
-/// How many recently-surfaced memory entries to keep in the per-thread
-/// dedup ring. At `RECALL_TOP_K = 5` this is ~4 turns of recall before
-/// an entry rolls off and can resurface — long enough that consecutive
-/// turns on related topics don't re-show the same hits, short enough
-/// that resuming a topic dropped 10+ turns ago still re-surfaces. The
-/// ring lives in memory only; process restart resets it.
-const SURFACED_RING_CAP: usize = 20;
-
-/// Pull a short, displayable snippet of the input that tripped the loop
-/// guard. Walks the assistant content for the *last* `ToolUse` block
-/// matching `tool` (the guard records every call; the final one pushed
-/// the count past the limit). Empty string when none is found — the
-/// error path must not panic.
+/// Pull a short, displayable snippet of the input that tripped the
+/// loop guard. Walks the assistant content for a `ToolUse` block whose
+/// name matches `tool`; takes the *last* match because the guard
+/// records *every* call and the final one is the one that pushed the
+/// count past the limit. Falls back to an empty string when no
+/// matching block is found (shouldn't happen in practice — the guard
+/// just inspected this content — but the error path shouldn't panic).
 fn loop_guard_input_snippet(content: &[ContentBlock], tool: &str) -> String {
     const SNIPPET_BYTES: usize = 240;
     let raw = content
@@ -2499,41 +2800,63 @@ fn loop_guard_input_snippet(content: &[ContentBlock], tool: &str) -> String {
 
 /// Build the per-turn system prompt as ordered, cache-aware segments.
 ///
-/// - **Segment 1 (cacheable)** — base prompt + MEMORY.md index. Stable
-///   within a thread, so Anthropic's prompt cache holds the prefix.
-///   MEMORY.md changing invalidates it exactly once.
-/// - **Segment 2 (volatile)** — the `## Relevant Memories` block. Keyed
-///   by the user's query (changes every turn), so it's excluded from
-///   any cache breakpoint to avoid silently invalidating the prefix.
+/// Segmentation strategy:
 ///
-/// Empty sections collapse the segment list. A loop_guard hint, when
-/// present, is appended as its own volatile segment.
+/// - **Segment 1 (cacheable)** — date preamble + base prompt + MEMORY.md
+///   index. The date rolls daily, but within a day the segment is
+///   byte-stable, so Anthropic's prompt cache holds the entire
+///   prefix. MEMORY.md changing (a new entry, an extractor write)
+///   invalidates this segment exactly once — the expected cost of
+///   memory writes.
+///
+/// - **Segment 2 (volatile, optional)** — a loop-guard hint when the
+///   previous turn was aborted for repeating the same tool call. Held
+///   out of the cacheable prefix because it's per-turn and only set
+///   on rare error-recovery paths.
+///
+/// `recall` is currently unused — the parameter is kept so callers can
+/// be migrated incrementally; it will carry the future frozen-snapshot
+/// "auto-retrieved" block once that lands. An empty string is the
+/// expected production input today.
 fn compose_system_segments(
     base: &str,
     index: &str,
-    recall: &str,
+    _recall: &str,
+    workspace_files: &str,
     loop_guard_hint: Option<&LoopGuardHint>,
 ) -> Vec<SystemSegment> {
-    let mut stable = String::from(base);
+    let mut stable = current_date_preamble(chrono::Local::now());
+    stable.push_str(base);
     if !index.trim().is_empty() {
         stable.push_str(
             "\n\n---\n\n## Project Memory\n\n\
-             The following memory entries are stored for this project. Use the \
-             `MemoryRead` tool with `scope` and `name` to read any entry's full \
-             content. Do not assume content beyond what's in the index below.\n\n",
+             A frozen snapshot of this project's memory tree. Each entry \
+             is shown verbatim under its `scope/name` heading. The \
+             snapshot was taken at the start of this thread session — \
+             writes you make through `MemoryWrite` only become visible \
+             on the next session. If a `[truncated, N more entries \
+             hidden]` marker is present, use the `MemoryRead` tool with \
+             `scope` and `name` to fetch entries that didn't fit.\n\n",
         );
         stable.push_str(index.trim());
     }
     let mut segs: Vec<SystemSegment> = vec![SystemSegment::cacheable(stable)];
-    if !recall.trim().is_empty() {
-        let mut volatile = String::from(
-            "\n\n---\n\n## Relevant Memories (auto-retrieved)\n\n\
-             The following excerpts were pulled from memory by similarity to the \
-             user's request. Treat them as hints — the full content is one \
-             `MemoryRead` call away.\n\n",
-        );
-        volatile.push_str(recall.trim());
-        segs.push(SystemSegment::volatile(volatile));
+    // Live workspace file listing — a VOLATILE (non-cacheable) segment
+    // recomputed every turn and held out of the cacheable prefix, so the
+    // model always sees the current set of files (the durable source of
+    // truth for uploads) even after the turns that introduced them have
+    // been evicted, and adding/removing a file never busts the memory
+    // prefix cache.
+    if !workspace_files.trim().is_empty() {
+        segs.push(SystemSegment::volatile(format!(
+            "\n\n---\n\n## Workspace Files\n\n\
+             These files are in your project workspace — the durable \
+             source of truth for anything the user uploaded. Read them \
+             with the `Read` tool (paths are workspace-relative). This \
+             list is current as of THIS turn; before telling the user you \
+             don't have a file, check here first.\n\n{}",
+            workspace_files.trim(),
+        )));
     }
     if let Some(hint) = loop_guard_hint {
         let snippet = if hint.input_snippet.is_empty() {
@@ -2546,10 +2869,10 @@ fn compose_system_segments(
              The previous turn on this thread was aborted because you called \
              `{tool}` {count} times with identical input. Do **not** repeat \
              that exact call. If the same operation is still required, change \
-             the approach — read the file in full (no offset/limit), split a \
-             large MultiEdit into smaller Edits, or use Grep to locate the \
-             target before retrying. The exact input that tripped the guard \
-             was: `{snippet}`.\n",
+             the approach — e.g. read the file in full (no offset/limit), \
+             split a large MultiEdit into smaller Edits, or use Grep to \
+             locate the target before retrying. The exact input that tripped \
+             the guard was: `{snippet}`.\n",
             tool = hint.tool,
             count = hint.count,
         );
@@ -2558,43 +2881,53 @@ fn compose_system_segments(
     segs
 }
 
+/// Backwards-compatible string view for tests. Derived from
+/// [`compose_system_segments`] so the two stay in sync; gated to test
+/// builds since the engine itself only ever speaks segments.
 #[cfg(test)]
-mod system_prompt_tests {
-    use super::*;
-
-    #[test]
-    fn segments_split_stable_prefix_from_volatile_recall() {
-        // base + memory go in one cacheable segment, recall lives in
-        // its own volatile segment. If anyone collapses these the
-        // prompt cache silently breaks.
-        let segs = compose_system_segments("BASE", "user/foo — bar", "hit one", None);
-        assert_eq!(segs.len(), 2, "expected stable + volatile, got {segs:?}");
-        assert!(segs[0].cacheable, "first segment must be cacheable");
-        assert!(segs[0].text.contains("BASE"));
-        assert!(segs[0].text.contains("## Project Memory"));
-        assert!(segs[0].text.contains("user/foo — bar"));
-        assert!(!segs[0].text.contains("Relevant Memories"));
-        assert!(!segs[1].cacheable, "second segment must be volatile");
-        assert!(segs[1].text.contains("## Relevant Memories"));
-        assert!(segs[1].text.contains("hit one"));
+fn compose_system_prompt(base: &str, index: &str, recall: &str) -> String {
+    let segs = compose_system_segments(base, index, recall, "", None);
+    let mut out = String::new();
+    for s in segs {
+        out.push_str(&s.text);
     }
+    out
+}
 
-    #[test]
-    fn segments_collapse_when_no_recall() {
-        let segs = compose_system_segments("BASE", "user/foo", "", None);
-        assert_eq!(segs.len(), 1, "no recall => single segment");
-        assert!(segs[0].cacheable);
-        assert!(segs[0].text.contains("BASE"));
-        assert!(segs[0].text.contains("user/foo"));
-    }
+/// Best-effort recovery of `(tenant_id, project_id)` from a thread
+/// id for the `on_pre_compact` / `on_session_switch` hook context.
+/// The dispatcher constructs thread ids as `<chat_id>::<project_id>`
+/// — see `crates/snaca-server/src/dispatch.rs::thread_id_for`. When
+/// the format diverges we fall back to empty ids; the provider
+/// still gets the rest of the context (thread id + transcript)
+/// which is the high-leverage payload.
+fn parse_thread_id_for_hook(thread: &ThreadId) -> (TenantId, ProjectId) {
+    // Tenant routing isn't encoded in the thread id today, so we
+    // surface the empty tenant — providers that care can derive it
+    // from their own session bookkeeping. Project, on the other
+    // hand, IS encoded as the suffix after `::`.
+    let raw = thread.as_str();
+    let project = raw
+        .rsplit_once("::")
+        .map(|(_, project)| project.to_string())
+        .unwrap_or_default();
+    (TenantId::new(""), ProjectId::from_raw(project))
+}
 
-    #[test]
-    fn segments_collapse_when_no_memory_and_no_recall() {
-        let segs = compose_system_segments("BASE", "", "", None);
-        assert_eq!(segs.len(), 1);
-        assert!(segs[0].cacheable);
-        assert!(!segs[0].text.contains("## Project Memory"));
-    }
+/// Emit the dated preamble the model sees at the very top of every
+/// system prompt: "Today's date is 2026-05-19 (Tuesday).\n\n". LLMs
+/// have no clock — without this they routinely confuse the year or
+/// say "I don't know today's date". Date-only (no time) so the prompt
+/// cache stays warm for the whole local day.
+fn current_date_preamble<Tz: chrono::TimeZone>(now: chrono::DateTime<Tz>) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    format!(
+        "Today's date is {} ({}).\n\n",
+        now.format("%Y-%m-%d"),
+        now.format("%A")
+    )
 }
 
 /// Truncate `s` to roughly `max_bytes`, ending on a word boundary when
@@ -2639,6 +2972,106 @@ struct StreamToolUse {
     id: String,
     name: String,
     args: String,
+}
+
+/// Which text-bearing delta variant a scrubbed block emits. Tracked
+/// per block index so [`scrub_stream_event`]'s flush re-emits the
+/// matching delta on `ContentBlockStop`.
+#[derive(Debug, Clone, Copy)]
+enum FenceTextKind {
+    Text,
+    Thinking,
+}
+
+/// Rewrite one streaming event so any echoed `<memory-context>` /
+/// `<attachments>` fence in a text or thinking delta is stripped
+/// before it reaches the user (listener) or the next-turn transcript
+/// (accumulator). Returns the events to actually process — usually
+/// one, but a `ContentBlockStop` may be preceded by a synthetic
+/// flush delta carrying the scrubber's held-back tail. Non-text
+/// events pass through untouched.
+fn scrub_stream_event(
+    scrubbers: &mut HashMap<u32, (crate::memory_fence::StreamingScrubber, FenceTextKind)>,
+    ev: StreamEvent,
+) -> Vec<StreamEvent> {
+    use crate::memory_fence::StreamingScrubber;
+    match ev {
+        StreamEvent::ContentBlockStart {
+            index,
+            block: ContentBlockStart::Text,
+        } => {
+            scrubbers.insert(index, (StreamingScrubber::new(), FenceTextKind::Text));
+            vec![StreamEvent::ContentBlockStart {
+                index,
+                block: ContentBlockStart::Text,
+            }]
+        }
+        StreamEvent::ContentBlockStart {
+            index,
+            block: ContentBlockStart::Thinking,
+        } => {
+            scrubbers.insert(index, (StreamingScrubber::new(), FenceTextKind::Thinking));
+            vec![StreamEvent::ContentBlockStart {
+                index,
+                block: ContentBlockStart::Thinking,
+            }]
+        }
+        StreamEvent::ContentBlockDelta {
+            index,
+            delta: ContentDelta::Text { text },
+        } => {
+            let cleaned = scrubbers
+                .get_mut(&index)
+                .map(|(s, _)| s.push(&text))
+                .unwrap_or(text);
+            if cleaned.is_empty() {
+                vec![]
+            } else {
+                vec![StreamEvent::ContentBlockDelta {
+                    index,
+                    delta: ContentDelta::Text { text: cleaned },
+                }]
+            }
+        }
+        StreamEvent::ContentBlockDelta {
+            index,
+            delta: ContentDelta::Thinking { text },
+        } => {
+            let cleaned = scrubbers
+                .get_mut(&index)
+                .map(|(s, _)| s.push(&text))
+                .unwrap_or(text);
+            if cleaned.is_empty() {
+                vec![]
+            } else {
+                vec![StreamEvent::ContentBlockDelta {
+                    index,
+                    delta: ContentDelta::Thinking { text: cleaned },
+                }]
+            }
+        }
+        StreamEvent::ContentBlockStop { index } => {
+            let mut out = Vec::new();
+            if let Some((mut scrubber, kind)) = scrubbers.remove(&index) {
+                let tail = scrubber.flush();
+                if !tail.is_empty() {
+                    let delta = match kind {
+                        FenceTextKind::Text => ContentDelta::Text { text: tail },
+                        FenceTextKind::Thinking => ContentDelta::Thinking { text: tail },
+                    };
+                    out.push(StreamEvent::ContentBlockDelta { index, delta });
+                }
+            }
+            out.push(StreamEvent::ContentBlockStop { index });
+            out
+        }
+        other => vec![other],
+    }
+}
+
+fn stream_retry_delay(attempt: u8) -> Duration {
+    let exp = attempt.saturating_sub(1).min(5);
+    Duration::from_millis(500u64.saturating_mul(1u64 << exp))
 }
 
 /// Whether `name` resolves in the registry to a tool that is safe to
@@ -2810,13 +3243,7 @@ fn collapse_block_if_old_read(
             is_error,
         };
     }
-    let total: usize = content
-        .iter()
-        .map(|c| match c {
-            ContentBlock::Text { text } => text.len(),
-            _ => 0,
-        })
-        .sum();
+    let total = tool_result_text_len(&content);
     if total < threshold {
         return ContentBlock::ToolResult {
             tool_use_id,
@@ -2834,22 +3261,222 @@ fn collapse_block_if_old_read(
     }
 }
 
+/// Marker substituted for an old `tool_result`'s body when the byte cap
+/// clears it. The block and its `tool_use_id` are kept so pairing stays
+/// intact — only the payload is elided.
+const BYTE_CAP_CLEARED_MARKER: &str = "[Old tool result content cleared to fit context budget]";
+
+/// Per-block byte cap when rendering the compaction-summary input
+/// (`render_for_summary`). Bounds each message's contribution so no single
+/// message dominates the summariser request.
+const SUMMARY_BLOCK_MAX_BYTES: usize = 16 * 1024;
+
+/// Aggregate byte ceiling for the whole compaction-summary transcript.
+/// The hard guarantee that the summariser request — the one meant to
+/// rescue an over-long context — can never itself overflow, even when a
+/// band holds many mid-sized results. ~256 KiB (~64k tokens) leaves ample
+/// headroom under any modern context window.
+const SUMMARY_TOTAL_MAX_BYTES: usize = 256 * 1024;
+
+/// Byte size of a `tool_result` body's text blocks — the portion the byte
+/// cap can elide. Mirrors how `message_byte_size` counts a `ToolResult`.
+fn tool_result_text_len(content: &[ContentBlock]) -> usize {
+    content
+        .iter()
+        .map(|c| match c {
+            ContentBlock::Text { text } => text.len(),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// Largest byte prefix of `s` that ends on a UTF-8 char boundary and is
+/// `<= max`.
+fn floor_char_boundary(s: &str, max: usize) -> usize {
+    if max >= s.len() {
+        return s.len();
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    end
+}
+
+/// Truncate a `tool_result`'s text to a head+tail preview when it exceeds
+/// `max` bytes, keeping non-text blocks (images) intact. Layer ① of the
+/// oversized-result defence — applied at capture time so no single result
+/// can dominate the model context or the compaction-summary request.
+/// `max == 0` disables it.
+fn cap_tool_result_content(content: Vec<ContentBlock>, max: usize) -> Vec<ContentBlock> {
+    if max == 0 || tool_result_text_len(&content) <= max {
+        return content;
+    }
+    // Split text from non-text (image) blocks. Avoid materialising the
+    // whole body in the common single-text-block case (a Bash dump is one
+    // `Text` block) — borrow it directly; only concatenate when the text
+    // is genuinely spread across several blocks.
+    let mut texts: Vec<String> = Vec::new();
+    let mut others: Vec<ContentBlock> = Vec::new();
+    for b in content {
+        match b {
+            ContentBlock::Text { text: t } => texts.push(t),
+            other => others.push(other),
+        }
+    }
+    let body: std::borrow::Cow<str> = match texts.len() {
+        1 => std::borrow::Cow::Borrowed(texts[0].as_str()),
+        _ => std::borrow::Cow::Owned(texts.concat()),
+    };
+    let text: &str = &body;
+    // Keep a head and a tail so both the start of the output and any
+    // trailing error/summary survive.
+    let half = (max / 2).max(1);
+    let head_end = floor_char_boundary(text, half);
+    let mut tail_start = text.len().saturating_sub(half);
+    while tail_start < text.len() && !text.is_char_boundary(tail_start) {
+        tail_start += 1;
+    }
+    // Guard against overlap when head and tail would meet.
+    let tail_start = tail_start.max(head_end);
+    let dropped = tail_start.saturating_sub(head_end);
+    let preview = format!(
+        "{}\n\n[... {dropped} bytes truncated to fit the context window; \
+         re-run the tool if the full output is needed ...]\n\n{}",
+        &text[..head_end],
+        &text[tail_start..],
+    );
+    let mut out = Vec::with_capacity(others.len() + 1);
+    out.push(ContentBlock::text(preview));
+    out.extend(others);
+    out
+}
+
+/// Apply `cap_tool_result_content` to a `ToolResult` block, preserving its
+/// `tool_use_id` and `is_error`. Non-result blocks pass through.
+fn cap_tool_result_block(block: ContentBlock, max: usize) -> ContentBlock {
+    match block {
+        ContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => ContentBlock::ToolResult {
+            tool_use_id,
+            content: cap_tool_result_content(content, max),
+            is_error,
+        },
+        other => other,
+    }
+}
+
+/// Bring `messages` under `max_bytes` while keeping the wire format
+/// pairing-safe.
+///
+/// Phase A — clear content, keep blocks: walk the messages oldest→newest,
+/// excluding the most recent `keep_recent`, and replace each
+/// `tool_result` body with `BYTE_CAP_CLEARED_MARKER`. The block and its
+/// `tool_use_id` survive, so no `tool_use` is ever orphaned by this pass.
+/// This is the common case — a single oversized `tool_result` (a freshly
+/// extracted PDF/xlsx body) is what usually blows the cap.
+///
+/// Phase B — fallback drop: if clearing every eligible body still leaves
+/// us over the cap (bulk sits in text / thinking / tool_use args), drop
+/// whole leading messages as a last resort. Any forward-orphan this
+/// creates is repaired by `ensure_tool_result_pairing` at the request
+/// boundary; a leading `Role::Tool` left at the new head is stripped here
+/// so the fallback alone never emits a leading tool message.
+///
+/// Layer ③ (`per_result_max`): before the total-cap phases, clamp *any*
+/// single `tool_result` body larger than `per_result_max` to a head+tail
+/// preview — even one inside the protected `keep_recent` tail. A single
+/// oversized recent result (a legacy row from before the capture-time cap,
+/// or one written by another path) would otherwise dominate the window
+/// while Phase A's `keep_recent` protection deliberately skips it. `0`
+/// disables this clamp.
 pub(crate) fn enforce_history_byte_cap(
     mut messages: Vec<Message>,
     max_bytes: usize,
+    keep_recent: usize,
+    per_result_max: usize,
 ) -> Vec<Message> {
     if max_bytes == 0 || messages.is_empty() {
         return messages;
     }
+
+    // Layer ③: retroactively clamp oversized individual results anywhere
+    // in the window (including the recent tail) to a preview.
+    if per_result_max > 0 {
+        for msg in messages.iter_mut() {
+            if !matches!(msg.role, Role::Tool) {
+                continue;
+            }
+            for block in msg.content.iter_mut() {
+                if let ContentBlock::ToolResult { content, .. } = block {
+                    if tool_result_text_len(content) > per_result_max {
+                        *content = cap_tool_result_content(std::mem::take(content), per_result_max);
+                    }
+                }
+            }
+        }
+    }
+
     let mut total = messages_byte_size(&messages);
+
+    // Phase A: clear old tool_result bodies (only when over cap).
+    // Protect the most recent `keep_recent` messages (floored at 1) so
+    // the model still sees its latest tool work verbatim. Single pass per
+    // message: only clear a body that is actually LARGER than the marker
+    // (so clearing always shrinks, never grows a tiny body), and account
+    // the freed bytes incrementally.
+    const MARKER_LEN: usize = BYTE_CAP_CLEARED_MARKER.len();
+    let mut cleared = 0usize;
+    if total > max_bytes {
+        let protect_from = messages.len().saturating_sub(keep_recent.max(1));
+        for msg in messages.iter_mut().take(protect_from) {
+            if total <= max_bytes {
+                break;
+            }
+            if !matches!(msg.role, Role::Tool) {
+                continue;
+            }
+            let mut freed = 0usize;
+            for block in msg.content.iter_mut() {
+                if let ContentBlock::ToolResult {
+                    content, is_error, ..
+                } = block
+                {
+                    // Errors are small and load-bearing; leave them.
+                    if *is_error {
+                        continue;
+                    }
+                    let body = tool_result_text_len(content);
+                    // Skip bodies no larger than the marker — that covers
+                    // already-cleared results and anything too small to be
+                    // worth eliding (clearing would only add bytes).
+                    if body <= MARKER_LEN {
+                        continue;
+                    }
+                    *content = vec![ContentBlock::text(BYTE_CAP_CLEARED_MARKER)];
+                    freed += body - MARKER_LEN;
+                }
+            }
+            if freed > 0 {
+                total = total.saturating_sub(freed);
+                cleared += 1;
+            }
+        }
+    }
+
+    // Phase B: still over cap — drop whole leading messages.
     let original_len = messages.len();
     while total > max_bytes && messages.len() > 1 {
         let dropped = messages.remove(0);
         total = total.saturating_sub(message_byte_size(&dropped));
     }
-    // After byte-trimming, the new head must NOT be a `Role::Tool`
-    // message — providers reject `tool` messages that don't follow an
-    // assistant `tool_use`. Drop leading orphans the same way.
+    // On every path (even when already under cap) the head must NOT be a
+    // `Role::Tool` message — providers reject `tool` messages that don't
+    // follow an assistant `tool_use`. Drop leading orphans regardless of
+    // whether Phase B ran, so this function never returns a leading tool.
     while messages
         .first()
         .map(|m| matches!(m.role, Role::Tool))
@@ -2857,13 +3484,14 @@ pub(crate) fn enforce_history_byte_cap(
     {
         messages.remove(0);
     }
-    let kept = messages.len();
-    if kept != original_len {
+    let dropped = original_len - messages.len();
+    if cleared > 0 || dropped > 0 {
         warn!(
-            dropped = original_len - kept,
-            kept,
+            cleared,
+            dropped,
+            kept = messages.len(),
             cap_bytes = max_bytes,
-            "history-load: dropped oldest messages to fit byte cap"
+            "history-load: enforced byte cap (cleared old tool_result bodies, then dropped oldest)"
         );
     }
     messages
@@ -2883,13 +3511,7 @@ fn message_byte_size(m: &Message) -> usize {
                 n += name.len();
                 n += serde_json::to_string(input).map(|s| s.len()).unwrap_or(0);
             }
-            ContentBlock::ToolResult { content, .. } => {
-                for inner in content {
-                    if let ContentBlock::Text { text } = inner {
-                        n += text.len();
-                    }
-                }
-            }
+            ContentBlock::ToolResult { content, .. } => n += tool_result_text_len(content),
             ContentBlock::Image { .. } => {
                 // Synthetic constant — image references don't carry
                 // bytes inline, but tokens count differently. Pick a
@@ -2901,24 +3523,196 @@ fn message_byte_size(m: &Message) -> usize {
     n
 }
 
-/// Walk `messages` chronologically and ensure every assistant `tool_use`
-/// block is followed by a matching `tool_result` (or `tool_error`)
-/// somewhere downstream. When an orphan is found, splice in a
-/// synthetic `Role::Tool` message right after the offending assistant
-/// turn so the wire format stays well-formed.
+/// Conversational half of the dual history window. Cuts a whole PREFIX
+/// so that at most `conversation_limit` *conversational* (User +
+/// Assistant) messages remain (the most recent ones). Tool and System
+/// messages don't count toward the budget but ride along inside the
+/// kept suffix.
 ///
-/// Why this is necessary: providers like DeepSeek (and Anthropic)
-/// reject any history submission whose `tool_calls` aren't all
-/// answered. We persist each turn's pieces incrementally, so a crash
-/// or transient gate failure between "assistant tool_use written" and
-/// "tool_result written" leaves the DB in a state the next turn can't
-/// load. M2's solution was to abort the engine on those failures; M3
-/// switched to "every tool_use produces a result block" but legacy
-/// rows from older builds still need patching at load time.
-fn repair_orphan_tool_uses(messages: Vec<Message>) -> Vec<Message> {
+/// Cutting a whole prefix (rather than dropping individual messages)
+/// means dropped tool round-trips drop as pairs — the only pairing
+/// hazard is a leading `Role::Tool` left at the new head when the cut
+/// lands mid-round-trip, which `enforce_history_byte_cap` and
+/// `ensure_tool_result_pairing` both strip downstream.
+///
+/// `conversation_limit == 0` disables the trim (returns the input
+/// unchanged), as does any history whose conversational count already
+/// fits.
+fn trim_to_conversation_window(messages: Vec<Message>, conversation_limit: usize) -> Vec<Message> {
+    if conversation_limit == 0 {
+        return messages;
+    }
+    let conv_total = messages
+        .iter()
+        .filter(|m| matches!(m.role, Role::User | Role::Assistant))
+        .count();
+    if conv_total <= conversation_limit {
+        return messages;
+    }
+    let to_drop = conv_total - conversation_limit;
+    let mut dropped = 0usize;
+    let mut cut = 0usize;
+    for (i, m) in messages.iter().enumerate() {
+        // Stop BEFORE counting/advancing past the first message we want
+        // to keep — otherwise we'd drop one conversational turn too many.
+        if dropped == to_drop {
+            cut = i;
+            break;
+        }
+        if matches!(m.role, Role::User | Role::Assistant) {
+            dropped += 1;
+        }
+        cut = i + 1;
+    }
+    messages.into_iter().skip(cut).collect()
+}
+
+/// Render a compact, bounded listing of the project workspace's top
+/// level for injection into the system prompt. Uploaded files land at
+/// the workspace root (see [`Engine::stage_attachment`]), so a top-level
+/// view surfaces exactly what the user sent. Hidden entries and noise
+/// directories (build output, dependency trees) are pruned; the listing
+/// is capped in both entry count and characters. Returns `""` for a
+/// missing / empty workspace so the caller emits no segment.
+fn render_workspace_files(dir: &std::path::Path) -> String {
+    const MAX_ENTRIES: usize = 60;
+    const MAX_CHARS: usize = 4096;
+    /// Non-dotted directories that are build output or dependency trees,
+    /// never user uploads. (Dotted dirs like `.git` / `.snaca` are
+    /// already skipped by the hidden-entry filter below.)
+    const NOISE_DIRS: &[&str] = &[
+        "node_modules",
+        "target",
+        "bin",
+        "obj",
+        "venv",
+        "__pycache__",
+        "dist",
+        "build",
+    ];
+
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return String::new();
+    };
+    // (is_dir, name, size) — skip hidden entries and noise dirs.
+    let mut entries: Vec<(bool, String, u64)> = Vec::new();
+    for ent in read.flatten() {
+        let name = ent.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        let Ok(meta) = ent.metadata() else { continue };
+        let is_dir = meta.is_dir();
+        if is_dir && NOISE_DIRS.contains(&name.as_str()) {
+            continue;
+        }
+        entries.push((is_dir, name, if is_dir { 0 } else { meta.len() }));
+    }
+    if entries.is_empty() {
+        return String::new();
+    }
+    // Files first (false < true), then dirs; each group alphabetical —
+    // the user's uploads (files at the root) lead the listing.
+    entries.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+
+    let total = entries.len();
+    let mut out = String::new();
+    let mut shown = 0usize;
+    for (is_dir, name, size) in entries.into_iter().take(MAX_ENTRIES) {
+        let line = if is_dir {
+            format!("- {name}/\n")
+        } else {
+            format!("- {name} ({})\n", human_size(size))
+        };
+        if out.len() + line.len() > MAX_CHARS {
+            break;
+        }
+        out.push_str(&line);
+        shown += 1;
+    }
+    if shown < total {
+        out.push_str(&format!("- […{} more not shown]\n", total - shown));
+    }
+    out
+}
+
+/// Compact human-readable byte size (`832 B`, `12.4 KiB`, `5.3 MiB`).
+/// Binary (1024-based) divisions with matching IEC unit labels.
+fn human_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = 1024 * 1024;
+    const GB: u64 = 1024 * 1024 * 1024;
+    match bytes {
+        b if b < KB => format!("{b} B"),
+        b if b < MB => format!("{:.1} KiB", b as f64 / KB as f64),
+        b if b < GB => format!("{:.1} MiB", b as f64 / MB as f64),
+        b => format!("{:.1} GiB", b as f64 / GB as f64),
+    }
+}
+
+/// Filter a `Role::Tool` message's blocks so only well-formed
+/// `tool_result`s survive: each must answer a `tool_use` that appeared
+/// earlier (`seen_tool_use_ids`) and must not repeat an id already
+/// answered (`answered_ids`). Reverse orphans (a result whose
+/// `tool_use` was dropped by compaction / never existed) and duplicate
+/// results (from resume or double-splice) are stripped. Kept ids are
+/// recorded into `answered_ids`. Non-`tool_result` blocks pass through
+/// untouched.
+fn filter_tool_result_blocks(
+    content: Vec<ContentBlock>,
+    seen_tool_use_ids: &std::collections::HashSet<String>,
+    answered_ids: &mut std::collections::HashSet<String>,
+) -> Vec<ContentBlock> {
+    content
+        .into_iter()
+        .filter(|b| match b {
+            ContentBlock::ToolResult { tool_use_id, .. } => {
+                let id = tool_use_id.as_str();
+                if !seen_tool_use_ids.contains(id) {
+                    warn!(%id, "history-load: dropping orphan tool_result with no matching tool_use");
+                    return false;
+                }
+                if !answered_ids.insert(id.to_string()) {
+                    warn!(%id, "history-load: dropping duplicate tool_result");
+                    return false;
+                }
+                true
+            }
+            _ => true,
+        })
+        .collect()
+}
+
+/// Single pairing-invariant gate, applied to the *complete* assembled
+/// history right before it is sent to the provider (see
+/// `call_llm_and_prerun`). Guarantees the wire format is well-formed:
+///
+/// * every assistant `tool_use` is followed by a `Role::Tool` message
+///   answering each id (a synthetic `tool_error` is spliced in for any
+///   that isn't — the forward-orphan case that a compaction boundary or
+///   an interrupted turn can leave behind);
+/// * every `tool_result` answers a `tool_use` seen earlier, else it is
+///   dropped (reverse orphan — the assistant half was compacted away);
+/// * no `tool_use_id` is answered twice (dedup, guards resume /
+///   double-splice).
+///
+/// Why one gate over the whole list rather than per-segment repairs:
+/// `load_history` assembles `head ++ summary ++ live_tail`, and an
+/// orphan can sit on any seam. Running the invariant once at the
+/// request boundary means no assembly path can bypass it.
+///
+/// Providers like DeepSeek (and Anthropic) reject any history whose
+/// `tool_calls` aren't all answered, or that carries a dangling
+/// `tool_result` — this is the backstop that keeps that from happening.
+fn ensure_tool_result_pairing(messages: Vec<Message>) -> Vec<Message> {
     use std::collections::HashSet;
     let mut out: Vec<Message> = Vec::with_capacity(messages.len());
     let mut iter = messages.into_iter().peekable();
+    // Every `tool_use` id emitted by an assistant so far, and every
+    // `tool_result` id already consumed. Accumulated across the whole
+    // list so reverse-orphan and dedup checks span message boundaries.
+    let mut seen_tool_use_ids: HashSet<String> = HashSet::new();
+    let mut answered_ids: HashSet<String> = HashSet::new();
     while let Some(msg) = iter.next() {
         // Drop any leading or unattached tool message — providers
         // reject a tool block that doesn't follow an assistant
@@ -2942,6 +3736,18 @@ fn repair_orphan_tool_uses(messages: Vec<Message>) -> Vec<Message> {
                 warn!("history-load: dropping orphan tool message with no preceding assistant tool_use");
                 continue;
             }
+            // Strip reverse-orphan / duplicate result blocks; if the
+            // message is emptied out, drop it entirely.
+            let filtered =
+                filter_tool_result_blocks(msg.content, &seen_tool_use_ids, &mut answered_ids);
+            if filtered.is_empty() {
+                continue;
+            }
+            out.push(Message {
+                content: filtered,
+                ..msg
+            });
+            continue;
         }
 
         let assistant_tool_uses: Vec<String> = if matches!(msg.role, Role::Assistant) {
@@ -2955,75 +3761,108 @@ fn repair_orphan_tool_uses(messages: Vec<Message>) -> Vec<Message> {
         } else {
             Vec::new()
         };
+        // Record this assistant's ids before touching the following
+        // tool message so its results resolve against them.
+        for id in &assistant_tool_uses {
+            seen_tool_use_ids.insert(id.clone());
+        }
 
         out.push(msg);
 
         if assistant_tool_uses.is_empty() {
             continue;
         }
-        // Look at the very next message: if it's a Tool message,
-        // collect the tool_use_ids it answers. Anything missing
-        // becomes a synthetic tool_error block we splice in. If the
-        // next message *isn't* a Tool message, every tool_use is
-        // orphaned.
-        let answered: HashSet<String> = if matches!(iter.peek().map(|m| m.role), Some(Role::Tool)) {
-            iter.peek()
-                .map(|m| {
-                    m.content
-                        .iter()
-                        .filter_map(|b| match b {
-                            ContentBlock::ToolResult { tool_use_id, .. } => {
-                                Some(tool_use_id.as_str().to_string())
-                            }
-                            _ => None,
-                        })
-                        .collect()
+        // Finalize the following tool message (if any) FIRST — filter
+        // its blocks — then decide which tool_use ids are still
+        // unanswered. Deriving `missing` from what *survives* filtering
+        // (not a raw peek) is load-bearing: a result dropped as a
+        // duplicate or reverse-orphan must count as unanswered so it
+        // gets a synthetic error, otherwise the assistant tool_use is
+        // silently orphaned again.
+        let mut result_msg: Option<Message> =
+            if matches!(iter.peek().map(|m| m.role), Some(Role::Tool)) {
+                let next = iter.next().expect("peeked Some");
+                let filtered =
+                    filter_tool_result_blocks(next.content, &seen_tool_use_ids, &mut answered_ids);
+                Some(Message {
+                    content: filtered,
+                    ..next
                 })
-                .unwrap_or_default()
-        } else {
-            HashSet::new()
-        };
+            } else {
+                None
+            };
+        let answered_here: HashSet<String> = result_msg
+            .as_ref()
+            .map(|m| {
+                m.content
+                    .iter()
+                    .filter_map(|b| match b {
+                        ContentBlock::ToolResult { tool_use_id, .. } => {
+                            Some(tool_use_id.as_str().to_string())
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let missing: Vec<String> = assistant_tool_uses
             .into_iter()
-            .filter(|id| !answered.contains(id))
+            .filter(|id| !answered_here.contains(id))
             .collect();
-        if missing.is_empty() {
-            continue;
+        if !missing.is_empty() {
+            warn!(
+                count = missing.len(),
+                "history-load: synthesising tool_error blocks for orphan tool_use ids"
+            );
+            let synth = synthetic_tool_errors(missing, &mut answered_ids);
+            match result_msg.as_mut() {
+                Some(m) => m.content.extend(synth),
+                None => {
+                    result_msg = Some(Message {
+                        id: MessageId::new(),
+                        role: Role::Tool,
+                        content: synth,
+                        created_at: Utc::now(),
+                    })
+                }
+            }
         }
-        warn!(
-            count = missing.len(),
-            "history-load: synthesising tool_error blocks for orphan tool_use ids"
-        );
-        // Build a synthetic tool message holding tool_error for each
-        // missing id. If the next message is already a Tool message,
-        // merge into it instead of creating a new one — keeps the
-        // history compact.
-        let synthetic: Vec<ContentBlock> = missing
-            .into_iter()
-            .map(|id| {
-                ContentBlock::tool_error(
-                    snaca_core::ToolUseId::new(id),
-                    "tool execution interrupted (orphan tool_use repaired at load time)"
-                        .to_string(),
-                )
-            })
-            .collect();
-        if matches!(iter.peek().map(|m| m.role), Some(Role::Tool)) {
-            // Pop the existing tool message, append the synthetic
-            // blocks, push it back.
-            let mut next = iter.next().expect("peeked Some");
-            next.content.extend(synthetic);
-            out.push(next);
-        } else {
-            out.push(Message {
-                id: MessageId::new(),
-                role: Role::Tool,
-                content: synthetic,
-                created_at: Utc::now(),
-            });
+        // Push the finalized tool turn. It is never empty here: this
+        // branch only runs when `assistant_tool_uses` is non-empty, and
+        // if the filtered content were empty then `answered_here` would
+        // be empty, forcing `missing` = all ids and a synthetic error to
+        // be appended above. The assert documents (and, in tests, guards)
+        // that invariant — an empty tool turn would re-orphan the
+        // assistant, the exact failure this gate exists to prevent.
+        if let Some(m) = result_msg {
+            debug_assert!(
+                !m.content.is_empty(),
+                "finalized tool turn must answer the assistant's tool_use ids"
+            );
+            out.push(m);
         }
     }
     out
+}
+
+/// Build a `tool_error` block for each orphaned tool_use id, marking each
+/// id as answered. Recording the id is load-bearing: a synthetic error
+/// answers the tool_use, so a later stray/duplicate `tool_result` for the
+/// same id must be deduped by `filter_tool_result_blocks` rather than
+/// double-answering it on the wire.
+fn synthetic_tool_errors(
+    ids: Vec<String>,
+    answered_ids: &mut std::collections::HashSet<String>,
+) -> Vec<ContentBlock> {
+    ids.into_iter()
+        .map(|id| {
+            answered_ids.insert(id.clone());
+            ContentBlock::tool_error(
+                snaca_core::ToolUseId::new(id),
+                "tool execution interrupted (orphan tool_use repaired at load time)".to_string(),
+            )
+        })
+        .collect()
 }
 
 /// Flatten a slice of messages into a transcript the summariser
@@ -3034,30 +3873,55 @@ fn repair_orphan_tool_uses(messages: Vec<Message>) -> Vec<Message> {
 /// Takes `&[Message]` rather than the raw `MessageRow` so callers can
 /// pre-run `collapse_old_tool_results` against the input — both paths
 /// (compaction summary, live load) get the same view.
-fn render_for_summary(rows: &[Message]) -> String {
-    let mut out = String::new();
-    for r in rows {
+///
+/// Every block's text is capped at `max_block_bytes` and the whole
+/// transcript at `total_max` (layer ② of the oversized-result defence).
+/// `collapse_old_tool_results` only shrinks *read-only, non-error*
+/// results, so a large Bash / write / error body would otherwise reach
+/// here in full and blow the summary request itself — the request that is
+/// supposed to *rescue* an over-long context. The per-block cap stops one
+/// message dominating; the `total_max` ceiling bounds the aggregate so a
+/// band of many mid-sized results can't overflow it either.
+///
+/// When the band overflows `total_max` we keep the **newest** messages and
+/// drop the oldest (noting how many). The band is the *middle* slice —
+/// its head overlaps the `preserved_head` that compaction already keeps
+/// verbatim, while its newest messages bridge into the verbatim live tail,
+/// so recency is the more useful thing to preserve. `0` disables the
+/// respective cap.
+fn render_for_summary(rows: &[Message], max_block_bytes: usize, total_max: usize) -> String {
+    // Push `s`, truncated on a char boundary to `max_block_bytes`, with a
+    // short note when anything was dropped.
+    fn push_capped(out: &mut String, s: &str, max: usize) {
+        let end = floor_char_boundary(s, max);
+        out.push_str(&s[..end]);
+        if end < s.len() {
+            out.push_str(&format!("[…{} bytes truncated…]", s.len() - end));
+        }
+    }
+    // Render one message (label + per-block-capped content) into a chunk.
+    fn render_row(r: &Message, max_block_bytes: usize) -> String {
         let label = match r.role {
             Role::User => "USER",
             Role::Assistant => "ASSISTANT",
             Role::Tool => "TOOL",
             Role::System => "SYSTEM",
         };
+        let mut out = String::new();
         out.push_str(label);
         out.push_str(": ");
         for block in &r.content {
             match block {
-                ContentBlock::Text { text } => out.push_str(text),
+                ContentBlock::Text { text } => push_capped(&mut out, text, max_block_bytes),
                 ContentBlock::Thinking { text, .. } => {
                     out.push_str("[thinking] ");
-                    out.push_str(text);
+                    push_capped(&mut out, text, max_block_bytes);
                 }
                 ContentBlock::ToolUse { name, input, .. } => {
-                    out.push_str(&format!(
-                        "[called tool {} with {}]",
-                        name,
-                        serde_json::to_string(input).unwrap_or_default()
-                    ));
+                    let input = serde_json::to_string(input).unwrap_or_default();
+                    out.push_str(&format!("[called tool {name} with "));
+                    push_capped(&mut out, &input, max_block_bytes);
+                    out.push(']');
                 }
                 ContentBlock::ToolResult {
                     content, is_error, ..
@@ -3069,17 +3933,48 @@ fn render_for_summary(rows: &[Message]) -> String {
                     };
                     out.push_str(prefix);
                     out.push(' ');
-                    for inner in content {
-                        if let ContentBlock::Text { text } = inner {
-                            out.push_str(text);
-                        }
-                    }
+                    let body: String = content
+                        .iter()
+                        .filter_map(|inner| match inner {
+                            ContentBlock::Text { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect();
+                    push_capped(&mut out, &body, max_block_bytes);
                 }
                 ContentBlock::Image { .. } => out.push_str("[image]"),
             }
             out.push(' ');
         }
         out.push('\n');
+        out
+    }
+
+    // Render newest→oldest, keeping messages until the byte budget is
+    // reached (always at least the newest, whose own blocks are already
+    // per-block-capped). Rendering stops at the budget, so the
+    // dropped-oldest prefix is never rendered. `total_max == 0` disables
+    // the cap (keeps everything).
+    let mut kept: Vec<String> = Vec::new();
+    let mut used = 0usize;
+    for r in rows.iter().rev() {
+        let chunk = render_row(r, max_block_bytes);
+        if total_max > 0 && !kept.is_empty() && used + chunk.len() > total_max {
+            break;
+        }
+        used += chunk.len();
+        kept.push(chunk);
+    }
+    let omitted = rows.len() - kept.len();
+    let mut out = String::new();
+    if omitted > 0 {
+        out.push_str(&format!(
+            "[… {omitted} older messages omitted to fit the summary budget …]\n"
+        ));
+    }
+    // `kept` is newest→oldest; emit it chronologically.
+    for chunk in kept.iter().rev() {
+        out.push_str(chunk);
     }
     out
 }
@@ -3138,6 +4033,796 @@ pub(crate) fn is_context_length_error(err: &LlmError) -> bool {
         "input length exceeds",
     ];
     HINTS.iter().any(|h| haystack.contains(h))
+}
+
+/// Placeholder substituted for a redacted message's body. Kept short so
+/// it stays well under `collapse_tool_results_threshold` (the collapse
+/// pass leaves it alone) and carries no flaggable content of its own.
+pub(crate) const REDACTED_PLACEHOLDER: &str =
+    "[SNACA: content omitted — flagged by provider content policy]";
+
+/// Whether this error is a provider content-moderation rejection that the
+/// engine should recover from by localizing and redacting the offending
+/// history message (rather than surfacing a hard error that bricks the
+/// thread on every replayed turn).
+pub(crate) fn is_content_filter_error(err: &LlmError) -> bool {
+    matches!(err, LlmError::ContentFiltered { .. })
+}
+
+/// Rewrite a single content block into a structurally-identical but
+/// content-free form. Preserves everything the provider's message-shape
+/// validation and tool_use/tool_result pairing depend on — block kind,
+/// `ToolUse` id + name, `ToolResult` tool_use_id + is_error — while
+/// replacing every free-text / argument / image payload with
+/// [`REDACTED_PLACEHOLDER`]. Redacting any message therefore never
+/// orphans a tool_result or drops a tool_use.
+fn redact_block(block: ContentBlock) -> ContentBlock {
+    match block {
+        ContentBlock::Text { .. } | ContentBlock::Thinking { .. } | ContentBlock::Image { .. } => {
+            ContentBlock::text(REDACTED_PLACEHOLDER)
+        }
+        ContentBlock::ToolUse { id, name, .. } => ContentBlock::ToolUse {
+            id,
+            name,
+            input: serde_json::json!({ "_snaca_redacted": true }),
+        },
+        ContentBlock::ToolResult {
+            tool_use_id,
+            is_error,
+            ..
+        } => ContentBlock::ToolResult {
+            tool_use_id,
+            content: vec![ContentBlock::text(REDACTED_PLACEHOLDER)],
+            is_error,
+        },
+    }
+}
+
+/// Apply [`redact_block`] to every block of a message's content.
+fn redact_message_content(content: Vec<ContentBlock>) -> Vec<ContentBlock> {
+    content.into_iter().map(redact_block).collect()
+}
+
+/// Build the LLM-facing [`Message`] from a persisted row, substituting a
+/// neutral placeholder for the body when the row is marked redacted.
+fn message_from_persisted(row: snaca_state::MessageRow) -> Message {
+    let content = if row.redacted_at.is_some() {
+        redact_message_content(row.content)
+    } else {
+        row.content
+    };
+    Message {
+        id: row.id,
+        role: row.role,
+        content,
+        created_at: row.created_at,
+    }
+}
+
+/// Outcome of [`Engine::localize_and_redact_poison`].
+enum PoisonLocation {
+    /// The offending message(s) were localized and marked redacted; a
+    /// retry of the turn will now pass the content filter.
+    Redacted(Vec<MessageId>),
+    /// The poison is in a user message or the system prompt — nothing the
+    /// engine can safely auto-redact. The caller degrades gracefully.
+    Unredactable,
+}
+
+/// Result of a single content-moderation probe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProbeOutcome {
+    /// The request passed the provider's content filter.
+    Passed,
+    /// The provider's content filter rejected the request.
+    Filtered,
+}
+
+/// Assemble a probe history from raw rows, neutralizing every row in
+/// `redact_ids` (the in-memory trial set) as well as rows already marked
+/// redacted in the DB. Mirrors `load_history`'s non-compaction pipeline
+/// (window → byte-cap → collapse) so a probe's shape matches what a real
+/// turn would send; pairing repair is applied by the caller.
+fn build_probe_history(
+    rows: &[snaca_state::MessageRow],
+    redact_ids: &HashSet<MessageId>,
+    cfg: &EngineConfig,
+) -> Vec<Message> {
+    let msgs: Vec<Message> = rows
+        .iter()
+        .map(|r| {
+            let redact = r.redacted_at.is_some() || redact_ids.contains(&r.id);
+            let content = if redact {
+                redact_message_content(r.content.clone())
+            } else {
+                r.content.clone()
+            };
+            Message {
+                id: r.id,
+                role: r.role,
+                content,
+                created_at: r.created_at,
+            }
+        })
+        .collect();
+    let windowed = trim_to_conversation_window(msgs, cfg.conversation_history_limit as usize);
+    let bounded = enforce_history_byte_cap(
+        windowed,
+        cfg.history_max_bytes,
+        cfg.compact_keep_recent,
+        cfg.max_tool_result_bytes,
+    );
+    collapse_old_tool_results(
+        bounded,
+        cfg.compact_keep_recent,
+        cfg.collapse_tool_results_threshold,
+    )
+}
+
+#[cfg(test)]
+mod system_prompt_tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn date_preamble_uses_iso_date_and_weekday() {
+        // 2026-05-19 is a Tuesday.
+        let fixed = chrono::Utc.with_ymd_and_hms(2026, 5, 19, 12, 0, 0).unwrap();
+        let preamble = current_date_preamble(fixed);
+        assert_eq!(preamble, "Today's date is 2026-05-19 (Tuesday).\n\n");
+    }
+
+    #[test]
+    fn compose_prepends_date_then_base() {
+        let out = compose_system_prompt("YOU ARE SNACA.", "", "");
+        // The preamble line lands first, followed by the base content.
+        assert!(out.starts_with("Today's date is "));
+        assert!(out.contains("\n\nYOU ARE SNACA."));
+    }
+
+    #[test]
+    fn compose_keeps_memory_section_and_drops_recall_input() {
+        // The recall slot is a forward-compat placeholder while the
+        // frozen-snapshot rework lands; today it must be ignored so
+        // the cacheable prefix stays byte-stable across turns.
+        let out = compose_system_prompt("BASE", "  user/foo — bar  ", "  hit one  ");
+        assert!(out.contains("Today's date is "));
+        assert!(out.contains("BASE"));
+        assert!(out.contains("## Project Memory"));
+        assert!(out.contains("user/foo — bar"));
+        assert!(!out.contains("## Relevant Memories"));
+        assert!(!out.contains("hit one"));
+    }
+
+    #[test]
+    fn segments_collapse_into_single_cacheable_prefix() {
+        // No more vector-recall second segment — base + memory live in
+        // one cacheable segment. Loop-guard hints (tested separately)
+        // are the only thing that can ever push a volatile second
+        // segment into the prompt now.
+        let segs = compose_system_segments("BASE", "user/foo — bar", "hit one", "", None);
+        assert_eq!(
+            segs.len(),
+            1,
+            "expected one cacheable segment, got {segs:?}"
+        );
+        assert!(segs[0].cacheable, "the only segment must be cacheable");
+        assert!(segs[0].text.contains("BASE"));
+        assert!(segs[0].text.contains("## Project Memory"));
+        assert!(segs[0].text.contains("user/foo — bar"));
+        assert!(!segs[0].text.contains("Relevant Memories"));
+    }
+
+    #[test]
+    fn segments_collapse_when_no_recall() {
+        let segs = compose_system_segments("BASE", "user/foo", "", "", None);
+        assert_eq!(segs.len(), 1, "no recall => single segment");
+        assert!(segs[0].cacheable);
+        assert!(segs[0].text.contains("BASE"));
+        assert!(segs[0].text.contains("user/foo"));
+    }
+
+    #[test]
+    fn segments_collapse_when_no_memory_and_no_recall() {
+        let segs = compose_system_segments("BASE", "", "", "", None);
+        assert_eq!(segs.len(), 1);
+        assert!(segs[0].cacheable);
+        assert!(!segs[0].text.contains("## Project Memory"));
+    }
+
+    #[test]
+    fn workspace_files_ride_a_volatile_segment_without_busting_the_prefix() {
+        // With a file list present, a SECOND segment appears — and it is
+        // volatile, so it never busts the cacheable memory prefix.
+        let with_files = compose_system_segments(
+            "BASE",
+            "user/foo",
+            "",
+            "- report.pdf (1.2 KB)\n- notes.md (300 B)\n",
+            None,
+        );
+        assert_eq!(with_files.len(), 2, "file list adds one segment");
+        assert!(with_files[0].cacheable, "memory prefix stays cacheable");
+        assert!(!with_files[1].cacheable, "file list segment is volatile");
+        assert!(with_files[1].text.contains("## Workspace Files"));
+        assert!(with_files[1].text.contains("report.pdf"));
+
+        // The cacheable prefix is byte-identical whether or not the file
+        // list changes — the whole point of holding it out of the cache.
+        let no_files = compose_system_segments("BASE", "user/foo", "", "", None);
+        assert_eq!(
+            with_files[0].text, no_files[0].text,
+            "adding/removing files must not change the cacheable prefix"
+        );
+        assert_eq!(no_files.len(), 1, "empty file list emits no segment");
+    }
+}
+
+#[cfg(test)]
+mod history_window_tests {
+    use super::*;
+
+    fn u(text: &str) -> Message {
+        Message::new(Role::User, vec![ContentBlock::text(text)])
+    }
+    fn a(text: &str) -> Message {
+        Message::new(Role::Assistant, vec![ContentBlock::text(text)])
+    }
+    /// Assistant message that drives a tool call — counts toward the
+    /// conversational budget, like the real loop.
+    fn a_call(id: &str, name: &str) -> Message {
+        Message::new(
+            Role::Assistant,
+            vec![
+                ContentBlock::text("calling..."),
+                ContentBlock::tool_use(id, name, json!({})),
+            ],
+        )
+    }
+    /// Tool-result envelope — excluded from the conversational budget;
+    /// this is the key to the dual window.
+    fn tr(id: &str, body: &str) -> Message {
+        Message::new(
+            Role::Tool,
+            vec![ContentBlock::tool_result(
+                ToolUseId::new(id),
+                vec![ContentBlock::text(body)],
+            )],
+        )
+    }
+    fn has_text(messages: &[Message], needle: &str) -> bool {
+        messages.iter().any(|m| {
+            m.content.iter().any(|b| match b {
+                ContentBlock::Text { text } => text == needle,
+                _ => false,
+            })
+        })
+    }
+    fn conv_count(messages: &[Message]) -> usize {
+        messages
+            .iter()
+            .filter(|m| matches!(m.role, Role::User | Role::Assistant))
+            .count()
+    }
+
+    #[test]
+    fn conversation_preserved_when_tool_results_present() {
+        // Two file-reading round-trips interleaved with conversation.
+        // Role::Tool result dumps must NOT consume the conversational
+        // budget, so the opening goal survives a budget that a flat
+        // last-N-rows window of the same count would have evicted.
+        let big = "x".repeat(4096);
+        let messages = vec![
+            u("goal: edit config"),
+            a_call("c1", "Bash"),
+            tr("c1", &big),
+            u("q2"),
+            a_call("c2", "Bash"),
+            tr("c2", &big),
+            u("q3"),
+            a("answer"),
+        ];
+        assert_eq!(conv_count(&messages), 6);
+
+        let out = trim_to_conversation_window(messages.clone(), 6);
+        assert!(
+            has_text(&out, "goal: edit config"),
+            "goal must survive the conversational window"
+        );
+        let flat_tail = &messages[messages.len() - 6..];
+        assert!(
+            !has_text(flat_tail, "goal: edit config"),
+            "sanity: a flat last-6-rows window loses the goal"
+        );
+    }
+
+    #[test]
+    fn prefix_cut_keeps_pairing_valid() {
+        // Cut lands mid-round-trip: repair must strip the leading orphan
+        // tool result so providers don't reject a leading tool message.
+        let messages = vec![
+            a_call("c1", "Read"),
+            tr("c1", "body"),
+            u("a"),
+            a("b"),
+            u("c"),
+            a("d"),
+        ];
+        let trimmed = trim_to_conversation_window(messages, 4);
+        assert!(
+            matches!(trimmed[0].role, Role::Tool),
+            "setup: head is orphan tool"
+        );
+        let repaired = ensure_tool_result_pairing(trimmed);
+        assert!(
+            !matches!(repaired[0].role, Role::Tool),
+            "repair must drop the leading orphan tool message"
+        );
+    }
+
+    #[test]
+    fn assistant_with_text_and_tool_use_counts_as_one() {
+        let messages = vec![
+            u("a"),
+            a_call("c1", "Read"),
+            tr("c1", "body"),
+            u("b"),
+            a("c"),
+        ];
+        let trimmed = trim_to_conversation_window(messages, 2);
+        assert_eq!(
+            conv_count(&trimmed),
+            2,
+            "exactly two conversational messages kept"
+        );
+        assert!(has_text(&trimmed, "b") && has_text(&trimmed, "c"));
+        assert!(!has_text(&trimmed, "a"), "older user turn trimmed");
+    }
+
+    #[test]
+    fn empty_all_tool_and_zero_limit_safe() {
+        assert!(trim_to_conversation_window(Vec::new(), 5).is_empty());
+        // zero limit disables the trim.
+        let msgs = vec![u("a"), a("b")];
+        assert_eq!(trim_to_conversation_window(msgs.clone(), 0).len(), 2);
+        // all-tool history: no conversational messages → no-op.
+        let all_tool = vec![tr("c1", "x"), tr("c2", "y")];
+        let trimmed = trim_to_conversation_window(all_tool, 5);
+        assert_eq!(trimmed.len(), 2, "trim leaves all-tool history untouched");
+    }
+
+    #[test]
+    fn render_workspace_files_lists_uploads_and_prunes_noise() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("利润分析.xlsx"), vec![0u8; 2048]).unwrap();
+        std::fs::write(root.join("notes.md"), b"hi").unwrap();
+        std::fs::create_dir(root.join("slides")).unwrap();
+        // Noise that must be pruned.
+        std::fs::create_dir(root.join("node_modules")).unwrap();
+        std::fs::write(root.join("node_modules").join("junk.js"), b"x").unwrap();
+        std::fs::create_dir(root.join(".snaca")).unwrap();
+
+        let out = render_workspace_files(root);
+        assert!(out.contains("利润分析.xlsx"), "upload listed: {out}");
+        assert!(out.contains("notes.md"));
+        assert!(out.contains("slides/"), "user dir listed with slash: {out}");
+        assert!(!out.contains("node_modules"), "noise dir pruned: {out}");
+        assert!(!out.contains(".snaca"), "hidden dir pruned: {out}");
+        // Files lead, dirs follow.
+        assert!(out.find("notes.md").unwrap() < out.find("slides/").unwrap());
+    }
+
+    #[test]
+    fn render_workspace_files_empty_for_missing_or_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(render_workspace_files(dir.path()), "");
+        assert_eq!(render_workspace_files(&dir.path().join("nope")), "");
+    }
+
+    // ---- pairing-invariant gate (`ensure_tool_result_pairing`) ----
+
+    /// Assistant message driving multiple tool calls in one turn.
+    fn a_calls(ids: &[&str]) -> Message {
+        let mut blocks = vec![ContentBlock::text("calling...")];
+        for id in ids {
+            blocks.push(ContentBlock::tool_use(*id, "Read", json!({})));
+        }
+        Message::new(Role::Assistant, blocks)
+    }
+    /// Ids answered (as `tool_result` or `tool_error`) by a `Role::Tool` msg.
+    fn answered_ids(m: &Message) -> Vec<String> {
+        m.content
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::ToolResult { tool_use_id, .. } => {
+                    Some(tool_use_id.as_str().to_string())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+    /// Concatenated text of the `tool_result` block answering `id`.
+    fn tool_result_body(m: &Message, id: &str) -> String {
+        m.content
+            .iter()
+            .find_map(|b| match b {
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    content,
+                    ..
+                } if tool_use_id.as_str() == id => Some(
+                    content
+                        .iter()
+                        .filter_map(|c| match c {
+                            ContentBlock::Text { text } => Some(text.clone()),
+                            _ => None,
+                        })
+                        .collect::<String>(),
+                ),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+    /// Assert the wire invariant a provider enforces: every assistant
+    /// `tool_use` id is answered by the immediately-following tool
+    /// message, and every `tool_result` answers an earlier `tool_use`.
+    fn assert_pairing_valid(msgs: &[Message]) {
+        let mut seen = std::collections::HashSet::new();
+        for (i, m) in msgs.iter().enumerate() {
+            match m.role {
+                Role::Assistant => {
+                    let ids: Vec<String> = m
+                        .content
+                        .iter()
+                        .filter_map(|b| match b {
+                            ContentBlock::ToolUse { id, .. } => Some(id.as_str().to_string()),
+                            _ => None,
+                        })
+                        .collect();
+                    for id in &ids {
+                        seen.insert(id.clone());
+                    }
+                    if !ids.is_empty() {
+                        let next = msgs.get(i + 1);
+                        assert!(
+                            matches!(next.map(|n| n.role), Some(Role::Tool)),
+                            "assistant tool_use at {i} not followed by a tool message"
+                        );
+                        let ans = answered_ids(next.unwrap());
+                        for id in &ids {
+                            assert!(ans.contains(id), "tool_use {id} at {i} left unanswered");
+                        }
+                    }
+                }
+                Role::Tool => {
+                    for id in answered_ids(m) {
+                        assert!(
+                            seen.contains(&id),
+                            "tool_result {id} answers no prior tool_use"
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn boundary_gate_repairs_head_orphan_from_compaction() {
+        // Regression for the production incident: `load_history` splices
+        // `head ++ summary ++ live`, and the head's last message is an
+        // assistant with two tool_uses whose results were compacted away.
+        // The gate must synthesize a tool message between it and the
+        // summary so the assistant tool_use is no longer orphaned.
+        let head = vec![u("q1"), a("hi"), u("q2"), a_calls(&["c1", "c2"])];
+        let summary = u("[SNACA SUMMARY of earlier conversation]");
+        let live = vec![a_call("c3", "Bash"), tr("c3", "body")];
+        let assembled = [head, vec![summary], live].concat();
+
+        let out = ensure_tool_result_pairing(assembled);
+        assert_pairing_valid(&out);
+        // The synthetic answers sit right after the head assistant,
+        // before the summary user message.
+        let idx = out
+            .iter()
+            .position(|m| {
+                m.content
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::ToolUse { id, .. } if id.as_str() == "c1"))
+            })
+            .unwrap();
+        assert!(matches!(out[idx + 1].role, Role::Tool));
+        let ans = answered_ids(&out[idx + 1]);
+        assert!(ans.contains(&"c1".to_string()) && ans.contains(&"c2".to_string()));
+        assert!(
+            matches!(out[idx + 2].role, Role::User),
+            "summary preserved after synth"
+        );
+    }
+
+    #[test]
+    fn boundary_gate_drops_reverse_orphan_block_keeps_valid() {
+        // A tool message carrying one valid result (c1) and one orphan
+        // (z, whose tool_use never existed): keep c1, drop z.
+        let tool_msg = Message::new(
+            Role::Tool,
+            vec![
+                ContentBlock::tool_result(ToolUseId::new("c1"), vec![ContentBlock::text("ok")]),
+                ContentBlock::tool_result(ToolUseId::new("z"), vec![ContentBlock::text("orphan")]),
+            ],
+        );
+        let out = ensure_tool_result_pairing(vec![u("q"), a_call("c1", "Read"), tool_msg]);
+        assert_pairing_valid(&out);
+        let ans = answered_ids(&out[2]);
+        assert_eq!(ans, vec!["c1".to_string()], "orphan z dropped, c1 kept");
+    }
+
+    #[test]
+    fn boundary_gate_dedups_repeated_result() {
+        let tool_msg = Message::new(
+            Role::Tool,
+            vec![
+                ContentBlock::tool_result(ToolUseId::new("c1"), vec![ContentBlock::text("first")]),
+                ContentBlock::tool_result(ToolUseId::new("c1"), vec![ContentBlock::text("dupe")]),
+            ],
+        );
+        let out = ensure_tool_result_pairing(vec![u("q"), a_call("c1", "Read"), tool_msg]);
+        assert_eq!(
+            answered_ids(&out[2]),
+            vec!["c1".to_string()],
+            "duplicate c1 dropped"
+        );
+    }
+
+    #[test]
+    fn byte_cap_clears_old_tool_result_body_keeps_pairing() {
+        let big = "x".repeat(5000);
+        let msgs = vec![
+            u("q"),
+            a_call("c1", "Read"),
+            tr("c1", &big),
+            u("q2"),
+            a_call("c2", "Read"),
+            tr("c2", "recent"),
+        ];
+        let out = enforce_history_byte_cap(msgs, 2000, 2, 0);
+        assert_eq!(out.len(), 6, "no message dropped — content cleared instead");
+        assert!(messages_byte_size(&out) <= 2000, "under cap after clearing");
+        // c1 body elided to the marker, block + id intact.
+        assert_eq!(answered_ids(&out[2]), vec!["c1".to_string()]);
+        assert!(
+            tool_result_body(&out[2], "c1") == BYTE_CAP_CLEARED_MARKER,
+            "c1 body cleared to marker"
+        );
+        // Recent tail (within keep_recent=2) left verbatim.
+        assert_eq!(
+            tool_result_body(&out[5], "c2"),
+            "recent",
+            "recent tool result untouched"
+        );
+    }
+
+    #[test]
+    fn byte_cap_falls_back_to_drop_when_bulk_not_clearable() {
+        // Oversized bulk sits in a user text block — nothing to clear, so
+        // Phase B drops leading messages.
+        let big = "x".repeat(5000);
+        let msgs = vec![u(&big), a("small"), u("q2"), a("keep")];
+        let out = enforce_history_byte_cap(msgs, 300, 1, 0);
+        assert!(out.len() < 4, "leading messages dropped");
+        assert!(has_text(&out, "keep"), "recent turn survives");
+        assert!(!matches!(out[0].role, Role::Tool), "no leading orphan tool");
+    }
+
+    #[test]
+    fn boundary_gate_dedup_does_not_orphan_assistant() {
+        // Regression for the review finding: a double-spliced round-trip
+        // (same tool_use id answered twice). The dedup drops the second
+        // result — but `missing` must be derived from what survives
+        // filtering, so the second assistant tool_use gets a synthetic
+        // error rather than an empty tool message + orphan.
+        let msgs = vec![
+            u("q"),
+            a_call("c1", "Read"),
+            tr("c1", "first"),
+            a_call("c1", "Read"),
+            tr("c1", "dupe"),
+        ];
+        let out = ensure_tool_result_pairing(msgs);
+        assert_pairing_valid(&out);
+        assert!(
+            out.iter()
+                .all(|m| !(matches!(m.role, Role::Tool) && m.content.is_empty())),
+            "no empty tool message emitted"
+        );
+        // Second turn's duplicate result was replaced by a synthetic error.
+        assert!(
+            matches!(out.last().map(|m| &m.role), Some(Role::Tool)),
+            "last turn is the answering tool message"
+        );
+        assert_eq!(answered_ids(out.last().unwrap()), vec!["c1".to_string()]);
+    }
+
+    #[test]
+    fn boundary_gate_synthetic_answer_dedups_later_stray_result() {
+        // A(c1) is a forward orphan → gets a synthetic tool_error. A later
+        // spliced tool message carries a stray real result for the same
+        // c1. Because the synthetic answer records c1 as answered, the
+        // stray must be deduped — otherwise c1 is answered twice on the
+        // wire (synthetic error + stray result), which providers reject.
+        let merged = Message::new(
+            Role::Tool,
+            vec![
+                ContentBlock::tool_result(ToolUseId::new("c2"), vec![ContentBlock::text("ok")]),
+                ContentBlock::tool_result(ToolUseId::new("c1"), vec![ContentBlock::text("stray")]),
+            ],
+        );
+        let msgs = vec![
+            a_call("c1", "Read"), // orphan: no following tool message
+            u("x"),
+            a_call("c2", "Read"),
+            merged,
+        ];
+        let out = ensure_tool_result_pairing(msgs);
+        assert_pairing_valid(&out);
+        // c1 must be answered exactly once across the whole history.
+        let c1_answers: usize = out
+            .iter()
+            .flat_map(|m| m.content.iter())
+            .filter(|b| matches!(b, ContentBlock::ToolResult { tool_use_id, .. } if tool_use_id.as_str() == "c1"))
+            .count();
+        assert_eq!(c1_answers, 1, "c1 answered exactly once (stray deduped)");
+    }
+
+    #[test]
+    fn byte_cap_strips_leading_tool_even_under_cap() {
+        // Regression for the review finding: when already under the byte
+        // cap, the leading-Role::Tool strip must still run so the function
+        // never returns a history that begins with an unattached tool
+        // message.
+        let msgs = vec![tr("c1", "orphan"), a("b"), u("c")];
+        let out = enforce_history_byte_cap(msgs, 10_000_000, 6, 0);
+        assert!(
+            !matches!(out[0].role, Role::Tool),
+            "leading orphan tool stripped"
+        );
+        assert_eq!(out.len(), 2);
+    }
+
+    // ---- oversized-tool-result defence (layers ①/②/③) ----
+
+    fn result_body_text(block: &ContentBlock) -> String {
+        match block {
+            ContentBlock::ToolResult { content, .. } => content
+                .iter()
+                .filter_map(|b| match b {
+                    ContentBlock::Text { text } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect(),
+            _ => String::new(),
+        }
+    }
+
+    #[test]
+    fn cap_tool_result_truncates_oversized_body_keeps_id() {
+        // Layer ①: a huge body is truncated to a head+tail preview while
+        // the tool_use_id and is_error survive (so pairing is intact).
+        let big = "x".repeat(500_000);
+        let block = ContentBlock::tool_result(ToolUseId::new("c1"), vec![ContentBlock::text(&big)]);
+        let capped = cap_tool_result_block(block, 100_000);
+        match &capped {
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                ..
+            } => {
+                assert_eq!(tool_use_id.as_str(), "c1");
+                let len = tool_result_text_len(content);
+                assert!(len <= 100_000 + 256, "truncated to ~max, got {len}");
+                assert!(result_body_text(&capped).contains("bytes truncated"));
+            }
+            _ => panic!("expected tool_result"),
+        }
+    }
+
+    #[test]
+    fn cap_tool_result_noop_when_small_or_disabled() {
+        let block =
+            ContentBlock::tool_result(ToolUseId::new("c1"), vec![ContentBlock::text("small")]);
+        assert_eq!(cap_tool_result_block(block.clone(), 100_000), block);
+        // max == 0 disables the cap entirely.
+        let big = ContentBlock::tool_result(
+            ToolUseId::new("c1"),
+            vec![ContentBlock::text("x".repeat(50_000))],
+        );
+        assert_eq!(cap_tool_result_block(big.clone(), 0), big);
+    }
+
+    #[test]
+    fn render_for_summary_caps_each_block() {
+        // Layer ②: a large tool_error body (which collapse never shrinks)
+        // must not blow the summary render.
+        let big_err = Message::new(
+            Role::Tool,
+            vec![ContentBlock::tool_error(
+                ToolUseId::new("c1"),
+                "x".repeat(500_000),
+            )],
+        );
+        let rendered = render_for_summary(&[big_err], 16 * 1024, 256 * 1024);
+        assert!(
+            rendered.len() < 40_000,
+            "render bounded, got {}",
+            rendered.len()
+        );
+        assert!(rendered.contains("truncated"));
+    }
+
+    #[test]
+    fn render_for_summary_bounds_aggregate() {
+        // Layer ② aggregate guarantee: many results each UNDER the per-block
+        // cap must still be bounded in total, so a large band can't overflow
+        // the summary request.
+        let msgs: Vec<Message> = (0..100)
+            .map(|i| {
+                Message::new(
+                    Role::Tool,
+                    vec![ContentBlock::tool_result(
+                        ToolUseId::new(format!("c{i}")),
+                        // Distinguishable marker at the head of each body so
+                        // we can assert WHICH messages survived.
+                        vec![ContentBlock::text(format!(
+                            "MARK{i} {}",
+                            "y".repeat(10_000)
+                        ))],
+                    )],
+                )
+            })
+            .collect();
+        // 100 × 10 KiB = ~1 MiB unbounded; total_max = 64 KiB must cap it
+        // by keeping the newest suffix and dropping the oldest. Bound is
+        // total_max + at most one (always-kept newest) message.
+        let rendered = render_for_summary(&msgs, 16 * 1024, 64 * 1024);
+        assert!(
+            rendered.len() < 64 * 1024 + 16 * 1024,
+            "aggregate bounded, got {}",
+            rendered.len()
+        );
+        assert!(rendered.contains("messages omitted"));
+        // Tail-biased: the newest survives, the oldest is dropped.
+        assert!(rendered.contains("MARK99"), "newest kept");
+        assert!(!rendered.contains("MARK0 "), "oldest dropped");
+    }
+
+    #[test]
+    fn byte_cap_clamps_oversized_result_in_recent_tail() {
+        // Layer ③ (the production incident shape): the newest tool result
+        // is 1 MB and sits inside the protected keep_recent tail, so Phase
+        // A skips it — but per_result_max must still clamp it to a preview.
+        let big = "x".repeat(1_000_000);
+        let msgs = vec![
+            u("q"),
+            a_call("c1", "Bash"),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::tool_result(
+                    ToolUseId::new("c1"),
+                    vec![ContentBlock::text(&big)],
+                )],
+            ),
+        ];
+        let out = enforce_history_byte_cap(msgs, 1_500_000, 6, 200 * 1024);
+        let tool_msg = out.iter().find(|m| matches!(m.role, Role::Tool)).unwrap();
+        let len = tool_result_text_len(&tool_msg.content);
+        assert!(
+            len <= 200 * 1024 + 256,
+            "recent oversized result clamped, got {len}"
+        );
+        // tool_use_id preserved → still answers c1.
+        assert_eq!(answered_ids(tool_msg), vec!["c1".to_string()]);
+    }
 }
 
 #[cfg(test)]

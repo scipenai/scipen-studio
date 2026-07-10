@@ -13,7 +13,7 @@ use crate::client::McpClient;
 use crate::config::{qualified_tool_name, split_qualified_name};
 use crate::error::McpError;
 use async_trait::async_trait;
-use rmcp::model::{Content, RawContent, Tool as RmcpTool};
+use rmcp::model::{ContentBlock, Tool as RmcpTool};
 use serde_json::Value;
 use snaca_tools_api::{
     ApprovalRequirement, Tool, ToolCapabilities, ToolContext, ToolError, ToolOutput, ToolResult,
@@ -155,9 +155,7 @@ fn map_call_error(err: McpError) -> ToolError {
         // server is just one tool among many.
         McpError::Timeout {
             tool, timeout_secs, ..
-        } => ToolError::Execution(format!(
-            "mcp tool `{tool}` timed out after {timeout_secs}s"
-        )),
+        } => ToolError::Execution(format!("mcp tool `{tool}` timed out after {timeout_secs}s")),
         McpError::Serde(e) => ToolError::InvalidInput(e.to_string()),
         other => ToolError::Other(other.to_string()),
     }
@@ -166,20 +164,21 @@ fn map_call_error(err: McpError) -> ToolError {
 /// Collapse a list of MCP content blocks into a single string the LLM can
 /// consume. Non-text blocks become a one-line marker so the model knows
 /// data is present but isn't shown raw.
-fn render_content(content: &[Content]) -> String {
+fn render_content(content: &[ContentBlock]) -> String {
     let mut out = String::new();
     for block in content {
         if !out.is_empty() {
             out.push_str("\n\n");
         }
-        match &block.raw {
-            RawContent::Text(t) => out.push_str(&t.text),
-            RawContent::Image(_) => out.push_str("<image content omitted>"),
-            RawContent::Resource(_) => out.push_str("<embedded resource>"),
-            RawContent::Audio(_) => out.push_str("<audio content omitted>"),
-            RawContent::ResourceLink(link) => {
+        match block {
+            ContentBlock::Text(t) => out.push_str(&t.text),
+            ContentBlock::Image(_) => out.push_str("<image content omitted>"),
+            ContentBlock::Resource(_) => out.push_str("<embedded resource>"),
+            ContentBlock::Audio(_) => out.push_str("<audio content omitted>"),
+            ContentBlock::ResourceLink(link) => {
                 out.push_str(&format!("<resource link: {}>", link.uri));
             }
+            _ => out.push_str("<unknown content type>"),
         }
     }
     out

@@ -6,27 +6,24 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "SNACA memory: file-tree memory + bulk import + retrieval (M3)"
+description = "SNACA memory: file-tree memory store + bulk import"
 
 [dependencies]
 snaca-core.workspace = true
-snaca-state.workspace = true
+snaca-agent-api.workspace = true
 snaca-workspace.workspace = true
-snaca-llm.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 blake3.workspace = true
 chrono.workspace = true
+regex.workspace = true
 
 [features]
-# Real production embedder. Brings in `fastembed` + `ort` + ONNX models;
-# downloaded lazily on first use. Tests use `HashEmbedder` from the
-# default build, so most CI runs never pay for this.
 default = []
-fastembed = ["dep:fastembed"]
 # PDF extraction. Brings in the `pdf-extract` crate, which has its own
 # transitive deps for fonts/encodings — opt-in.
 pdf = ["dep:pdf-extract"]
@@ -37,12 +34,6 @@ pdf = ["dep:pdf-extract"]
 # (see `data-lark/example-skills/office-extract/`).
 bundle = ["dep:zip"]
 
-[dependencies.fastembed]
-version = "5"
-optional = true
-default-features = false
-features = ["hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"]
-
 [dependencies.zip]
 version = "8"
 optional = true
@@ -52,7 +43,7 @@ default-features = false
 features = ["deflate"]
 
 [dependencies.pdf-extract]
-version = "0.10"
+version = "0.12"
 optional = true
 
 [dev-dependencies]

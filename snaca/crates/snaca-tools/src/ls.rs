@@ -52,21 +52,16 @@ impl Tool for LsTool {
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> ToolResult {
-        let input: LsInput = serde_json::from_value(input)
-            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let input: LsInput =
+            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
         let target = match input.path.as_deref().unwrap_or("") {
             "" | "." => ctx.workspace_root().to_path_buf(),
             other => resolve_within(ctx.workspace_root(), Path::new(other))
                 .map_err(|e| ToolError::PathOutsideWorkspace(e.to_string()))?,
         };
 
-        let metadata = match tokio::fs::metadata(&target).await {
-            Ok(m) => m,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Err(ToolError::NotFound(input.path.unwrap_or_default()));
-            }
-            Err(e) => return Err(ToolError::Io(e)),
-        };
+        let metadata =
+            crate::fs_util::metadata_or_not_found(&target, input.path.unwrap_or_default()).await?;
         if !metadata.is_dir() {
             return Err(ToolError::InvalidInput(format!(
                 "{} is not a directory",

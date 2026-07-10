@@ -13,9 +13,9 @@
 //! - threshold = 0 disables collapse entirely
 
 use chrono::Utc;
+use serde_json::json;
 use snaca_core::{ContentBlock, Message, MessageId, Role, ToolUseId};
 use snaca_engine::engine::collapse_old_tool_results;
-use serde_json::json;
 
 fn user(text: &str) -> Message {
     Message {

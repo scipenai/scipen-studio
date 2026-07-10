@@ -36,6 +36,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
+use snaca_channel_host::InboundEvent;
+use snaca_channel_protocol::methods::MessageReceivedParams;
+use snaca_core::short_uuid;
 use snaca_state::{Database, ScheduledTask};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -74,6 +77,60 @@ impl FireHandler for LoggingFireHandler {
         );
         self.fired.lock().await.push(task.clone());
         Ok(())
+    }
+}
+
+/// Production fire handler: converts a due schedule row into a
+/// synthetic IM message and injects it into the owning plugin's
+/// dispatcher. From there the normal IM path handles dedup, routing,
+/// engine execution, and outbox delivery.
+#[derive(Clone)]
+pub struct PluginFireHandler {
+    db: Database,
+    plugins: Arc<crate::plugin_registry::PluginRegistry>,
+}
+
+impl PluginFireHandler {
+    pub fn new(db: Database, plugins: Arc<crate::plugin_registry::PluginRegistry>) -> Self {
+        Self { db, plugins }
+    }
+}
+
+#[async_trait]
+impl FireHandler for PluginFireHandler {
+    async fn fire(&self, task: &ScheduledTask) -> Result<()> {
+        const USER_ID: &str = "snaca-scheduler";
+        self.db
+            .upsert_binding(&task.chat_id, USER_ID, &task.project_id)
+            .await?;
+
+        let message_id = format!(
+            "schedule-{}-{}-{}",
+            task.id,
+            Utc::now().timestamp_millis(),
+            short_uuid()
+        );
+        let params = MessageReceivedParams {
+            auth: String::new(),
+            tenant_id: task.tenant_id.as_str().to_string(),
+            chat_id: task.chat_id.clone(),
+            user_id: USER_ID.to_string(),
+            message_id,
+            content: task.prompt.clone(),
+            mentions: vec![],
+            attachments: vec![],
+            reply_to: None,
+            received_at: Utc::now().to_rfc3339(),
+        };
+        self.plugins
+            .inject_inbound(
+                &task.plugin,
+                InboundEvent::MessageReceived {
+                    plugin: task.plugin.clone(),
+                    params,
+                },
+            )
+            .await
     }
 }
 
@@ -135,11 +192,7 @@ pub fn spawn_scheduler<H: FireHandler>(
 /// One poll pass. Public so tests can drive the math without spawning
 /// the loop. Visible behaviour matches the loop: claim due rows, fire
 /// each, advance `next_fire_at` (or disable).
-pub async fn run_tick<H: FireHandler>(
-    db: &Database,
-    handler: &H,
-    batch_size: u32,
-) -> Result<()> {
+pub async fn run_tick<H: FireHandler>(db: &Database, handler: &H, batch_size: u32) -> Result<()> {
     let now = Utc::now();
     let due = db.list_due_scheduled_tasks(now, batch_size).await?;
     if due.is_empty() {

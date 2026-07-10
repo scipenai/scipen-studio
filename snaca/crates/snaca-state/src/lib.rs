@@ -12,14 +12,16 @@
 //!
 //! Future (M2): `tenants`, `checkpoints`, indexes for cross-tenant queries.
 
+pub mod conversation_store;
 pub mod db;
 pub mod error;
 pub mod models;
 
+pub use conversation_store::SqliteConversationStore;
 pub use db::Database;
 pub use error::{StateError, StateResult};
 pub use models::{
-    ChatBinding, MemoryVector, MessageRow, NewMessage, NewOutboxEntry, NewScheduledTask,
-    NewThread, OutboxKind, OutboxRow, OutboxStatus, PersistedDecision, ScheduledTask,
-    StoredApprovalDecision, ThreadCompaction, ThreadRow, ThreadSummaryRow, ToolCallRow,
+    ChatBinding, MessageRow, NewMessage, NewOutboxEntry, NewScheduledTask, NewThread, OutboxKind,
+    OutboxRow, OutboxStatus, PersistedDecision, ScheduledTask, StoredApprovalDecision,
+    ThreadCompaction, ThreadRow, ThreadSummaryRow, ToolCallRow,
 };

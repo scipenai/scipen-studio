@@ -51,8 +51,6 @@ pub trait LlmClient: Send + Sync {
     ) -> LlmResult<BoxStream<'static, LlmResult<StreamEvent>>> {
         let response = self.create_message(request).await?;
         let events = synthesize_events(response);
-        Ok(Box::pin(futures::stream::iter(
-            events.into_iter().map(Ok),
-        )))
+        Ok(Box::pin(futures::stream::iter(events.into_iter().map(Ok))))
     }
 }

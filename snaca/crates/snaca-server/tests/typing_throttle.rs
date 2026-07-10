@@ -37,7 +37,10 @@ async fn spawn_recording_plugin(updates_path: &std::path::Path) -> PluginHandle 
     // actually accepts updates.
     let cfg = PluginConfig::builder("mock-throttle", cli.to_string_lossy())
         .args(["mock-plugin", "--update-supported"])
-        .env("SNACA_MOCK_RECORD_UPDATES", updates_path.display().to_string())
+        .env(
+            "SNACA_MOCK_RECORD_UPDATES",
+            updates_path.display().to_string(),
+        )
         .build();
     PluginHandle::spawn(cfg).await.expect("spawn mock plugin")
 }

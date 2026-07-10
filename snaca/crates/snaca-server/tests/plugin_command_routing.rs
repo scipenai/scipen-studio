@@ -16,9 +16,7 @@
 //! mock that asserts it's never invoked.
 
 use async_trait::async_trait;
-use snaca_llm::{
-    LlmClient, LlmResult, MessageRequest, MessageResponse, ProviderCaps,
-};
+use snaca_llm::{LlmClient, LlmResult, MessageRequest, MessageResponse, ProviderCaps};
 use snaca_server::{Config, Runtime};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};

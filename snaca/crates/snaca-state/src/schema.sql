@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS threads (
     id          TEXT PRIMARY KEY,
     tenant_id   TEXT NOT NULL,
     project_id  TEXT NOT NULL,
+    -- scipen-studio fork: editor-mode thread title.
     title       TEXT NOT NULL DEFAULT 'New conversation',
     created_at  TEXT NOT NULL
 );
@@ -21,16 +22,27 @@ CREATE TABLE IF NOT EXISTS messages (
     role        TEXT NOT NULL,
     content     TEXT NOT NULL,
     created_at  TEXT NOT NULL,
-    -- Optional: turn that produced this message. Host UIs use it to
-    -- associate persisted assistant messages with the in-memory turn
-    -- (thinking trace, tool calls, edit proposals) they emitted live.
-    -- Nullable because user messages predate the turn binding.
+    -- Set when the engine localizes this message as the cause of a
+    -- provider content-moderation rejection (e.g. DeepSeek "Content
+    -- Exists Risk"). `load_history` then replaces its body with a neutral
+    -- placeholder so the flagged content stops re-triggering the filter
+    -- on every replayed turn. NULL = not redacted. Legacy DBs acquire the
+    -- column via the in-place ALTER migration in db.rs.
+    redacted_at TEXT,
+    -- scipen-studio fork: turn association for host UIs.
     turn_id     TEXT,
     FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_thread_created
     ON messages(thread_id, created_at);
+
+-- One-shot migration markers for data migrations that cannot be inferred
+-- reliably from table shape alone.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    name        TEXT PRIMARY KEY,
+    applied_at  TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS tool_calls (
     id            TEXT PRIMARY KEY,
@@ -78,28 +90,6 @@ CREATE TABLE IF NOT EXISTS thread_compactions (
     compacted_at              TEXT NOT NULL,
     FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
 );
-
--- M3: per-(tenant, project, scope, name) memory entry embedding.
--- One row per memory entry. We store the embedding as a BLOB
--- (raw little-endian f32 array) plus the model id, so a model swap
--- (different dimensionality or family) can be detected and the
--- index rebuilt rather than silently mixing vector spaces.
--- Brute-force cosine search at query time — fine for small projects;
--- swap to sqlite-vec when entry counts climb past a few thousand.
-CREATE TABLE IF NOT EXISTS memory_vectors (
-    tenant_id   TEXT NOT NULL,
-    project_id  TEXT NOT NULL,
-    scope       TEXT NOT NULL,
-    name        TEXT NOT NULL,
-    model_id    TEXT NOT NULL,
-    dim         INTEGER NOT NULL,
-    embedding   BLOB NOT NULL,
-    updated_at  TEXT NOT NULL,
-    PRIMARY KEY (tenant_id, project_id, scope, name)
-);
-
-CREATE INDEX IF NOT EXISTS idx_memory_vectors_project
-    ON memory_vectors(tenant_id, project_id);
 
 -- M2/M5: per-(tenant, project, tool, input) approval decisions remembered
 -- across turns. Decision values are 'allow' or 'deny'; 'allow_once' is not
@@ -197,3 +187,36 @@ CREATE TABLE IF NOT EXISTS inbound_dedup (
 );
 CREATE INDEX IF NOT EXISTS idx_inbound_dedup_seen_at
     ON inbound_dedup(seen_at);
+
+-- FTS5 virtual table mirroring the text content of `messages`.
+-- Drives the `session_search` tool: BM25-ranked full-text search
+-- over conversation history, with no LLM / embedding cost. The
+-- `content='messages'` clause makes this an "external content"
+-- table — it stores its own index but reads bodies back from
+-- `messages.content` (kept in sync by the triggers below).
+--
+-- `tokenize='unicode61 remove_diacritics 2 tokenchars _'` keeps
+-- ASCII identifiers like `snake_case` and Unicode CJK both
+-- searchable; `porter` stemming is deliberately omitted so
+-- "deploys" doesn't drift from "deploy" and surprise the model.
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    content,
+    content='messages',
+    content_rowid='rowid',
+    tokenize='unicode61 remove_diacritics 2 tokenchars _'
+);
+
+-- Keep the FTS5 index in sync with INSERTs/UPDATEs/DELETEs against
+-- the base `messages` table. SQLite runs these triggers inside the
+-- same transaction as the row change so the index can never lag
+-- in the read path.
+CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+    INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+END;

@@ -13,9 +13,7 @@
 use async_trait::async_trait;
 use serde_json::json;
 use snaca_core::{ContentBlock, Message, MessageId, ProjectId, Role, TenantId, Usage};
-use snaca_llm::{
-    LlmClient, LlmResult, MessageRequest, MessageResponse, ProviderCaps, StopReason,
-};
+use snaca_llm::{LlmClient, LlmResult, MessageRequest, MessageResponse, ProviderCaps, StopReason};
 use snaca_server::{Config, Runtime};
 use snaca_workspace::WorkspaceLayout;
 use std::collections::VecDeque;
@@ -114,6 +112,14 @@ struct Fixture {
 }
 
 async fn build_fixture(auto_approval: &str, llm: Arc<dyn LlmClient>) -> Fixture {
+    // Force interactive approval mode for both tests in this file —
+    // the whole point is to exercise the engine → ChannelApprovalGate →
+    // plugin round-trip. SNACA_APPROVAL_MODE now defaults to `allow`,
+    // which would bypass the gate entirely and break both scenarios.
+    // Both tests want the same value, so we set once without
+    // restoring; this test binary is single-purpose anyway.
+    std::env::set_var("SNACA_APPROVAL_MODE", "interactive");
+
     let _ = tracing_subscriber::fmt::try_init();
     let tmp = tempfile::tempdir().unwrap();
     let data_root = tmp.path().join("data");
@@ -219,7 +225,10 @@ async fn auto_deny_blocks_write_tool_with_tool_error() {
 
     let record = wait_for_record(&fix.record_path, Instant::now() + Duration::from_secs(15)).await;
     assert!(!record.is_empty(), "no message.send recorded");
-    assert!(record.contains("blocked"), "expected denial reflection in reply: {record}");
+    assert!(
+        record.contains("blocked"),
+        "expected denial reflection in reply: {record}"
+    );
 
     let target = fix.workspace_dir.join("blocked.txt");
     assert!(

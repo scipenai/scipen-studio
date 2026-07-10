@@ -10,15 +10,18 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct WorkspaceLayout {
-    data_root: PathBuf,
-    /// When set, `workspace_dir()` returns this regardless of (tenant,
-    /// project). Used by single-project hosts (SciPen Studio's SNACA
-    /// sidecar) where the user has already opened a real project
-    /// directory and tools should operate on it directly rather than on
-    /// the multi-tenant `data_root/<tenant>/projects/<project>/workspace`
-    /// sandbox path. `data_root` still owns memory / settings / SQLite
-    /// — only the tool cwd flips.
+    mode: WorkspaceLayoutMode,
+    /// scipen-studio fork: when set, `workspace_dir()` returns this
+    /// regardless of (tenant, project) or mode, so an editor host can
+    /// point file tools at the user's real project directory while
+    /// keeping SNACA metadata (memory/skills/db) under `data_root`.
     explicit_workspace: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+enum WorkspaceLayoutMode {
+    MultiTenant { data_root: PathBuf },
+    SingleProject { workspace_root: PathBuf },
 }
 
 impl WorkspaceLayout {
@@ -32,14 +35,32 @@ impl WorkspaceLayout {
             ));
         }
         Ok(Self {
-            data_root,
+            mode: WorkspaceLayoutMode::MultiTenant { data_root },
             explicit_workspace: None,
         })
     }
 
-    /// Pin tool cwd to a real project directory rather than the default
-    /// sandbox under `data_root`. Must be absolute. Memory / settings
-    /// paths are unaffected and still derive from `data_root`.
+    /// Construct a single-project layout rooted directly at an existing
+    /// repository/workspace directory. Tool cwd resolves to `workspace_root`;
+    /// SNACA-owned metadata lives under `workspace_root/.snaca/`.
+    pub fn single_project(workspace_root: impl Into<PathBuf>) -> Result<Self, WorkspaceError> {
+        let workspace_root = workspace_root.into();
+        if !workspace_root.is_absolute() {
+            return Err(WorkspaceError::RootNotAbsolute(
+                workspace_root.display().to_string(),
+            ));
+        }
+        Ok(Self {
+            mode: WorkspaceLayoutMode::SingleProject { workspace_root },
+            explicit_workspace: None,
+        })
+
+    }
+
+    /// scipen-studio fork: pin the tool cwd to an explicit absolute
+    /// directory (the user's real project), overriding the derived
+    /// `workspace_dir`. Metadata paths (memory/skills/settings) still
+    /// resolve under the layout's `data_root`.
     pub fn with_explicit_workspace(
         mut self,
         workspace_dir: impl Into<PathBuf>,
@@ -53,11 +74,19 @@ impl WorkspaceLayout {
     }
 
     pub fn data_root(&self) -> &Path {
-        &self.data_root
+        match &self.mode {
+            WorkspaceLayoutMode::MultiTenant { data_root } => data_root,
+            WorkspaceLayoutMode::SingleProject { workspace_root } => workspace_root,
+        }
     }
 
     pub fn tenant_root(&self, tenant: &TenantId) -> PathBuf {
-        self.data_root.join(tenant.as_str())
+        match &self.mode {
+            WorkspaceLayoutMode::MultiTenant { data_root } => data_root.join(tenant.as_str()),
+            WorkspaceLayoutMode::SingleProject { workspace_root } => {
+                workspace_root.join(".snaca").join("tenant")
+            }
+        }
     }
 
     pub fn tenant_settings(&self, tenant: &TenantId) -> PathBuf {
@@ -69,19 +98,26 @@ impl WorkspaceLayout {
     }
 
     pub fn project_root(&self, tenant: &TenantId, project: &ProjectId) -> PathBuf {
-        self.tenant_root(tenant)
-            .join("projects")
-            .join(project.as_str())
+        match &self.mode {
+            WorkspaceLayoutMode::MultiTenant { .. } => self
+                .tenant_root(tenant)
+                .join("projects")
+                .join(project.as_str()),
+            WorkspaceLayoutMode::SingleProject { workspace_root } => workspace_root.join(".snaca"),
+        }
     }
 
-    /// Filesystem cwd for tools (Read/Write/Bash etc.). Falls back to the
-    /// `with_explicit_workspace` override when set so single-project hosts
-    /// can point tools at a real user directory.
+    /// Filesystem cwd for tools (Read/Write/Bash etc.).
     pub fn workspace_dir(&self, tenant: &TenantId, project: &ProjectId) -> PathBuf {
         if let Some(dir) = &self.explicit_workspace {
             return dir.clone();
         }
-        self.project_root(tenant, project).join("workspace")
+        match &self.mode {
+            WorkspaceLayoutMode::MultiTenant { .. } => {
+                self.project_root(tenant, project).join("workspace")
+            }
+            WorkspaceLayoutMode::SingleProject { workspace_root } => workspace_root.clone(),
+        }
     }
 
     pub fn memory_dir(&self, tenant: &TenantId, project: &ProjectId) -> PathBuf {
@@ -96,19 +132,13 @@ impl WorkspaceLayout {
         self.project_root(tenant, project).join("skills")
     }
 
-    /// Create the project directory tree if absent. Idempotent. With an
-    /// `explicit_workspace` override the workspace dir itself is the user's
-    /// real project — already on disk — so we only create the memory tree
-    /// (and skip touching the workspace dir to avoid spurious mkdir on a
-    /// directory the host already owns).
+    /// Create the project directory tree if absent. Idempotent.
     pub fn ensure_project(
         &self,
         tenant: &TenantId,
         project: &ProjectId,
     ) -> Result<(), WorkspaceError> {
-        if self.explicit_workspace.is_none() {
-            std::fs::create_dir_all(self.workspace_dir(tenant, project))?;
-        }
+        std::fs::create_dir_all(self.workspace_dir(tenant, project))?;
         let memory = self.memory_dir(tenant, project);
         for sub in ["user", "project", "reference", "feedback"] {
             std::fs::create_dir_all(memory.join(sub))?;
@@ -170,11 +200,23 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    #[test]
+    fn single_project_uses_root_as_workspace_and_snaca_for_metadata() {
+        let dir = tempdir();
+        let l = WorkspaceLayout::single_project(&dir).unwrap();
+        let t = TenantId::new("tenant");
+        let p = ProjectId::from_raw("project");
+        l.ensure_project(&t, &p).unwrap();
+
+        assert_eq!(l.workspace_dir(&t, &p), dir);
+        assert!(l.memory_dir(&t, &p).starts_with(dir.join(".snaca")));
+        assert!(l.memory_dir(&t, &p).join("user").is_dir());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     fn tempdir() -> PathBuf {
-        let p = std::env::temp_dir().join(format!(
-            "snaca-test-{}",
-            uuid_for_test()
-        ));
+        let p = std::env::temp_dir().join(format!("snaca-test-{}", uuid_for_test()));
         std::fs::create_dir_all(&p).unwrap();
         p
     }

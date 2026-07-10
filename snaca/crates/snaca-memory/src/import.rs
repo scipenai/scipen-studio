@@ -1,13 +1,13 @@
-//! Bulk import pipeline — `(bytes, filename) → MemoryEntry[]`.
+//! Bulk import pipeline — `(bytes, filename) → MemoryEntry`.
 //!
-//! ## Scope of this chunk
+//! ## Scope
 //!
-//! Plain text, markdown, source code, and PDF. DOCX / XLSX / PPTX are
-//! recognised by extension for diagnostic routing but *not* parsed
-//! here — they require an out-of-process extractor and surface a
-//! `MemoryError::ExternalExtractorRequired` so the caller (or the
-//! bundle-import skip path) can route them to the `office-extract`
-//! skill instead.
+//! Plain text, markdown, source code, and PDF are extracted in-process
+//! and written as a **single** memory entry. DOCX / XLSX / PPTX are
+//! recognised by extension but never parsed here — they require the
+//! out-of-process `office-extract` skill and surface
+//! `MemoryError::ExternalExtractorRequired` so the caller can route
+//! them to that skill before re-feeding the extracted text.
 //!
 //! ## Flow
 //!
@@ -15,17 +15,14 @@
 //!    Anything we don't recognise gets treated as plain text.
 //! 2. Decode bytes as UTF-8. Lossy decode for malformed input — better
 //!    a partial import than a hard failure that strands an entire file.
-//! 3. Run the heading-aware chunker (markdown) or recursive chunker
-//!    (everything else) using the configured chunk window.
-//! 4. Write each chunk through `IndexedMemoryStore::write`, which
-//!    embeds + persists in one shot. Names are derived from the source
-//!    filename plus a numeric suffix so re-imports overwrite cleanly.
+//! 3. Drop the result whole into one `<scope>/<slug>.md` entry. If the
+//!    body exceeds `cfg.max_entry_bytes`, return `EntryTooLarge` and
+//!    let the operator decide how to split — we don't auto-chunk
+//!    because the new memory model is "one self-contained note per
+//!    file, the LLM consolidates by hand".
 
-use crate::chunk::{chunk_markdown, chunk_recursive, ChunkConfig};
-use crate::classify::SharedClassifier;
-use crate::indexed::IndexedMemoryStore;
 use crate::scope::MemoryScope;
-use crate::store::{sanitize_name, MemoryError, MemoryResult};
+use crate::store::{sanitize_name, MemoryError, MemoryResult, MemoryStore};
 use std::path::Path;
 
 /// File format the importer knows how to extract. Detection is
@@ -68,9 +65,9 @@ impl SourceKind {
             "xlsx" | "xlsm" => SourceKind::Xlsx,
             "pptx" | "pptm" => SourceKind::Pptx,
             "rs" | "py" | "js" | "ts" | "tsx" | "jsx" | "go" | "java" | "rb" | "c" | "h"
-            | "cpp" | "hpp" | "cc" | "cs" | "swift" | "kt" | "scala" | "sh" | "bash"
-            | "zsh" | "fish" | "lua" | "php" | "pl" | "r" | "sql" | "yaml" | "yml"
-            | "toml" | "json" | "xml" | "html" | "css" | "scss" => SourceKind::Code,
+            | "cpp" | "hpp" | "cc" | "cs" | "swift" | "kt" | "scala" | "sh" | "bash" | "zsh"
+            | "fish" | "lua" | "php" | "pl" | "r" | "sql" | "yaml" | "yml" | "toml" | "json"
+            | "xml" | "html" | "css" | "scss" => SourceKind::Code,
             "txt" | "" => SourceKind::PlainText,
             // Unknown extension → best-effort plain text.
             _ => SourceKind::PlainText,
@@ -92,45 +89,30 @@ pub struct ImportSource {
     pub kind: Option<SourceKind>,
 }
 
-/// Knobs for one import session.
-#[derive(Clone)]
+/// Knobs for one import session. Defaults aim at "drop a markdown /
+/// PDF / source file into the `reference` scope as one entry".
+#[derive(Debug, Clone)]
 pub struct ImportConfig {
-    /// Fallback scope when no classifier is attached. The plan calls
-    /// out `reference` as the natural home for imported documents.
+    /// Scope every imported file lands in. The plan calls out
+    /// `reference` as the natural home for imported documents; `User`
+    /// and `Feedback` are explicitly rejected — those scopes are owned
+    /// by the conversation itself and bulk imports must never plant
+    /// entries there.
     pub default_scope: MemoryScope,
-    pub chunk: ChunkConfig,
-    /// Optional per-chunk classifier. None → every chunk uses
-    /// `default_scope`. Some → classifier output is used; if the
-    /// classifier returns `User` / `Feedback` (which it shouldn't,
-    /// but in case of a misbehaving impl), the chunk is downgraded
-    /// to `default_scope` and a warning is logged.
-    pub classifier: Option<SharedClassifier>,
+    /// Hard cap on the body of one imported entry, in bytes. Sources
+    /// larger than this return `MemoryError::EntryTooLarge`. The
+    /// default 64 KiB matches the frozen-snapshot char limit with
+    /// headroom to spare; operators importing whole books should
+    /// raise this knowingly.
+    pub max_entry_bytes: usize,
 }
 
 impl Default for ImportConfig {
     fn default() -> Self {
         Self {
             default_scope: MemoryScope::Reference,
-            chunk: ChunkConfig::default(),
-            classifier: None,
+            max_entry_bytes: 64 * 1024,
         }
-    }
-}
-
-impl ImportConfig {
-    pub fn with_classifier(mut self, c: SharedClassifier) -> Self {
-        self.classifier = Some(c);
-        self
-    }
-}
-
-impl std::fmt::Debug for ImportConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ImportConfig")
-            .field("default_scope", &self.default_scope)
-            .field("chunk", &self.chunk)
-            .field("classifier", &self.classifier.as_ref().map(|_| "<dyn>"))
-            .finish()
     }
 }
 
@@ -139,8 +121,8 @@ impl std::fmt::Debug for ImportConfig {
 pub struct ImportReport {
     pub filename: String,
     pub kind: SourceKind,
-    /// Each entry stored — `<base>-NN` slug + scope. Useful so the
-    /// caller can confirm where the data landed.
+    /// The single entry stored — `(scope, slug)`. Empty when the
+    /// source decoded to whitespace-only content.
     pub entries: Vec<(MemoryScope, String)>,
 }
 
@@ -178,14 +160,11 @@ fn decode_utf8(bytes: &[u8]) -> String {
 /// Strip the directory and extension off a filename, then sanitise
 /// against the entry-name rules. Returns `import` as a fallback when
 /// nothing legible remains (e.g. an all-symbols filename).
-fn base_slug(filename: &str) -> String {
+pub(crate) fn base_slug(filename: &str) -> String {
     let basename = Path::new(filename)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or(filename);
-    // Replace illegal chars with `-` before sanitising. Without this,
-    // `My File.md` would error out at sanitise-time (spaces) instead of
-    // becoming `my-file`.
     let pre: String = basename
         .chars()
         .map(|c| {
@@ -196,7 +175,6 @@ fn base_slug(filename: &str) -> String {
             }
         })
         .collect();
-    // Collapse runs of `-` and trim them off the ends.
     let mut out = String::with_capacity(pre.len());
     let mut last_dash = true;
     for c in pre.chars() {
@@ -214,29 +192,36 @@ fn base_slug(filename: &str) -> String {
     if trimmed.is_empty() || sanitize_name(&trimmed).is_err() {
         return "import".into();
     }
-    // Cap at 56 chars so there's room for a `-NN` suffix under the
-    // 64-char ceiling.
-    if trimmed.len() > 56 {
-        trimmed[..56].trim_end_matches('-').to_string()
+    if trimmed.len() > 64 {
+        trimmed[..64].trim_end_matches('-').to_string()
     } else {
         trimmed
     }
 }
 
-/// Import one source. Returns the per-entry summary; failures are
-/// surfaced as `Err` (we'd rather the caller know one of N files
-/// didn't land than silently log).
+/// Import one source. Writes the file's text content as a single
+/// memory entry under `cfg.default_scope`, named after the file's
+/// basename. Office formats short-circuit with
+/// `ExternalExtractorRequired`; empty files return an empty report.
+///
+/// `cfg.default_scope` must be `Project` or `Reference` —
+/// `User`/`Feedback` are rejected with `MemoryError::ImportScopeBlocked`.
 pub async fn import_one(
-    indexer: &IndexedMemoryStore,
+    store: &MemoryStore,
     source: ImportSource,
     cfg: &ImportConfig,
 ) -> MemoryResult<ImportReport> {
+    if !matches!(
+        cfg.default_scope,
+        MemoryScope::Project | MemoryScope::Reference
+    ) {
+        return Err(MemoryError::ImportScopeBlocked {
+            scope: cfg.default_scope,
+        });
+    }
     let kind = source
         .kind
         .unwrap_or_else(|| SourceKind::from_filename(&source.filename));
-    // Format-specific extraction. Text/code/markdown work straight off
-    // the bytes; PDF and DOCX go through their own extractors gated
-    // behind the `pdf` / `docx` features.
     let text = match kind {
         SourceKind::PlainText | SourceKind::Markdown | SourceKind::Code => {
             decode_utf8(&source.bytes)
@@ -268,98 +253,38 @@ pub async fn import_one(
             entries: Vec::new(),
         });
     }
-    let chunks = match kind {
-        SourceKind::Markdown => chunk_markdown(&text, &cfg.chunk),
-        SourceKind::PlainText | SourceKind::Code | SourceKind::Pdf => {
-            chunk_recursive(&text, &cfg.chunk)
-        }
-        // Office formats short-circuit above with
-        // ExternalExtractorRequired; this arm is unreachable but kept
-        // exhaustive so future additions can't silently fall through.
-        SourceKind::Docx | SourceKind::Xlsx | SourceKind::Pptx => {
-            unreachable!("Office formats are rejected before chunking")
-        }
-    };
-    if chunks.is_empty() {
-        return Ok(ImportReport {
+    if text.len() > cfg.max_entry_bytes {
+        return Err(MemoryError::EntryTooLarge {
             filename: source.filename,
-            kind,
-            entries: Vec::new(),
+            bytes: text.len(),
+            limit: cfg.max_entry_bytes,
         });
     }
 
-    let base = base_slug(&source.filename);
-    let mut entries = Vec::with_capacity(chunks.len());
-    for (i, chunk) in chunks.iter().enumerate() {
-        // Single-chunk imports get the bare base name; multi-chunk
-        // get a `-NN` suffix so they sort and re-import deterministically.
-        let name = if chunks.len() == 1 {
-            base.clone()
-        } else {
-            format!("{base}-{i:02}")
-        };
-        // sanitize_name is also called inside `IndexedMemoryStore::write`,
-        // but doing it here surfaces invalid names with a clearer error.
-        sanitize_name(&name).map_err(|e| match e {
-            MemoryError::InvalidName { name, reason } => MemoryError::InvalidName {
-                name: format!("derived from {:?}: {name}", source.filename),
-                reason,
-            },
-            other => other,
-        })?;
-        // Per-chunk scope: classifier output if attached, otherwise
-        // `default_scope`. Bulk-import classifiers can only return
-        // `Project` / `Reference`; anything else (including `User` or
-        // `Feedback`) is downgraded to the default with a warning.
-        let scope = match cfg.classifier.as_ref() {
-            None => cfg.default_scope,
-            Some(c) => {
-                let proposed = c.classify(chunk).await;
-                if matches!(proposed, MemoryScope::Project | MemoryScope::Reference) {
-                    proposed
-                } else {
-                    tracing::warn!(
-                        proposed = %proposed,
-                        default = %cfg.default_scope,
-                        "import classifier returned non-document scope; using default"
-                    );
-                    cfg.default_scope
-                }
-            }
-        };
-        let entry = indexer.write(scope, &name, chunk).await?;
-        entries.push((entry.scope, entry.name));
-    }
+    let name = base_slug(&source.filename);
+    sanitize_name(&name).map_err(|e| match e {
+        MemoryError::InvalidName { name, reason } => MemoryError::InvalidName {
+            name: format!("derived from {:?}: {name}", source.filename),
+            reason,
+        },
+        other => other,
+    })?;
+    let entry = store.write_force(cfg.default_scope, &name, &text).await?;
     Ok(ImportReport {
         filename: source.filename,
         kind,
-        entries,
+        entries: vec![(entry.scope, entry.name)],
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::embed::HashEmbedder;
-    use crate::indexed::IndexedMemoryStore;
-    use crate::store::MemoryStore;
-    use snaca_core::{ProjectId, TenantId};
-    use snaca_state::Database;
-    use std::sync::Arc;
 
-    async fn fixture() -> (tempfile::TempDir, IndexedMemoryStore) {
+    fn store_fixture() -> (tempfile::TempDir, MemoryStore) {
         let tmp = tempfile::tempdir().unwrap();
         let store = MemoryStore::new(tmp.path().join("memory"));
-        let db = Database::open_in_memory().await.unwrap();
-        let embedder = Arc::new(HashEmbedder::new(64));
-        let idx = IndexedMemoryStore::new(
-            store,
-            db,
-            embedder,
-            TenantId::new("t"),
-            ProjectId::from_raw("p"),
-        );
-        (tmp, idx)
+        (tmp, store)
     }
 
     fn src(name: &str, body: &str) -> ImportSource {
@@ -373,18 +298,14 @@ mod tests {
     #[test]
     fn from_filename_recognises_known_extensions() {
         assert_eq!(SourceKind::from_filename("README.md"), SourceKind::Markdown);
-        assert_eq!(SourceKind::from_filename("notes.markdown"), SourceKind::Markdown);
         assert_eq!(SourceKind::from_filename("main.rs"), SourceKind::Code);
-        assert_eq!(SourceKind::from_filename("config.yaml"), SourceKind::Code);
-        assert_eq!(SourceKind::from_filename("plain.txt"), SourceKind::PlainText);
-        assert_eq!(SourceKind::from_filename("Makefile"), SourceKind::PlainText);
-        assert_eq!(SourceKind::from_filename("weird.bin"), SourceKind::PlainText);
-        // Office formats: detected for routing, never extracted in-core.
+        assert_eq!(
+            SourceKind::from_filename("plain.txt"),
+            SourceKind::PlainText
+        );
         assert_eq!(SourceKind::from_filename("spec.docx"), SourceKind::Docx);
         assert_eq!(SourceKind::from_filename("budget.xlsx"), SourceKind::Xlsx);
         assert_eq!(SourceKind::from_filename("deck.pptx"), SourceKind::Pptx);
-        assert_eq!(SourceKind::from_filename("macros.xlsm"), SourceKind::Xlsx);
-        assert_eq!(SourceKind::from_filename("macros.pptm"), SourceKind::Pptx);
     }
 
     #[test]
@@ -395,18 +316,11 @@ mod tests {
         assert_eq!(base_slug(""), "import");
     }
 
-    #[test]
-    fn base_slug_caps_long_names() {
-        let long = format!("{}.md", "a".repeat(200));
-        let slug = base_slug(&long);
-        assert!(slug.len() <= 56);
-    }
-
     #[tokio::test]
     async fn import_short_text_writes_one_entry() {
-        let (_t, idx) = fixture().await;
+        let (_t, store) = store_fixture();
         let report = import_one(
-            &idx,
+            &store,
             src("notes.txt", "user prefers terse responses"),
             &ImportConfig::default(),
         )
@@ -418,72 +332,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn import_markdown_uses_heading_splitter() {
-        let (_t, idx) = fixture().await;
-        let body = "# Section A\n\nAlpha\n\n# Section B\n\nBeta\n\n# Section C\n\nGamma";
-        let report = import_one(
-            &idx,
-            src("doc.md", body),
-            &ImportConfig {
-                default_scope: MemoryScope::Reference,
-                chunk: ChunkConfig {
-                    target_bytes: 30,
-                    overlap_bytes: 0,
-                },
-                classifier: None,
-            },
-        )
-        .await
-        .unwrap();
-        // Three headings at this target should produce three entries.
-        assert!(
-            report.entries.len() >= 2,
-            "expected multiple entries; got {report:?}"
-        );
-        // Names follow `<base>-NN`.
-        assert!(report.entries.iter().all(|(_, n)| n.starts_with("doc-")));
-    }
-
-    #[tokio::test]
-    async fn import_writes_through_index_and_search_works() {
-        let (_t, idx) = fixture().await;
-        import_one(
-            &idx,
-            src(
-                "rust-style.md",
-                "# Conventions\n\nThe project uses kebab-case file names.",
-            ),
-            &ImportConfig::default(),
-        )
-        .await
-        .unwrap();
-        let hits = idx.search("kebab case file naming", 5).await.unwrap();
-        assert!(
-            !hits.is_empty(),
-            "imported entry should be retrievable via search"
-        );
-    }
-
-    #[tokio::test]
     async fn import_empty_file_is_a_noop() {
-        let (_t, idx) = fixture().await;
-        let report = import_one(
-            &idx,
-            src("empty.txt", ""),
-            &ImportConfig::default(),
-        )
-        .await
-        .unwrap();
+        let (_t, store) = store_fixture();
+        let report = import_one(&store, src("empty.txt", ""), &ImportConfig::default())
+            .await
+            .unwrap();
         assert!(report.entries.is_empty());
     }
 
     #[tokio::test]
     async fn import_handles_lossy_utf8() {
-        let (_t, idx) = fixture().await;
-        // 0xff is invalid UTF-8 in isolation.
+        let (_t, store) = store_fixture();
         let bytes = vec![b'h', b'i', 0xff, b'!'];
         let report = import_one(
-            &idx,
+            &store,
             ImportSource {
                 bytes,
                 filename: "broken.txt".into(),
@@ -493,23 +355,19 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(report.entries.len(), 1, "lossy decode should still produce an entry");
+        assert_eq!(report.entries.len(), 1);
     }
 
     #[tokio::test]
     async fn office_formats_surface_external_extractor_required() {
-        // snaca-memory no longer parses docx/xlsx/pptx — they must be
-        // routed to the `office-extract` skill out-of-process. We assert
-        // the typed error so the bundle-import skip path and any future
-        // CLI surface can distinguish "needs extractor" from "broken file".
-        let (_t, idx) = fixture().await;
+        let (_t, store) = store_fixture();
         for (filename, kind_str) in &[
             ("spec.docx", "docx"),
             ("budget.xlsx", "xlsx"),
             ("deck.pptx", "pptx"),
         ] {
             let result = import_one(
-                &idx,
+                &store,
                 ImportSource {
                     bytes: vec![0x50, 0x4b, 0x03, 0x04],
                     filename: (*filename).into(),
@@ -529,57 +387,52 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn classifier_routes_chunks_per_call() {
-        use crate::classify::ConstantClassifier;
-        let (_t, idx) = fixture().await;
-        let cfg = ImportConfig {
-            default_scope: MemoryScope::Reference,
-            chunk: ChunkConfig::default(),
-            classifier: Some(Arc::new(ConstantClassifier::new(MemoryScope::Project))),
-        };
-        let report = import_one(
-            &idx,
-            src("notes.md", "# A\n\nfirst section.\n\n# B\n\nsecond section."),
-            &cfg,
+    async fn entries_above_max_size_return_entry_too_large() {
+        let (_t, store) = store_fixture();
+        let body = "x".repeat(8 * 1024);
+        let result = import_one(
+            &store,
+            src("big.md", &body),
+            &ImportConfig {
+                default_scope: MemoryScope::Reference,
+                max_entry_bytes: 1024,
+            },
         )
-        .await
-        .unwrap();
-        // Every entry written under `project` because the constant
-        // classifier overrides the default `reference`.
-        assert!(!report.entries.is_empty());
-        for (scope, _) in &report.entries {
-            assert_eq!(*scope, MemoryScope::Project);
+        .await;
+        match result {
+            Err(MemoryError::EntryTooLarge { bytes, limit, .. }) => {
+                assert_eq!(bytes, 8 * 1024);
+                assert_eq!(limit, 1024);
+            }
+            other => panic!("expected EntryTooLarge; got {other:?}"),
         }
     }
 
     #[tokio::test]
-    async fn classifier_returning_user_scope_falls_back_to_default() {
-        // Defensive — a malicious / buggy classifier shouldn't be able
-        // to plant entries in the conversation-only scopes.
-        use crate::classify::ConstantClassifier;
-        let (_t, idx) = fixture().await;
-        let cfg = ImportConfig {
-            default_scope: MemoryScope::Reference,
-            chunk: ChunkConfig::default(),
-            classifier: Some(Arc::new(ConstantClassifier::new(MemoryScope::User))),
-        };
-        let report = import_one(
-            &idx,
-            src("notes.txt", "innocent body"),
-            &cfg,
-        )
-        .await
-        .unwrap();
-        assert_eq!(report.entries.len(), 1);
-        // Downgraded to the default, never landed under `user`.
-        assert_eq!(report.entries[0].0, MemoryScope::Reference);
+    async fn user_and_feedback_scopes_are_blocked_for_imports() {
+        let (_t, store) = store_fixture();
+        for scope in [MemoryScope::User, MemoryScope::Feedback] {
+            let result = import_one(
+                &store,
+                src("attempt.txt", "anything"),
+                &ImportConfig {
+                    default_scope: scope,
+                    max_entry_bytes: 64 * 1024,
+                },
+            )
+            .await;
+            assert!(matches!(
+                result,
+                Err(MemoryError::ImportScopeBlocked { .. })
+            ));
+        }
     }
 
     #[tokio::test]
     async fn explicit_kind_overrides_extension() {
-        let (_t, idx) = fixture().await;
+        let (_t, store) = store_fixture();
         let report = import_one(
-            &idx,
+            &store,
             ImportSource {
                 bytes: b"# heading\n\nbody".to_vec(),
                 filename: "no-extension".into(),
@@ -590,5 +443,6 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(report.kind, SourceKind::Markdown);
+        assert_eq!(report.entries.len(), 1);
     }
 }

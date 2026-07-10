@@ -64,8 +64,6 @@ impl SkillProvider for StaticSkillProvider {
 /// optional operator-supplied global directory (see [`SkillScope::rank`]).
 pub struct LayoutSkillProvider {
     layout: WorkspaceLayout,
-    /// App-shipped read-only skills (`SkillScope::Bundled`, rank 0 — lowest).
-    bundled_dir: Option<PathBuf>,
     /// Optional operator-supplied directory whose `*.md` files apply to
     /// every (tenant, project). Lowest on-disk priority — tenant and
     /// project skills with the same name override entries here. `None`
@@ -91,7 +89,6 @@ impl LayoutSkillProvider {
     pub fn with_ttl(layout: WorkspaceLayout, ttl: Duration) -> Self {
         Self {
             layout,
-            bundled_dir: None,
             global_dir: None,
             ttl,
             cache: Mutex::new(HashMap::new()),
@@ -112,13 +109,6 @@ impl LayoutSkillProvider {
         self
     }
 
-    /// Attach the app-shipped read-only bundled-skills dir (`SkillScope::Bundled`,
-    /// rank 0 — overridden by global/tenant/project of the same name).
-    pub fn with_bundled_dir(mut self, dir: Option<PathBuf>) -> Self {
-        self.bundled_dir = dir;
-        self
-    }
-
     /// Drop any cached entry for `(tenant, project)`. The next call will
     /// re-scan disk. Used by the (planned) admin "reload skills" API.
     pub async fn invalidate(&self, tenant: &TenantId, project: &ProjectId) {
@@ -128,12 +118,8 @@ impl LayoutSkillProvider {
 
     async fn load(&self, tenant: &TenantId, project: &ProjectId) -> SkillRegistry {
         let mut b = SkillRegistryBuilder::default();
-        // bundled (rank 0) → global → tenant → project (highest).
-        if let Some(bundled_dir) = &self.bundled_dir {
-            if let Err(e) = b.add_from_dir(bundled_dir, SkillScope::Bundled) {
-                tracing::warn!(error = %e, dir = %bundled_dir.display(), "bundled skill load failed");
-            }
-        }
+        // global scope first (lowest priority of the on-disk scopes), then
+        // tenant, then project on top.
         if let Some(global_dir) = &self.global_dir {
             if let Err(e) = b.add_from_dir(global_dir, SkillScope::Global) {
                 tracing::warn!(error = %e, dir = %global_dir.display(), "global skill load failed");
@@ -244,7 +230,10 @@ mod tests {
 
         assert_eq!(alpha.len(), 1);
         assert!(alpha.get("audit").is_some());
-        assert!(alpha.get("review").is_none(), "tenants must not see each other");
+        assert!(
+            alpha.get("review").is_none(),
+            "tenants must not see each other"
+        );
 
         assert_eq!(beta.len(), 1);
         assert!(beta.get("review").is_some());
@@ -283,8 +272,7 @@ mod tests {
         let global_dir = dir.path().join("global-skills");
         write_skill(&global_dir, "house.md", &skill_md("house", "house rules"));
 
-        let provider = LayoutSkillProvider::without_cache(layout)
-            .with_global_dir(Some(global_dir));
+        let provider = LayoutSkillProvider::without_cache(layout).with_global_dir(Some(global_dir));
 
         let t_a = TenantId::new("alpha");
         let t_b = TenantId::new("beta");
@@ -293,7 +281,10 @@ mod tests {
         let b = provider.skills_for(&t_b, &p).await;
 
         assert!(a.get("house").is_some(), "alpha tenant sees global skill");
-        assert!(b.get("house").is_some(), "beta tenant sees the same global skill");
+        assert!(
+            b.get("house").is_some(),
+            "beta tenant sees the same global skill"
+        );
         assert_eq!(a.get("house").unwrap().scope, SkillScope::Global);
     }
 
@@ -318,11 +309,15 @@ mod tests {
             &skill_md("review", "project body"),
         );
 
-        let provider = LayoutSkillProvider::without_cache(layout.clone())
-            .with_global_dir(Some(global_dir));
+        let provider =
+            LayoutSkillProvider::without_cache(layout.clone()).with_global_dir(Some(global_dir));
         let registry = provider.skills_for(&t, &p).await;
         let review = registry.get("review").unwrap();
-        assert_eq!(review.scope, SkillScope::Project, "project beats tenant beats global");
+        assert_eq!(
+            review.scope,
+            SkillScope::Project,
+            "project beats tenant beats global"
+        );
         assert!(review.body.contains("project body"));
 
         // Drop the project copy → tenant should win, with global still in the
@@ -355,30 +350,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bundled_scope_loads_and_is_overridden_by_tenant() {
-        let dir = tempfile::tempdir().unwrap();
-        let layout = WorkspaceLayout::new(dir.path()).unwrap();
-        let bundled = dir.path().join("bundled-skills");
-        let t = TenantId::new("t");
-        let p = ProjectId::from_raw("p");
-        write_skill(&bundled, "writer.md", &skill_md("writer", "bundled writer"));
-        write_skill(&bundled, "reviewer.md", &skill_md("reviewer", "bundled reviewer"));
-        write_skill(
-            &layout.tenant_skills_dir(&t),
-            "writer.md",
-            &skill_md("writer", "tenant writer"),
-        );
-
-        let provider = LayoutSkillProvider::without_cache(layout).with_bundled_dir(Some(bundled));
-        let reg = provider.skills_for(&t, &p).await;
-        assert_eq!(reg.len(), 2);
-        assert_eq!(reg.get("reviewer").unwrap().scope, SkillScope::Bundled);
-        let writer = reg.get("writer").unwrap();
-        assert_eq!(writer.scope, SkillScope::Tenant, "tenant overrides bundled");
-        assert!(writer.body.contains("tenant writer"));
-    }
-
-    #[tokio::test]
     async fn cached_provider_returns_stale_until_ttl_expires() {
         let dir = tempfile::tempdir().unwrap();
         let layout = WorkspaceLayout::new(dir.path()).unwrap();
@@ -408,6 +379,10 @@ mod tests {
 
         provider.invalidate(&t, &p).await;
         let r3 = provider.skills_for(&t, &p).await;
-        assert_eq!(r3.len(), 2, "after invalidate the on-disk addition is visible");
+        assert_eq!(
+            r3.len(),
+            2,
+            "after invalidate the on-disk addition is visible"
+        );
     }
 }

@@ -9,9 +9,7 @@
 
 use async_trait::async_trait;
 use snaca_core::{Message, MessageId, Role, Usage};
-use snaca_llm::{
-    LlmClient, LlmResult, MessageRequest, MessageResponse, ProviderCaps, StopReason,
-};
+use snaca_llm::{LlmClient, LlmResult, MessageRequest, MessageResponse, ProviderCaps, StopReason};
 use snaca_server::{Config, Runtime};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -122,16 +120,8 @@ async fn list_plugins_returns_every_running_plugin() {
     let llm = Arc::new(ConstantLlm::new("noop"));
     let runtime = Runtime::build_with_llm(config, llm).await.unwrap();
 
-    let url = format!(
-        "http://{}/admin/plugins",
-        runtime.http_handle.local_addr
-    );
-    let body: serde_json::Value = reqwest::get(&url)
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    let url = format!("http://{}/admin/plugins", runtime.http_handle.local_addr);
+    let body: serde_json::Value = reqwest::get(&url).await.unwrap().json().await.unwrap();
     let plugins = body["plugins"].as_array().expect("plugins array");
     assert_eq!(plugins.len(), 2, "got: {body:?}");
     let names: Vec<&str> = plugins
@@ -192,11 +182,7 @@ async fn reload_plugin_increments_count_and_refreshes_start_time() {
         "http://{}/admin/plugins/alpha/reload",
         runtime.http_handle.local_addr
     );
-    let resp = reqwest::Client::new()
-        .post(&url)
-        .send()
-        .await
-        .unwrap();
+    let resp = reqwest::Client::new().post(&url).send().await.unwrap();
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["status"], "reloaded");
@@ -270,17 +256,10 @@ async fn reload_unknown_plugin_returns_404() {
         "http://{}/admin/plugins/nope/reload",
         runtime.http_handle.local_addr
     );
-    let resp = reqwest::Client::new()
-        .post(&url)
-        .send()
-        .await
-        .unwrap();
+    let resp = reqwest::Client::new().post(&url).send().await.unwrap();
     assert_eq!(resp.status(), 404);
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["error"]
-        .as_str()
-        .unwrap()
-        .contains("not registered"));
+    assert!(body["error"].as_str().unwrap().contains("not registered"));
 
     runtime.shutdown().await;
 }

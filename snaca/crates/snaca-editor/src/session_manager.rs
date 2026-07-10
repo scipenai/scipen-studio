@@ -163,19 +163,13 @@ impl SessionManager {
         // on failure the session still opens (Phase A keeps the legacy
         // chat path), but Phase B's Engine route degrades to "no engine
         // available" and chat.send must fall back.
-        let memory_sink = self.outbound.get().map(|ob| {
-            Arc::new(crate::memory_handler::EditorMemorySink {
-                outbound: ob.clone(),
-                session_id: session_id.clone(),
-            }) as Arc<dyn snaca_engine::MemoryEventSink>
-        });
         let engine = build_session_engine(
             &workspace_root,
             &metadata_root,
             llm,
             db.clone(),
             snaca_config,
-            memory_sink,
+            session_id.clone(),
             self.outbound.get().cloned(),
         );
 
@@ -714,7 +708,7 @@ fn build_session_engine(
     llm: Arc<dyn LlmClient>,
     db: Database,
     snaca_config: &SnacaConfig,
-    memory_sink: Option<Arc<dyn snaca_engine::MemoryEventSink>>,
+    session_id: String,
     outbound: Option<Arc<crate::outbound::OutboundWriter>>,
 ) -> Option<Arc<Engine>> {
     let layout = match WorkspaceLayout::new(metadata_root.clone()) {
@@ -751,7 +745,7 @@ fn build_session_engine(
         engine_config.concurrent_tool_limit = v as usize;
     }
     if let Some(v) = ec.max_tokens { engine_config.max_tokens = Some(v); }
-    if let Some(v) = ec.history_limit { engine_config.history_limit = v; }
+    if let Some(v) = ec.history_limit { engine_config.conversation_history_limit = v; }
     if let Some(v) = ec.compact_after_input_tokens {
         engine_config.compact_after_input_tokens = Some(v as u32);
     }
@@ -828,7 +822,7 @@ fn build_session_engine(
         .map(std::time::Duration::from_secs)
         .unwrap_or(std::time::Duration::from_secs(60));
     let mcp_manager = std::sync::Arc::new(
-        snaca_mcp::McpManager::from_configs_with_ttl(&runtime_servers, idle_ttl),
+        snaca_mcp::McpManager::from_configs_with_layout_and_ttl(&runtime_servers, layout.clone(), idle_ttl),
     );
     mcp_manager.start_reaper(reaper_period);
 
@@ -837,7 +831,7 @@ fn build_session_engine(
     // edited .md is picked up by the next turn without a session restart.
     let skill_provider: std::sync::Arc<dyn snaca_skills::SkillProvider> = std::sync::Arc::new(
         snaca_skills::LayoutSkillProvider::new(layout.clone())
-            .with_bundled_dir(snaca_config.bundled_skills_dir.clone()),
+            .with_global_dir(snaca_config.bundled_skills_dir.clone()),
     );
 
     // Memory wiring — Studio relies on the in-turn `MemoryWriteTool` for
@@ -869,9 +863,10 @@ fn build_session_engine(
     // Per-turn reverse-RPC channel — only wired when outbound is
     // available. In the embedded-test path outbound is None, so the
     // factory stays absent and Zotero context tools surface a clear
-    // "unavailable" error instead of crashing the engine.
-    if let Some(ob) = outbound {
-        let ob_q = ob.clone();
+    // "unavailable" error instead of crashing the engine. (0.2.7 passes
+    // the AskUserQuestion gate per-turn to `handle_turn_full` instead of
+    // via a factory, so only the context requester is wired here.)
+    if let Some(ob) = outbound.clone() {
         let factory_fn: snaca_engine::ContextRequesterFactory =
             std::sync::Arc::new(move |turn_id| {
                 std::sync::Arc::new(crate::context_requester::EditorContextRequester::new(
@@ -880,16 +875,6 @@ fn build_session_engine(
                 ))
             });
         engine = engine.with_context_requester_factory(factory_fn);
-        // Same per-turn lifecycle for the AskUserQuestion gate: it
-        // bridges to the host's question card over the same outbound.
-        let q_factory_fn: snaca_engine::QuestionGateFactory =
-            std::sync::Arc::new(move |turn_id| {
-                std::sync::Arc::new(crate::question_gate::EditorQuestionGate::new(
-                    ob_q.clone(),
-                    turn_id,
-                ))
-            });
-        engine = engine.with_question_gate_factory(q_factory_fn);
     }
     if extractor_enabled {
         // Always wrap in the PII filter (email / phone / api key / bearer
@@ -899,7 +884,8 @@ fn build_session_engine(
         // host has no opt-out to expose. Mirrors snaca-server's default
         // path; we just don't surface the bypass switch.
         let raw: snaca_engine::SharedExtractor = std::sync::Arc::new(
-            snaca_engine::LlmMemoryExtractor::new(llm, extractor_model).with_workspace(layout),
+            snaca_engine::LlmMemoryExtractor::new(llm, extractor_model)
+                .with_workspace(layout.clone()),
         );
         let extractor: snaca_engine::SharedExtractor =
             std::sync::Arc::new(snaca_engine::FilteredMemoryExtractor::new(
@@ -908,8 +894,20 @@ fn build_session_engine(
             ));
         engine = engine.with_memory_extractor(extractor);
     }
-    if let Some(sink) = memory_sink {
-        engine = engine.with_memory_sink(sink);
-    }
+    // Memory provider — the built-in file-tree store (0.2.7's replacement
+    // for the old direct `MemoryStore` path). When an editor host is
+    // attached we wrap it so the extractor's writes emit `memory.updated`
+    // and MemoryViewer refreshes live.
+    let base_provider: std::sync::Arc<dyn snaca_agent_api::MemoryProvider> =
+        std::sync::Arc::new(snaca_memory::FileTreeMemoryProvider::new(layout));
+    let provider: std::sync::Arc<dyn snaca_agent_api::MemoryProvider> = match outbound {
+        Some(ob) => std::sync::Arc::new(crate::memory_handler::EditorMemoryProvider::new(
+            base_provider,
+            ob,
+            session_id,
+        )),
+        None => base_provider,
+    };
+    engine = engine.with_memory_provider(provider);
     Some(Arc::new(engine))
 }

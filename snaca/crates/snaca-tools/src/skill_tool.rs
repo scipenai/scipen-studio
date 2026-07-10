@@ -82,9 +82,10 @@ impl Tool for SkillTool {
     async fn execute(&self, input: Value, _ctx: &ToolContext) -> ToolResult {
         let SkillToolInput { name } =
             serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
-        let skill = self.registry.get(&name).ok_or_else(|| {
-            ToolError::NotFound(format!("skill '{name}' is not registered"))
-        })?;
+        let skill = self
+            .registry
+            .get(&name)
+            .ok_or_else(|| ToolError::NotFound(format!("skill '{name}' is not registered")))?;
         let body = expand_skill_dir(&skill.body, skill.asset_dir.as_deref(), &name)?;
         Ok(ToolOutput::text(body))
     }
@@ -257,10 +258,7 @@ mod tests {
 
     #[tokio::test]
     async fn flat_form_with_skill_dir_token_errors() {
-        let reg = SkillRegistry::from_skills(vec![skill(
-            "bad",
-            "use {{SKILL_DIR}}/whatever",
-        )]);
+        let reg = SkillRegistry::from_skills(vec![skill("bad", "use {{SKILL_DIR}}/whatever")]);
         let tool = SkillTool::new(reg);
         let dir = tempfile::tempdir().unwrap();
         let err = tool

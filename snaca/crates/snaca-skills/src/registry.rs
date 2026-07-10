@@ -397,9 +397,16 @@ mod tests {
         let mut b = SkillRegistryBuilder::default();
         b.add_from_dir(dir.path(), SkillScope::Tenant).unwrap();
         let reg = b.build();
-        assert_eq!(reg.len(), 1, "only the directory-form skill should register");
+        assert_eq!(
+            reg.len(),
+            1,
+            "only the directory-form skill should register"
+        );
         assert!(reg.get("office-extract").is_some());
-        assert!(reg.get("notes").is_none(), "sidecar adjacent .md must not load");
+        assert!(
+            reg.get("notes").is_none(),
+            "sidecar adjacent .md must not load"
+        );
         assert!(reg.get("readme").is_none(), "nested sidecar must not load");
     }
 
@@ -511,11 +518,7 @@ mod tests {
             "---\nname: ok\ndescription: ok\n---\nbody\n",
         )
         .unwrap();
-        std::fs::write(
-            dir.path().join("bad.md"),
-            "no frontmatter here at all",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("bad.md"), "no frontmatter here at all").unwrap();
 
         let mut b = SkillRegistryBuilder::default();
         b.add_from_dir(dir.path(), SkillScope::Tenant).unwrap();

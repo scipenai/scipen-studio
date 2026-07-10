@@ -89,13 +89,14 @@ impl McpClient {
             }
         };
 
-        let listing = service
-            .list_tools(Default::default())
-            .await
-            .map_err(|e| McpError::Initialization {
-                server: config.name.clone(),
-                reason: format!("list_tools: {e}"),
-            })?;
+        let listing =
+            service
+                .list_tools(Default::default())
+                .await
+                .map_err(|e| McpError::Initialization {
+                    server: config.name.clone(),
+                    reason: format!("list_tools: {e}"),
+                })?;
 
         info!(
             server = %config.name,
@@ -136,11 +137,7 @@ impl McpClient {
     /// future is dropped — rmcp's `Cancellation` notification fires
     /// from `RunningService` if the server later replies, so we won't
     /// leak a half-completed call against the next request.
-    pub async fn call_tool(
-        &self,
-        tool_name: &str,
-        arguments: Value,
-    ) -> McpResult<CallToolResult> {
+    pub async fn call_tool(&self, tool_name: &str, arguments: Value) -> McpResult<CallToolResult> {
         let arguments = arguments.as_object().cloned();
         debug!(server = %self.name, tool = tool_name, "calling mcp tool");
         // CallToolRequestParams is `#[non_exhaustive]` — populate defaults
@@ -181,8 +178,11 @@ impl McpClient {
     /// `HEALTH_PROBE_TIMEOUT` (5s) — a probe that hangs longer than
     /// that is itself a sign of a dead connection.
     pub async fn health_check(&self) -> McpResult<()> {
-        match tokio::time::timeout(HEALTH_PROBE_TIMEOUT, self.service.list_tools(Default::default()))
-            .await
+        match tokio::time::timeout(
+            HEALTH_PROBE_TIMEOUT,
+            self.service.list_tools(Default::default()),
+        )
+        .await
         {
             Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => Err(McpError::HealthCheckFailed {
@@ -191,10 +191,7 @@ impl McpClient {
             }),
             Err(_) => Err(McpError::HealthCheckFailed {
                 server: self.name.clone(),
-                reason: format!(
-                    "timed out after {}s",
-                    HEALTH_PROBE_TIMEOUT.as_secs()
-                ),
+                reason: format!("timed out after {}s", HEALTH_PROBE_TIMEOUT.as_secs()),
             }),
         }
     }
@@ -287,12 +284,11 @@ async fn connect_http(
     let mut headers: std::collections::HashMap<HeaderName, HeaderValue> =
         std::collections::HashMap::with_capacity(custom_headers.len());
     for (k, v) in custom_headers {
-        let header_name = HeaderName::from_bytes(k.as_bytes()).map_err(|e| {
-            McpError::Initialization {
+        let header_name =
+            HeaderName::from_bytes(k.as_bytes()).map_err(|e| McpError::Initialization {
                 server: name.to_string(),
                 reason: format!("invalid header name {k:?}: {e}"),
-            }
-        })?;
+            })?;
         let header_value = HeaderValue::from_str(v).map_err(|e| McpError::Initialization {
             server: name.to_string(),
             reason: format!("invalid header value for {k:?}: {e}"),

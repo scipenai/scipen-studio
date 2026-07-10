@@ -29,6 +29,8 @@
 //! ```
 
 pub mod context;
+// scipen-studio fork: reverse-RPC channel tools use to fetch host-resident
+// data (Zotero). Concrete impl lives in `snaca-editor`.
 pub mod context_request;
 pub mod error;
 pub mod output;

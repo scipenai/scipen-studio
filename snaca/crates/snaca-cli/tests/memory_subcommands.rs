@@ -1,11 +1,9 @@
 //! End-to-end tests for `snaca-cli memory`. Builds the CLI binary,
-//! seeds a project's memory tree (file-tree writes; vectors are built
-//! lazily by `search`'s `ensure_indexed`), and asserts each subcommand
-//! prints what we expect.
+//! seeds a project's memory tree, and asserts each subcommand prints
+//! what we expect.
 
 use snaca_core::{ProjectId, TenantId};
 use snaca_memory::{MemoryScope, MemoryStore};
-use snaca_state::Database;
 use snaca_workspace::WorkspaceLayout;
 use std::path::PathBuf;
 use std::process::Command;
@@ -30,9 +28,6 @@ fn cli() -> PathBuf {
 /// shared helper so each test file is just an assert sandbox.
 async fn seed(data_root: &std::path::Path) {
     std::fs::create_dir_all(data_root).unwrap();
-    // Open the DB so state.sqlite exists (search needs it). No rows
-    // needed — the store does its own filesystem writes.
-    let _ = Database::open(data_root.join("state.sqlite")).await.unwrap();
     let layout = WorkspaceLayout::new(std::fs::canonicalize(data_root).unwrap()).unwrap();
     let tenant = TenantId::new("alpha");
     let project = ProjectId::from_raw("proj-one");
@@ -176,21 +171,15 @@ async fn index_prints_memory_md() {
 }
 
 #[tokio::test]
-async fn import_writes_chunks_into_reference_scope() {
+async fn import_writes_single_entry_per_file() {
     let tmp = tempfile::tempdir().unwrap();
     let data_root = tmp.path().join("data");
     std::fs::create_dir_all(&data_root).unwrap();
-    // Open the DB so search has something to talk to once import lands.
-    let _ = Database::open(data_root.join("state.sqlite")).await.unwrap();
-    // Make sure the project workspace dir exists so the layout
-    // lookup doesn't fail before import even starts.
     let layout = WorkspaceLayout::new(std::fs::canonicalize(&data_root).unwrap()).unwrap();
     let tenant = TenantId::new("alpha");
     let project = ProjectId::from_raw("proj-import");
     layout.ensure_project(&tenant, &project).unwrap();
 
-    // Create a markdown file with multiple sections so the chunker
-    // produces at least 2 entries.
     let docs_dir = tmp.path().join("docs");
     std::fs::create_dir_all(&docs_dir).unwrap();
     let md_path = docs_dir.join("rust-style.md");
@@ -218,11 +207,15 @@ async fn import_writes_chunks_into_reference_scope() {
     assert!(stdout.contains("imported `rust-style.md`"), "got: {stdout}");
     assert!(stdout.contains("memory entries written"));
 
-    // Inspect the memory tree directly to confirm entries landed.
+    // Inspect the memory tree directly: one entry per source file,
+    // named after the file's basename.
     let store = MemoryStore::new(layout.memory_dir(&tenant, &project));
     let names = store.list(MemoryScope::Reference).await.unwrap();
-    assert!(!names.is_empty(), "expected reference entries; got nothing");
-    assert!(names.iter().all(|n| n.starts_with("rust-style")));
+    assert_eq!(
+        names,
+        vec!["rust-style"],
+        "expected one entry; got {names:?}"
+    );
 }
 
 #[tokio::test]
@@ -230,7 +223,6 @@ async fn import_directory_walks_files_non_recursively() {
     let tmp = tempfile::tempdir().unwrap();
     let data_root = tmp.path().join("data");
     std::fs::create_dir_all(&data_root).unwrap();
-    let _ = Database::open(data_root.join("state.sqlite")).await.unwrap();
     let layout = WorkspaceLayout::new(std::fs::canonicalize(&data_root).unwrap()).unwrap();
     let tenant = TenantId::new("alpha");
     let project = ProjectId::from_raw("proj-import-dir");
@@ -265,41 +257,9 @@ async fn import_directory_walks_files_non_recursively() {
     // Two visible top-level files; hidden + nested are skipped.
     assert!(stdout.contains("alpha.md"));
     assert!(stdout.contains("beta.txt"));
-    assert!(!stdout.contains(".hidden"), "hidden file leaked into output: {stdout}");
-    assert!(!stdout.contains("inner.md"), "nested file leaked: {stdout}");
-}
-
-#[tokio::test]
-async fn search_returns_ranked_hits_after_lazy_index() {
-    let tmp = tempfile::tempdir().unwrap();
-    let data_root = tmp.path().join("data");
-    seed(&data_root).await;
-    let bin = cli();
-    // No vectors yet — `ensure_indexed` should index the three seeded
-    // entries before scoring.
-    let stdout = run(
-        &bin,
-        &[
-            "memory",
-            "search",
-            "--tenant",
-            "alpha",
-            "--project",
-            "proj-one",
-            "kebab case",
-            "-k",
-            "5",
-            "--data-root",
-            data_root.to_str().unwrap(),
-        ],
-    );
-    // The kebab-case entry should outrank both unrelated ones.
-    let kebab_line = stdout
-        .lines()
-        .find(|l| l.contains("project/rust-style"))
-        .expect("rust-style hit not present");
     assert!(
-        kebab_line.contains("project/rust-style"),
-        "expected rust-style in results; got: {stdout}"
+        !stdout.contains(".hidden"),
+        "hidden file leaked into output: {stdout}"
     );
+    assert!(!stdout.contains("inner.md"), "nested file leaked: {stdout}");
 }

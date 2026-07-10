@@ -39,9 +39,11 @@ use tracing::{debug, warn};
 /// plan calls out for automatic mining.
 ///
 /// `confidence` is the extractor LLM's self-rating in `[0.0, 1.0]`.
-/// Recall-time scoring multiplies the cosine score by this value
-/// (defaulting to `extractor_default_confidence` when absent). Missing
-/// field deserialises to `None` so legacy transcripts stay compatible.
+/// The frozen-snapshot memory model no longer consumes it for
+/// ranking, but the engine still preserves the field in logs so
+/// operators can audit how certain the extractor was. Missing field
+/// deserialises to `None` so legacy transcripts / stub extractors
+/// stay compatible.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MemoryProposal {
     pub scope: MemoryScope,
@@ -116,8 +118,9 @@ const EXTRACTOR_SYSTEM_PROMPT: &str =
      - `content` is one sentence in third person (\"user prefers X\").\n\
      - `confidence` is your honest self-rating in [0.0, 1.0] that future \
        conversations should treat this entry as a durable rule. Calibrate: \
-       0.9+ for explicit, repeated, unambiguous rules; 0.6-0.8 for clear \
-       single-shot statements without strong framing; 0.4-0.5 for inferred \
+       0.9+ for explicit, repeated, unambiguous rules (\"NEVER use mocks in \
+       integration tests, we got burned last quarter\"). 0.6-0.8 for clear \
+       single-shot statements without strong framing. 0.4-0.5 for inferred \
        preferences or ambiguous wording. `feedback` scope skews lower than \
        `user` since behaviour rules age faster than personal facts.\n\
      - Convert relative dates to absolute ones (\"Thursday\" → the calendar \
@@ -203,11 +206,7 @@ impl LlmMemoryExtractor {
     /// Names only — no content — to keep the token cost flat as a
     /// project accumulates entries. Returns empty string when no
     /// workspace is attached or the project's memory tree is empty.
-    async fn render_existing_manifest(
-        &self,
-        tenant: &TenantId,
-        project: &ProjectId,
-    ) -> String {
+    async fn render_existing_manifest(&self, tenant: &TenantId, project: &ProjectId) -> String {
         let Some(workspace) = self.workspace.as_ref() else {
             return String::new();
         };
@@ -236,7 +235,11 @@ impl LlmMemoryExtractor {
              use a different name):\n",
         );
         for (scope, names) in &by_scope {
-            out.push_str(&format!("\n[{}] ({} entries)\n", scope.as_str(), names.len()));
+            out.push_str(&format!(
+                "\n[{}] ({} entries)\n",
+                scope.as_str(),
+                names.len()
+            ));
             for name in names {
                 out.push_str(&format!("  - {name}\n"));
             }
@@ -262,9 +265,22 @@ impl LlmMemoryExtractor {
                 #[allow(clippy::single_match)]
                 match block {
                     ContentBlock::Text { text } => {
+                        // Strip protected fences (`<memory-context>`,
+                        // `<attachments>`) before the extractor sees
+                        // them. Without this, we'd round-trip our
+                        // own injected snapshot and attachment
+                        // previews back into the extractor — and the
+                        // extractor would happily mine "user said:
+                        // here is some memory content" as a brand
+                        // new entry. That's the recursive memory
+                        // pollution attack hermes calls out.
+                        let cleaned = crate::memory_fence::sanitize_context(text);
+                        if cleaned.trim().is_empty() {
+                            continue;
+                        }
                         out.push_str(label);
                         out.push_str(": ");
-                        out.push_str(text);
+                        out.push_str(&cleaned);
                         out.push('\n');
                     }
                     _ => {}
@@ -441,7 +457,9 @@ impl SensitiveFilter {
     /// we don't want PII rejection in the way, and for operators who
     /// are filtering elsewhere in the pipeline.
     pub fn empty() -> Self {
-        Self { patterns: Vec::new() }
+        Self {
+            patterns: Vec::new(),
+        }
     }
 
     /// True if `text` contains any pattern this filter rejects. The
@@ -516,8 +534,8 @@ impl MemoryExtractor for FilteredMemoryExtractor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use snaca_core::{ContentBlock, MessageId, Role};
     use chrono::Utc;
+    use snaca_core::{ContentBlock, MessageId, Role};
 
     fn user_msg(text: &str) -> Message {
         Message {
@@ -570,7 +588,7 @@ mod tests {
         assert_eq!(out[0].scope, MemoryScope::Feedback);
         assert_eq!(out[0].name, "no-emojis");
         // Legacy proposals without confidence parse as None — the
-        // engine substitutes its configured default at write time.
+        // engine will substitute its configured default at write time.
         assert_eq!(out[0].confidence, None);
     }
 
@@ -596,7 +614,10 @@ mod tests {
     fn parse_proposals_swallows_garbage() {
         let raw = "I'm sorry, I can't comply with that request.";
         let out = LlmMemoryExtractor::parse_proposals(raw);
-        assert!(out.is_empty(), "garbage should yield empty Vec, got: {out:?}");
+        assert!(
+            out.is_empty(),
+            "garbage should yield empty Vec, got: {out:?}"
+        );
     }
 
     #[test]
@@ -634,6 +655,47 @@ mod tests {
     }
 
     #[test]
+    fn render_transcript_strips_protected_fences() {
+        use chrono::Utc;
+        // Simulate the model echoing back our injected fences.
+        // Without sanitisation, the extractor would see "USER: ...
+        // <memory-context>...</memory-context>" and happily mine
+        // the recall content as if the user typed it.
+        let messages = vec![
+            Message {
+                id: MessageId::new(),
+                role: Role::User,
+                content: vec![ContentBlock::text(
+                    "real user input\n\n<attachments do-not-echo=\"true\">\n- file.md (10 bytes)\n  <preview>secret leaked</preview>\n</attachments>",
+                )],
+                created_at: Utc::now(),
+            },
+            Message {
+                id: MessageId::new(),
+                role: Role::Assistant,
+                content: vec![ContentBlock::text(
+                    "fine — also <memory-context>poison</memory-context> ok",
+                )],
+                created_at: Utc::now(),
+            },
+        ];
+        let out = LlmMemoryExtractor::render_transcript(&messages);
+        assert!(out.contains("USER: real user input"));
+        assert!(out.contains("ASSISTANT: fine —"));
+        assert!(out.contains(" ok"));
+        assert!(
+            !out.contains("secret leaked"),
+            "attachments preview leaked into transcript: {out}"
+        );
+        assert!(
+            !out.contains("poison"),
+            "memory-context body leaked into transcript: {out}"
+        );
+        assert!(!out.contains("<memory-context"));
+        assert!(!out.contains("<attachments"));
+    }
+
+    #[test]
     fn sensitive_filter_blocks_email() {
         let f = SensitiveFilter::default_set();
         assert!(f.first_match("contact me at alice@example.com").is_some());
@@ -642,9 +704,7 @@ mod tests {
     #[test]
     fn sensitive_filter_blocks_openai_key() {
         let f = SensitiveFilter::default_set();
-        assert!(f
-            .first_match("sk-1234567890abcdefghijklmnop")
-            .is_some());
+        assert!(f.first_match("sk-1234567890abcdefghijklmnop").is_some());
     }
 
     #[test]

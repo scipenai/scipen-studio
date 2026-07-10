@@ -2,9 +2,9 @@
 
 use crate::error::{StateError, StateResult};
 use crate::models::{
-    ChatBinding, MemoryVector, MessageRow, NewMessage, NewOutboxEntry, NewScheduledTask,
-    NewThread, OutboxKind, OutboxRow, OutboxStatus, PersistedDecision, ScheduledTask,
-    StoredApprovalDecision, ThreadCompaction, ThreadRow, ThreadSummaryRow, ToolCallRow,
+    ChatBinding, MessageRow, NewMessage, NewOutboxEntry, NewScheduledTask, NewThread, OutboxKind,
+    OutboxRow, OutboxStatus, PersistedDecision, ScheduledTask, StoredApprovalDecision,
+    ThreadCompaction, ThreadRow, ThreadSummaryRow, ToolCallRow,
 };
 use chrono::{DateTime, Utc};
 use snaca_core::{
@@ -19,6 +19,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 const SCHEMA_SQL: &str = include_str!("schema.sql");
+const MIGRATION_MESSAGES_FTS_BACKFILLED: &str = "messages_fts_backfilled_v1";
 
 /// Owns a `SqlitePool` and exposes typed CRUD helpers. Cheap to clone.
 #[derive(Clone)]
@@ -68,58 +69,88 @@ impl Database {
         // Post-schema migrations: each step inspects the current shape
         // and upgrades in place when needed. Idempotent — running twice
         // is a no-op.
-        self.migrate_approval_decisions_add_input_signature().await?;
+        self.migrate_approval_decisions_add_input_signature()
+            .await?;
         self.migrate_thread_compactions_add_summary_from().await?;
+        self.migrate_messages_add_redacted().await?;
+        self.migrate_messages_fts_backfill().await?;
+        // scipen-studio fork migrations (idempotent column adds).
         self.migrate_threads_add_title().await?;
         self.migrate_messages_add_turn_id().await?;
         Ok(())
     }
 
-    /// Editor-mode migration: add `title` to `threads`. Fresh DBs get the
-    /// column from `schema.sql`; legacy DBs (IM-mode pre-editor) backfill
-    /// in place with the default string. SQLite's `ALTER TABLE ADD COLUMN`
-    /// with `NOT NULL DEFAULT` is safe here — the default value populates
-    /// existing rows atomically.
-    /// Add a nullable `turn_id` column to `messages` so host UIs can
-     /// associate a persisted assistant message with the in-memory turn
-     /// (thinking trace, tool calls, edit proposals) that emitted it
-     /// live. Fresh DBs already get the column via `schema.sql`; legacy
-     /// DBs need an in-place `ALTER TABLE`. Nullable is fine because
-     /// the binding is informational only.
-    async fn migrate_messages_add_turn_id(&self) -> StateResult<()> {
+    /// Add the `redacted_at` column to `messages` on legacy DBs. Fresh
+    /// DBs get it via `schema.sql`. Nullable (no default needed): existing
+    /// rows read back as `NULL` = not redacted. Idempotent — skips when
+    /// the column already exists.
+    async fn migrate_messages_add_redacted(&self) -> StateResult<()> {
         let rows = sqlx::query("PRAGMA table_info(messages)")
             .fetch_all(&self.pool)
             .await?;
         let has_col = rows.iter().any(|r| {
             r.try_get::<String, _>("name")
-                .map(|n| n == "turn_id")
+                .map(|n| n == "redacted_at")
                 .unwrap_or(false)
         });
         if has_col {
             return Ok(());
         }
-        sqlx::query("ALTER TABLE messages ADD COLUMN turn_id TEXT")
+        sqlx::query("ALTER TABLE messages ADD COLUMN redacted_at TEXT")
             .execute(&self.pool)
             .await?;
         Ok(())
     }
 
-    async fn migrate_threads_add_title(&self) -> StateResult<()> {
-        let rows = sqlx::query("PRAGMA table_info(threads)")
-            .fetch_all(&self.pool)
-            .await?;
-        let has_col = rows.iter().any(|r| {
-            r.try_get::<String, _>("name")
-                .map(|n| n == "title")
-                .unwrap_or(false)
-        });
-        if has_col {
+    /// Backfill the `messages_fts` virtual table for legacy databases
+    /// that pre-date FTS5. Fresh DBs get an empty index alongside an
+    /// empty `messages` table, and from then on the AFTER triggers
+    /// keep them in sync. Legacy DBs need a one-shot FTS5 `rebuild`
+    /// command to populate the index from existing rows.
+    ///
+    /// We use an explicit migration marker instead of comparing
+    /// `COUNT(*)` on `messages_fts`: external-content FTS tables can
+    /// report content-table rows even when the index is empty, so that
+    /// probe would falsely skip the rebuild.
+    async fn migrate_messages_fts_backfill(&self) -> StateResult<()> {
+        if self
+            .migration_applied(MIGRATION_MESSAGES_FTS_BACKFILLED)
+            .await?
+        {
             return Ok(());
         }
+
+        let msg_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages")
+            .fetch_one(&self.pool)
+            .await?;
+        if msg_count > 0 {
+            // Rebuild from scratch — `'rebuild'` is the FTS5 idiom
+            // for "re-derive the index from the external content
+            // table".
+            sqlx::query("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
+                .execute(&self.pool)
+                .await?;
+        }
+        self.mark_migration_applied(MIGRATION_MESSAGES_FTS_BACKFILLED)
+            .await?;
+        Ok(())
+    }
+
+    async fn migration_applied(&self, name: &str) -> StateResult<bool> {
+        let hit: Option<i64> = sqlx::query_scalar("SELECT 1 FROM schema_migrations WHERE name = ?")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(hit.is_some())
+    }
+
+    async fn mark_migration_applied(&self, name: &str) -> StateResult<()> {
         sqlx::query(
-            "ALTER TABLE threads \
-             ADD COLUMN title TEXT NOT NULL DEFAULT 'New conversation'",
+            "INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?) \
+             ON CONFLICT(name) DO UPDATE SET applied_at = excluded.applied_at",
         )
+        .bind(name)
+        .bind(Utc::now().to_rfc3339())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -234,17 +265,59 @@ impl Database {
     }
 
     pub async fn find_thread(&self, id: &ThreadId) -> StateResult<Option<ThreadRow>> {
-        let row = sqlx::query(
-            "SELECT id, tenant_id, project_id, title, created_at FROM threads WHERE id = ?",
-        )
-        .bind(id.as_str())
-        .fetch_optional(&self.pool)
-        .await?;
+        let row =
+            sqlx::query("SELECT id, tenant_id, project_id, title, created_at FROM threads WHERE id = ?")
+                .bind(id.as_str())
+                .fetch_optional(&self.pool)
+                .await?;
         row.map(thread_from_row).transpose()
     }
 
-    /// Update only the `title` column. Returns `true` when a row was
-    /// affected; callers can treat `false` as "thread vanished".
+    /// scipen-studio fork: add `title` to `threads` in place. Fresh DBs get
+    /// the column from `schema.sql`; legacy IM-mode DBs backfill with the
+    /// default. Idempotent.
+    async fn migrate_threads_add_title(&self) -> StateResult<()> {
+        let rows = sqlx::query("PRAGMA table_info(threads)")
+            .fetch_all(&self.pool)
+            .await?;
+        let has_col = rows.iter().any(|r| {
+            r.try_get::<String, _>("name")
+                .map(|n| n == "title")
+                .unwrap_or(false)
+        });
+        if has_col {
+            return Ok(());
+        }
+        sqlx::query(
+            "ALTER TABLE threads              ADD COLUMN title TEXT NOT NULL DEFAULT 'New conversation'",
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// scipen-studio fork: add nullable `turn_id` to `messages` in place.
+    /// Idempotent.
+    async fn migrate_messages_add_turn_id(&self) -> StateResult<()> {
+        let rows = sqlx::query("PRAGMA table_info(messages)")
+            .fetch_all(&self.pool)
+            .await?;
+        let has_col = rows.iter().any(|r| {
+            r.try_get::<String, _>("name")
+                .map(|n| n == "turn_id")
+                .unwrap_or(false)
+        });
+        if has_col {
+            return Ok(());
+        }
+        sqlx::query("ALTER TABLE messages ADD COLUMN turn_id TEXT")
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// scipen-studio fork: rename a thread's title. Returns `true` when a
+    /// row was affected.
     pub async fn update_thread_title(&self, id: &ThreadId, title: &str) -> StateResult<bool> {
         let affected = sqlx::query("UPDATE threads SET title = ? WHERE id = ?")
             .bind(title)
@@ -255,8 +328,7 @@ impl Database {
         Ok(affected > 0)
     }
 
-    /// Delete a thread. Messages (and their tool_calls / compactions)
-    /// cascade via FK. Returns `true` when a row was removed.
+    /// scipen-studio fork: delete a thread. Messages cascade via FK.
     pub async fn delete_thread(&self, id: &ThreadId) -> StateResult<bool> {
         let affected = sqlx::query("DELETE FROM threads WHERE id = ?")
             .bind(id.as_str())
@@ -264,6 +336,34 @@ impl Database {
             .await?
             .rows_affected();
         Ok(affected > 0)
+    }
+
+    /// scipen-studio fork: list threads with aggregated stats for the
+    /// editor's thread list. Ordered most-recently-active first.
+    pub async fn list_threads_with_stats(
+        &self,
+        tenant: &TenantId,
+        project: &ProjectId,
+    ) -> StateResult<Vec<ThreadSummaryRow>> {
+        let rows = sqlx::query(
+            "SELECT t.id, t.tenant_id, t.project_id, t.title, t.created_at,                     COALESCE(                         (SELECT MAX(m.created_at) FROM messages m WHERE m.thread_id = t.id),                         t.created_at                     ) AS last_active_at,                     (SELECT COUNT(DISTINCT COALESCE(m.turn_id, m.id)) FROM messages m                        WHERE m.thread_id = t.id AND m.role = 'user') AS turn_count              FROM threads t              WHERE t.tenant_id = ? AND t.project_id = ?              ORDER BY last_active_at DESC",
+        )
+        .bind(tenant.as_str())
+        .bind(project.as_str())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                let last_active_at = parse_dt(&row.try_get::<String, _>("last_active_at")?)?;
+                let turn_count: i64 = row.try_get("turn_count")?;
+                let thread = thread_from_row(row)?;
+                Ok(ThreadSummaryRow {
+                    thread,
+                    last_active_at,
+                    turn_count: turn_count.max(0) as u32,
+                })
+            })
+            .collect()
     }
 
     /// Distinct tenant ids that have at least one thread on file. Used
@@ -295,10 +395,7 @@ impl Database {
     /// Distinct project ids that have at least one thread under `tenant`.
     /// Used by `/snaca list` and admin tooling. Ordered by most-recent
     /// thread within each project.
-    pub async fn list_projects_for_tenant(
-        &self,
-        tenant: &TenantId,
-    ) -> StateResult<Vec<ProjectId>> {
+    pub async fn list_projects_for_tenant(&self, tenant: &TenantId) -> StateResult<Vec<ProjectId>> {
         let rows = sqlx::query(
             "SELECT project_id, MAX(created_at) AS last_seen FROM threads \
              WHERE tenant_id = ? GROUP BY project_id ORDER BY last_seen DESC",
@@ -326,50 +423,6 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter().map(thread_from_row).collect()
-    }
-
-    /// List threads under `(tenant, project)` with derived stats:
-    ///   * `last_active_at` = MAX(messages.created_at), falling back to
-    ///     `threads.created_at` when the thread has no messages yet.
-    ///   * `turn_count` = number of user-role messages.
-    ///
-    /// Ordered most-recently-active first so the editor protocol's
-    /// `list_thread_summaries` contract holds without a second sort.
-    pub async fn list_threads_with_stats(
-        &self,
-        tenant: &TenantId,
-        project: &ProjectId,
-    ) -> StateResult<Vec<ThreadSummaryRow>> {
-        let rows = sqlx::query(
-            "SELECT t.id, t.tenant_id, t.project_id, t.title, t.created_at, \
-                    COALESCE( \
-                        (SELECT MAX(m.created_at) FROM messages m WHERE m.thread_id = t.id), \
-                        t.created_at \
-                    ) AS last_active_at, \
-                    (SELECT COUNT(*) FROM messages m \
-                       WHERE m.thread_id = t.id AND m.role = 'user') AS turn_count \
-             FROM threads t \
-             WHERE t.tenant_id = ? AND t.project_id = ? \
-             ORDER BY last_active_at DESC",
-        )
-        .bind(tenant.as_str())
-        .bind(project.as_str())
-        .fetch_all(&self.pool)
-        .await?;
-        // SqliteRow isn't Clone, so we extract the derived columns first,
-        // then hand the row to thread_from_row.
-        rows.into_iter()
-            .map(|row| {
-                let last_active_at = parse_dt(&row.try_get::<String, _>("last_active_at")?)?;
-                let turn_count: i64 = row.try_get("turn_count")?;
-                let thread = thread_from_row(row)?;
-                Ok(ThreadSummaryRow {
-                    thread,
-                    last_active_at,
-                    turn_count: turn_count.max(0) as u32,
-                })
-            })
-            .collect()
     }
 
     // -------- messages --------
@@ -400,7 +453,21 @@ impl Database {
             content: msg.content.clone(),
             created_at: now,
             turn_id: msg.turn_id.clone(),
+            redacted_at: None,
         })
+    }
+
+    /// Mark a message as redacted. `load_history` will replace its body
+    /// with a neutral placeholder from now on, so a message whose content
+    /// tripped a provider content filter stops re-poisoning every replayed
+    /// turn. Idempotent; a no-op if the id doesn't exist.
+    pub async fn mark_message_redacted(&self, id: &MessageId) -> StateResult<()> {
+        sqlx::query("UPDATE messages SET redacted_at = ? WHERE id = ?")
+            .bind(Utc::now().to_rfc3339())
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn recent_messages(
@@ -409,16 +476,147 @@ impl Database {
         limit: u32,
     ) -> StateResult<Vec<MessageRow>> {
         let rows = sqlx::query(
-            "SELECT id, thread_id, session_id, role, content, created_at, turn_id FROM messages \
+            "SELECT id, thread_id, session_id, role, content, created_at, redacted_at, turn_id FROM messages \
              WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?",
         )
         .bind(thread.as_str())
         .bind(limit as i64)
         .fetch_all(&self.pool)
         .await?;
-        let mut msgs: Vec<MessageRow> = rows.into_iter().map(message_from_row).collect::<StateResult<_>>()?;
+        let mut msgs: Vec<MessageRow> = rows
+            .into_iter()
+            .map(message_from_row)
+            .collect::<StateResult<_>>()?;
         msgs.reverse();
         Ok(msgs)
+    }
+
+    /// Same as [`Self::recent_messages`], but only returns rows when
+    /// the thread belongs to `tenant` + `project`. Tool surfaces that
+    /// accept an arbitrary thread id must use this scoped variant so a
+    /// caller cannot dump another project's transcript by guessing or
+    /// reusing a thread id.
+    pub async fn recent_messages_for_project(
+        &self,
+        tenant: &TenantId,
+        project: &ProjectId,
+        thread: &ThreadId,
+        limit: u32,
+    ) -> StateResult<Vec<MessageRow>> {
+        let rows = sqlx::query(
+            "SELECT m.id, m.thread_id, m.session_id, m.role, m.content, m.created_at, m.redacted_at \
+             FROM messages m \
+             JOIN threads t ON t.id = m.thread_id \
+             WHERE m.thread_id = ? AND t.tenant_id = ? AND t.project_id = ? \
+             ORDER BY m.created_at DESC LIMIT ?",
+        )
+        .bind(thread.as_str())
+        .bind(tenant.as_str())
+        .bind(project.as_str())
+        .bind(limit as i64)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut msgs: Vec<MessageRow> = rows
+            .into_iter()
+            .map(message_from_row)
+            .collect::<StateResult<_>>()?;
+        msgs.reverse();
+        Ok(msgs)
+    }
+
+    /// FTS5-backed full-text search over the `messages` table,
+    /// ranked by BM25. Used by the `session_search` tool to let
+    /// the LLM dig up "did we discuss X earlier?" without burning
+    /// retrieval budget on every turn. Scope is tenant + project
+    /// — we walk every thread that belongs to the requested
+    /// `project_id` so a cross-thread quote ("when we were
+    /// debugging deploy yesterday…") can be recovered.
+    ///
+    /// `query` is passed through to FTS5 verbatim — operators can
+    /// use the full FTS5 query syntax (phrase searches, NEAR,
+    /// boolean ops, column filters). Returns `[]` on parse errors
+    /// rather than bubbling up — the model retries with a simpler
+    /// query, which is the expected UX.
+    pub async fn search_messages_fts(
+        &self,
+        tenant: &TenantId,
+        project: &ProjectId,
+        query: &str,
+        limit: u32,
+    ) -> StateResult<Vec<MessageRow>> {
+        // Project scoping joins through `threads.project_id`. The
+        // FTS5 `MATCH` clause runs against the virtual table; the
+        // join filters to messages whose thread belongs to the
+        // caller's project. `bm25(messages_fts)` returns ascending
+        // (lower = better match) so we ORDER BY it directly.
+        let sql = "SELECT m.id, m.thread_id, m.session_id, m.role, m.content, m.created_at, m.redacted_at \
+                   FROM messages_fts \
+                   JOIN messages m ON m.rowid = messages_fts.rowid \
+                   JOIN threads t ON t.id = m.thread_id \
+                   WHERE messages_fts MATCH ? \
+                     AND t.tenant_id = ? AND t.project_id = ? \
+                   ORDER BY bm25(messages_fts) ASC \
+                   LIMIT ?";
+        let rows = match sqlx::query(sql)
+            .bind(query)
+            .bind(tenant.as_str())
+            .bind(project.as_str())
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                // FTS5 surfaces a `SQL logic error: malformed
+                // MATCH expression` for invalid queries. Surface
+                // an empty hit list — callers retry with a
+                // sanitised query.
+                tracing::debug!(error = %e, "fts5 search failed; returning empty");
+                return Ok(Vec::new());
+            }
+        };
+        rows.into_iter().map(message_from_row).collect()
+    }
+
+    /// Same as [`Self::search_messages_fts`], but constrained to one
+    /// thread before ranking/limiting. Callers that expose a
+    /// `thread_id` filter must use this variant; filtering after
+    /// the project-level top-N would let matches from other threads
+    /// consume the limit and hide valid hits from the requested
+    /// thread.
+    pub async fn search_messages_fts_for_thread(
+        &self,
+        tenant: &TenantId,
+        project: &ProjectId,
+        thread: &ThreadId,
+        query: &str,
+        limit: u32,
+    ) -> StateResult<Vec<MessageRow>> {
+        let sql = "SELECT m.id, m.thread_id, m.session_id, m.role, m.content, m.created_at, m.redacted_at \
+                   FROM messages_fts \
+                   JOIN messages m ON m.rowid = messages_fts.rowid \
+                   JOIN threads t ON t.id = m.thread_id \
+                   WHERE messages_fts MATCH ? \
+                     AND t.tenant_id = ? AND t.project_id = ? \
+                     AND m.thread_id = ? \
+                   ORDER BY bm25(messages_fts) ASC \
+                   LIMIT ?";
+        let rows = match sqlx::query(sql)
+            .bind(query)
+            .bind(tenant.as_str())
+            .bind(project.as_str())
+            .bind(thread.as_str())
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::debug!(error = %e, "thread-scoped fts5 search failed; returning empty");
+                return Ok(Vec::new());
+            }
+        };
+        rows.into_iter().map(message_from_row).collect()
     }
 
     /// Symmetric counterpart to `messages_after`: return the messages
@@ -438,7 +636,7 @@ impl Database {
         limit: u32,
     ) -> StateResult<Vec<MessageRow>> {
         let rows = sqlx::query(
-            "SELECT id, thread_id, session_id, role, content, created_at, turn_id FROM messages \
+            "SELECT id, thread_id, session_id, role, content, created_at, redacted_at FROM messages \
              WHERE thread_id = ? \
                AND created_at < COALESCE( \
                      (SELECT created_at FROM messages WHERE id = ?), \
@@ -469,7 +667,7 @@ impl Database {
         // earliest possible time so the query degrades to "all messages"
         // instead of returning empty silently.
         let rows = sqlx::query(
-            "SELECT id, thread_id, session_id, role, content, created_at, turn_id FROM messages \
+            "SELECT id, thread_id, session_id, role, content, created_at, redacted_at FROM messages \
              WHERE thread_id = ? \
                AND created_at > COALESCE( \
                      (SELECT created_at FROM messages WHERE id = ?), \
@@ -786,96 +984,6 @@ impl Database {
         Ok(())
     }
 
-    // -------- memory_vectors --------
-
-    /// Upsert an embedding for one memory entry. Replaces any existing
-    /// row with the same `(tenant, project, scope, name)`. The embedding
-    /// is serialised as little-endian f32 bytes for compact storage and
-    /// portable reads from any platform we run on.
-    pub async fn upsert_memory_vector(
-        &self,
-        tenant: &TenantId,
-        project: &ProjectId,
-        scope: &str,
-        name: &str,
-        model_id: &str,
-        embedding: &[f32],
-    ) -> StateResult<MemoryVector> {
-        let now = Utc::now();
-        let bytes = embedding_to_bytes(embedding);
-        sqlx::query(
-            "INSERT INTO memory_vectors \
-                 (tenant_id, project_id, scope, name, model_id, dim, embedding, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
-             ON CONFLICT(tenant_id, project_id, scope, name) DO UPDATE SET \
-                 model_id = excluded.model_id, \
-                 dim = excluded.dim, \
-                 embedding = excluded.embedding, \
-                 updated_at = excluded.updated_at",
-        )
-        .bind(tenant.as_str())
-        .bind(project.as_str())
-        .bind(scope)
-        .bind(name)
-        .bind(model_id)
-        .bind(embedding.len() as i64)
-        .bind(&bytes)
-        .bind(now.to_rfc3339())
-        .execute(&self.pool)
-        .await?;
-        Ok(MemoryVector {
-            tenant_id: tenant.clone(),
-            project_id: project.clone(),
-            scope: scope.to_string(),
-            name: name.to_string(),
-            model_id: model_id.to_string(),
-            embedding: embedding.to_vec(),
-            updated_at: now,
-        })
-    }
-
-    /// Drop the embedding for a single entry. No-op when absent so
-    /// callers can call this from a delete path without first checking.
-    pub async fn delete_memory_vector(
-        &self,
-        tenant: &TenantId,
-        project: &ProjectId,
-        scope: &str,
-        name: &str,
-    ) -> StateResult<()> {
-        sqlx::query(
-            "DELETE FROM memory_vectors \
-             WHERE tenant_id = ? AND project_id = ? AND scope = ? AND name = ?",
-        )
-        .bind(tenant.as_str())
-        .bind(project.as_str())
-        .bind(scope)
-        .bind(name)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    /// Every embedding under one project. Brute-force search lives on
-    /// top of this — load → cosine → sort → top-k. Fine for the
-    /// hundred-or-so entries a typical project ever holds; swap to
-    /// sqlite-vec when somebody actually exercises that scale.
-    pub async fn list_memory_vectors(
-        &self,
-        tenant: &TenantId,
-        project: &ProjectId,
-    ) -> StateResult<Vec<MemoryVector>> {
-        let rows = sqlx::query(
-            "SELECT tenant_id, project_id, scope, name, model_id, dim, embedding, updated_at \
-             FROM memory_vectors WHERE tenant_id = ? AND project_id = ?",
-        )
-        .bind(tenant.as_str())
-        .bind(project.as_str())
-        .fetch_all(&self.pool)
-        .await?;
-        rows.into_iter().map(memory_vector_from_row).collect()
-    }
-
     // -------- scheduled_tasks --------
 
     /// Persist a new scheduled task. The caller assigns
@@ -998,11 +1106,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn set_scheduled_task_enabled(
-        &self,
-        id: &str,
-        enabled: bool,
-    ) -> StateResult<()> {
+    pub async fn set_scheduled_task_enabled(&self, id: &str, enabled: bool) -> StateResult<()> {
         sqlx::query("UPDATE scheduled_tasks SET enabled = ? WHERE id = ?")
             .bind(if enabled { 1i64 } else { 0i64 })
             .bind(id)
@@ -1128,6 +1232,119 @@ impl Database {
         rows.into_iter().map(outbox_from_row).collect()
     }
 
+    /// Admin / Web UI surface: list every approval decision on file,
+    /// optionally narrowed by tenant/project. Newest decisions first.
+    pub async fn list_decisions(
+        &self,
+        tenant: Option<&TenantId>,
+        project: Option<&ProjectId>,
+    ) -> StateResult<Vec<StoredApprovalDecision>> {
+        // Build the WHERE clause dynamically. SQLite-safe: every binding
+        // is a parameter, no string interpolation of user input.
+        let mut sql = String::from(
+            "SELECT tenant_id, project_id, tool_name, input_signature, decision, decided_at \
+             FROM approval_decisions",
+        );
+        let mut filters = Vec::new();
+        if tenant.is_some() {
+            filters.push("tenant_id = ?".to_string());
+        }
+        if project.is_some() {
+            filters.push("project_id = ?".to_string());
+        }
+        if !filters.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&filters.join(" AND "));
+        }
+        sql.push_str(" ORDER BY decided_at DESC");
+        let mut q = sqlx::query(&sql);
+        if let Some(t) = tenant {
+            q = q.bind(t.as_str().to_string());
+        }
+        if let Some(p) = project {
+            q = q.bind(p.as_str().to_string());
+        }
+        let rows = q.fetch_all(&self.pool).await?;
+        rows.into_iter().map(decision_from_row).collect()
+    }
+
+    /// Admin / Web UI surface: every scheduled task on file, optionally
+    /// filtered to enabled-only. Soonest-firing first.
+    pub async fn list_all_scheduled_tasks(
+        &self,
+        enabled_only: bool,
+    ) -> StateResult<Vec<ScheduledTask>> {
+        let sql = if enabled_only {
+            "SELECT id, tenant_id, project_id, chat_id, plugin, prompt, \
+                    interval_secs, next_fire_at, last_fired_at, enabled, created_at \
+             FROM scheduled_tasks WHERE enabled = 1 ORDER BY next_fire_at ASC"
+        } else {
+            "SELECT id, tenant_id, project_id, chat_id, plugin, prompt, \
+                    interval_secs, next_fire_at, last_fired_at, enabled, created_at \
+             FROM scheduled_tasks ORDER BY next_fire_at ASC"
+        };
+        let rows = sqlx::query(sql).fetch_all(&self.pool).await?;
+        rows.into_iter().map(scheduled_task_from_row).collect()
+    }
+
+    /// Admin / Web UI surface: list outbox rows, optionally narrowed by
+    /// status. Pending rows first (next_attempt_at ascending), then
+    /// non-pending by created_at descending so failures bubble up.
+    pub async fn list_outbox(
+        &self,
+        status: Option<OutboxStatus>,
+        limit: u32,
+    ) -> StateResult<Vec<OutboxRow>> {
+        let rows = match status {
+            Some(s) => {
+                sqlx::query(
+                    "SELECT id, plugin, tenant_id, chat_id, kind, payload, attempts, \
+                            next_attempt_at, status, last_error, platform_message_id, \
+                            created_at, delivered_at \
+                     FROM outbox WHERE status = ? \
+                     ORDER BY next_attempt_at ASC, created_at DESC LIMIT ?",
+                )
+                .bind(s.as_str())
+                .bind(limit as i64)
+                .fetch_all(&self.pool)
+                .await?
+            }
+            None => {
+                sqlx::query(
+                    "SELECT id, plugin, tenant_id, chat_id, kind, payload, attempts, \
+                            next_attempt_at, status, last_error, platform_message_id, \
+                            created_at, delivered_at \
+                     FROM outbox \
+                     ORDER BY \
+                       CASE status WHEN 'pending' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END, \
+                       next_attempt_at ASC, created_at DESC \
+                     LIMIT ?",
+                )
+                .bind(limit as i64)
+                .fetch_all(&self.pool)
+                .await?
+            }
+        };
+        rows.into_iter().map(outbox_from_row).collect()
+    }
+
+    /// Admin action: requeue an outbox row for immediate retry. Pulls
+    /// `next_attempt_at` to now and flips the status back to `pending`
+    /// (handles the operator-driven "retry a row stuck in failed" case
+    /// without touching the worker's normal retry loop).
+    pub async fn outbox_force_retry(&self, id: &str) -> StateResult<bool> {
+        let now = Utc::now();
+        let res = sqlx::query(
+            "UPDATE outbox SET status = 'pending', next_attempt_at = ?, last_error = NULL \
+             WHERE id = ?",
+        )
+        .bind(now.to_rfc3339())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
     pub async fn outbox_find(&self, id: &str) -> StateResult<Option<OutboxRow>> {
         let row = sqlx::query(
             "SELECT id, plugin, tenant_id, chat_id, kind, payload, attempts, next_attempt_at, \
@@ -1187,10 +1404,7 @@ impl Database {
     /// Drop rows older than `cutoff`. Lark webhook redelivery only
     /// targets a small recent window, so we don't need to keep dedup
     /// records for long.
-    pub async fn inbound_dedup_purge_older_than(
-        &self,
-        cutoff: DateTime<Utc>,
-    ) -> StateResult<u64> {
+    pub async fn inbound_dedup_purge_older_than(&self, cutoff: DateTime<Utc>) -> StateResult<u64> {
         let res = sqlx::query("DELETE FROM inbound_dedup WHERE seen_at < ?")
             .bind(cutoff.to_rfc3339())
             .execute(&self.pool)
@@ -1202,6 +1416,10 @@ impl Database {
 /// Strip line comments (`-- ...`) before splitting on `;`. SQLite's parser
 /// understands inline comments but our manual splitter does not — without
 /// this, semicolons in comments would chop statements in half.
+///
+/// Also recognises `BEGIN ... END;` blocks (as used by `CREATE
+/// TRIGGER ... BEGIN ... END;`) and treats every `;` inside such a
+/// block as part of the enclosing statement, not a delimiter.
 fn split_statements(sql: &str) -> impl Iterator<Item = String> {
     let cleaned: String = sql
         .lines()
@@ -1214,12 +1432,60 @@ fn split_statements(sql: &str) -> impl Iterator<Item = String> {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    cleaned
-        .split(';')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .into_iter()
+
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0i32;
+    // Walk word-by-word so we can detect `BEGIN` / `END` tokens
+    // case-insensitively without re-implementing a full SQL lexer.
+    let bytes = cleaned.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if depth == 0 && c == b';' {
+            let stmt = current.trim().to_string();
+            if !stmt.is_empty() {
+                out.push(stmt);
+            }
+            current.clear();
+            i += 1;
+            continue;
+        }
+        // Detect BEGIN / END as standalone tokens. Keep this cheap:
+        // only check on ascii-alpha boundaries.
+        if c.is_ascii_alphabetic() {
+            let prev_is_word =
+                i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
+            if !prev_is_word {
+                let rest = &cleaned[i..];
+                if matches_keyword(rest, "BEGIN") {
+                    depth += 1;
+                } else if depth > 0 && matches_keyword(rest, "END") {
+                    depth -= 1;
+                }
+            }
+        }
+        current.push(c as char);
+        i += 1;
+    }
+    let stmt = current.trim().to_string();
+    if !stmt.is_empty() {
+        out.push(stmt);
+    }
+    out.into_iter()
+}
+
+fn matches_keyword(rest: &str, keyword: &str) -> bool {
+    if rest.len() < keyword.len() {
+        return false;
+    }
+    if !rest.as_bytes()[..keyword.len()].eq_ignore_ascii_case(keyword.as_bytes()) {
+        return false;
+    }
+    match rest.as_bytes().get(keyword.len()) {
+        None => true,
+        Some(&b) => !(b.is_ascii_alphanumeric() || b == b'_'),
+    }
 }
 
 fn role_to_str(role: Role) -> &'static str {
@@ -1250,8 +1516,7 @@ fn parse_dt(s: &str) -> StateResult<DateTime<Utc>> {
 }
 
 fn parse_uuid(s: &str) -> StateResult<uuid::Uuid> {
-    uuid::Uuid::parse_str(s)
-        .map_err(|e| StateError::Migration(format!("invalid uuid in DB: {e}")))
+    uuid::Uuid::parse_str(s).map_err(|e| StateError::Migration(format!("invalid uuid in DB: {e}")))
 }
 
 fn thread_from_row(row: sqlx::sqlite::SqliteRow) -> StateResult<ThreadRow> {
@@ -1259,7 +1524,11 @@ fn thread_from_row(row: sqlx::sqlite::SqliteRow) -> StateResult<ThreadRow> {
         id: ThreadId::new(row.try_get::<String, _>("id")?),
         tenant_id: TenantId::new(row.try_get::<String, _>("tenant_id")?),
         project_id: ProjectId::from_raw(row.try_get::<String, _>("project_id")?),
-        title: row.try_get::<String, _>("title")?,
+        // scipen-studio fork: tolerant so SELECTs that omit `title` (e.g.
+        // IM-mode paths) still map — they just get the default.
+        title: row
+            .try_get::<String, _>("title")
+            .unwrap_or_else(|_| "New conversation".to_string()),
         created_at: parse_dt(&row.try_get::<String, _>("created_at")?)?,
     })
 }
@@ -1274,7 +1543,13 @@ fn message_from_row(row: sqlx::sqlite::SqliteRow) -> StateResult<MessageRow> {
         role: role_from_str(&row.try_get::<String, _>("role")?)?,
         content,
         created_at: parse_dt(&row.try_get::<String, _>("created_at")?)?,
+        // scipen-studio fork: tolerant so SELECTs that omit `turn_id`
+        // still map to None.
         turn_id: row.try_get::<Option<String>, _>("turn_id").ok().flatten(),
+        redacted_at: row
+            .try_get::<Option<String>, _>("redacted_at")?
+            .map(|s| parse_dt(&s))
+            .transpose()?,
     })
 }
 
@@ -1303,45 +1578,6 @@ fn binding_from_row(row: sqlx::sqlite::SqliteRow) -> StateResult<ChatBinding> {
     })
 }
 
-fn embedding_to_bytes(v: &[f32]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(v.len() * 4);
-    for f in v {
-        bytes.extend_from_slice(&f.to_le_bytes());
-    }
-    bytes
-}
-
-fn bytes_to_embedding(bytes: &[u8], dim: usize) -> StateResult<Vec<f32>> {
-    if bytes.len() != dim * 4 {
-        return Err(StateError::Migration(format!(
-            "memory_vectors blob length {} does not match dim {} (expected {} bytes)",
-            bytes.len(),
-            dim,
-            dim * 4
-        )));
-    }
-    let mut out = Vec::with_capacity(dim);
-    for chunk in bytes.chunks_exact(4) {
-        out.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-    }
-    Ok(out)
-}
-
-fn memory_vector_from_row(row: sqlx::sqlite::SqliteRow) -> StateResult<MemoryVector> {
-    let dim: i64 = row.try_get("dim")?;
-    let bytes: Vec<u8> = row.try_get("embedding")?;
-    let embedding = bytes_to_embedding(&bytes, dim.max(0) as usize)?;
-    Ok(MemoryVector {
-        tenant_id: TenantId::new(row.try_get::<String, _>("tenant_id")?),
-        project_id: ProjectId::from_raw(row.try_get::<String, _>("project_id")?),
-        scope: row.try_get::<String, _>("scope")?,
-        name: row.try_get::<String, _>("name")?,
-        model_id: row.try_get::<String, _>("model_id")?,
-        embedding,
-        updated_at: parse_dt(&row.try_get::<String, _>("updated_at")?)?,
-    })
-}
-
 fn compaction_from_row(row: sqlx::sqlite::SqliteRow) -> StateResult<ThreadCompaction> {
     // Legacy rows backfilled by the migration carry an empty string;
     // surface them as `None` so the engine renders the preamble at the
@@ -1367,9 +1603,8 @@ fn compaction_from_row(row: sqlx::sqlite::SqliteRow) -> StateResult<ThreadCompac
 
 fn outbox_from_row(row: sqlx::sqlite::SqliteRow) -> StateResult<OutboxRow> {
     let kind_raw: String = row.try_get("kind")?;
-    let kind = OutboxKind::parse(&kind_raw).ok_or_else(|| {
-        StateError::Migration(format!("unknown outbox kind in DB: {kind_raw}"))
-    })?;
+    let kind = OutboxKind::parse(&kind_raw)
+        .ok_or_else(|| StateError::Migration(format!("unknown outbox kind in DB: {kind_raw}")))?;
     let status_raw: String = row.try_get("status")?;
     let status = OutboxStatus::parse(&status_raw).ok_or_else(|| {
         StateError::Migration(format!("unknown outbox status in DB: {status_raw}"))
@@ -1457,13 +1692,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fts_backfill_rebuilds_legacy_external_content_index() {
+        let opts = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "CREATE TABLE messages (
+                id TEXT PRIMARY KEY,
+                thread_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO messages (id, thread_id, session_id, role, content, created_at)
+             VALUES ('m1', 't1', 's1', 'user', ?, '2026-06-19T00:00:00Z')",
+        )
+        .bind(serde_json::to_string(&vec![ContentBlock::text("legacy backfill needle")]).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE VIRTUAL TABLE messages_fts USING fts5(
+                content,
+                content='messages',
+                content_rowid='rowid',
+                tokenize='unicode61 remove_diacritics 2 tokenchars _'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let before: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'needle'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(before, 0, "fixture should start with an empty FTS index");
+
+        let db = Database { pool };
+        db.run_migrations().await.unwrap();
+
+        let after: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'needle'",
+        )
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert_eq!(after, 1);
+        let marked: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM schema_migrations WHERE name = ?")
+                .bind(MIGRATION_MESSAGES_FTS_BACKFILLED)
+                .fetch_optional(&db.pool)
+                .await
+                .unwrap();
+        assert_eq!(marked, Some(1));
+    }
+
+    #[tokio::test]
     async fn thread_insert_and_find() {
         let db = db().await;
         let new = NewThread {
             id: ThreadId::new("chat_1"),
             tenant_id: TenantId::new("tenant_a"),
             project_id: ProjectId::from_raw("proj_x"),
-            title: String::new(),
+            title: "New conversation".to_string(),
         };
         let row = db.insert_thread(&new).await.unwrap();
         assert_eq!(row.id.as_str(), "chat_1");
@@ -1479,7 +1785,7 @@ mod tests {
             id: ThreadId::new("chat_2"),
             tenant_id: TenantId::new("t"),
             project_id: ProjectId::from_raw("p"),
-            title: String::new(),
+            title: "New conversation".to_string(),
         };
         db.insert_thread(&thread).await.unwrap();
         let session = SessionId::new();
@@ -1497,7 +1803,7 @@ mod tests {
             session_id: session,
             role: Role::Assistant,
             content: vec![ContentBlock::text("hello")],
-            turn_id: Some("turn-abc".into()),
+            turn_id: None,
         })
         .await
         .unwrap();
@@ -1506,13 +1812,92 @@ mod tests {
         assert_eq!(msgs.len(), 2);
         assert!(matches!(msgs[0].role, Role::User));
         assert!(matches!(msgs[1].role, Role::Assistant));
-        // turn_id round-trips: user has none, assistant carries the binding.
-        assert_eq!(msgs[0].turn_id, None);
-        assert_eq!(msgs[1].turn_id.as_deref(), Some("turn-abc"));
         match &msgs[0].content[0] {
             ContentBlock::Text { text } => assert_eq!(text, "hi"),
             _ => panic!(),
         }
+    }
+
+    #[tokio::test]
+    async fn mark_message_redacted_sets_redacted_at() {
+        let db = db().await;
+        let thread = NewThread {
+            id: ThreadId::new("chat_redact"),
+            tenant_id: TenantId::new("t"),
+            project_id: ProjectId::from_raw("p"),
+            title: "New conversation".to_string(),
+        };
+        db.insert_thread(&thread).await.unwrap();
+        let session = SessionId::new();
+        let poison = db
+            .append_message(&NewMessage {
+                thread_id: thread.id.clone(),
+                session_id: session,
+                role: Role::Tool,
+                content: vec![ContentBlock::text("flagged external content")],
+                turn_id: None,
+            })
+            .await
+            .unwrap();
+        // Fresh row: not redacted.
+        assert!(poison.redacted_at.is_none());
+        let before = db.recent_messages(&thread.id, 10).await.unwrap();
+        assert!(before[0].redacted_at.is_none());
+
+        db.mark_message_redacted(&poison.id).await.unwrap();
+
+        let after = db.recent_messages(&thread.id, 10).await.unwrap();
+        assert!(
+            after[0].redacted_at.is_some(),
+            "redacted_at must be set after mark_message_redacted"
+        );
+        // Idempotent — a second call must not error.
+        db.mark_message_redacted(&poison.id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn migrate_messages_add_redacted_upgrades_legacy_db() {
+        // Build a pre-redacted-column `messages` table by hand, then run
+        // migrations and confirm the column is added and queries work.
+        let opts = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .foreign_keys(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE messages (
+                id TEXT PRIMARY KEY,
+                thread_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let db = Database { pool };
+
+        // First pass adds the column; also proves the full schema + other
+        // migrations coexist with the legacy table.
+        db.run_migrations().await.unwrap();
+        // Idempotent: second pass is a no-op (column already present).
+        db.run_migrations().await.unwrap();
+
+        let cols = sqlx::query("PRAGMA table_info(messages)")
+            .fetch_all(&db.pool)
+            .await
+            .unwrap();
+        let has_redacted = cols.iter().any(|r| {
+            r.try_get::<String, _>("name")
+                .map(|n| n == "redacted_at")
+                .unwrap_or(false)
+        });
+        assert!(has_redacted, "migration must add the redacted_at column");
     }
 
     #[tokio::test]
@@ -1522,7 +1907,7 @@ mod tests {
             id: ThreadId::new("chat_3"),
             tenant_id: TenantId::new("t"),
             project_id: ProjectId::from_raw("p"),
-            title: String::new(),
+            title: "New conversation".to_string(),
         };
         db.insert_thread(&thread).await.unwrap();
         let msg = db
@@ -1563,12 +1948,16 @@ mod tests {
         let project = ProjectId::from_raw("proj_v1");
         let project2 = ProjectId::from_raw("proj_v2");
 
-        db.upsert_binding("chat_x", "user_y", &project).await.unwrap();
+        db.upsert_binding("chat_x", "user_y", &project)
+            .await
+            .unwrap();
         let found = db.find_binding("chat_x", "user_y").await.unwrap().unwrap();
         assert_eq!(found.project_id.as_str(), "proj_v1");
 
         // upsert overwrites.
-        db.upsert_binding("chat_x", "user_y", &project2).await.unwrap();
+        db.upsert_binding("chat_x", "user_y", &project2)
+            .await
+            .unwrap();
         let found = db.find_binding("chat_x", "user_y").await.unwrap().unwrap();
         assert_eq!(found.project_id.as_str(), "proj_v2");
 
@@ -1630,9 +2019,15 @@ mod tests {
         let tenant = TenantId::new("t");
         let project = ProjectId::from_raw("p");
 
-        db.remember_decision(&tenant, &project, "Bash", "sig_ls", PersistedDecision::Allow)
-            .await
-            .unwrap();
+        db.remember_decision(
+            &tenant,
+            &project,
+            "Bash",
+            "sig_ls",
+            PersistedDecision::Allow,
+        )
+        .await
+        .unwrap();
 
         // Exact match → hit.
         let hit = db
@@ -1701,90 +2096,6 @@ mod tests {
                 .unwrap()
                 .is_none());
         }
-    }
-
-    #[tokio::test]
-    async fn memory_vector_round_trips() {
-        let db = db().await;
-        let tenant = TenantId::new("t");
-        let project = ProjectId::from_raw("p");
-        let v: Vec<f32> = (0..32).map(|i| i as f32 * 0.1).collect();
-
-        db.upsert_memory_vector(&tenant, &project, "user", "prefs", "hash/v1", &v)
-            .await
-            .unwrap();
-        let stored = db
-            .list_memory_vectors(&tenant, &project)
-            .await
-            .unwrap();
-        assert_eq!(stored.len(), 1);
-        let row = &stored[0];
-        assert_eq!(row.scope, "user");
-        assert_eq!(row.name, "prefs");
-        assert_eq!(row.model_id, "hash/v1");
-        assert_eq!(row.embedding.len(), 32);
-        // f32 round-trip is exact for our inputs (i*0.1 fits cleanly).
-        for (i, x) in row.embedding.iter().enumerate() {
-            let expected = i as f32 * 0.1;
-            assert!((x - expected).abs() < 1e-6);
-        }
-    }
-
-    #[tokio::test]
-    async fn memory_vector_upsert_replaces_existing() {
-        let db = db().await;
-        let tenant = TenantId::new("t");
-        let project = ProjectId::from_raw("p");
-        db.upsert_memory_vector(&tenant, &project, "user", "x", "v1", &[1.0, 2.0])
-            .await
-            .unwrap();
-        db.upsert_memory_vector(&tenant, &project, "user", "x", "v2", &[3.0, 4.0, 5.0])
-            .await
-            .unwrap();
-        let stored = db.list_memory_vectors(&tenant, &project).await.unwrap();
-        assert_eq!(stored.len(), 1);
-        assert_eq!(stored[0].model_id, "v2");
-        assert_eq!(stored[0].embedding, vec![3.0, 4.0, 5.0]);
-    }
-
-    #[tokio::test]
-    async fn memory_vectors_isolated_across_projects() {
-        let db = db().await;
-        let tenant = TenantId::new("t");
-        let p1 = ProjectId::from_raw("p1");
-        let p2 = ProjectId::from_raw("p2");
-        db.upsert_memory_vector(&tenant, &p1, "user", "shared", "h", &[1.0])
-            .await
-            .unwrap();
-        db.upsert_memory_vector(&tenant, &p2, "user", "shared", "h", &[2.0])
-            .await
-            .unwrap();
-        let p1_rows = db.list_memory_vectors(&tenant, &p1).await.unwrap();
-        let p2_rows = db.list_memory_vectors(&tenant, &p2).await.unwrap();
-        assert_eq!(p1_rows[0].embedding, vec![1.0]);
-        assert_eq!(p2_rows[0].embedding, vec![2.0]);
-    }
-
-    #[tokio::test]
-    async fn delete_memory_vector_removes_row_and_is_idempotent() {
-        let db = db().await;
-        let tenant = TenantId::new("t");
-        let project = ProjectId::from_raw("p");
-        db.upsert_memory_vector(&tenant, &project, "user", "tmp", "h", &[1.0])
-            .await
-            .unwrap();
-        db.delete_memory_vector(&tenant, &project, "user", "tmp")
-            .await
-            .unwrap();
-        assert!(db
-            .list_memory_vectors(&tenant, &project)
-            .await
-            .unwrap()
-            .is_empty());
-        // No-op when absent.
-        db.delete_memory_vector(&tenant, &project, "user", "tmp")
-            .await
-            .unwrap();
     }
 
     #[tokio::test]
@@ -1869,16 +2180,12 @@ mod tests {
         let db = db().await;
         let now = Utc::now();
         let t = db
-            .schedule_task(&new_scheduled(
-                "chat_x",
-                "fire once",
-                None,
-                now,
-            ))
+            .schedule_task(&new_scheduled("chat_x", "fire once", None, now))
             .await
             .unwrap();
         db.reschedule_task(&t.id, now, None).await.unwrap();
-        let due = db.list_due_scheduled_tasks(now + chrono::Duration::hours(1), 10)
+        let due = db
+            .list_due_scheduled_tasks(now + chrono::Duration::hours(1), 10)
             .await
             .unwrap();
         assert!(
@@ -1900,12 +2207,7 @@ mod tests {
         let db = db().await;
         let t0 = Utc::now();
         let t = db
-            .schedule_task(&new_scheduled(
-                "chat_recur",
-                "every 5m",
-                Some(300),
-                t0,
-            ))
+            .schedule_task(&new_scheduled("chat_recur", "every 5m", Some(300), t0))
             .await
             .unwrap();
 
@@ -1983,7 +2285,9 @@ mod tests {
     #[tokio::test]
     async fn outbox_enqueue_claim_deliver() {
         let db = db().await;
-        db.outbox_enqueue(&outbox_entry("ob_1", "lark")).await.unwrap();
+        db.outbox_enqueue(&outbox_entry("ob_1", "lark"))
+            .await
+            .unwrap();
         let rows = db.outbox_claim_pending("lark", 10).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, "ob_1");
@@ -1991,7 +2295,9 @@ mod tests {
         assert!(matches!(rows[0].status, OutboxStatus::Pending));
         assert_eq!(rows[0].attempts, 0);
 
-        db.outbox_mark_delivered("ob_1", Some("om_lark_42")).await.unwrap();
+        db.outbox_mark_delivered("ob_1", Some("om_lark_42"))
+            .await
+            .unwrap();
         let rows = db.outbox_claim_pending("lark", 10).await.unwrap();
         assert!(rows.is_empty(), "delivered rows must not be re-claimed");
         let found = db.outbox_find("ob_1").await.unwrap().unwrap();
@@ -2002,7 +2308,9 @@ mod tests {
     #[tokio::test]
     async fn outbox_reschedule_pushes_next_attempt() {
         let db = db().await;
-        db.outbox_enqueue(&outbox_entry("ob_2", "lark")).await.unwrap();
+        db.outbox_enqueue(&outbox_entry("ob_2", "lark"))
+            .await
+            .unwrap();
         let future = Utc::now() + chrono::Duration::seconds(60);
         db.outbox_reschedule("ob_2", "transient: broken pipe", future)
             .await
@@ -2013,17 +2321,18 @@ mod tests {
         assert!(rows.is_empty());
         let found = db.outbox_find("ob_2").await.unwrap().unwrap();
         assert_eq!(found.attempts, 1);
-        assert_eq!(
-            found.last_error.as_deref(),
-            Some("transient: broken pipe")
-        );
+        assert_eq!(found.last_error.as_deref(), Some("transient: broken pipe"));
     }
 
     #[tokio::test]
     async fn outbox_claim_filters_by_plugin() {
         let db = db().await;
-        db.outbox_enqueue(&outbox_entry("ob_l", "lark")).await.unwrap();
-        db.outbox_enqueue(&outbox_entry("ob_m", "mock")).await.unwrap();
+        db.outbox_enqueue(&outbox_entry("ob_l", "lark"))
+            .await
+            .unwrap();
+        db.outbox_enqueue(&outbox_entry("ob_m", "mock"))
+            .await
+            .unwrap();
         let lark = db.outbox_claim_pending("lark", 10).await.unwrap();
         let mock = db.outbox_claim_pending("mock", 10).await.unwrap();
         assert_eq!(lark.len(), 1);
@@ -2035,8 +2344,12 @@ mod tests {
     #[tokio::test]
     async fn outbox_purge_deletes_only_old_delivered() {
         let db = db().await;
-        db.outbox_enqueue(&outbox_entry("ob_p1", "lark")).await.unwrap();
-        db.outbox_enqueue(&outbox_entry("ob_p2", "lark")).await.unwrap();
+        db.outbox_enqueue(&outbox_entry("ob_p1", "lark"))
+            .await
+            .unwrap();
+        db.outbox_enqueue(&outbox_entry("ob_p2", "lark"))
+            .await
+            .unwrap();
         db.outbox_mark_delivered("ob_p1", None).await.unwrap();
         // Cutoff in the future means everything delivered-so-far gets nuked.
         let n = db
@@ -2051,7 +2364,9 @@ mod tests {
     #[tokio::test]
     async fn outbox_failed_is_terminal() {
         let db = db().await;
-        db.outbox_enqueue(&outbox_entry("ob_f", "lark")).await.unwrap();
+        db.outbox_enqueue(&outbox_entry("ob_f", "lark"))
+            .await
+            .unwrap();
         db.outbox_mark_failed("ob_f", "card expired").await.unwrap();
         let rows = db.outbox_claim_pending("lark", 10).await.unwrap();
         assert!(rows.is_empty(), "failed rows must not be re-claimed");
@@ -2097,7 +2412,10 @@ mod tests {
             .await
             .unwrap();
         assert!(!larkside);
-        assert!(!mockside, "same message_id under different plugin is a new event");
+        assert!(
+            !mockside,
+            "same message_id under different plugin is a new event"
+        );
     }
 
     #[tokio::test]

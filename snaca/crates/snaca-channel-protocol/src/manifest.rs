@@ -79,7 +79,10 @@ mod tests {
             capabilities: ChannelCapabilities::minimal(),
         };
         let v = serde_json::to_value(&m).unwrap();
-        assert!(v.get("protocolVersion").is_some(), "expected camelCase 'protocolVersion'");
+        assert!(
+            v.get("protocolVersion").is_some(),
+            "expected camelCase 'protocolVersion'"
+        );
         assert!(v.get("tenantIdFormat").is_some());
     }
 

@@ -2,7 +2,8 @@
 
 use serde_json::Value;
 use snaca_channel_protocol::methods::{
-    ApprovalCallbackParams, LogWriteParams, MessageReceivedParams, MessageRecalledParams,
+    ApprovalCallbackParams, LogWriteParams, MessageRecalledParams, MessageReceivedParams,
+    QuestionCallbackParams,
 };
 
 #[derive(Debug, Clone)]
@@ -24,6 +25,15 @@ pub enum InboundEvent {
     ApprovalCallback {
         plugin: String,
         params: ApprovalCallbackParams,
+    },
+
+    /// User submitted answers to a previously-sent question card. Routed
+    /// to the supervisor's [`crate::QuestionRegistry`] which wakes the
+    /// pending `request_question` future; the dispatcher's copy here is
+    /// purely for observability / audit logs.
+    QuestionCallback {
+        plugin: String,
+        params: QuestionCallbackParams,
     },
 
     /// Plugin reported an internal error (e.g. lost connection).
@@ -55,6 +65,7 @@ impl InboundEvent {
             InboundEvent::MessageReceived { plugin, .. }
             | InboundEvent::MessageRecalled { plugin, .. }
             | InboundEvent::ApprovalCallback { plugin, .. }
+            | InboundEvent::QuestionCallback { plugin, .. }
             | InboundEvent::PluginError { plugin, .. }
             | InboundEvent::Log { plugin, .. }
             | InboundEvent::Unknown { plugin, .. } => plugin,

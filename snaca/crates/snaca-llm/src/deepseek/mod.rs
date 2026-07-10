@@ -11,17 +11,18 @@ mod wire;
 #[cfg(test)]
 pub use convert::{build_chat_request, parse_chat_response};
 
-use crate::classify::classify_http_error;
 use crate::client::{LlmClient, ProviderCaps};
 use crate::error::{LlmError, LlmResult};
 use crate::request::MessageRequest;
 use crate::response::MessageResponse;
 use crate::stream::StreamEvent;
-use crate::transport::{log_response_headers, wrap_byte_stream};
+use crate::transport::{
+    classify_error, log_response_headers, retry_after_header, wrap_byte_stream,
+};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 use wire::{ChatResponse, WireErrorEnvelope};
 
 const DEFAULT_BASE_URL: &str = "https://api.deepseek.com";
@@ -98,16 +99,10 @@ impl DeepSeekClient {
     }
 
     fn endpoint(&self) -> String {
-        // Accept `base_url` with or without a trailing `/v1` — some hosts
-        // (OpenAI Vercel-SDK conventions) store `https://api.example.com/v1`,
-        // others store the bare host. Either way we land on the canonical
-        // OpenAI-compatible `/v1/chat/completions` route.
-        let base = self.config.base_url.trim_end_matches('/');
-        if base.ends_with("/v1") {
-            format!("{base}/chat/completions")
-        } else {
-            format!("{base}/v1/chat/completions")
-        }
+        format!(
+            "{}/v1/chat/completions",
+            self.config.base_url.trim_end_matches('/')
+        )
     }
 }
 
@@ -152,22 +147,13 @@ impl LlmClient for DeepSeekClient {
             .await?;
 
         let status = resp.status();
-        let retry_after = resp
-            .headers()
-            .get(reqwest::header::RETRY_AFTER)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string);
+        let retry_after = retry_after_header(&resp);
         let bytes = resp.bytes().await?;
         if !status.is_success() {
-            let body_str = String::from_utf8_lossy(&bytes);
-            let env = serde_json::from_slice::<WireErrorEnvelope>(&bytes).ok();
-            return Err(classify_http_error(
+            return Err(classify_error::<WireErrorEnvelope>(
                 status.as_u16(),
                 retry_after.as_deref(),
-                env.as_ref().and_then(|e| e.error.error_type.as_deref()),
-                env.as_ref().and_then(|e| e.error.code.as_deref()),
-                env.as_ref().map(|e| e.error.message.as_str()),
-                &body_str,
+                &bytes,
             ));
         }
 
@@ -186,10 +172,8 @@ impl LlmClient for DeepSeekClient {
             request.model = self.config.default_model.clone();
         }
         let body = convert::build_chat_request(&request, true)?;
-        let endpoint = self.endpoint();
-        info!(
+        debug!(
             provider = "deepseek",
-            endpoint = %endpoint,
             model = %body.model,
             messages = body.messages.len(),
             tools = body.tools.len(),
@@ -198,7 +182,7 @@ impl LlmClient for DeepSeekClient {
 
         let resp = self
             .http
-            .post(&endpoint)
+            .post(self.endpoint())
             .bearer_auth(&self.config.api_key)
             .header("accept", "text/event-stream")
             .json(&body)
@@ -206,23 +190,13 @@ impl LlmClient for DeepSeekClient {
             .await?;
 
         let status = resp.status();
-        info!(provider = "deepseek", status = %status, "streaming response headers received");
         if !status.is_success() {
-            let retry_after = resp
-                .headers()
-                .get(reqwest::header::RETRY_AFTER)
-                .and_then(|v| v.to_str().ok())
-                .map(str::to_string);
+            let retry_after = retry_after_header(&resp);
             let bytes = resp.bytes().await?;
-            let body_str = String::from_utf8_lossy(&bytes);
-            let env = serde_json::from_slice::<WireErrorEnvelope>(&bytes).ok();
-            return Err(classify_http_error(
+            return Err(classify_error::<WireErrorEnvelope>(
                 status.as_u16(),
                 retry_after.as_deref(),
-                env.as_ref().and_then(|e| e.error.error_type.as_deref()),
-                env.as_ref().and_then(|e| e.error.code.as_deref()),
-                env.as_ref().map(|e| e.error.message.as_str()),
-                &body_str,
+                &bytes,
             ));
         }
 

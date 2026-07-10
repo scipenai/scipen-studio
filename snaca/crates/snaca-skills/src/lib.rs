@@ -22,13 +22,13 @@
 //!
 //! ## Scopes
 //!
-//! Skills live in four layered scopes:
-//! - **Bundled**: app-shipped read-only dir (host passes it; rank 0, lowest).
-//! - **Global**:  optional operator-supplied dir, shared across tenants.
+//! Skills live in three layered scopes:
+//! - **Bundled**: compiled into the binary (planned for later — empty in M2).
 //! - **Tenant**:  `<data_root>/<tenant_id>/skills/*.md`
 //! - **Project**: `<data_root>/<tenant_id>/projects/<project_id>/skills/*.md`
 //!
-//! Same `name` across scopes resolves by rank: **project > tenant > global > bundled**.
+//! When two scopes define a skill with the same `name`, **project beats
+//! tenant beats bundled**.
 
 pub mod error;
 pub mod provider;

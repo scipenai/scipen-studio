@@ -32,7 +32,7 @@ use crate::dispatch;
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use snaca_channel_host::{PluginConfig, PluginHandle};
+use snaca_channel_host::{InboundEvent, PluginConfig, PluginHandle};
 use snaca_core::TenantId;
 use snaca_engine::Engine;
 use snaca_state::Database;
@@ -52,6 +52,7 @@ pub struct PluginSpawner {
     pub db: Database,
     pub tenant_id: TenantId,
     pub typing_interval: Duration,
+    pub input_assembly: dispatch::InputAssemblyConfig,
 }
 
 impl PluginSpawner {
@@ -60,17 +61,31 @@ impl PluginSpawner {
     pub async fn spawn_dispatcher(
         &self,
         plugin: PluginHandle,
-    ) -> Result<JoinHandle<()>> {
-        let inbound = plugin.take_inbound().await.ok_or_else(|| {
-            anyhow!("inbound stream missing for plugin {}", plugin.name())
-        })?;
+    ) -> Result<(JoinHandle<()>, mpsc::UnboundedSender<InboundEvent>)> {
+        let inbound = plugin
+            .take_inbound()
+            .await
+            .ok_or_else(|| anyhow!("inbound stream missing for plugin {}", plugin.name()))?;
+        let (synthetic_tx, synthetic_rx) = mpsc::unbounded_channel();
         let engine = self.engine.clone();
         let db = self.db.clone();
         let tenant = self.tenant_id.clone();
         let interval = self.typing_interval;
-        Ok(tokio::spawn(async move {
-            dispatch::dispatch_loop(engine, db, plugin, tenant, interval, inbound).await;
-        }))
+        let input_assembly = self.input_assembly.clone();
+        let task = tokio::spawn(async move {
+            dispatch::dispatch_loop(dispatch::DispatchLoopArgs {
+                engine,
+                db,
+                plugin,
+                tenant_id: tenant,
+                typing_interval: interval,
+                input_assembly,
+                inbound,
+                synthetic_inbound: synthetic_rx,
+            })
+            .await;
+        });
+        Ok((task, synthetic_tx))
     }
 }
 
@@ -86,6 +101,11 @@ struct PluginSlot {
     /// for operators to confirm a reload actually landed. Auto-respawn
     /// also bumps this so the count reflects total restarts.
     reload_count: u32,
+    /// Server-internal event injection path. Used by the scheduler to
+    /// deliver synthetic IM messages into the same dispatcher as real
+    /// plugin events without keeping the plugin stdout channel alive
+    /// after a subprocess exit.
+    synthetic_tx: mpsc::UnboundedSender<InboundEvent>,
     /// Flips to `true` when the registry intentionally tears down this
     /// slot (graceful `reload` / `shutdown_all`). The supervisor reads
     /// it after the dispatcher exits to distinguish "we asked to stop"
@@ -144,8 +164,9 @@ impl PluginRegistry {
             let mut rx = respawn_rx;
             while let Some(req) = rx.recv().await {
                 let name = req.config.name.clone();
-                if let Err(e) =
-                    registry_for_worker.insert_with_count(req.config, req.prior_count).await
+                if let Err(e) = registry_for_worker
+                    .insert_with_count(req.config, req.prior_count)
+                    .await
                 {
                     error!(
                         plugin = %name,
@@ -175,16 +196,12 @@ impl PluginRegistry {
     /// Internal: same as [`insert`] but preserves the slot's
     /// `reload_count` across an auto-respawn so operators see total
     /// restarts (manual reloads + crash recoveries) in admin status.
-    async fn insert_with_count(
-        &self,
-        config: PluginConfig,
-        prior_count: u32,
-    ) -> Result<()> {
+    async fn insert_with_count(&self, config: PluginConfig, prior_count: u32) -> Result<()> {
         let name = config.name.clone();
         let handle = PluginHandle::spawn(config.clone())
             .await
             .with_context(|| format!("spawning plugin {name}"))?;
-        let dispatcher = self.spawner.spawn_dispatcher(handle.clone()).await?;
+        let (dispatcher, synthetic_tx) = self.spawner.spawn_dispatcher(handle.clone()).await?;
         let dispatcher_abort = dispatcher.abort_handle();
         let shutdown_requested = Arc::new(AtomicBool::new(false));
 
@@ -194,6 +211,7 @@ impl PluginRegistry {
             dispatcher_abort,
             started_at: Utc::now(),
             reload_count: prior_count,
+            synthetic_tx,
             shutdown_requested: shutdown_requested.clone(),
         };
         self.slots.lock().await.insert(name.clone(), slot);
@@ -243,7 +261,6 @@ impl PluginRegistry {
         info!(plugin = %name, restart_count = prior_count, "plugin registered");
         Ok(())
     }
-
 
     /// Snapshot every running plugin. Order is alphabetical for stable
     /// JSON output.
@@ -330,6 +347,22 @@ impl PluginRegistry {
     pub async fn handle(&self, name: &str) -> Option<PluginHandle> {
         let slots = self.slots.lock().await;
         slots.get(name).map(|s| s.handle.clone())
+    }
+
+    /// Inject a server-originated event into a plugin's dispatcher.
+    /// This bypasses the child process but still reuses dispatcher
+    /// behaviour: inbound dedup, per-chat serialization, project routing,
+    /// engine turn execution, and outbox delivery.
+    pub async fn inject_inbound(&self, name: &str, event: InboundEvent) -> Result<()> {
+        let tx = {
+            let slots = self.slots.lock().await;
+            slots
+                .get(name)
+                .map(|s| s.synthetic_tx.clone())
+                .ok_or_else(|| anyhow!("plugin {name} not registered"))?
+        };
+        tx.send(event)
+            .map_err(|_| anyhow!("dispatcher for plugin {name} is not accepting synthetic events"))
     }
 }
 

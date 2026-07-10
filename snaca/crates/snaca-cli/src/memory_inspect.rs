@@ -1,31 +1,30 @@
 //! `snaca-cli memory ...` — inspect the per-project memory tree.
 //!
-//! Reads only — never mutates. Useful for ops poking at deployments
-//! after-the-fact: list entries, dump the rendered MEMORY.md, print one
-//! entry's body, run a search query against the vector index.
+//! Reads only — never mutates (except `import`, which writes). Useful
+//! for ops poking at deployments after-the-fact: list entries, dump
+//! the rendered MEMORY.md, print one entry's body, run a one-off
+//! bulk import.
 //!
-//! Search uses the deterministic `HashEmbedder` so the CLI doesn't pull
-//! in fastembed (which would download a 50 MB ONNX model on first
-//! call). Operators who want production-quality scoring should run
-//! recall through the live server's tools instead.
+//! Vector recall used to live here as a `search` subcommand. The
+//! memory system no longer ships a vector layer — recall happens via
+//! a frozen snapshot of the memory tree pinned into the system prompt
+//! at session start. There is nothing for the CLI to query against.
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use snaca_core::{ProjectId, TenantId};
 use snaca_memory::{
-    import_one, HashEmbedder, ImportConfig, ImportSource, IndexedMemoryStore, MemoryScope,
-    MemoryStore,
+    approve_pending, import_one, list_pending, reject_pending, ImportConfig, ImportSource,
+    MemoryScope, MemoryStore,
 };
-use snaca_state::Database;
 use snaca_workspace::WorkspaceLayout;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Arc;
 
 #[derive(Debug, Args)]
 pub struct MemoryArgs {
-    /// Data-root directory (`<root>/state.sqlite` is opened, and per-project
-    /// memory dirs live under `<root>/<tenant>/projects/<project>/memory/`).
+    /// Data-root directory (per-project memory dirs live under
+    /// `<root>/<tenant>/projects/<project>/memory/`).
     #[arg(long, global = true, default_value = "./data")]
     pub data_root: PathBuf,
 }
@@ -61,28 +60,17 @@ pub enum MemoryCommand {
         #[arg(long)]
         name: String,
     },
-    /// Run a vector search against a project's memory using the
-    /// deterministic hash embedder. Returns the top-k matches with
-    /// scores. Note: hash embedder is for diagnostics — production
-    /// scoring uses fastembed via the running server.
-    Search {
-        #[arg(long)]
-        tenant: String,
-        #[arg(long)]
-        project: String,
-        /// Query text.
-        query: String,
-        #[arg(long, short = 'k', default_value_t = 5)]
-        k: usize,
-    },
     /// Bulk import a file (or every file in a directory) into a
-    /// project's memory tree. Uses the deterministic hash embedder
-    /// — same caveat as `search`: production-quality embeddings come
-    /// from the running server, not this command.
+    /// project's memory tree as a single entry per source.
     ///
-    /// Supported formats: plain text, markdown, source code. PDF /
-    /// DOCX / ZIP land in a follow-up release. Unknown extensions
-    /// are treated as plain text.
+    /// Supported formats: plain text, markdown, source code, PDF
+    /// (with `--features pdf`), ZIP bundle of any of the above (with
+    /// `--features bundle`). DOCX / XLSX / PPTX surface a clear error
+    /// pointing at the `office-extract` skill.
+    ///
+    /// Bulk imports may only land in `project` or `reference` scopes;
+    /// `user` and `feedback` are owned by conversation history and
+    /// rejected by the importer.
     Import {
         #[arg(long)]
         tenant: String,
@@ -94,6 +82,38 @@ pub enum MemoryCommand {
         /// Scope to write entries under. Default: reference.
         #[arg(long, default_value = "reference")]
         scope: String,
+    },
+    /// List staged-but-not-yet-approved memory writes for a project.
+    /// The IM-driven `MemoryWriteTool` stages here when the engine
+    /// is configured to require approval; operators can review the
+    /// pending JSON files by hand and then approve / reject.
+    Pending {
+        #[arg(long)]
+        tenant: String,
+        #[arg(long)]
+        project: String,
+    },
+    /// Approve one staged memory write by its id (the JSON file
+    /// stem under `<project>/memory/pending/`). Runs the threat
+    /// scanner unless `--bypass-threat-scan` is supplied — only
+    /// pass that when you've already eyeballed the JSON.
+    Approve {
+        #[arg(long)]
+        tenant: String,
+        #[arg(long)]
+        project: String,
+        id: String,
+        /// Skip the threat scanner. Use only after manual review.
+        #[arg(long, default_value_t = false)]
+        bypass_threat_scan: bool,
+    },
+    /// Drop one staged memory write without applying it.
+    Reject {
+        #[arg(long)]
+        tenant: String,
+        #[arg(long)]
+        project: String,
+        id: String,
     },
 }
 
@@ -112,8 +132,7 @@ fn store(layout: &WorkspaceLayout, tenant: &TenantId, project: &ProjectId) -> Me
 /// children (files only). Hidden entries (`.` prefix) are skipped so
 /// `.git/` etc. don't pollute imports.
 fn collect_paths(p: &std::path::Path) -> Result<Vec<PathBuf>> {
-    let meta = std::fs::metadata(p)
-        .with_context(|| format!("stat {}", p.display()))?;
+    let meta = std::fs::metadata(p).with_context(|| format!("stat {}", p.display()))?;
     if meta.is_file() {
         return Ok(vec![p.to_path_buf()]);
     }
@@ -137,13 +156,6 @@ fn collect_paths(p: &std::path::Path) -> Result<Vec<PathBuf>> {
     Ok(out)
 }
 
-async fn open_db(data_root: &std::path::Path) -> Result<Database> {
-    let path = data_root.join("state.sqlite");
-    Database::open(&path)
-        .await
-        .with_context(|| format!("opening {}", path.display()))
-}
-
 pub async fn run(cmd: MemoryCommand, args: &MemoryArgs) -> Result<()> {
     let layout = workspace(&args.data_root)?;
     match cmd {
@@ -157,8 +169,7 @@ pub async fn run(cmd: MemoryCommand, args: &MemoryArgs) -> Result<()> {
             let s = store(&layout, &tenant, &project);
             let scopes: Vec<MemoryScope> = match scope {
                 None => MemoryScope::all().to_vec(),
-                Some(raw) => vec![MemoryScope::from_str(&raw)
-                    .map_err(|e| anyhow::anyhow!(e))?],
+                Some(raw) => vec![MemoryScope::from_str(&raw).map_err(|e| anyhow::anyhow!(e))?],
             };
             let mut total = 0usize;
             for sc in scopes {
@@ -214,15 +225,6 @@ pub async fn run(cmd: MemoryCommand, args: &MemoryArgs) -> Result<()> {
             let project = ProjectId::from_raw(project);
             let scope = MemoryScope::from_str(&scope).map_err(|e| anyhow::anyhow!(e))?;
             let s = store(&layout, &tenant, &project);
-            let db = open_db(&args.data_root).await?;
-            let embedder = Arc::new(HashEmbedder::default());
-            let idx = IndexedMemoryStore::new(
-                s,
-                db,
-                embedder,
-                tenant.clone(),
-                project.clone(),
-            );
             let cfg = ImportConfig {
                 default_scope: scope,
                 ..Default::default()
@@ -234,25 +236,18 @@ pub async fn run(cmd: MemoryCommand, args: &MemoryArgs) -> Result<()> {
             }
             let mut total_entries = 0usize;
             for file in paths {
-                let bytes = std::fs::read(&file)
-                    .with_context(|| format!("reading {}", file.display()))?;
+                let bytes =
+                    std::fs::read(&file).with_context(|| format!("reading {}", file.display()))?;
                 let filename = file
                     .file_name()
                     .map(|s| s.to_string_lossy().into_owned())
                     .unwrap_or_else(|| file.to_string_lossy().into_owned());
-                // Route ZIP archives through the bundle importer when
-                // the feature is on; otherwise fall through to
-                // `import_one` (which would fail since ZIP isn't a
-                // recognised SourceKind here, but we surface a clear
-                // message instead of letting the user wonder).
                 if filename.to_ascii_lowercase().ends_with(".zip") {
                     #[cfg(feature = "bundle")]
                     {
-                        let reports = snaca_memory::import_bundle(
-                            &idx, &bytes, &filename, &cfg,
-                        )
-                        .await
-                        .with_context(|| format!("importing bundle {}", file.display()))?;
+                        let reports = snaca_memory::import_bundle(&s, &bytes, &filename, &cfg)
+                            .await
+                            .with_context(|| format!("importing bundle {}", file.display()))?;
                         let n: usize = reports.iter().map(|r| r.entries.len()).sum();
                         println!(
                             "imported bundle `{}` → {} member(s), {} entries",
@@ -272,7 +267,7 @@ pub async fn run(cmd: MemoryCommand, args: &MemoryArgs) -> Result<()> {
                     }
                 }
                 let report = import_one(
-                    &idx,
+                    &s,
                     ImportSource {
                         bytes,
                         filename: filename.clone(),
@@ -293,38 +288,66 @@ pub async fn run(cmd: MemoryCommand, args: &MemoryArgs) -> Result<()> {
             println!("done. {total_entries} memory entries written.");
         }
 
-        MemoryCommand::Search {
+        MemoryCommand::Pending { tenant, project } => {
+            let tenant = TenantId::new(tenant);
+            let project = ProjectId::from_raw(project);
+            let memory_root = layout.memory_dir(&tenant, &project);
+            let pending = list_pending(&memory_root)
+                .await
+                .context("listing pending memory writes")?;
+            if pending.is_empty() {
+                println!("(no pending memory writes)");
+                return Ok(());
+            }
+            for p in pending {
+                println!("- id: {}", p.id);
+                println!("  scope/name: {}/{}", p.scope, p.name);
+                println!("  requested_by: {}", p.requested_by);
+                println!("  requested_at: {}", p.requested_at);
+                let preview: String = p.content.chars().take(160).collect();
+                let suffix = if p.content.chars().count() > 160 {
+                    "…"
+                } else {
+                    ""
+                };
+                println!("  content preview: {preview}{suffix}");
+                println!();
+            }
+        }
+
+        MemoryCommand::Approve {
             tenant,
             project,
-            query,
-            k,
+            id,
+            bypass_threat_scan,
         } => {
             let tenant = TenantId::new(tenant);
             let project = ProjectId::from_raw(project);
-            let s = store(&layout, &tenant, &project);
-            let db = open_db(&args.data_root).await?;
-            let embedder = Arc::new(HashEmbedder::default());
-            let idx = IndexedMemoryStore::new(
-                s,
-                db,
-                embedder,
-                tenant.clone(),
-                project.clone(),
+            let memory_root = layout.memory_dir(&tenant, &project);
+            let store = MemoryStore::new(&memory_root);
+            let entry = approve_pending(&memory_root, &store, &id, bypass_threat_scan)
+                .await
+                .with_context(|| format!("approving pending {id}"))?;
+            println!(
+                "approved `{}/{}` ({} bytes)",
+                entry.scope,
+                entry.name,
+                entry.content.len()
             );
-            // Bring the vector table in sync with anything written
-            // through the file tree alone (the tool path).
-            let synced = idx.ensure_indexed().await?;
-            if synced > 0 {
-                eprintln!("(indexed {synced} entries before search)");
-            }
-            let hits = idx.search(&query, k).await?;
-            if hits.is_empty() {
-                println!("(no matches above the recall threshold)");
-                return Ok(());
-            }
-            for h in hits {
-                println!("{:>6.3}  {}/{}", h.score, h.scope.as_str(), h.name);
-            }
+        }
+
+        MemoryCommand::Reject {
+            tenant,
+            project,
+            id,
+        } => {
+            let tenant = TenantId::new(tenant);
+            let project = ProjectId::from_raw(project);
+            let memory_root = layout.memory_dir(&tenant, &project);
+            let dropped = reject_pending(&memory_root, &id)
+                .await
+                .with_context(|| format!("rejecting pending {id}"))?;
+            println!("rejected `{}/{}`", dropped.scope, dropped.name);
         }
     }
     Ok(())

@@ -163,12 +163,8 @@ fn parse_usage(v: &Value) -> Usage {
             .get("output_tokens")
             .and_then(Value::as_u64)
             .unwrap_or_default(),
-        cache_creation_input_tokens: v
-            .get("cache_creation_input_tokens")
-            .and_then(Value::as_u64),
-        cache_read_input_tokens: v
-            .get("cache_read_input_tokens")
-            .and_then(Value::as_u64),
+        cache_creation_input_tokens: v.get("cache_creation_input_tokens").and_then(Value::as_u64),
+        cache_read_input_tokens: v.get("cache_read_input_tokens").and_then(Value::as_u64),
     }
 }
 
@@ -267,7 +263,9 @@ mod tests {
     fn translate_text_delta() {
         let data =
             r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}"#;
-        let ev = translate_event("content_block_delta", data).unwrap().unwrap();
+        let ev = translate_event("content_block_delta", data)
+            .unwrap()
+            .unwrap();
         match ev {
             StreamEvent::ContentBlockDelta {
                 index: 0,
@@ -280,7 +278,9 @@ mod tests {
     #[test]
     fn translate_thinking_delta_uses_thinking_field() {
         let data = r#"{"type":"content_block_delta","index":1,"delta":{"type":"thinking_delta","thinking":"hmm"}}"#;
-        let ev = translate_event("content_block_delta", data).unwrap().unwrap();
+        let ev = translate_event("content_block_delta", data)
+            .unwrap()
+            .unwrap();
         match ev {
             StreamEvent::ContentBlockDelta {
                 index: 1,
@@ -308,7 +308,9 @@ mod tests {
         }
 
         let delta = r#"{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}"#;
-        let ev = translate_event("content_block_delta", delta).unwrap().unwrap();
+        let ev = translate_event("content_block_delta", delta)
+            .unwrap()
+            .unwrap();
         match ev {
             StreamEvent::ContentBlockDelta {
                 index: 2,
@@ -346,15 +348,16 @@ mod tests {
     fn ping_and_signature_delta_are_dropped() {
         assert!(translate_event("ping", "{}").unwrap().is_none());
         let sig = r#"{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"abc"}}"#;
-        assert!(translate_event("content_block_delta", sig).unwrap().is_none());
+        assert!(translate_event("content_block_delta", sig)
+            .unwrap()
+            .is_none());
     }
 
     fn collect_events(bytes: &[u8]) -> Vec<StreamEvent> {
         use futures::executor::block_on;
         use futures::stream;
         let owned: Vec<u8> = bytes.to_vec();
-        let s =
-            stream::once(async move { Ok::<_, LlmError>(Bytes::from(owned)) });
+        let s = stream::once(async move { Ok::<_, LlmError>(Bytes::from(owned)) });
         block_on(async {
             let parsed = parse_byte_stream(s);
             parsed
@@ -420,7 +423,8 @@ data: {\"type\":\"message_stop\"}\n\
         use futures::stream;
 
         let part_1 = b"event: message_start\ndata: {\"type\":\"message_start\",\"messa";
-        let part_2 = b"ge\":{\"id\":\"m1\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
+        let part_2 =
+            b"ge\":{\"id\":\"m1\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
         let s = stream::iter(vec![
             Ok::<_, LlmError>(Bytes::from(part_1.to_vec())),
             Ok(Bytes::from(part_2.to_vec())),
@@ -443,9 +447,8 @@ data: {\"type\":\"message_stop\"}\n\
 
         let bad = b"event: message_start\ndata: {not valid json\n\n";
         let s = stream::once(async move { Ok::<_, LlmError>(Bytes::from(bad.to_vec())) });
-        let events: Vec<LlmResult<StreamEvent>> = block_on(async {
-            parse_byte_stream(s).collect::<Vec<_>>().await
-        });
+        let events: Vec<LlmResult<StreamEvent>> =
+            block_on(async { parse_byte_stream(s).collect::<Vec<_>>().await });
         assert_eq!(events.len(), 1);
         assert!(matches!(
             events.into_iter().next().unwrap(),

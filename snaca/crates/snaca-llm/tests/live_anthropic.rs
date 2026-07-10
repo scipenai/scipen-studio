@@ -30,10 +30,9 @@ fn render_text(blocks: &[ContentBlock]) -> String {
 #[ignore = "requires ANTHROPIC_API_KEY; live network call"]
 async fn anthropic_endpoint_responds() {
     let key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY env var not set");
-    let model =
-        std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "claude-sonnet-4-5".into());
-    let base = std::env::var("ANTHROPIC_BASE_URL")
-        .unwrap_or_else(|_| "https://api.anthropic.com".into());
+    let model = std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "claude-sonnet-4-5".into());
+    let base =
+        std::env::var("ANTHROPIC_BASE_URL").unwrap_or_else(|_| "https://api.anthropic.com".into());
 
     let client = AnthropicClient::new(
         AnthropicConfig::new(&key)

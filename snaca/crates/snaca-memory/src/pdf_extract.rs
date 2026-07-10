@@ -16,8 +16,8 @@ pub enum PdfError {
 /// Extract body text from a PDF file's bytes. Returns the raw text;
 /// the caller chunks via the standard pipeline.
 pub fn extract(bytes: &[u8]) -> Result<String, PdfError> {
-    let raw = ::pdf_extract::extract_text_from_mem(bytes)
-        .map_err(|e| PdfError::Parse(e.to_string()))?;
+    let raw =
+        ::pdf_extract::extract_text_from_mem(bytes).map_err(|e| PdfError::Parse(e.to_string()))?;
     Ok(normalise(&raw))
 }
 

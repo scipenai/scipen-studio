@@ -27,7 +27,9 @@
 
 pub mod layout;
 pub mod path_guard;
+pub mod provider;
 pub mod sandbox;
 
 pub use layout::WorkspaceLayout;
 pub use path_guard::{resolve_within, WorkspaceError};
+pub use provider::LocalWorkspaceProvider;

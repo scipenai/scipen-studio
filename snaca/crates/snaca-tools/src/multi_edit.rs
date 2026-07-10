@@ -85,8 +85,8 @@ impl Tool for MultiEditTool {
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> ToolResult {
-        let input: MultiEditInput = serde_json::from_value(input)
-            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let input: MultiEditInput =
+            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
 
         if input.edits.is_empty() {
             return Err(ToolError::InvalidInput("edits must not be empty".into()));
@@ -95,13 +95,7 @@ impl Tool for MultiEditTool {
         let resolved = resolve_within(ctx.workspace_root(), Path::new(&input.path))
             .map_err(|e| ToolError::PathOutsideWorkspace(e.to_string()))?;
 
-        let metadata = match tokio::fs::metadata(&resolved).await {
-            Ok(m) => m,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Err(ToolError::NotFound(input.path.clone()));
-            }
-            Err(e) => return Err(ToolError::Io(e)),
-        };
+        let metadata = crate::fs_util::metadata_or_not_found(&resolved, &input.path).await?;
         if !metadata.is_file() {
             return Err(ToolError::InvalidInput(format!(
                 "{} is not a regular file",
@@ -293,10 +287,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.txt"), "x").unwrap();
         let err = MultiEditTool
-            .execute(
-                json!({"path": "a.txt", "edits": []}),
-                &ctx(dir.path()),
-            )
+            .execute(json!({"path": "a.txt", "edits": []}), &ctx(dir.path()))
             .await
             .unwrap_err();
         assert!(matches!(err, ToolError::InvalidInput(_)));
@@ -427,7 +418,10 @@ mod tests {
             matches!(&err, ToolError::InvalidInput(msg) if msg.contains("partial")),
             "got: {err:?}"
         );
-        assert_eq!(std::fs::read_to_string(dir.path().join("a.txt")).unwrap(), body);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            body
+        );
     }
 
     #[tokio::test]

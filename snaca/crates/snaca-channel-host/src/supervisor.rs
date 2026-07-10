@@ -31,6 +31,7 @@ use crate::approval::ApprovalRegistry;
 use crate::config::PluginConfig;
 use crate::error::{ChannelError, ChannelResult};
 use crate::inbound::InboundEvent;
+use crate::question::QuestionRegistry;
 use data_encoding::BASE64URL_NOPAD;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -38,14 +39,18 @@ use serde_json::Value;
 use snaca_channel_protocol::{
     codec,
     errors::ErrorCode,
-    jsonrpc::{JsonRpcError, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, RequestId},
+    jsonrpc::{
+        JsonRpcError, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
+        RequestId,
+    },
     manifest::PluginManifest,
     methods::{
-        host_to_plugin, plugin_to_host, AcknowledgeParams, ApprovalCallbackParams, ApprovalDecision,
-        ApprovalPresentParams, CommandAdvertiseParams, FileDownloadParams, FileDownloadResult,
-        FileUploadParams, FileUploadResult, InitializeParams, LogWriteParams,
-        MessageReceivedParams, MessageRecalledParams, MessageSendParams, MessageSendResult,
-        MessageUpdateParams, ToolAdvertiseParams,
+        host_to_plugin, plugin_to_host, AcknowledgeParams, ApprovalCallbackParams,
+        ApprovalDecision, ApprovalPresentParams, CommandAdvertiseParams, FileDownloadParams,
+        FileDownloadResult, FileUploadParams, FileUploadResult, InitializeParams, LogWriteParams,
+        MessageRecalledParams, MessageReceivedParams, MessageSendParams, MessageSendResult,
+        MessageUpdateParams, QuestionCallbackParams, QuestionCancelParams, QuestionPresentParams,
+        ToolAdvertiseParams,
     },
     PROTOCOL_VERSION,
 };
@@ -104,6 +109,11 @@ struct HandleInner {
     /// notifications. Shared with the reader task so callbacks can resolve
     /// pending approvals directly.
     approval_registry: Arc<ApprovalRegistry>,
+    /// Pairs `question.present` calls with their `event.question_callback`
+    /// notifications. Same lifecycle as `approval_registry` but a
+    /// distinct map — the two flows have different payload types and
+    /// generic-over-T would buy nothing.
+    question_registry: Arc<QuestionRegistry>,
     /// Tools advertised by the plugin via `tool.advertise`. Populated by
     /// the reader task as advertise requests arrive. Cleared on shutdown.
     /// Keyed by tool name (the plugin-side name; the *qualified* name used
@@ -136,22 +146,30 @@ impl PluginHandle {
 
         let mut child = cmd.spawn().map_err(ChannelError::Io)?;
 
-        let stdin = child.stdin.take().ok_or_else(|| {
-            ChannelError::Other("child stdin was not captured".into())
-        })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            ChannelError::Other("child stdout was not captured".into())
-        })?;
-        let stderr = child.stderr.take().ok_or_else(|| {
-            ChannelError::Other("child stderr was not captured".into())
-        })?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| ChannelError::Other("child stdin was not captured".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ChannelError::Other("child stdout was not captured".into()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| ChannelError::Other("child stderr was not captured".into()))?;
 
-        let pending = Arc::new(Mutex::new(HashMap::<RequestId, oneshot::Sender<JsonRpcResponse>>::new()));
+        let pending = Arc::new(Mutex::new(HashMap::<
+            RequestId,
+            oneshot::Sender<JsonRpcResponse>,
+        >::new()));
         let (writer_tx, writer_rx) = mpsc::channel::<JsonRpcMessage>(WRITER_BUFFER);
         let (inbound_tx, inbound_rx) = mpsc::channel::<InboundEvent>(INBOUND_BUFFER);
         let approval_registry = Arc::new(ApprovalRegistry::new());
+        let question_registry = Arc::new(QuestionRegistry::new());
         let advertised_tools = Arc::new(Mutex::new(HashMap::<String, ToolAdvertiseParams>::new()));
-        let advertised_commands = Arc::new(Mutex::new(HashMap::<String, CommandAdvertiseParams>::new()));
+        let advertised_commands =
+            Arc::new(Mutex::new(HashMap::<String, CommandAdvertiseParams>::new()));
 
         let writer_handle = tokio::spawn(writer_task(stdin, writer_rx, plugin_name.clone()));
         let reader_handle = tokio::spawn(reader_task(
@@ -162,6 +180,7 @@ impl PluginHandle {
             auth_token.clone(),
             plugin_name.clone(),
             approval_registry.clone(),
+            question_registry.clone(),
             advertised_tools.clone(),
             advertised_commands.clone(),
         ));
@@ -217,6 +236,7 @@ impl PluginHandle {
                 observer_task: Mutex::new(Some(observer_task)),
                 shutdown_called: Mutex::new(false),
                 approval_registry,
+                question_registry,
                 advertised_tools,
                 advertised_commands,
             }),
@@ -247,7 +267,9 @@ impl PluginHandle {
         R: DeserializeOwned,
     {
         let value = serde_json::to_value(params)?;
-        let result = self.call_raw(method, Some(value), DEFAULT_CALL_TIMEOUT).await?;
+        let result = self
+            .call_raw(method, Some(value), DEFAULT_CALL_TIMEOUT)
+            .await?;
         let typed: R = serde_json::from_value(result)?;
         Ok(typed)
     }
@@ -274,9 +296,8 @@ impl PluginHandle {
         params: Option<Value>,
         timeout: Duration,
     ) -> ChannelResult<Value> {
-        let id = RequestId::Number(
-            self.inner.next_request_id.fetch_add(1, Ordering::Relaxed) as i64,
-        );
+        let id =
+            RequestId::Number(self.inner.next_request_id.fetch_add(1, Ordering::Relaxed) as i64);
         let (tx, rx) = oneshot::channel();
         self.inner.pending.lock().await.insert(id.clone(), tx);
 
@@ -331,20 +352,14 @@ impl PluginHandle {
     /// deltas as the LLM streams: the dispatcher's first delta becomes
     /// a `message.send` whose `message_id` is then fed to subsequent
     /// `update_message` calls.
-    pub async fn update_message(
-        &self,
-        params: MessageUpdateParams,
-    ) -> ChannelResult<()> {
+    pub async fn update_message(&self, params: MessageUpdateParams) -> ChannelResult<()> {
         let _: Value = self
             .call_method(host_to_plugin::MESSAGE_UPDATE, params)
             .await?;
         Ok(())
     }
 
-    pub async fn present_approval(
-        &self,
-        params: ApprovalPresentParams,
-    ) -> ChannelResult<Value> {
+    pub async fn present_approval(&self, params: ApprovalPresentParams) -> ChannelResult<Value> {
         let value = serde_json::to_value(params)?;
         self.call_raw(
             host_to_plugin::APPROVAL_PRESENT,
@@ -415,6 +430,124 @@ impl PluginHandle {
         }
     }
 
+    /// Send a `question.present` call. Like [`Self::present_approval`]
+    /// this is the raw method; production callers want
+    /// [`Self::request_question`] which also handles the await-callback
+    /// half of the round trip.
+    pub async fn present_question(&self, params: QuestionPresentParams) -> ChannelResult<Value> {
+        let value = serde_json::to_value(params)?;
+        self.call_raw(
+            host_to_plugin::QUESTION_PRESENT,
+            Some(value),
+            DEFAULT_CALL_TIMEOUT,
+        )
+        .await
+    }
+
+    /// Ask the plugin to put a question card to the user and wait for
+    /// the matching `event.question_callback`. Generates a fresh
+    /// `callback_token` per call — callers must not pre-set it on
+    /// `params`.
+    ///
+    /// Modelled exactly on [`Self::request_approval`]: short ack window
+    /// so we know the present call was at least delivered, then a long
+    /// wait on the oneshot for the user's reply. Slot is released on
+    /// every exit path (ok / disconnect / timeout) so the registry
+    /// can't leak.
+    pub async fn request_question(
+        &self,
+        tenant_id: String,
+        chat_id: String,
+        questions: Vec<snaca_channel_protocol::methods::Question>,
+        timeout: Duration,
+    ) -> ChannelResult<QuestionCallbackParams> {
+        let token = generate_token();
+        let (tx, rx) = oneshot::channel();
+        self.inner.question_registry.register(token.clone(), tx);
+
+        let params = QuestionPresentParams {
+            tenant_id: tenant_id.clone(),
+            chat_id: chat_id.clone(),
+            questions,
+            callback_token: token.clone(),
+            timeout_sec: timeout.as_secs(),
+        };
+
+        let ack = self
+            .call_raw(
+                host_to_plugin::QUESTION_PRESENT,
+                Some(serde_json::to_value(params)?),
+                Duration::from_secs(10),
+            )
+            .await;
+        if let Err(e) = ack {
+            let _ = self.inner.question_registry.take(&token);
+            return Err(e);
+        }
+
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(callback)) => Ok(callback),
+            Ok(Err(_)) => {
+                let _ = self.inner.question_registry.take(&token);
+                // Receiver dropped without firing — most likely the
+                // plugin's reader saw an answer race with our take.
+                // Tell the plugin to clean up its card state anyway.
+                self.cancel_question(QuestionCancelParams {
+                    tenant_id,
+                    chat_id,
+                    callback_token: token,
+                    reason: "cancelled".into(),
+                })
+                .await;
+                Err(ChannelError::Disconnected)
+            }
+            Err(_) => {
+                let _ = self.inner.question_registry.take(&token);
+                // 5-minute (or configured) wait elapsed without a
+                // click. Patch the card so the user sees "⏰ 已超时"
+                // instead of stale interactive buttons.
+                self.cancel_question(QuestionCancelParams {
+                    tenant_id,
+                    chat_id,
+                    callback_token: token,
+                    reason: "timeout".into(),
+                })
+                .await;
+                Err(ChannelError::Timeout)
+            }
+        }
+    }
+
+    /// Tell the plugin to finalize a previously-presented question
+    /// (host timed out or the turn was cancelled). Fire-and-forget —
+    /// we don't block on the plugin's ack because the host has
+    /// already decided to give up on this question; whether the card
+    /// patch lands is best-effort UI polish. Errors are logged but
+    /// not surfaced.
+    pub async fn cancel_question(&self, params: QuestionCancelParams) {
+        let value = match serde_json::to_value(params) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(error = %e, "cancel_question: serialise failed");
+                return;
+            }
+        };
+        if let Err(e) = self
+            .call_raw(
+                host_to_plugin::QUESTION_CANCEL,
+                Some(value),
+                Duration::from_secs(5),
+            )
+            .await
+        {
+            // Plugin not honouring the method (M1 plugins) or transient
+            // RPC failure — neither is fatal; the worst case is the
+            // user sees an interactive card whose buttons land in the
+            // host's "no pending request" warn branch.
+            debug!(error = %e, "cancel_question: plugin did not ack");
+        }
+    }
+
     /// Upload a file from the engine side and instruct the plugin to
     /// deliver it to the user's IM channel. Bytes are base64-encoded
     /// for JSON-RPC transit; plugins decode + call the platform's
@@ -469,14 +602,30 @@ impl PluginHandle {
     /// composition (`LayeredToolFactory`) calls this per turn, so plugins
     /// adding/replacing tools at runtime are picked up on the next user
     /// message without restart.
-    pub async fn advertised_tools(&self) -> Vec<snaca_channel_protocol::methods::ToolAdvertiseParams> {
-        self.inner.advertised_tools.lock().await.values().cloned().collect()
+    pub async fn advertised_tools(
+        &self,
+    ) -> Vec<snaca_channel_protocol::methods::ToolAdvertiseParams> {
+        self.inner
+            .advertised_tools
+            .lock()
+            .await
+            .values()
+            .cloned()
+            .collect()
     }
 
     /// Snapshot of advertised IM commands. Engine-side command dispatch is
     /// a follow-up; this is currently surfaced via the admin API only.
-    pub async fn advertised_commands(&self) -> Vec<snaca_channel_protocol::methods::CommandAdvertiseParams> {
-        self.inner.advertised_commands.lock().await.values().cloned().collect()
+    pub async fn advertised_commands(
+        &self,
+    ) -> Vec<snaca_channel_protocol::methods::CommandAdvertiseParams> {
+        self.inner
+            .advertised_commands
+            .lock()
+            .await
+            .values()
+            .cloned()
+            .collect()
     }
 
     /// Invoke a plugin-supplied tool by its plugin-side name (i.e. the
@@ -713,6 +862,7 @@ async fn reader_task(
     expected_token: String,
     plugin: String,
     approval_registry: Arc<ApprovalRegistry>,
+    question_registry: Arc<QuestionRegistry>,
     advertised_tools: Arc<Mutex<HashMap<String, ToolAdvertiseParams>>>,
     advertised_commands: Arc<Mutex<HashMap<String, CommandAdvertiseParams>>>,
 ) {
@@ -763,6 +913,17 @@ async fn reader_task(
                     .await;
                     continue;
                 }
+                if n.method == plugin_to_host::EVENT_QUESTION_CALLBACK {
+                    handle_question_callback(
+                        n,
+                        &expected_token,
+                        &plugin,
+                        &question_registry,
+                        &inbound_tx,
+                    )
+                    .await;
+                    continue;
+                }
                 match parse_inbound(n, &expected_token, &plugin) {
                     Ok(event) => {
                         // Bounded send — backpressure: a slow
@@ -790,20 +951,24 @@ async fn reader_task(
                 // / IM-command dispatcher) is a follow-up — the wire path is
                 // exercised so plugin authors can develop against it now.
                 let response = match req.method.as_str() {
-                    plugin_to_host::TOOL_ADVERTISE => handle_tool_advertise(
-                        req.clone(),
-                        &expected_token,
-                        &plugin,
-                        &advertised_tools,
-                    )
-                    .await,
-                    plugin_to_host::COMMAND_ADVERTISE => handle_command_advertise(
-                        req.clone(),
-                        &expected_token,
-                        &plugin,
-                        &advertised_commands,
-                    )
-                    .await,
+                    plugin_to_host::TOOL_ADVERTISE => {
+                        handle_tool_advertise(
+                            req.clone(),
+                            &expected_token,
+                            &plugin,
+                            &advertised_tools,
+                        )
+                        .await
+                    }
+                    plugin_to_host::COMMAND_ADVERTISE => {
+                        handle_command_advertise(
+                            req.clone(),
+                            &expected_token,
+                            &plugin,
+                            &advertised_commands,
+                        )
+                        .await
+                    }
                     other => {
                         debug!(plugin=%plugin, method=%other, "plugin -> host request: not implemented");
                         JsonRpcResponse::err(
@@ -878,6 +1043,43 @@ async fn handle_approval_callback(
     let _ = inbound_tx.send(event).await;
 }
 
+async fn handle_question_callback(
+    n: JsonRpcNotification,
+    expected_token: &str,
+    plugin: &str,
+    registry: &QuestionRegistry,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
+) {
+    let params: QuestionCallbackParams = match deserialize_params(n.params.clone(), &n.method) {
+        Ok(p) => p,
+        Err(reason) => {
+            warn!(plugin=%plugin, reason=%reason, "question callback: bad params");
+            return;
+        }
+    };
+    if check_auth(&params.auth, expected_token).is_err() {
+        warn!(plugin=%plugin, "question callback: auth token mismatch; dropping");
+        return;
+    }
+    if let Some(tx) = registry.take(&params.callback_token) {
+        // Receiver may have given up (turn timeout / cancel) — still
+        // consumed the slot, so a late second click after this point
+        // lands in the warn branch below.
+        let _ = tx.send(params);
+        return;
+    }
+    warn!(
+        plugin=%plugin,
+        token=%params.callback_token,
+        "question callback with no pending request; forwarding to inbound for visibility"
+    );
+    let event = InboundEvent::QuestionCallback {
+        plugin: plugin.to_string(),
+        params,
+    };
+    let _ = inbound_tx.send(event).await;
+}
+
 fn parse_inbound(
     n: JsonRpcNotification,
     expected_token: &str,
@@ -886,8 +1088,7 @@ fn parse_inbound(
     let method = n.method.clone();
     match n.method.as_str() {
         plugin_to_host::EVENT_MESSAGE_RECEIVED => {
-            let params: MessageReceivedParams =
-                deserialize_params(n.params, &method)?;
+            let params: MessageReceivedParams = deserialize_params(n.params, &method)?;
             check_auth(&params.auth, expected_token)?;
             Ok(InboundEvent::MessageReceived {
                 plugin: plugin.to_string(),
@@ -895,8 +1096,7 @@ fn parse_inbound(
             })
         }
         plugin_to_host::EVENT_MESSAGE_RECALLED => {
-            let params: MessageRecalledParams =
-                deserialize_params(n.params, &method)?;
+            let params: MessageRecalledParams = deserialize_params(n.params, &method)?;
             check_auth(&params.auth, expected_token)?;
             Ok(InboundEvent::MessageRecalled {
                 plugin: plugin.to_string(),
@@ -904,10 +1104,22 @@ fn parse_inbound(
             })
         }
         plugin_to_host::EVENT_APPROVAL_CALLBACK => {
-            let params: ApprovalCallbackParams =
-                deserialize_params(n.params, &method)?;
+            let params: ApprovalCallbackParams = deserialize_params(n.params, &method)?;
             check_auth(&params.auth, expected_token)?;
             Ok(InboundEvent::ApprovalCallback {
+                plugin: plugin.to_string(),
+                params,
+            })
+        }
+        plugin_to_host::EVENT_QUESTION_CALLBACK => {
+            // Reached only via the "no pending registry slot" fallback
+            // in `handle_question_callback`. The fast path bypasses
+            // `parse_inbound` entirely. Kept symmetric with approval so
+            // an operator-visible event always lands on the dispatcher
+            // for audit / observability.
+            let params: QuestionCallbackParams = deserialize_params(n.params, &method)?;
+            check_auth(&params.auth, expected_token)?;
+            Ok(InboundEvent::QuestionCallback {
                 plugin: plugin.to_string(),
                 params,
             })

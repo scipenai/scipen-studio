@@ -103,18 +103,12 @@ impl Tool for ReadTool {
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> ToolResult {
-        let input: ReadInput = serde_json::from_value(input)
-            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let input: ReadInput =
+            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
         let resolved = resolve_within(ctx.workspace_root(), Path::new(&input.path))
             .map_err(|e| ToolError::PathOutsideWorkspace(e.to_string()))?;
 
-        let metadata = match tokio::fs::metadata(&resolved).await {
-            Ok(m) => m,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Err(ToolError::NotFound(input.path));
-            }
-            Err(e) => return Err(ToolError::Io(e)),
-        };
+        let metadata = crate::fs_util::metadata_or_not_found(&resolved, &input.path).await?;
         if !metadata.is_file() {
             return Err(ToolError::InvalidInput(format!(
                 "{} is not a regular file",
@@ -215,9 +209,13 @@ impl Tool for ReadTool {
 /// emit form feeds collapse to a single page; in that case the slice
 /// is best-effort.
 fn render_pdf(bytes: &[u8], pages: Option<&str>, path: &str) -> ToolResult {
-    let raw = snaca_memory::pdf_extract::extract(bytes).map_err(|e| {
-        ToolError::Execution(format!("pdf parse failed for {path}: {e}"))
-    })?;
+    render_pdf_impl(bytes, pages, path)
+}
+
+#[cfg(feature = "pdf")]
+fn render_pdf_impl(bytes: &[u8], pages: Option<&str>, path: &str) -> ToolResult {
+    let raw = snaca_memory::pdf_extract::extract(bytes)
+        .map_err(|e| ToolError::Execution(format!("pdf parse failed for {path}: {e}")))?;
     let split: Vec<&str> = raw.split('\x0C').collect();
     let selected = if let Some(range) = pages {
         let (lo, hi) = parse_page_range(range, split.len())?;
@@ -228,11 +226,19 @@ fn render_pdf(bytes: &[u8], pages: Option<&str>, path: &str) -> ToolResult {
     Ok(ToolOutput::text(selected))
 }
 
+#[cfg(not(feature = "pdf"))]
+fn render_pdf_impl(bytes: &[u8], _pages: Option<&str>, _path: &str) -> ToolResult {
+    Ok(ToolOutput::text(format!(
+        "<pdf file: {} bytes>\nPDF extraction is disabled in this build. \
+         Enable the `pdf` feature on `snaca-tools` to parse PDF text.",
+        bytes.len()
+    )))
+}
+
+#[cfg(feature = "pdf")]
 fn parse_page_range(range: &str, total: usize) -> Result<(usize, usize), ToolError> {
     if total == 0 {
-        return Err(ToolError::Execution(
-            "PDF has no extractable pages".into(),
-        ));
+        return Err(ToolError::Execution("PDF has no extractable pages".into()));
     }
     let parse = |s: &str| -> Result<usize, ToolError> {
         s.trim()
@@ -308,12 +314,12 @@ fn render_image(bytes: &[u8], ext: &str) -> ToolResult {
 /// rather than rendered — most chat-LLM contexts wouldn't surface them
 /// usefully even if expanded.
 fn render_notebook(bytes: &[u8], path: &str) -> ToolResult {
-    let nb: Value = serde_json::from_slice(bytes).map_err(|e| {
-        ToolError::Execution(format!("ipynb parse failed for {path}: {e}"))
-    })?;
-    let cells = nb.get("cells").and_then(|c| c.as_array()).ok_or_else(|| {
-        ToolError::Execution(format!("{path} has no `cells` array"))
-    })?;
+    let nb: Value = serde_json::from_slice(bytes)
+        .map_err(|e| ToolError::Execution(format!("ipynb parse failed for {path}: {e}")))?;
+    let cells = nb
+        .get("cells")
+        .and_then(|c| c.as_array())
+        .ok_or_else(|| ToolError::Execution(format!("{path} has no `cells` array")))?;
     let lang = nb
         .pointer("/metadata/kernelspec/language")
         .and_then(|v| v.as_str())
@@ -378,7 +384,10 @@ fn join_source(src: Option<&Value>) -> String {
 }
 
 fn render_cell_output(output: &Value, dst: &mut String) {
-    let kind = output.get("output_type").and_then(|v| v.as_str()).unwrap_or("");
+    let kind = output
+        .get("output_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     match kind {
         "stream" => {
             let text = join_source(output.get("text"));
@@ -497,10 +506,7 @@ mod tests {
             let path = dir.path().join(format!("sample.{ext}"));
             std::fs::write(&path, ZIP_MAGIC).unwrap();
             let out = ReadTool
-                .execute(
-                    json!({"path": format!("sample.{ext}")}),
-                    &ctx(dir.path()),
-                )
+                .execute(json!({"path": format!("sample.{ext}")}), &ctx(dir.path()))
                 .await
                 .unwrap()
                 .render_text();
