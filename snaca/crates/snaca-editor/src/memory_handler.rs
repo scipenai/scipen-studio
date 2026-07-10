@@ -39,11 +39,15 @@ pub(crate) fn scope_to_wire(s: MemoryScope) -> WireScope {
     }
 }
 
-pub(crate) fn engine_action_to_wire(a: snaca_engine::MemoryAction) -> WireAction {
-    match a {
-        snaca_engine::MemoryAction::Created => WireAction::Created,
-        snaca_engine::MemoryAction::Updated => WireAction::Updated,
-        snaca_engine::MemoryAction::Deleted => WireAction::Deleted,
+/// Map a provider scope string (`user`/`feedback`/`project`/`reference`)
+/// to the wire scope. Returns `None` for an unknown scope.
+fn wire_scope_from_str(scope: &str) -> Option<WireScope> {
+    match scope {
+        "user" => Some(WireScope::User),
+        "feedback" => Some(WireScope::Feedback),
+        "project" => Some(WireScope::Project),
+        "reference" => Some(WireScope::Reference),
+        _ => None,
     }
 }
 
@@ -249,41 +253,116 @@ fn memory_err(e: MemoryError) -> ProtocolError {
             ErrorCode::InternalError,
             format!("external extractor required for {kind} {filename:?}"),
         ),
+        // 0.2.7 added size/threat/import guards + external-drift detection.
+        // The editor's CRUD surfaces them as generic invalid-params /
+        // internal errors — the messages carry the specifics.
+        other => ProtocolError::new(ErrorCode::InvalidParams, format!("memory error: {other}")),
     }
 }
 
-/// `EditorMemorySink` — bridges `snaca_engine::MemoryEventSink` to the
-/// outbound JSON-RPC channel so the background extractor's writes show
-/// up in MemoryViewer live.
-pub struct EditorMemorySink {
-    pub outbound: Arc<OutboundWriter>,
-    pub session_id: String,
+/// `EditorMemoryProvider` — wraps the built-in `FileTreeMemoryProvider`
+/// (0.2.7 replaced the old `MemoryEventSink` seam with the `MemoryProvider`
+/// trait) and forwards a `memory.updated` notification to the editor host
+/// whenever the engine's background extractor writes an entry, so
+/// MemoryViewer refreshes live without polling. All CRUD delegates to the
+/// inner provider unchanged.
+pub struct EditorMemoryProvider {
+    inner: Arc<dyn snaca_agent_api::MemoryProvider>,
+    outbound: Arc<OutboundWriter>,
+    session_id: String,
 }
 
-impl snaca_engine::MemoryEventSink for EditorMemorySink {
-    fn on_memory_changed(
+impl EditorMemoryProvider {
+    pub fn new(
+        inner: Arc<dyn snaca_agent_api::MemoryProvider>,
+        outbound: Arc<OutboundWriter>,
+        session_id: String,
+    ) -> Self {
+        Self {
+            inner,
+            outbound,
+            session_id,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl snaca_agent_api::MemoryProvider for EditorMemoryProvider {
+    async fn index(
         &self,
-        scope: MemoryScope,
-        name: &str,
-        action: snaca_engine::MemoryAction,
-    ) {
-        let outbound = self.outbound.clone();
-        let session_id = self.session_id.clone();
-        let name = name.to_string();
-        // Background extractor runs on a tokio task, so we're inside a
-        // runtime — spawn a detached task instead of blocking it on IO.
-        tokio::spawn(async move {
-            if let Err(e) = outbound
-                .emit_memory_updated(MemoryUpdatedParams {
-                    session_id,
-                    scope: scope_to_wire(scope),
-                    name,
-                    action: engine_action_to_wire(action),
-                })
-                .await
-            {
-                warn!(error = %e, "engine memory sink emit failed");
-            }
-        });
+        request: snaca_agent_api::MemoryIndexRequest,
+    ) -> Result<String, snaca_agent_api::MemoryProviderError> {
+        self.inner.index(request).await
+    }
+
+    async fn list(
+        &self,
+        request: snaca_agent_api::MemoryListRequest,
+    ) -> Result<Vec<String>, snaca_agent_api::MemoryProviderError> {
+        self.inner.list(request).await
+    }
+
+    async fn write(
+        &self,
+        request: snaca_agent_api::MemoryWriteRequest,
+    ) -> Result<snaca_agent_api::MemoryEntryData, snaca_agent_api::MemoryProviderError> {
+        self.inner.write(request).await
+    }
+
+    async fn read(
+        &self,
+        request: snaca_agent_api::MemoryReadRequest,
+    ) -> Result<snaca_agent_api::MemoryEntryData, snaca_agent_api::MemoryProviderError> {
+        self.inner.read(request).await
+    }
+
+    async fn on_pre_compact(
+        &self,
+        ctx: &snaca_agent_api::PreCompactCtx,
+    ) -> Result<(), snaca_agent_api::MemoryProviderError> {
+        self.inner.on_pre_compact(ctx).await
+    }
+
+    async fn on_session_switch(
+        &self,
+        ctx: &snaca_agent_api::SessionSwitchCtx,
+    ) -> Result<(), snaca_agent_api::MemoryProviderError> {
+        self.inner.on_session_switch(ctx).await
+    }
+
+    async fn on_memory_write(
+        &self,
+        ctx: &snaca_agent_api::MemoryWriteCtx,
+    ) -> Result<(), snaca_agent_api::MemoryProviderError> {
+        // Delegate to the inner provider (may maintain caches). Log rather
+        // than swallow its error, but don't gate the host notification on it:
+        // the on-disk write already landed before this hook runs, so the host
+        // must be told regardless of the inner post-write bookkeeping.
+        if let Err(e) = self.inner.on_memory_write(ctx).await {
+            warn!(error = %e, "inner memory provider on_memory_write failed");
+        }
+        // Notify the host on a DETACHED task. The engine awaits this hook
+        // inline in its per-proposal extractor loop, and the emit locks the
+        // shared stdout mutex + flushes — so awaiting it here would gate the
+        // extractor on host I/O. The trait contract also says this hook must
+        // not block. Spawning matches the original EditorMemorySink design.
+        if let Some(scope) = wire_scope_from_str(&ctx.scope) {
+            let outbound = self.outbound.clone();
+            let params = MemoryUpdatedParams {
+                session_id: self.session_id.clone(),
+                scope,
+                name: ctx.name.clone(),
+                // The write ctx doesn't distinguish create vs update; the
+                // host only needs to know something changed (it ignores the
+                // action field and re-reads the entry).
+                action: WireAction::Updated,
+            };
+            tokio::spawn(async move {
+                if let Err(e) = outbound.emit_memory_updated(params).await {
+                    warn!(error = %e, "engine memory provider notify failed");
+                }
+            });
+        }
+        Ok(())
     }
 }

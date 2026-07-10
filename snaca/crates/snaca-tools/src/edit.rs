@@ -78,8 +78,8 @@ impl Tool for EditTool {
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> ToolResult {
-        let input: EditInput = serde_json::from_value(input)
-            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let input: EditInput =
+            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
 
         if input.old_string.is_empty() {
             return Err(ToolError::InvalidInput(
@@ -95,13 +95,7 @@ impl Tool for EditTool {
         let resolved = resolve_within(ctx.workspace_root(), Path::new(&input.path))
             .map_err(|e| ToolError::PathOutsideWorkspace(e.to_string()))?;
 
-        let metadata = match tokio::fs::metadata(&resolved).await {
-            Ok(m) => m,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Err(ToolError::NotFound(input.path.clone()));
-            }
-            Err(e) => return Err(ToolError::Io(e)),
-        };
+        let metadata = crate::fs_util::metadata_or_not_found(&resolved, &input.path).await?;
         if !metadata.is_file() {
             return Err(ToolError::InvalidInput(format!(
                 "{} is not a regular file",
@@ -270,7 +264,10 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, ToolError::InvalidInput(_)));
-        assert_eq!(std::fs::read_to_string(dir.path().join("a.txt")).unwrap(), "foo foo foo");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "foo foo foo"
+        );
     }
 
     #[tokio::test]
@@ -291,7 +288,10 @@ mod tests {
             .unwrap()
             .render_text();
         assert!(out.contains("3 occurrences"));
-        assert_eq!(std::fs::read_to_string(dir.path().join("a.txt")).unwrap(), "bar bar bar");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "bar bar bar"
+        );
     }
 
     #[tokio::test]
@@ -494,7 +494,10 @@ mod tests {
             "got: {err:?}"
         );
         // File unchanged.
-        assert_eq!(std::fs::read_to_string(dir.path().join("a.txt")).unwrap(), body);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            body
+        );
     }
 
     #[tokio::test]

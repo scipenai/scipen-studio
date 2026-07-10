@@ -411,7 +411,10 @@ mod tests {
             &mut state,
         );
         // Should close the Thinking block and open a Text block.
-        assert!(matches!(events[0], StreamEvent::ContentBlockStop { index: 0 }));
+        assert!(matches!(
+            events[0],
+            StreamEvent::ContentBlockStop { index: 0 }
+        ));
         assert!(matches!(
             events[1],
             StreamEvent::ContentBlockStart {
@@ -582,8 +585,7 @@ data: [DONE]\n\
         use futures::executor::block_on;
         use futures::stream;
 
-        let part_a =
-            b"data: {\"id\":\"x\",\"choices\":[{\"index\":0,\"delta\":{\"content";
+        let part_a = b"data: {\"id\":\"x\",\"choices\":[{\"index\":0,\"delta\":{\"content";
         let part_b = b"\":\"Hi\"}}]}\n\ndata: [DONE]\n\n";
         let s = stream::iter(vec![
             Ok::<_, LlmError>(Bytes::from(part_a.to_vec())),

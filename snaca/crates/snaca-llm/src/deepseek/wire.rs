@@ -24,13 +24,6 @@ pub struct ChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop: Option<Vec<String>>,
     pub stream: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stream_options: Option<StreamOptions>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct StreamOptions {
-    pub include_usage: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,4 +157,16 @@ pub struct WireError {
     pub error_type: Option<String>,
     #[serde(default)]
     pub code: Option<String>,
+}
+
+impl crate::transport::ProviderErrorView for WireErrorEnvelope {
+    fn error_type(&self) -> Option<&str> {
+        self.error.error_type.as_deref()
+    }
+    fn error_code(&self) -> Option<&str> {
+        self.error.code.as_deref()
+    }
+    fn error_message(&self) -> &str {
+        &self.error.message
+    }
 }

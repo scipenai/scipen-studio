@@ -22,8 +22,8 @@
 #[cfg(target_os = "linux")]
 mod imp {
     use landlock::{
-        ABI, Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
-        RulesetStatus,
+        Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
+        RulesetStatus, ABI,
     };
     use std::path::Path;
 
@@ -63,8 +63,7 @@ mod imp {
         // restrict_self() the FD APIs themselves still work, but we're
         // already filtered, so any open() with rights we haven't granted
         // will fail.
-        let workspace_fd =
-            PathFd::new(workspace).map_err(|e| format!("workspace path fd: {e}"))?;
+        let workspace_fd = PathFd::new(workspace).map_err(|e| format!("workspace path fd: {e}"))?;
 
         let mut writable_fds = Vec::with_capacity(extra_writable.len());
         for path in extra_writable {
@@ -229,10 +228,7 @@ mod tests {
         if !std::path::Path::new("/etc/resolv.conf").exists() {
             return; // Skip on systems without it.
         }
-        let status = run_in_sandbox(
-            workspace.path(),
-            "test -r /etc/resolv.conf",
-        );
+        let status = run_in_sandbox(workspace.path(), "test -r /etc/resolv.conf");
         assert!(status.success(), "sandbox unexpectedly blocked /etc reads");
     }
 }

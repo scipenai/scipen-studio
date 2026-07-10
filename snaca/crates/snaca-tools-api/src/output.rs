@@ -47,8 +47,9 @@ impl ToolOutput {
     pub fn render_text(&self) -> String {
         match self {
             ToolOutput::Text(t) => t.clone(),
-            ToolOutput::Json(v) => serde_json::to_string_pretty(v)
-                .unwrap_or_else(|_| v.to_string()),
+            ToolOutput::Json(v) => {
+                serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
+            }
             ToolOutput::Blocks(bs) => {
                 let mut out = String::new();
                 for b in bs {

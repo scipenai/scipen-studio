@@ -16,10 +16,12 @@ pub mod approval;
 pub mod config;
 pub mod error;
 pub mod inbound;
+pub mod question;
 pub mod supervisor;
 
 pub use approval::ApprovalRegistry;
 pub use config::{PluginConfig, PluginConfigBuilder};
 pub use error::{ChannelError, ChannelResult};
 pub use inbound::InboundEvent;
+pub use question::QuestionRegistry;
 pub use supervisor::PluginHandle;

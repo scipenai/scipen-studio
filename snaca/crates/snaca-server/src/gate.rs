@@ -32,11 +32,13 @@ const DEFAULT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
 /// Pick the approval gate the dispatcher hands to the engine, based on
 /// the `SNACA_APPROVAL_MODE` env var.
 ///
-/// - `interactive` (default, or unset): send a card to the IM channel and
-///   wait for the user to click — the M1 behavior.
-/// - `allow`: skip the card entirely; every tool that would have asked is
-///   auto-allowed (`NoopApprovalGate`). For trusted single-tenant
-///   deployments where the operator wants the bot to "just work".
+/// - `allow` (default, or unset): skip the card entirely; every tool
+///   that would have asked is auto-allowed (`NoopApprovalGate`). The
+///   bot "just works" without per-call clicks. Trusted single-tenant
+///   default — flip the env var to opt back into prompting.
+/// - `interactive`: send a card to the IM channel and wait for the user
+///   to click. Use on multi-tenant or untrusted shells where each
+///   gated call should be confirmed by a human.
 /// - `deny`: every gated tool is rejected (`DenyAllApprovalGate`). The
 ///   LLM sees a clean "permission denied" tool_error and can adapt.
 ///
@@ -52,21 +54,17 @@ pub fn build_approval_gate(
     match resolve_approval_mode() {
         ResolvedApprovalMode::Allow => Arc::new(NoopApprovalGate),
         ResolvedApprovalMode::Deny => Arc::new(DenyAllApprovalGate),
-        ResolvedApprovalMode::Interactive => Arc::new(ChannelApprovalGate::new(
-            plugin,
-            plugin_tenant_id,
-            chat_id,
-        )),
+        ResolvedApprovalMode::Interactive => {
+            Arc::new(ChannelApprovalGate::new(plugin, plugin_tenant_id, chat_id))
+        }
         ResolvedApprovalMode::Unknown(other) => {
+            // Match the default arm (allow) so a typo doesn't silently
+            // switch the operator into interactive prompting.
             warn!(
                 value = %other,
-                "unknown SNACA_APPROVAL_MODE value; falling back to interactive"
+                "unknown SNACA_APPROVAL_MODE value; falling back to allow"
             );
-            Arc::new(ChannelApprovalGate::new(
-                plugin,
-                plugin_tenant_id,
-                chat_id,
-            ))
+            Arc::new(NoopApprovalGate)
         }
     }
 }
@@ -84,9 +82,12 @@ enum ResolvedApprovalMode {
 fn resolve_approval_mode() -> ResolvedApprovalMode {
     let raw = std::env::var("SNACA_APPROVAL_MODE").unwrap_or_default();
     match raw.trim().to_ascii_lowercase().as_str() {
-        "allow" => ResolvedApprovalMode::Allow,
+        // Empty/unset defaults to `allow` — the operator opted into
+        // SNACA without telling us anything else, so let the bot just
+        // work. Opt back into prompting with `SNACA_APPROVAL_MODE=interactive`.
+        "" | "allow" => ResolvedApprovalMode::Allow,
         "deny" => ResolvedApprovalMode::Deny,
-        "" | "interactive" => ResolvedApprovalMode::Interactive,
+        "interactive" => ResolvedApprovalMode::Interactive,
         other => ResolvedApprovalMode::Unknown(other.to_string()),
     }
 }
@@ -100,13 +101,13 @@ pub fn log_approval_mode_at_startup() {
     let raw = std::env::var("SNACA_APPROVAL_MODE").ok();
     let raw_display = raw.as_deref().unwrap_or("<unset>");
     let resolved: &str = match resolve_approval_mode() {
-        ResolvedApprovalMode::Allow => "allow (auto-allow, no card sent)",
+        ResolvedApprovalMode::Allow => "allow (default — auto-allow, no card sent)",
         ResolvedApprovalMode::Deny => "deny (auto-reject every gated tool)",
         ResolvedApprovalMode::Interactive => {
-            "interactive (default — card sent to chat, user clicks to decide)"
+            "interactive (card sent to chat, user clicks to decide)"
         }
         ResolvedApprovalMode::Unknown(_) => {
-            "unknown value — will fall back to interactive at first gated call"
+            "unknown value — will fall back to allow at first gated call"
         }
     };
     tracing::info!(

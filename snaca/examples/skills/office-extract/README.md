@@ -1,9 +1,9 @@
 # `office-extract` example skill
 
 Reference skill that gives snaca the ability to read `.docx` / `.xlsx` / `.pptx`
-files. snaca core deliberately does **not** parse these formats — see the
-plan in `plan.md` for the rationale. This skill bundles a Python script that
-does the work out-of-process, invoked from the LLM via the Bash tool.
+files. snaca core deliberately does **not** parse these formats directly.
+This skill bundles a Python script that does the work out-of-process, invoked
+from the LLM via the Bash tool.
 
 ## Install
 

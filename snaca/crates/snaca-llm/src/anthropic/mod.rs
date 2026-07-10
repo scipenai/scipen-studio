@@ -15,17 +15,18 @@ mod wire;
 #[cfg(test)]
 pub use convert::{build_messages_request, parse_messages_response};
 
-use crate::classify::classify_http_error;
 use crate::client::{LlmClient, ProviderCaps};
 use crate::error::{LlmError, LlmResult};
 use crate::request::MessageRequest;
 use crate::response::MessageResponse;
 use crate::stream::StreamEvent;
-use crate::transport::{log_response_headers, wrap_byte_stream};
+use crate::transport::{
+    classify_error, log_response_headers, retry_after_header, wrap_byte_stream,
+};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 use wire::{MessagesResponse, WireErrorEnvelope};
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
@@ -116,14 +117,7 @@ impl AnthropicClient {
     }
 
     fn endpoint(&self) -> String {
-        // Accept `base_url` with or without a trailing `/v1` so hosts can
-        // store the same value the OpenAI-compatible SDKs expect.
-        let base = self.config.base_url.trim_end_matches('/');
-        if base.ends_with("/v1") {
-            format!("{base}/messages")
-        } else {
-            format!("{base}/v1/messages")
-        }
+        format!("{}/v1/messages", self.config.base_url.trim_end_matches('/'))
     }
 }
 
@@ -174,22 +168,13 @@ impl LlmClient for AnthropicClient {
             .await?;
 
         let status = resp.status();
-        let retry_after = resp
-            .headers()
-            .get(reqwest::header::RETRY_AFTER)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string);
+        let retry_after = retry_after_header(&resp);
         let bytes = resp.bytes().await?;
         if !status.is_success() {
-            let body_str = String::from_utf8_lossy(&bytes);
-            let env = serde_json::from_slice::<WireErrorEnvelope>(&bytes).ok();
-            return Err(classify_http_error(
+            return Err(classify_error::<WireErrorEnvelope>(
                 status.as_u16(),
                 retry_after.as_deref(),
-                env.as_ref().and_then(|e| e.error.error_type.as_deref()),
-                None,
-                env.as_ref().map(|e| e.error.message.as_str()),
-                &body_str,
+                &bytes,
             ));
         }
 
@@ -212,10 +197,8 @@ impl LlmClient for AnthropicClient {
             true,
             self.config.enable_prompt_cache,
         )?;
-        let endpoint = self.endpoint();
-        info!(
+        debug!(
             provider = "anthropic",
-            endpoint = %endpoint,
             model = %body.model,
             messages = body.messages.len(),
             tools = body.tools.len(),
@@ -224,7 +207,7 @@ impl LlmClient for AnthropicClient {
 
         let resp = self
             .http
-            .post(&endpoint)
+            .post(self.endpoint())
             .header("x-api-key", &self.config.api_key)
             .header("anthropic-version", &self.config.anthropic_version)
             .header("content-type", "application/json")
@@ -234,24 +217,14 @@ impl LlmClient for AnthropicClient {
             .await?;
 
         let status = resp.status();
-        info!(provider = "anthropic", status = %status, "streaming response headers received");
         if !status.is_success() {
             // Drain body so the user sees the provider's error envelope.
-            let retry_after = resp
-                .headers()
-                .get(reqwest::header::RETRY_AFTER)
-                .and_then(|v| v.to_str().ok())
-                .map(str::to_string);
+            let retry_after = retry_after_header(&resp);
             let bytes = resp.bytes().await?;
-            let body_str = String::from_utf8_lossy(&bytes);
-            let env = serde_json::from_slice::<WireErrorEnvelope>(&bytes).ok();
-            return Err(classify_http_error(
+            return Err(classify_error::<WireErrorEnvelope>(
                 status.as_u16(),
                 retry_after.as_deref(),
-                env.as_ref().and_then(|e| e.error.error_type.as_deref()),
-                None,
-                env.as_ref().map(|e| e.error.message.as_str()),
-                &body_str,
+                &bytes,
             ));
         }
 

@@ -29,8 +29,8 @@ fn render_text(blocks: &[ContentBlock]) -> String {
 async fn deepseek_chat_responds_to_simple_prompt() {
     let key = std::env::var("DEEPSEEK_API_KEY").expect("DEEPSEEK_API_KEY env var not set");
     let model = std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".into());
-    let base = std::env::var("DEEPSEEK_BASE_URL")
-        .unwrap_or_else(|_| "https://api.deepseek.com".into());
+    let base =
+        std::env::var("DEEPSEEK_BASE_URL").unwrap_or_else(|_| "https://api.deepseek.com".into());
 
     let client = DeepSeekClient::new(
         DeepSeekConfig::new(key)

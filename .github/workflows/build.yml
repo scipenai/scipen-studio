@@ -21,6 +21,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # scripts/build-snaca.js compiles the in-tree `snaca/` Rust workspace,
+      # which requires rust >= 1.88 (snaca/Cargo.toml). Pin it explicitly so
+      # packaging doesn't depend on whatever the runner happens to ship.
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88'
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -61,6 +69,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # rust >= 1.88 for the snaca workspace; the universal2 build also needs
+      # both apple targets (build-snaca.js runs `rustup target add`, but pin
+      # them here so the toolchain is ready before packaging).
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88'
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -97,6 +114,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # rust >= 1.88 for the in-tree snaca workspace.
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

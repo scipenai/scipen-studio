@@ -59,12 +59,13 @@ impl Tool for TaskStopTool {
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> ToolResult {
-        let input: TaskStopInput = serde_json::from_value(input)
-            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let input: TaskStopInput =
+            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
 
         let registry = crate::task_registry::task_registry_from_ctx(ctx).ok_or_else(|| {
             ToolError::Execution(
-                "no TaskRegistry attached — background tasks are unavailable in this deployment".into(),
+                "no TaskRegistry attached — background tasks are unavailable in this deployment"
+                    .into(),
             )
         })?;
 

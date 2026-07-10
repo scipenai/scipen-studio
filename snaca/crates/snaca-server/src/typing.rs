@@ -34,7 +34,7 @@ use async_trait::async_trait;
 use snaca_channel_host::PluginHandle;
 use snaca_channel_protocol::methods::{MessageSendParams, MessageUpdateParams};
 use snaca_engine::TurnEventListener;
-use snaca_llm::{ContentDelta, StreamEvent};
+use snaca_llm::{ContentDelta, LlmError, StreamEvent};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tracing::warn;
@@ -81,12 +81,7 @@ pub struct TypingHandoff {
 impl ChannelTypingListener {
     /// Build with the production default throttle interval.
     pub fn new(plugin: PluginHandle, plugin_tenant_id: String, chat_id: String) -> Self {
-        Self::with_interval(
-            plugin,
-            plugin_tenant_id,
-            chat_id,
-            DEFAULT_UPDATE_INTERVAL,
-        )
+        Self::with_interval(plugin, plugin_tenant_id, chat_id, DEFAULT_UPDATE_INTERVAL)
     }
 
     /// Build with a custom throttle interval. Pass `Duration::ZERO`
@@ -124,6 +119,13 @@ impl ChannelTypingListener {
 
 #[async_trait]
 impl TurnEventListener for ChannelTypingListener {
+    async fn on_stream_retry(&self, _attempt: u8, _error: &LlmError) {
+        let mut state = self.state.lock().await;
+        state.accumulated.clear();
+        state.pushed_text.clear();
+        state.last_pushed_at = None;
+    }
+
     async fn on_event(&self, event: &StreamEvent) {
         let StreamEvent::ContentBlockDelta { delta, .. } = event else {
             return;

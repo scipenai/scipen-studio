@@ -88,8 +88,8 @@ impl Tool for SendFileTool {
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> ToolResult {
-        let parsed: SendFileInput = serde_json::from_value(input)
-            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let parsed: SendFileInput =
+            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
         let resolved = resolve_within(ctx.workspace_root(), Path::new(&parsed.path))
             .map_err(|e| ToolError::PathOutsideWorkspace(e.to_string()))?;
 
@@ -130,8 +130,7 @@ impl Tool for SendFileTool {
         });
         if !queued {
             return Err(ToolError::Other(
-                "no outbound channel attached — engine has no IM dispatcher to send through"
-                    .into(),
+                "no outbound channel attached — engine has no IM dispatcher to send through".into(),
             ));
         }
         Ok(ToolOutput::text(format!(
@@ -176,9 +175,7 @@ mod tests {
     use snaca_core::{ProjectId, SessionId, TenantId};
     use std::sync::{Arc, Mutex};
 
-    fn ctx_with_outbound(
-        root: &Path,
-    ) -> (ToolContext, Arc<Mutex<Vec<OutboundFile>>>) {
+    fn ctx_with_outbound(root: &Path) -> (ToolContext, Arc<Mutex<Vec<OutboundFile>>>) {
         let outbound = Arc::new(Mutex::new(Vec::new()));
         let ctx = ToolContext::new(
             TenantId::new("t"),
@@ -256,10 +253,7 @@ mod tests {
         std::fs::write(dir.path().join("draft.md"), "x").unwrap();
         let (ctx, outbound) = ctx_with_outbound(dir.path());
         SendFileTool
-            .execute(
-                json!({"path": "draft.md", "filename": "report.md"}),
-                &ctx,
-            )
+            .execute(json!({"path": "draft.md", "filename": "report.md"}), &ctx)
             .await
             .unwrap();
         let q = outbound.lock().unwrap();

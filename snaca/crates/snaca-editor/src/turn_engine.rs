@@ -72,7 +72,17 @@ pub async fn run_engine_turn(
             engine.abort_turn(&ThreadId::new(&thread_id), &turn_id);
             Err(snaca_engine::EngineError::Aborted)
         }
-        o = engine.handle_turn_full(req, gate, listener) => o,
+        o = engine.handle_turn_full(
+            req,
+            gate,
+            listener,
+            // 0.2.7 passes the AskUserQuestion gate per-turn; bridge to the
+            // host's question card over the same outbound + turn id.
+            Arc::new(crate::question_gate::EditorQuestionGate::new(
+                outbound.clone(),
+                turn_id.clone(),
+            )),
+        ) => o,
     };
 
     match &outcome {

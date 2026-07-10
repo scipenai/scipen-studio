@@ -40,8 +40,8 @@ async fn live_deepseek_e2e_uses_ls_tool_and_replies() {
 
     let api_key = std::env::var("DEEPSEEK_API_KEY").expect("DEEPSEEK_API_KEY env var not set");
     let model = std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".into());
-    let base = std::env::var("DEEPSEEK_BASE_URL")
-        .unwrap_or_else(|_| "https://api.deepseek.com".into());
+    let base =
+        std::env::var("DEEPSEEK_BASE_URL").unwrap_or_else(|_| "https://api.deepseek.com".into());
 
     let tmp = tempfile::tempdir().unwrap();
     let data_root = tmp.path().join("data");
@@ -55,7 +55,7 @@ async fn live_deepseek_e2e_uses_ls_tool_and_replies() {
     use snaca_workspace::WorkspaceLayout;
     std::fs::create_dir_all(&data_root).unwrap();
     let layout = WorkspaceLayout::new(std::fs::canonicalize(&data_root).unwrap()).unwrap();
-    let tenant = TenantId::new("default");
+    let tenant = TenantId::new("mock-tenant");
     let project = ProjectId::auto_from_chat("mock-chat");
     layout.ensure_project(&tenant, &project).unwrap();
     let ws = layout.workspace_dir(&tenant, &project);
@@ -132,10 +132,13 @@ SNACA_MOCK_RECORD_SENDS = {record_path:?}
 
     runtime.shutdown().await;
 
-    assert!(!record_text.is_empty(), "no message.send was recorded within 60s");
+    assert!(
+        !record_text.is_empty(),
+        "no message.send was recorded within 60s"
+    );
     let line = record_text.lines().last().unwrap_or("");
     assert!(
-        line.contains("Cargo.toml") || line.to_lowercase().contains("toml"),
-        "expected reply to mention .toml file(s); got: {line}"
+        line.contains("Cargo.toml"),
+        "expected reply to mention Cargo.toml; got: {line}"
     );
 }

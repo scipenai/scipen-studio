@@ -13,6 +13,7 @@ name = "snaca-plugin-lark"
 path = "src/main.rs"
 
 [dependencies]
+snaca-core.workspace = true
 snaca-channel-protocol.workspace = true
 tokio = { workspace = true, features = ["full"] }
 serde_json.workspace = true

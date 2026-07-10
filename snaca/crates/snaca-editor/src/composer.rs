@@ -162,7 +162,13 @@ pub async fn run_composer_plan_first(args: ComposerPlanArgs) {
             plan_engine.abort_turn(&ThreadId::new(&thread_id), &plan_turn_id);
             Err(snaca_engine::EngineError::Aborted)
         }
-        o = plan_engine.handle_turn_full(req, Arc::new(NoopApprovalGate), listener) => o,
+        o = plan_engine.handle_turn_full(
+            req,
+            Arc::new(NoopApprovalGate),
+            listener,
+            // Composer/plan turns don't surface interactive questions.
+            Arc::new(snaca_engine::NoopQuestionGate),
+        ) => o,
     };
 
     let assistant_text = match outcome {

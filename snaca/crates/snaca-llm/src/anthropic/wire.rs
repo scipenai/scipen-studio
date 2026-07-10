@@ -84,9 +84,7 @@ pub struct CacheControl {
     pub kind: &'static str,
 }
 
-pub const EPHEMERAL_CACHE: CacheControl = CacheControl {
-    kind: "ephemeral",
-};
+pub const EPHEMERAL_CACHE: CacheControl = CacheControl { kind: "ephemeral" };
 
 fn is_false(b: &bool) -> bool {
     !*b
@@ -200,4 +198,13 @@ pub struct WireError {
     #[serde(default)]
     #[serde(rename = "type")]
     pub error_type: Option<String>,
+}
+
+impl crate::transport::ProviderErrorView for WireErrorEnvelope {
+    fn error_type(&self) -> Option<&str> {
+        self.error.error_type.as_deref()
+    }
+    fn error_message(&self) -> &str {
+        &self.error.message
+    }
 }

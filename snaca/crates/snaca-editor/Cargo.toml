@@ -15,6 +15,9 @@ path = "src/main.rs"
 [dependencies]
 snaca-editor-protocol.workspace = true
 snaca-core.workspace = true
+# 0.2.7 relocated the ApprovalGate / QuestionGate / MemoryProvider contracts
+# into this new leaf crate (they used to live in snaca-engine).
+snaca-agent-api.workspace = true
 snaca-llm.workspace = true
 snaca-state.workspace = true
 snaca-engine.workspace = true

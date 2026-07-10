@@ -11,13 +11,13 @@
 //!   is preserved. `reasoning_content` (R1) becomes a `ContentBlock::Thinking`
 //!   inserted before the text block.
 
+use crate::deepseek::wire::{
+    ChatRequest, ChatResponse, WireMessage, WireTool, WireToolCall, WireToolCallFunction,
+    WireToolDefinition,
+};
 use crate::error::{LlmError, LlmResult};
 use crate::request::{MessageRequest, ToolSchema};
 use crate::response::{MessageResponse, StopReason};
-use crate::deepseek::wire::{
-    ChatRequest, ChatResponse, StreamOptions, WireMessage, WireTool, WireToolCall,
-    WireToolCallFunction, WireToolDefinition,
-};
 use snaca_core::{ContentBlock, Message, MessageId, Role, ToolUseId};
 use std::time::SystemTime;
 
@@ -59,11 +59,6 @@ pub fn build_chat_request(req: &MessageRequest, stream: bool) -> LlmResult<ChatR
             Some(req.stop_sequences.clone())
         },
         stream,
-        stream_options: if stream {
-            Some(StreamOptions { include_usage: true })
-        } else {
-            None
-        },
     })
 }
 
@@ -129,10 +124,13 @@ fn push_message(msg: &Message, out: &mut Vec<WireMessage>) -> LlmResult<()> {
                     _ => {}
                 }
             }
-            // Drop an assistant turn that yielded nothing — DeepSeek rejects an
-            // assistant message with neither `content` nor `tool_calls`. The
-            // engine no longer persists empty responses, but stale rows from
-            // before that fix can still appear in history. Matches Anthropic.
+            // Drop an assistant turn that yielded nothing — DeepSeek
+            // rejects an assistant message with neither `content` nor
+            // `tool_calls` (`Invalid assistant message: content or
+            // tool_calls must be set`). The engine no longer persists
+            // empty responses, but stale rows from before that fix can
+            // still appear in history; skipping them keeps the thread
+            // replayable. Matches the Anthropic converter's behavior.
             if text.is_empty() && reasoning.is_empty() && tool_calls.is_empty() {
                 return Ok(());
             }
@@ -216,16 +214,15 @@ pub fn parse_chat_response(resp: ChatResponse) -> LlmResult<MessageResponse> {
 
     if let Some(tool_calls) = choice.message.tool_calls {
         for tc in tool_calls {
-            let input: serde_json::Value =
-                if tc.function.arguments.is_empty() {
-                    serde_json::Value::Object(Default::default())
-                } else {
-                    serde_json::from_str(&tc.function.arguments).map_err(|e| {
-                        LlmError::MalformedResponse(format!(
-                            "tool_call.arguments is not valid JSON: {e}"
-                        ))
-                    })?
-                };
+            let input: serde_json::Value = if tc.function.arguments.is_empty() {
+                serde_json::Value::Object(Default::default())
+            } else {
+                serde_json::from_str(&tc.function.arguments).map_err(|e| {
+                    LlmError::MalformedResponse(format!(
+                        "tool_call.arguments is not valid JSON: {e}"
+                    ))
+                })?
+            };
             content.push(ContentBlock::ToolUse {
                 id: ToolUseId::new(tc.id),
                 name: tc.function.name,
@@ -310,18 +307,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_assistant_message_is_skipped() {
-        // Stale empty assistant rows (from before the engine-side guard) must
-        // not be forwarded — DeepSeek rejects an assistant message with neither
-        // content nor tool_calls on every subsequent turn.
-        let req = MessageRequest::new("deepseek-chat")
-            .with_messages(vec![Message::new(Role::Assistant, vec![]), assistant_text("ok")]);
-        let wire = build_chat_request(&req, false).unwrap();
-        assert_eq!(wire.messages.len(), 1);
-        assert_eq!(wire.messages[0].content.as_deref(), Some("ok"));
-    }
-
-    #[test]
     fn system_prompt_becomes_first_message() {
         let req = MessageRequest::new("deepseek-chat")
             .with_system("You are SNACA")
@@ -353,8 +338,7 @@ mod tests {
 
     #[test]
     fn assistant_text_only_serializes_content() {
-        let req = MessageRequest::new("deepseek-chat")
-            .with_messages(vec![assistant_text("ok")]);
+        let req = MessageRequest::new("deepseek-chat").with_messages(vec![assistant_text("ok")]);
         let wire = build_chat_request(&req, false).unwrap();
         assert_eq!(wire.messages[0].content.as_deref(), Some("ok"));
         assert!(wire.messages[0].tool_calls.is_none());
@@ -389,6 +373,20 @@ mod tests {
     }
 
     #[test]
+    fn empty_assistant_message_is_skipped() {
+        // Stale empty assistant rows from before the engine-side guard
+        // must not be forwarded — DeepSeek would reject the request
+        // with `Invalid assistant message: content or tool_calls must
+        // be set` on every subsequent turn.
+        let empty_assistant = Message::new(Role::Assistant, vec![]);
+        let req = MessageRequest::new("deepseek-chat")
+            .with_messages(vec![empty_assistant, assistant_text("ok")]);
+        let wire = build_chat_request(&req, false).unwrap();
+        assert_eq!(wire.messages.len(), 1);
+        assert_eq!(wire.messages[0].content.as_deref(), Some("ok"));
+    }
+
+    #[test]
     fn thinking_blocks_replayed_as_reasoning_content() {
         // DeepSeek's V3.1+/V4 thinking models require the prior
         // `reasoning_content` to be echoed in history; older non-thinking
@@ -400,8 +398,7 @@ mod tests {
                 ContentBlock::text("answer"),
             ],
         );
-        let req = MessageRequest::new("deepseek-chat")
-            .with_messages(vec![assistant_with_thinking]);
+        let req = MessageRequest::new("deepseek-chat").with_messages(vec![assistant_with_thinking]);
         let wire = build_chat_request(&req, false).unwrap();
         assert_eq!(wire.messages[0].content.as_deref(), Some("answer"));
         assert_eq!(

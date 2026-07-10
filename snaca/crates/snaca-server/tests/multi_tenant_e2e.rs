@@ -267,7 +267,9 @@ args = [
 
     // Sanity check: the SQLite store should have one thread per chat.
     use snaca_state::Database;
-    let db = Database::open(&data_root.join("state.sqlite")).await.unwrap();
+    let db = Database::open(&data_root.join("state.sqlite"))
+        .await
+        .unwrap();
     let alpha_threads = db
         .list_threads_for_project(&alpha, &alpha_project)
         .await

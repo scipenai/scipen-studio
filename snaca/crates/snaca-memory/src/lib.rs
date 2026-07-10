@@ -1,4 +1,4 @@
-//! `snaca-memory` — long-term memory (M3).
+//! `snaca-memory` — long-term memory.
 //!
 //! ## Layout
 //!
@@ -15,41 +15,40 @@
 //!
 //! - [`MemoryScope`]   — the four well-known buckets
 //! - [`MemoryStore`]   — file-tree CRUD + index renderer
-//! - [`IndexedMemoryStore`] — `MemoryStore` + vector index, used by the
-//!   engine for cosine retrieval at turn start
-//! - [`Embedder`]      — embedding trait; production impl is
-//!   [`FastEmbedEmbedder`] under the `fastembed` feature
-//! - [`import_one`] / [`import_bundle`] — IM-attachment ingestion
-//!   (MIME sniff → chunk → embed → store), single file or bundled ZIP
+//! - [`import_one`] / [`import_bundle`] — bulk ingestion of text /
+//!   markdown / source files / PDFs as a single memory entry per
+//!   source. DOCX / XLSX / PPTX are routed to the out-of-process
+//!   `office-extract` skill via a typed
+//!   [`MemoryError::ExternalExtractorRequired`] error.
+//!
+//! Vector embedding, cosine recall, and reranker live elsewhere — they
+//! were removed when the engine adopted the frozen-snapshot memory
+//! model. The file tree is the single source of truth.
 
-pub mod chunk;
-pub mod classify;
-pub mod embed;
-#[cfg(feature = "fastembed")]
-pub mod fastembed_backend;
+pub mod approval;
 pub mod import;
 #[cfg(feature = "bundle")]
 pub mod import_zip;
-pub mod indexed;
 #[cfg(feature = "pdf")]
 pub mod pdf_extract;
+pub mod provider;
 pub mod scope;
+pub mod snapshot;
 pub mod store;
+pub mod threat;
 
-pub use chunk::{chunk_markdown, chunk_recursive, ChunkConfig};
-pub use classify::{
-    ConstantClassifier, ImportClassifier, ImportClassifierKind, LlmImportClassifier,
-    SharedClassifier,
+pub use approval::{
+    approve as approve_pending, list_pending, reject as reject_pending, stage as stage_pending,
+    Pending,
 };
 pub use import::{import_one, ImportConfig, ImportReport, ImportSource, SourceKind};
 #[cfg(feature = "bundle")]
 pub use import_zip::{import_bundle, MAX_MEMBER_BYTES};
-pub use embed::{cosine, EmbedError, EmbedResult, Embedder, HashEmbedder};
-#[cfg(feature = "fastembed")]
-pub use fastembed_backend::{FastEmbedConfig, FastEmbedEmbedder};
-pub use indexed::{IndexedMemoryStore, SearchHit};
+pub use provider::FileTreeMemoryProvider;
 pub use scope::MemoryScope;
+pub use snapshot::{render as render_snapshot, RenderConfig, Snapshot};
 pub use store::{
     parse_frontmatter, render_with_frontmatter, sanitize_name, MemoryEntry, MemoryError,
     MemoryMeta, MemoryResult, MemoryStore,
 };
+pub use threat::{scan as threat_scan, ThreatHit};

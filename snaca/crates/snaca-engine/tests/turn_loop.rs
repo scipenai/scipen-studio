@@ -51,8 +51,8 @@ fn turn_request() -> TurnRequest {
         thread_id: ThreadId::new("chat_1"),
         user_text: "hello".into(),
         message_id: None,
-        ephemeral_system: None,
     }
+    ephemeral_system: None,
 }
 
 #[tokio::test]

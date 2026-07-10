@@ -10,7 +10,9 @@ use async_trait::async_trait;
 use futures::stream::{self, BoxStream};
 use serde_json::json;
 use snaca_core::{ContentBlock, ProjectId, Role, TenantId, ThreadId};
-use snaca_engine::{Engine, EngineConfig, TurnRequest};
+use snaca_engine::{
+    Engine, EngineConfig, NoopApprovalGate, NoopQuestionGate, TurnEventListener, TurnRequest,
+};
 use snaca_llm::{
     ContentBlockStart, ContentDelta, LlmClient, LlmError, LlmResult, MessageRequest,
     MessageResponse, ProviderCaps, StopReason, StreamEvent,
@@ -28,7 +30,7 @@ use common::EchoTool;
 /// stream. Asserts the engine consumes streaming output, not just the
 /// non-streaming fallback.
 struct StreamingMockLlm {
-    queue: Mutex<Vec<Vec<StreamEvent>>>,
+    queue: Mutex<Vec<Vec<LlmResult<StreamEvent>>>>,
     /// Counter to make sure the streaming path was actually exercised.
     stream_calls: std::sync::atomic::AtomicUsize,
 }
@@ -42,6 +44,11 @@ impl StreamingMockLlm {
     }
 
     fn enqueue(&self, events: Vec<StreamEvent>) {
+        let mut q = self.queue.lock().unwrap();
+        q.push(events.into_iter().map(Ok).collect());
+    }
+
+    fn enqueue_results(&self, events: Vec<LlmResult<StreamEvent>>) {
         let mut q = self.queue.lock().unwrap();
         q.push(events);
     }
@@ -86,9 +93,7 @@ impl LlmClient for StreamingMockLlm {
             }
             q.remove(0)
         };
-        Ok(Box::pin(stream::iter(
-            events.into_iter().map(Ok::<_, LlmError>),
-        )))
+        Ok(Box::pin(stream::iter(events)))
     }
 }
 
@@ -117,8 +122,8 @@ fn turn_request(thread_id: &str) -> TurnRequest {
         thread_id: ThreadId::new(thread_id),
         user_text: "stream please".into(),
         message_id: None,
-        ephemeral_system: None,
     }
+    ephemeral_system: None,
 }
 
 /// Fluent helper — build the canonical event sequence the SSE parsers
@@ -146,6 +151,26 @@ fn text_stream(text: &str) -> Vec<StreamEvent> {
         },
         StreamEvent::MessageStop,
     ]
+}
+
+#[derive(Default)]
+struct RetryRecordingListener {
+    events: Mutex<Vec<StreamEvent>>,
+    retries: Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl TurnEventListener for RetryRecordingListener {
+    async fn on_event(&self, event: &StreamEvent) {
+        self.events.lock().unwrap().push(event.clone());
+    }
+
+    async fn on_stream_retry(&self, attempt: u8, error: &LlmError) {
+        self.retries
+            .lock()
+            .unwrap()
+            .push(format!("{attempt}:{error}"));
+    }
 }
 
 fn tool_call_stream(call_id: &str, tool: &str, input_json: &str) -> Vec<StreamEvent> {
@@ -277,12 +302,72 @@ async fn split_text_deltas_concatenate_into_one_block() {
     assert_eq!(outcome.assistant_text, "Hello, world");
 }
 
-/// Mock simulating DeepSeek on long-Chinese tool args:
-/// `create_message_stream` finalises with malformed JSON (the SSE-concat
-/// bug); `create_message` returns a clean response (non-streaming
-/// endpoint sidesteps it).
+#[tokio::test]
+async fn interrupted_stream_retries_same_request_and_discards_partial_response() {
+    let llm = Arc::new(StreamingMockLlm::new());
+    llm.enqueue_results(vec![
+        Ok(StreamEvent::MessageStart {
+            message_id: "broken".into(),
+            model: None,
+        }),
+        Ok(StreamEvent::ContentBlockStart {
+            index: 0,
+            block: ContentBlockStart::Text,
+        }),
+        Ok(StreamEvent::ContentBlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "partial ".into(),
+            },
+        }),
+        Err(LlmError::StreamInterrupted(
+            "error reading a body from connection -> Connection reset by peer".into(),
+        )),
+    ]);
+    llm.enqueue(text_stream("recovered"));
+
+    let (engine, db, _tmp) = fixture(llm.clone()).await;
+    let listener = Arc::new(RetryRecordingListener::default());
+    let outcome = engine
+        .handle_turn_full(
+            turn_request("c_stream_retry"),
+            Arc::new(NoopApprovalGate),
+            listener.clone(),
+            Arc::new(NoopQuestionGate),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.assistant_text, "recovered");
+    assert_eq!(llm.stream_call_count(), 2);
+    assert_eq!(listener.retries.lock().unwrap().len(), 1);
+
+    let msgs = db
+        .recent_messages(&ThreadId::new("c_stream_retry"), 10)
+        .await
+        .unwrap();
+    let assistant_msgs: Vec<_> = msgs
+        .iter()
+        .filter(|m| matches!(m.role, Role::Assistant))
+        .collect();
+    assert_eq!(assistant_msgs.len(), 1);
+    match &assistant_msgs[0].content[0] {
+        ContentBlock::Text { text } => assert_eq!(text, "recovered"),
+        other => panic!("got {other:?}"),
+    }
+}
+
+/// Mock that simulates DeepSeek's behaviour on long-Chinese tool args:
+/// `create_message_stream` returns a stream that finalises with
+/// malformed JSON (the SSE-concat bug); `create_message` returns a
+/// clean response (the non-streaming endpoint sidesteps the bug).
 struct StreamMalformedThenNonStreamSucceeds {
+    /// Stream behaviour: first call emits malformed JSON tool args;
+    /// subsequent calls emit a clean terminal text so the engine can
+    /// reach a normal end-of-turn on the next iteration.
     stream_calls: std::sync::atomic::AtomicUsize,
+    /// Non-stream behaviour: each pop returns the next pre-recorded
+    /// response. The first one is the "retry" — a valid tool_use.
     non_stream_queue: Mutex<std::collections::VecDeque<MessageResponse>>,
     non_stream_calls: std::sync::atomic::AtomicUsize,
 }
@@ -330,9 +415,9 @@ impl LlmClient for StreamMalformedThenNonStreamSucceeds {
         let n = self
             .stream_calls
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        // Only the first stream call emits malformed args; later
-        // iterations get a clean terminal so iteration 2 doesn't loop
-        // on the same bug forever.
+        // Only the first stream call emits the malformed args. Later
+        // iterations get a clean terminal — otherwise iteration 2
+        // would loop on the same bug forever.
         let events = if n == 0 {
             vec![
                 StreamEvent::MessageStart {
@@ -369,9 +454,9 @@ impl LlmClient for StreamMalformedThenNonStreamSucceeds {
 #[tokio::test]
 async fn malformed_streamed_tool_args_falls_back_to_non_streaming() {
     use snaca_core::{Message, MessageId, Usage};
-    // The response the non-streaming endpoint would return: a clean
-    // tool_use with valid JSON args. The engine should run it just like
-    // the streaming success path.
+    // Build the response the non-streaming endpoint would have
+    // returned: a clean tool_use block with valid JSON args. The
+    // engine should run that tool just like the streaming success path.
     let clean_resp = MessageResponse {
         id: "mock-non-stream".into(),
         message: Message {
@@ -404,6 +489,19 @@ async fn malformed_streamed_tool_args_falls_back_to_non_streaming() {
         EngineConfig::default_for("stream-broken-mock"),
     );
 
+    // After the tool runs we need a terminal response. The engine
+    // calls create_message_stream again for the second iteration —
+    // it'll fail "non-stream queue exhausted" path, but we expect
+    // stream to be hit. To keep the test focused, give the second
+    // iteration a working stream too. Simplest: cap max_iterations
+    // at 1 so the engine returns after one tool round-trip. But
+    // there's no max_iterations=1 shortcut. Instead: drop a fresh
+    // mock chain in front.
+    //
+    // To avoid coupling to iteration count, we just inspect the
+    // mock's counters and accept whatever error the second
+    // iteration's stream produces — the assertion we care about is
+    // that the non-streaming retry was issued exactly once.
     let outcome = engine
         .handle_turn(TurnRequest {
             tenant_id: TenantId::new("t"),
@@ -426,12 +524,13 @@ async fn malformed_streamed_tool_args_falls_back_to_non_streaming() {
         llm.stream_calls
             .load(std::sync::atomic::Ordering::Relaxed),
         2,
-        "iter 1 retries non-streaming, iter 2 produces the terminal"
+        "streaming path is attempted for both iterations; iter 1 retries non-streaming, iter 2 produces the terminal"
     );
 
     assert_eq!(outcome.assistant_text, "done");
 
-    // The recovered tool must have actually executed.
+    // Verify the recovered tool actually executed: there should be a
+    // tool_result message with "recovered" in the payload.
     let msgs = db
         .recent_messages(&ThreadId::new("c_retry"), 20)
         .await
@@ -454,9 +553,11 @@ async fn malformed_streamed_tool_args_falls_back_to_non_streaming() {
     assert!(txt.contains("recovered"), "tool result missing: {txt}");
 }
 
-/// Mock where DeepSeek emits invalid JSON in *both* streaming AND
-/// non-streaming for the same call; then iteration 2 (after the engine
-/// persists a User feedback message) finally returns clean text.
+/// Mock that simulates the case the new MalformedToolArgs recovery
+/// targets: DeepSeek emits invalid JSON in *both* streaming AND
+/// non-streaming responses for the same long-Chinese tool call. Then,
+/// on the second iteration (after the engine persists a User feedback
+/// message), the model finally gets it right and returns clean text.
 struct BothPathsMalformedThenRecovers {
     stream_calls: std::sync::atomic::AtomicUsize,
     non_stream_calls: std::sync::atomic::AtomicUsize,
@@ -489,9 +590,10 @@ impl LlmClient for BothPathsMalformedThenRecovers {
 
     async fn create_message(&self, _req: MessageRequest) -> LlmResult<MessageResponse> {
         // The engine wraps any non-streaming-retry failure back into
-        // MalformedToolArgs, so returning MalformedResponse here exercises
-        // the path where DeepSeek's non-streaming endpoint *also* returns
-        // broken JSON.
+        // LlmError::MalformedToolArgs with the original message, so
+        // returning `MalformedResponse` here exercises exactly the path
+        // that fires when DeepSeek's non-streaming endpoint *also*
+        // returns broken JSON (the column 783 case in the log).
         self.non_stream_calls
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Err(LlmError::MalformedResponse(
@@ -507,6 +609,10 @@ impl LlmClient for BothPathsMalformedThenRecovers {
         let n = self
             .stream_calls
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // Iteration 1 hits the malformed-args bug. Iteration 2 (after
+        // the engine's feedback message lands in history) emits clean
+        // terminal text — proves the recovery actually unblocked the
+        // turn rather than masking the error.
         let events = if n == 0 {
             vec![
                 StreamEvent::MessageStart {
@@ -568,8 +674,7 @@ async fn malformed_args_recovers_via_user_feedback_then_continues() {
 
     assert_eq!(outcome.assistant_text, "recovered");
     assert_eq!(
-        llm.stream_calls
-            .load(std::sync::atomic::Ordering::Relaxed),
+        llm.stream_calls.load(std::sync::atomic::Ordering::Relaxed),
         2,
         "iter 1 fails malformed, iter 2 produces terminal text"
     );
@@ -580,8 +685,10 @@ async fn malformed_args_recovers_via_user_feedback_then_continues() {
         "non-streaming retry runs exactly once (and also fails)"
     );
 
-    // A User-role feedback message describing the parse error must be
-    // persisted between iter 1 and iter 2.
+    // The recovery contract is that a User-role feedback message
+    // describing the parse error must be persisted between iter 1 and
+    // iter 2. Without it the model has no signal about what went wrong
+    // and the loop would either repeat or silently swallow the error.
     let msgs = db
         .recent_messages(&ThreadId::new("c_malformed_recovery"), 20)
         .await
@@ -633,8 +740,7 @@ async fn malformed_args_recovery_disabled_surfaces_error() {
     );
     // No second iteration should have run.
     assert_eq!(
-        llm.stream_calls
-            .load(std::sync::atomic::Ordering::Relaxed),
+        llm.stream_calls.load(std::sync::atomic::Ordering::Relaxed),
         1,
     );
 }
@@ -667,4 +773,153 @@ async fn mid_stream_error_aborts_turn() {
     // Engine surfaces it as an LLM error.
     let s = format!("{err}");
     assert!(s.contains("rate limited"), "got: {s}");
+}
+
+/// Collects every `ContentDelta::Text` the engine forwards to the
+/// listener — i.e. exactly what an IM channel would render to the user.
+#[derive(Default)]
+struct TextRecordingListener {
+    text: Mutex<String>,
+}
+
+#[async_trait]
+impl TurnEventListener for TextRecordingListener {
+    async fn on_event(&self, event: &StreamEvent) {
+        if let StreamEvent::ContentBlockDelta {
+            delta: ContentDelta::Text { text },
+            ..
+        } = event
+        {
+            self.text.lock().unwrap().push_str(text);
+        }
+    }
+}
+
+/// The model echoes our injected `<memory-context>` fence back in its
+/// streamed text, split across chunk boundaries. The scrubber must
+/// strip it from BOTH the user-facing stream (listener) and the
+/// next-turn transcript (the persisted assistant message), without
+/// dropping the legitimate text on either side of the fence.
+#[tokio::test]
+async fn streamed_memory_context_fence_is_scrubbed_from_listener_and_transcript() {
+    let llm = Arc::new(StreamingMockLlm::new());
+    // One text block whose deltas, concatenated, are:
+    //   "before <memory-context>poison</memory-context> after"
+    // The fence open straddles two chunks (`<memo` / `ry-context>`).
+    llm.enqueue(vec![
+        StreamEvent::MessageStart {
+            message_id: "m".into(),
+            model: None,
+        },
+        StreamEvent::ContentBlockStart {
+            index: 0,
+            block: ContentBlockStart::Text,
+        },
+        StreamEvent::ContentBlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "before <memo".into(),
+            },
+        },
+        StreamEvent::ContentBlockDelta {
+            index: 0,
+            delta: ContentDelta::Text {
+                text: "ry-context>poison</memory-context> after".into(),
+            },
+        },
+        StreamEvent::ContentBlockStop { index: 0 },
+        StreamEvent::MessageDelta {
+            stop_reason: Some(StopReason::EndTurn),
+            usage: None,
+        },
+        StreamEvent::MessageStop,
+    ]);
+
+    let (engine, db, _tmp) = fixture(llm).await;
+    let listener = Arc::new(TextRecordingListener::default());
+    let outcome = engine
+        .handle_turn_full(
+            turn_request("c_scrub"),
+            Arc::new(NoopApprovalGate),
+            listener.clone(),
+            Arc::new(NoopQuestionGate),
+        )
+        .await
+        .unwrap();
+
+    // User-facing stream: fence content gone, surrounding text intact.
+    let streamed = listener.text.lock().unwrap().clone();
+    assert!(
+        !streamed.contains("poison"),
+        "listener saw fence body: {streamed:?}"
+    );
+    assert!(
+        !streamed.contains("memory-context"),
+        "listener saw fence tag: {streamed:?}"
+    );
+    assert!(
+        streamed.contains("before "),
+        "listener lost pre-fence text: {streamed:?}"
+    );
+    assert!(
+        streamed.contains("after"),
+        "listener lost post-fence text: {streamed:?}"
+    );
+
+    // Accumulated assistant text (what the next turn / extractor reads).
+    assert!(!outcome.assistant_text.contains("poison"));
+    assert!(!outcome.assistant_text.contains("memory-context"));
+    assert!(outcome.assistant_text.contains("before "));
+    assert!(outcome.assistant_text.contains("after"));
+
+    // Persisted transcript must match — this is the surface the
+    // post-turn extractor mines, so a leak here would re-ingest our
+    // own injected context.
+    let msgs = db
+        .recent_messages(&ThreadId::new("c_scrub"), 10)
+        .await
+        .unwrap();
+    let assistant = msgs
+        .iter()
+        .find(|m| matches!(m.role, Role::Assistant))
+        .expect("assistant message persisted");
+    match &assistant.content[0] {
+        ContentBlock::Text { text } => {
+            assert!(
+                !text.contains("poison"),
+                "transcript leaked fence body: {text:?}"
+            );
+            assert!(!text.contains("memory-context"));
+        }
+        other => panic!("got {other:?}"),
+    }
+}
+
+/// An ordinary, fence-free streamed response must pass through the
+/// scrubber byte-for-byte — no held-back tail, no dropped text.
+#[tokio::test]
+async fn streamed_plain_text_is_unchanged_by_scrubber() {
+    let llm = Arc::new(StreamingMockLlm::new());
+    llm.enqueue(text_stream("just a normal answer with a < less-than sign"));
+
+    let (engine, _db, _tmp) = fixture(llm).await;
+    let listener = Arc::new(TextRecordingListener::default());
+    let outcome = engine
+        .handle_turn_full(
+            turn_request("c_plain"),
+            Arc::new(NoopApprovalGate),
+            listener.clone(),
+            Arc::new(NoopQuestionGate),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        outcome.assistant_text,
+        "just a normal answer with a < less-than sign"
+    );
+    assert_eq!(
+        listener.text.lock().unwrap().clone(),
+        "just a normal answer with a < less-than sign"
+    );
 }

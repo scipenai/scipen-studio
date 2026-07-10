@@ -166,8 +166,8 @@ impl Tool for TodoWriteTool {
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> ToolResult {
-        let parsed: TodoWriteInput = serde_json::from_value(input)
-            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let parsed: TodoWriteInput =
+            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
         Self::validate(&parsed.todos)?;
 
         let path = state_path(ctx.workspace_root());
@@ -307,7 +307,13 @@ mod tests {
     async fn rejects_too_many_items() {
         let dir = tempfile::tempdir().unwrap();
         let too_many: Vec<Value> = (0..MAX_TODOS + 1)
-            .map(|i| item(&format!("item-{i}"), &format!("item-{i}"), TodoStatus::Pending))
+            .map(|i| {
+                item(
+                    &format!("item-{i}"),
+                    &format!("item-{i}"),
+                    TodoStatus::Pending,
+                )
+            })
             .collect();
         let err = TodoWriteTool
             .execute(json!({"todos": too_many}), &ctx(dir.path()))

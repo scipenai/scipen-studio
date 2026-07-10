@@ -16,6 +16,18 @@ pub mod host_to_plugin {
     pub const MESSAGE_UPDATE: &str = "message.update";
     pub const CARD_SEND: &str = "card.send";
     pub const APPROVAL_PRESENT: &str = "approval.present";
+    /// Present a structured multiple-choice question (1-4 questions, each
+    /// with 2-4 options, optional Other) to the user via the plugin. The
+    /// plugin renders an interactive card; the user's selection arrives
+    /// later as `event.question_callback` keyed by `callback_token`.
+    pub const QUESTION_PRESENT: &str = "question.present";
+    /// Tell the plugin a previously-presented question is no longer
+    /// answerable (host-side timeout / turn cancel). Plugin should
+    /// finalize the card (replace interactive elements with a "已取消"
+    /// / "已超时" note) and drop its local state for `callback_token`.
+    /// Fire-and-forget from the host's perspective — the plugin acks
+    /// but the host doesn't block on it.
+    pub const QUESTION_CANCEL: &str = "question.cancel";
     pub const FILE_UPLOAD: &str = "file.upload";
     pub const FILE_DOWNLOAD: &str = "file.download";
     pub const ACKNOWLEDGE: &str = "acknowledge";
@@ -35,6 +47,12 @@ pub mod plugin_to_host {
     /// to keep burning tokens / tools.
     pub const EVENT_MESSAGE_RECALLED: &str = "event.message_recalled";
     pub const EVENT_APPROVAL_CALLBACK: &str = "event.approval_callback";
+    /// User submitted an answer to a `question.present` card. Plugin sends
+    /// this once per card (form submit on multi-question cards delivers
+    /// all answers at once). Routed by `callback_token` to wake the
+    /// pending `request_question` future in the supervisor's question
+    /// registry.
+    pub const EVENT_QUESTION_CALLBACK: &str = "event.question_callback";
     pub const EVENT_ERROR: &str = "event.error";
     pub const LOG_WRITE: &str = "log.write";
     pub const TOOL_ADVERTISE: &str = "tool.advertise";
@@ -92,6 +110,79 @@ pub struct ApprovalPresentParams {
     pub options: Vec<String>,
     pub callback_token: String,
     pub timeout_sec: u64,
+}
+
+/// One option in a [`Question`]. `id` is the stable wire identifier the
+/// plugin echoes back in [`QuestionAnswer::selected_option_ids`]; `label`
+/// is what the user sees on the card button / select item.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuestionOption {
+    pub id: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Optional preview content (markdown) the plugin may render next to
+    /// the option. Used for visual comparisons (code snippets, ASCII
+    /// mockups). Plugins without preview support ignore this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+}
+
+/// One question in a [`QuestionPresentParams`]. `id` is the stable wire
+/// identifier (qid) the plugin echoes back in
+/// [`QuestionAnswer::question_id`]; `question` is the user-facing prompt.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Question {
+    pub id: String,
+    pub question: String,
+    /// Short label (~12 chars) the plugin may render as a chip/tag above
+    /// the question. Optional.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+    /// 2-4 options, IDs unique within this question.
+    pub options: Vec<QuestionOption>,
+    /// When true, render as multi-select (checkbox / multi-select picker)
+    /// and accept multiple `selected_option_ids`. Default single-select.
+    #[serde(default)]
+    pub multi_select: bool,
+    /// When true (default), the plugin appends an implicit "Other" choice
+    /// that lets the user type free-form text. Answer is delivered via
+    /// [`QuestionAnswer::other_text`].
+    #[serde(default = "default_true")]
+    pub allow_other: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Host -> plugin: present 1-4 structured multiple-choice questions to
+/// the user. Plugin renders an interactive card (or falls back to text
+/// for non-interactive channels) and eventually fires
+/// `event.question_callback` carrying the matching `callback_token`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuestionPresentParams {
+    pub tenant_id: String,
+    pub chat_id: String,
+    pub questions: Vec<Question>,
+    pub callback_token: String,
+    pub timeout_sec: u64,
+}
+
+/// Host -> plugin: cancel a previously-presented question. Plugin
+/// should finalize the card (e.g. PATCH to "⏰ 已超时" / "❌ 已取消")
+/// and forget any local state keyed by `callback_token`. Idempotent —
+/// plugins should treat an unknown token as a no-op so a late cancel
+/// after the user has already answered doesn't crash.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuestionCancelParams {
+    pub tenant_id: String,
+    pub chat_id: String,
+    pub callback_token: String,
+    /// Short human-readable reason rendered into the finalized card
+    /// ("timeout", "turn cancelled", ...). Plugin may localise.
+    #[serde(default)]
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -213,6 +304,44 @@ pub struct ApprovalCallbackParams {
     pub callback_token: String,
     pub decision: ApprovalDecision,
     pub user_id: String,
+    pub decided_at: String,
+}
+
+/// One question's answer in a [`QuestionCallbackParams`]. `question_id`
+/// matches the [`Question::id`] the host sent. For single-select
+/// questions `selected_option_ids` holds 0 or 1 element; for multi-select
+/// it may hold 0..N. When the user picked the "Other" affordance the
+/// option ids are empty (or absent) and `other_text` carries the
+/// free-form input.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuestionAnswer {
+    pub question_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_option_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub other_text: Option<String>,
+    /// Optional free-text annotation the user attached to this answer
+    /// (e.g. a note explaining their choice). Reserved for future card
+    /// UIs that surface a notes field; plugins without that affordance
+    /// leave it unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+/// Plugin -> host: user finished answering a `question.present`. All
+/// answers for the card's questions arrive in one notification (form
+/// submit), keyed back to the host's pending future via
+/// `callback_token`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuestionCallbackParams {
+    pub auth: String,
+    pub callback_token: String,
+    pub answers: Vec<QuestionAnswer>,
+    /// IM user who actually clicked submit. In group chats this is how
+    /// the host attributes the answer; in DMs it equals the
+    /// conversation's sole participant.
+    pub user_id: String,
+    /// ISO-8601 UTC timestamp, plugin-clock.
     pub decided_at: String,
 }
 
@@ -352,7 +481,108 @@ mod tests {
     fn method_constants_are_strings_in_use() {
         assert_eq!(host_to_plugin::INITIALIZE, "initialize");
         assert_eq!(host_to_plugin::HEALTH_PING, "health.ping");
-        assert_eq!(plugin_to_host::EVENT_MESSAGE_RECEIVED, "event.message_received");
+        assert_eq!(
+            plugin_to_host::EVENT_MESSAGE_RECEIVED,
+            "event.message_received"
+        );
+        assert_eq!(host_to_plugin::QUESTION_PRESENT, "question.present");
+        assert_eq!(
+            plugin_to_host::EVENT_QUESTION_CALLBACK,
+            "event.question_callback"
+        );
+    }
+
+    #[test]
+    fn question_roundtrips_with_all_fields() {
+        let p = QuestionPresentParams {
+            tenant_id: "t1".into(),
+            chat_id: "c1".into(),
+            questions: vec![Question {
+                id: "q_0".into(),
+                question: "Pick one?".into(),
+                header: Some("Choice".into()),
+                options: vec![
+                    QuestionOption {
+                        id: "opt_0".into(),
+                        label: "A".into(),
+                        description: Some("first".into()),
+                        preview: None,
+                    },
+                    QuestionOption {
+                        id: "opt_1".into(),
+                        label: "B".into(),
+                        description: None,
+                        preview: Some("```rust\nfn x() {}\n```".into()),
+                    },
+                ],
+                multi_select: false,
+                allow_other: true,
+            }],
+            callback_token: "tok-1".into(),
+            timeout_sec: 300,
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        let back: QuestionPresentParams = serde_json::from_str(&s).unwrap();
+        assert_eq!(p, back);
+    }
+
+    #[test]
+    fn question_allow_other_defaults_true() {
+        // `allow_other` is omitted on the wire — deserialization should
+        // fall back to true so existing plugins keep the Other affordance.
+        let raw = json!({
+            "id": "q_0", "question": "?",
+            "options": [{"id":"a","label":"A"}, {"id":"b","label":"B"}]
+        });
+        let q: Question = serde_json::from_value(raw).unwrap();
+        assert!(q.allow_other);
+        assert!(!q.multi_select);
+    }
+
+    #[test]
+    fn question_cancel_roundtrips_and_constant_present() {
+        assert_eq!(host_to_plugin::QUESTION_CANCEL, "question.cancel");
+        let p = QuestionCancelParams {
+            tenant_id: "t".into(),
+            chat_id: "c".into(),
+            callback_token: "tok".into(),
+            reason: "timeout".into(),
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        let back: QuestionCancelParams = serde_json::from_str(&s).unwrap();
+        assert_eq!(p, back);
+        // Reason is `#[serde(default)]` — wire round-trip with empty
+        // string must still work.
+        let raw = json!({"tenant_id": "t", "chat_id": "c", "callback_token": "tok"});
+        let parsed: QuestionCancelParams = serde_json::from_value(raw).unwrap();
+        assert_eq!(parsed.reason, "");
+    }
+
+    #[test]
+    fn question_callback_roundtrips() {
+        let p = QuestionCallbackParams {
+            auth: "tok".into(),
+            callback_token: "cb-1".into(),
+            answers: vec![
+                QuestionAnswer {
+                    question_id: "q_0".into(),
+                    selected_option_ids: vec!["opt_1".into()],
+                    other_text: None,
+                    notes: None,
+                },
+                QuestionAnswer {
+                    question_id: "q_1".into(),
+                    selected_option_ids: vec![],
+                    other_text: Some("free-form".into()),
+                    notes: Some("note text".into()),
+                },
+            ],
+            user_id: "u1".into(),
+            decided_at: "2026-05-24T10:00:00Z".into(),
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        let back: QuestionCallbackParams = serde_json::from_str(&s).unwrap();
+        assert_eq!(p, back);
     }
 
     #[test]

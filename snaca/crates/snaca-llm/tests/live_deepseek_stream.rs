@@ -10,17 +10,15 @@
 use futures::StreamExt;
 use snaca_core::Message;
 use snaca_llm::deepseek::DeepSeekConfig;
-use snaca_llm::{
-    ContentDelta, DeepSeekClient, LlmClient, MessageRequest, StopReason, StreamEvent,
-};
+use snaca_llm::{ContentDelta, DeepSeekClient, LlmClient, MessageRequest, StopReason, StreamEvent};
 
 #[tokio::test]
 #[ignore = "requires DEEPSEEK_API_KEY; live network call"]
 async fn deepseek_streaming_responds_with_typewriter_deltas() {
     let key = std::env::var("DEEPSEEK_API_KEY").expect("DEEPSEEK_API_KEY env var not set");
     let model = std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".into());
-    let base = std::env::var("DEEPSEEK_BASE_URL")
-        .unwrap_or_else(|_| "https://api.deepseek.com".into());
+    let base =
+        std::env::var("DEEPSEEK_BASE_URL").unwrap_or_else(|_| "https://api.deepseek.com".into());
 
     let client = DeepSeekClient::new(
         DeepSeekConfig::new(&key)
@@ -31,12 +29,13 @@ async fn deepseek_streaming_responds_with_typewriter_deltas() {
 
     let req = MessageRequest::new(&model)
         .with_system("You are SNACA. Reply in one short English sentence.")
-        .with_messages(vec![Message::user_text(
-            "Count to three, comma-separated.",
-        )])
+        .with_messages(vec![Message::user_text("Count to three, comma-separated.")])
         .with_max_tokens(64);
 
-    let mut stream = client.create_message_stream(req).await.expect("open stream");
+    let mut stream = client
+        .create_message_stream(req)
+        .await
+        .expect("open stream");
 
     let mut accumulated = String::new();
     let mut event_count = 0;
@@ -81,7 +80,10 @@ async fn deepseek_streaming_responds_with_typewriter_deltas() {
 
     assert!(got_message_start, "missing message_start");
     assert!(got_message_stop, "missing message_stop");
-    assert!(event_count > 3, "expected several events; got {event_count}");
+    assert!(
+        event_count > 3,
+        "expected several events; got {event_count}"
+    );
     assert!(
         delta_count >= 1,
         "expected at least one text_delta; got {delta_count}"

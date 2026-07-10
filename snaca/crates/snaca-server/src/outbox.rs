@@ -36,10 +36,11 @@ use snaca_channel_protocol::methods::{
     MessageUpdateParams,
 };
 use snaca_state::{Database, NewOutboxEntry, OutboxKind, OutboxRow};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Notify;
-use tokio::task::JoinHandle;
+use tokio::sync::{mpsc, Notify};
+use tokio::task::{AbortHandle, JoinHandle};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -85,6 +86,12 @@ const INBOUND_DEDUP_RETENTION_DAYS: i64 = 1;
 /// How many ticks between purge passes. ~5 minutes at WORKER_TICK=2s is
 /// plenty given how rarely outbound rows churn.
 const PURGE_EVERY_TICKS: u32 = 150;
+
+/// How long a per-chat dispatch actor sleeps with an empty mailbox
+/// before exiting. The main worker loop will respawn it on demand if
+/// fresh rows arrive for that chat — this just keeps idle long-tail
+/// chats from each retaining a tokio task forever.
+const ACTOR_IDLE_TTL: Duration = Duration::from_secs(300);
 
 /// How far into the future to set a fresh row's `next_attempt_at` when the
 /// caller will do an inline first-try right after enqueue. Reserves a
@@ -137,8 +144,7 @@ fn next_attempt_after(attempts_so_far: u32) -> DateTime<Utc> {
         .get(idx)
         .copied()
         .unwrap_or_else(|| *BACKOFF_SCHEDULE.last().expect("BACKOFF_SCHEDULE non-empty"));
-    Utc::now()
-        + ChronoDuration::from_std(dur).unwrap_or_else(|_| ChronoDuration::seconds(5))
+    Utc::now() + ChronoDuration::from_std(dur).unwrap_or_else(|_| ChronoDuration::seconds(5))
 }
 
 // ---------------------------------------------------------------------
@@ -215,7 +221,10 @@ pub async fn update_message(
     let content_for_fallback = params.content.clone();
     let tenant_for_fallback = params.tenant_id.clone();
     let res = plugin
-        .call_method::<MessageUpdateParams, serde_json::Value>(host_to_plugin::MESSAGE_UPDATE, params)
+        .call_method::<MessageUpdateParams, serde_json::Value>(
+            host_to_plugin::MESSAGE_UPDATE,
+            params,
+        )
         .await
         .map(|_| None);
     handle_first_attempt(
@@ -405,17 +414,33 @@ pub fn spawn_worker(
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         info!(plugin=%plugin_name, "outbox worker started");
+        let (exits_tx, mut exits_rx) = mpsc::unbounded_channel::<String>();
+        let mut actors = ActorMap::new();
         let mut tick: u32 = 0;
+
         loop {
+            // Drain idle-exit notifications from per-chat actors so the
+            // map doesn't carry dead entries. Drained non-blocking; the
+            // actor may have already been respawned for a fresh job, in
+            // which case we leave the new entry alone.
+            while let Ok(chat_id) = exits_rx.try_recv() {
+                if let Some(actor) = actors.0.get(&chat_id) {
+                    if actor.tx.is_closed() {
+                        actors.0.remove(&chat_id);
+                    }
+                }
+            }
+
             tokio::select! {
                 _ = shutdown.notified() => {
                     info!(plugin=%plugin_name, "outbox worker shutting down");
+                    // ActorMap::drop aborts every still-running actor.
                     return;
                 }
                 _ = tokio::time::sleep(WORKER_TICK) => {}
             }
             tick = tick.wrapping_add(1);
-            if tick % PURGE_EVERY_TICKS == 0 {
+            if tick.is_multiple_of(PURGE_EVERY_TICKS) {
                 let outbox_cutoff = Utc::now() - ChronoDuration::days(RETENTION_DAYS);
                 match db.outbox_purge_delivered_older_than(outbox_cutoff).await {
                     Ok(n) if n > 0 => {
@@ -426,8 +451,7 @@ pub fn spawn_worker(
                         warn!(plugin=%plugin_name, error=%e, "outbox: purge failed")
                     }
                 }
-                let dedup_cutoff =
-                    Utc::now() - ChronoDuration::days(INBOUND_DEDUP_RETENTION_DAYS);
+                let dedup_cutoff = Utc::now() - ChronoDuration::days(INBOUND_DEDUP_RETENTION_DAYS);
                 match db.inbound_dedup_purge_older_than(dedup_cutoff).await {
                     Ok(n) if n > 0 => {
                         info!(plugin=%plugin_name, purged=n, "inbound dedup: purged old rows")
@@ -460,11 +484,109 @@ pub fn spawn_worker(
                     continue;
                 }
             };
+            // Fan out rows by chat_id so different chats deliver in
+            // parallel. The claim order (`ORDER BY created_at ASC`) +
+            // per-chat single-consumer mpsc guarantees within-chat FIFO,
+            // matching the pre-refactor semantics.
             for row in rows {
-                dispatch_row(&db, &handle, row).await;
+                let chat_id = row.chat_id.clone();
+                route_outbox_row(&mut actors, &db, &handle, &exits_tx, chat_id, row);
             }
         }
     })
+}
+
+/// Job passed to a per-chat outbox actor. Each row carries the
+/// `PluginHandle` claimed in the dispatch tick — actors don't talk to
+/// the registry themselves, so a plugin respawn between ticks naturally
+/// causes the next batch to use a fresh handle.
+struct OutboxJob {
+    row: OutboxRow,
+    handle: PluginHandle,
+}
+
+struct OutboxChatActor {
+    tx: mpsc::UnboundedSender<OutboxJob>,
+    abort: AbortHandle,
+}
+
+/// Owns the worker's per-chat actor map; aborts every actor on drop
+/// (graceful shutdown or panic).
+struct ActorMap(HashMap<String, OutboxChatActor>);
+
+impl ActorMap {
+    fn new() -> Self {
+        Self(HashMap::new())
+    }
+}
+
+impl Drop for ActorMap {
+    fn drop(&mut self) {
+        for (_chat_id, actor) in self.0.drain() {
+            actor.abort.abort();
+        }
+    }
+}
+
+fn route_outbox_row(
+    actors: &mut ActorMap,
+    db: &Database,
+    handle: &PluginHandle,
+    exits: &mpsc::UnboundedSender<String>,
+    chat_id: String,
+    row: OutboxRow,
+) {
+    let actor = actors
+        .0
+        .entry(chat_id.clone())
+        .or_insert_with(|| spawn_chat_actor(db.clone(), chat_id.clone(), exits.clone()));
+
+    let job = OutboxJob {
+        row,
+        handle: handle.clone(),
+    };
+    if let Err(mpsc::error::SendError(job)) = actor.tx.send(job) {
+        // Actor exited between lookup and send. Respawn and retry once;
+        // if it still fails, the row stays pending in DB and will be
+        // re-claimed next tick.
+        warn!(chat=%chat_id, "outbox chat actor channel closed; respawning");
+        let fresh = spawn_chat_actor(db.clone(), chat_id.clone(), exits.clone());
+        if fresh.tx.send(job).is_err() {
+            warn!(chat=%chat_id, "respawned outbox chat actor rejected job; will retry next tick");
+        }
+        actors.0.insert(chat_id, fresh);
+    }
+}
+
+fn spawn_chat_actor(
+    db: Database,
+    chat_id: String,
+    exits: mpsc::UnboundedSender<String>,
+) -> OutboxChatActor {
+    let (tx, mut rx) = mpsc::unbounded_channel::<OutboxJob>();
+    let chat_id_task = chat_id;
+
+    let handle = tokio::spawn(async move {
+        debug!(chat=%chat_id_task, "outbox chat actor started");
+        loop {
+            tokio::select! {
+                msg = rx.recv() => {
+                    let Some(job) = msg else { break; };
+                    dispatch_row(&db, &job.handle, job.row).await;
+                }
+                _ = tokio::time::sleep(ACTOR_IDLE_TTL) => {
+                    let _ = exits.send(chat_id_task.clone());
+                    break;
+                }
+            }
+        }
+        debug!(chat=%chat_id_task, "outbox chat actor stopped");
+    });
+
+    OutboxChatActor {
+        tx,
+        abort: handle.abort_handle(),
+    }
 }
 
 async fn dispatch_row(db: &Database, plugin: &PluginHandle, row: OutboxRow) {
@@ -532,7 +654,10 @@ async fn dispatch_row(db: &Database, plugin: &PluginHandle, row: OutboxRow) {
 
     match res {
         Ok(platform_id) => {
-            if let Err(e) = db.outbox_mark_delivered(&row.id, platform_id.as_deref()).await {
+            if let Err(e) = db
+                .outbox_mark_delivered(&row.id, platform_id.as_deref())
+                .await
+            {
                 warn!(outbox_id=%row.id, error=%e, "outbox: mark_delivered failed");
             } else {
                 info!(
@@ -546,8 +671,7 @@ async fn dispatch_row(db: &Database, plugin: &PluginHandle, row: OutboxRow) {
         }
         Err(e) if is_retryable(&e) && attempts_after < MAX_ATTEMPTS => {
             let next = next_attempt_after(attempts_after);
-            if let Err(reschedule_err) = db.outbox_reschedule(&row.id, &e.to_string(), next).await
-            {
+            if let Err(reschedule_err) = db.outbox_reschedule(&row.id, &e.to_string(), next).await {
                 warn!(outbox_id=%row.id, error=%reschedule_err, "outbox: reschedule failed");
             } else {
                 debug!(
@@ -573,8 +697,7 @@ async fn dispatch_row(db: &Database, plugin: &PluginHandle, row: OutboxRow) {
             if matches!(row.kind, OutboxKind::UpdateMessage) {
                 // Worker-side fallback: same logic as the first-try path,
                 // but we reconstruct UpdateFallback from the row + payload.
-                if let Ok(upd) =
-                    serde_json::from_value::<MessageUpdateParams>(row.payload.clone())
+                if let Ok(upd) = serde_json::from_value::<MessageUpdateParams>(row.payload.clone())
                 {
                     enqueue_update_fallback_inner(
                         db,

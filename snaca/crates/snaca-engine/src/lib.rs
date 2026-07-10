@@ -21,23 +21,16 @@ pub mod error;
 pub mod listener;
 pub mod loop_guard;
 pub mod memory_extractor;
-pub mod memory_sink;
+pub mod memory_fence;
 pub mod question_gate;
-pub mod reranker;
 pub mod tools_factory;
 
 pub use approval::{
     ApprovalDecision, ApprovalError, ApprovalGate, ApprovalRequest, CountingGate,
     DenyAllApprovalGate, NoopApprovalGate,
 };
-pub use question_gate::{
-    FixedQuestionGate, NoopQuestionGate, QuestionAnswer, QuestionAnswers, QuestionError,
-    QuestionGate, QuestionGateSlot, QuestionOption, QuestionRequest, QuestionSpec,
-};
 pub use config::EngineConfig;
-pub use engine::{
-    ContextRequesterFactory, Engine, QuestionGateFactory, TurnOutcome, TurnRequest,
-};
+pub use engine::{ContextRequesterFactory, Engine, TurnOutcome, TurnRequest};
 pub use error::{EngineError, EngineResult};
 pub use listener::{NoopListener, RecordingListener, TurnEventListener};
 pub use loop_guard::{LoopGuard, LoopGuardConfig};
@@ -45,6 +38,8 @@ pub use memory_extractor::{
     ConstantExtractor, FilteredMemoryExtractor, LlmMemoryExtractor, MemoryExtractor,
     MemoryProposal, SensitiveFilter, SharedExtractor,
 };
-pub use memory_sink::{MemoryAction, MemoryEventSink, NoopMemorySink, SharedMemorySink};
-pub use reranker::{IdentityReranker, LlmReranker, RerankCandidate, Reranker, SharedReranker};
+pub use question_gate::{
+    FixedQuestionGate, NoopQuestionGate, QuestionAnswer, QuestionAnswers, QuestionError,
+    QuestionGate, QuestionGateSlot, QuestionOption, QuestionRequest, QuestionSpec,
+};
 pub use tools_factory::RuntimeToolFactory;

@@ -53,13 +53,8 @@ pub enum ContentBlock {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ImageSource {
-    Url {
-        url: String,
-    },
-    Base64 {
-        media_type: String,
-        data: String,
-    },
+    Url { url: String },
+    Base64 { media_type: String, data: String },
 }
 
 fn is_false(b: &bool) -> bool {
@@ -156,7 +151,10 @@ mod tests {
         let id = ToolUseId::new("toolu_01");
         let b = ContentBlock::tool_result(id.clone(), vec![ContentBlock::text("done")]);
         let s = serde_json::to_string(&b).unwrap();
-        assert!(!s.contains("is_error"), "is_error must be omitted by default; got {s}");
+        assert!(
+            !s.contains("is_error"),
+            "is_error must be omitted by default; got {s}"
+        );
     }
 
     #[test]

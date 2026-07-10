@@ -4,17 +4,9 @@
 //! time and cached so repeated `to_api_tools()` calls don't re-serialize.
 
 use crate::tool::Tool;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+pub use snaca_core::ToolSchema;
 use std::collections::HashMap;
 use std::sync::Arc;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolSchema {
-    pub name: String,
-    pub description: String,
-    pub input_schema: Value,
-}
 
 #[derive(Clone)]
 pub struct ToolRegistry {
@@ -100,7 +92,7 @@ mod tests {
     use crate::output::ToolOutput;
     use crate::tool::{ApprovalRequirement, Tool, ToolCapabilities};
     use async_trait::async_trait;
-    use serde_json::json;
+    use serde_json::{json, Value};
     use snaca_core::{ProjectId, SessionId, TenantId};
     use std::path::PathBuf;
 

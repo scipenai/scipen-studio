@@ -27,8 +27,7 @@
 //!   bulk import is for documents, not arbitrary binaries.
 
 use crate::import::{import_one, ImportConfig, ImportReport, ImportSource, SourceKind};
-use crate::store::MemoryError;
-use crate::IndexedMemoryStore;
+use crate::store::{MemoryError, MemoryStore};
 use std::io::{Cursor, Read};
 use tracing::{debug, info, warn};
 
@@ -75,7 +74,7 @@ fn member_filename(archive_filename: &str, member_path: &str) -> String {
 /// `archive_filename` is used only for naming. The bytes themselves
 /// are read from the supplied buffer.
 pub async fn import_bundle(
-    indexer: &IndexedMemoryStore,
+    store: &MemoryStore,
     archive_bytes: &[u8],
     archive_filename: &str,
     cfg: &ImportConfig,
@@ -87,7 +86,11 @@ pub async fn import_bundle(
         )))
     })?;
     let count = zip.len();
-    info!(archive = archive_filename, member_count = count, "starting bundle import");
+    info!(
+        archive = archive_filename,
+        member_count = count,
+        "starting bundle import"
+    );
 
     let mut reports = Vec::new();
     for i in 0..count {
@@ -103,10 +106,7 @@ pub async fn import_bundle(
         }
         let member_name_owned = entry.name().to_string();
         // Skip hidden files / dirs anywhere along the path.
-        if member_name_owned
-            .split('/')
-            .any(|seg| seg.starts_with('.'))
-        {
+        if member_name_owned.split('/').any(|seg| seg.starts_with('.')) {
             debug!(member = %member_name_owned, "skipping hidden member");
             continue;
         }
@@ -146,7 +146,7 @@ pub async fn import_bundle(
             filename: virtual_filename,
             kind: Some(kind),
         };
-        match import_one(indexer, source, cfg).await {
+        match import_one(store, source, cfg).await {
             Ok(report) => reports.push(report),
             Err(e) => {
                 warn!(member = %member_name_owned, error = %e, "skip member: import failed");
@@ -159,27 +159,12 @@ pub async fn import_bundle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::embed::HashEmbedder;
-    use crate::indexed::IndexedMemoryStore;
-    use crate::store::MemoryStore;
-    use snaca_core::{ProjectId, TenantId};
-    use snaca_state::Database;
     use std::io::Write as _;
-    use std::sync::Arc;
 
-    async fn fixture() -> (tempfile::TempDir, IndexedMemoryStore) {
+    fn fixture() -> (tempfile::TempDir, MemoryStore) {
         let tmp = tempfile::tempdir().unwrap();
         let store = MemoryStore::new(tmp.path().join("memory"));
-        let db = Database::open_in_memory().await.unwrap();
-        let embedder = Arc::new(HashEmbedder::new(64));
-        let idx = IndexedMemoryStore::new(
-            store,
-            db,
-            embedder,
-            TenantId::new("t"),
-            ProjectId::from_raw("p"),
-        );
-        (tmp, idx)
+        (tmp, store)
     }
 
     /// Build a ZIP in memory with the given (path, content) members.
@@ -188,9 +173,8 @@ mod tests {
         {
             let cursor = std::io::Cursor::new(&mut buf);
             let mut zw = zip::ZipWriter::new(cursor);
-            let opts: zip::write::SimpleFileOptions =
-                zip::write::SimpleFileOptions::default()
-                    .compression_method(zip::CompressionMethod::Stored);
+            let opts: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
             for (name, bytes) in members {
                 zw.start_file(*name, opts).unwrap();
                 zw.write_all(bytes).unwrap();
@@ -207,17 +191,11 @@ mod tests {
             ("notes.txt", b"some plain notes"),
             ("docs/spec.md", b"# Spec\n\nimplementation details"),
         ]);
-        let (_t, idx) = fixture().await;
-        let reports = import_bundle(
-            &idx,
-            &zip,
-            "bundle.zip",
-            &ImportConfig::default(),
-        )
-        .await
-        .unwrap();
+        let (_t, store) = fixture();
+        let reports = import_bundle(&store, &zip, "bundle.zip", &ImportConfig::default())
+            .await
+            .unwrap();
         assert_eq!(reports.len(), 3, "expected 3 imports; got {reports:?}");
-        // Each report's filename uses the archive prefix + flattened path.
         let filenames: Vec<_> = reports.iter().map(|r| r.filename.as_str()).collect();
         assert!(filenames.iter().any(|f| f.contains("readme")));
         assert!(filenames.iter().any(|f| f.contains("notes")));
@@ -232,15 +210,10 @@ mod tests {
             (".git/HEAD", b"ref: refs/heads/main"),
             ("docs/.draft.md", b"draft content"),
         ]);
-        let (_t, idx) = fixture().await;
-        let reports = import_bundle(
-            &idx,
-            &zip,
-            "bundle.zip",
-            &ImportConfig::default(),
-        )
-        .await
-        .unwrap();
+        let (_t, store) = fixture();
+        let reports = import_bundle(&store, &zip, "bundle.zip", &ImportConfig::default())
+            .await
+            .unwrap();
         assert_eq!(reports.len(), 1, "only `visible.md` should land");
         assert!(reports[0].filename.contains("visible"));
     }
@@ -248,28 +221,20 @@ mod tests {
     #[tokio::test]
     async fn bundle_skips_oversized_members() {
         let huge = vec![b'x'; (MAX_MEMBER_BYTES as usize) + 1];
-        let zip = build_zip(&[
-            ("ok.md", b"small body"),
-            ("oversized.txt", &huge),
-        ]);
-        let (_t, idx) = fixture().await;
-        let reports = import_bundle(
-            &idx,
-            &zip,
-            "bundle.zip",
-            &ImportConfig::default(),
-        )
-        .await
-        .unwrap();
+        let zip = build_zip(&[("ok.md", b"small body"), ("oversized.txt", &huge)]);
+        let (_t, store) = fixture();
+        let reports = import_bundle(&store, &zip, "bundle.zip", &ImportConfig::default())
+            .await
+            .unwrap();
         assert_eq!(reports.len(), 1, "only ok.md should land");
         assert!(reports[0].filename.contains("ok"));
     }
 
     #[tokio::test]
     async fn bundle_rejects_non_zip_input() {
-        let (_t, idx) = fixture().await;
+        let (_t, store) = fixture();
         let err = import_bundle(
-            &idx,
+            &store,
             b"not a zip file",
             "bad.zip",
             &ImportConfig::default(),
@@ -286,17 +251,10 @@ mod tests {
             ("alpha.md", b"# Alpha"),
             ("blob.pdf", b"%PDF-1.5 fake bytes"),
         ]);
-        let (_t, idx) = fixture().await;
-        let reports = import_bundle(
-            &idx,
-            &zip,
-            "bundle.zip",
-            &ImportConfig::default(),
-        )
-        .await
-        .unwrap();
-        // Only the markdown member processed — the PDF is silently
-        // skipped because no extractor is compiled in.
+        let (_t, store) = fixture();
+        let reports = import_bundle(&store, &zip, "bundle.zip", &ImportConfig::default())
+            .await
+            .unwrap();
         assert_eq!(reports.len(), 1);
         assert!(reports[0].filename.contains("alpha"));
     }

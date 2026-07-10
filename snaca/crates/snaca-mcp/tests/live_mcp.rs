@@ -64,7 +64,10 @@ async fn server_everything_echo_round_trips() {
         .expect("server-everything must expose `echo`");
 
     let out = echo
-        .execute(json!({"message": "ping from snaca"}), &dummy_ctx(&tenant, &project))
+        .execute(
+            json!({"message": "ping from snaca"}),
+            &dummy_ctx(&tenant, &project),
+        )
         .await
         .expect("echo should succeed");
     let text = out.render_text();
@@ -153,7 +156,10 @@ async fn idle_pool_entries_get_evicted_on_next_lookup() {
     let project = ProjectId::from_raw("p");
 
     // Warm alpha; pool now has one entry.
-    let _ = pool.client_for(&alpha, &project).await.expect("alpha spawn");
+    let _ = pool
+        .client_for(&alpha, &project)
+        .await
+        .expect("alpha spawn");
     assert_eq!(pool.active_clients().await.len(), 1);
 
     // Sleep past the TTL so alpha is "stale".
@@ -177,7 +183,10 @@ async fn idle_pool_entries_get_evicted_on_next_lookup() {
     );
 
     // Asking alpha back forces a fresh subprocess.
-    let _ = pool.client_for(&alpha, &project).await.expect("alpha respawn");
+    let _ = pool
+        .client_for(&alpha, &project)
+        .await
+        .expect("alpha respawn");
     let active = pool.active_clients().await;
     assert_eq!(
         active.len(),
@@ -206,22 +215,18 @@ async fn reaper_actively_sweeps_quiet_pools() {
     let project = ProjectId::from_raw("p");
 
     let tmp = tempfile::tempdir().unwrap();
-    let layout = snaca_workspace::WorkspaceLayout::new(
-        std::fs::canonicalize(tmp.path()).unwrap(),
-    )
-    .unwrap();
+    let layout =
+        snaca_workspace::WorkspaceLayout::new(std::fs::canonicalize(tmp.path()).unwrap()).unwrap();
     layout.ensure_project(&tenant, &project).unwrap();
 
     // 400 ms TTL, 150 ms reaper tick. The reaper skips its first
     // immediate tick, so we need to wait > TTL + one full period for
     // the entry to be reaped.
-    let manager = Arc::new(
-        McpManager::from_configs_with_layout_and_ttl(
-            &[config],
-            layout,
-            Duration::from_millis(400),
-        ),
-    );
+    let manager = Arc::new(McpManager::from_configs_with_layout_and_ttl(
+        &[config],
+        layout,
+        Duration::from_millis(400),
+    ));
     manager.start_reaper(Duration::from_millis(150));
 
     // Warm the pool; right after, exactly one entry exists.
@@ -269,18 +274,12 @@ async fn http_transport_surfaces_unreachable_url_as_init_error() {
     let addr = listener.local_addr().unwrap();
     drop(listener);
 
-    let mut config = McpServerConfig::http(
-        "remote-down",
-        format!("http://{}/mcp", addr),
-    );
+    let mut config = McpServerConfig::http("remote-down", format!("http://{}/mcp", addr));
     config.init_timeout_secs = Some(2);
 
-    let result = tokio::time::timeout(
-        Duration::from_secs(5),
-        McpClient::connect(&config),
-    )
-    .await
-    .expect("connect must not exceed outer 5s deadline");
+    let result = tokio::time::timeout(Duration::from_secs(5), McpClient::connect(&config))
+        .await
+        .expect("connect must not exceed outer 5s deadline");
 
     assert!(result.is_err(), "connect to dead URL must fail");
 }
@@ -299,8 +298,7 @@ async fn sandboxed_pool_still_serves_echo() {
     let npx = npx_path().expect("npx not on PATH");
 
     let tmp = tempfile::tempdir().unwrap();
-    let layout =
-        WorkspaceLayout::new(std::fs::canonicalize(tmp.path()).unwrap()).unwrap();
+    let layout = WorkspaceLayout::new(std::fs::canonicalize(tmp.path()).unwrap()).unwrap();
     let tenant = TenantId::new("sandboxed");
     let project = ProjectId::from_raw("p");
     layout.ensure_project(&tenant, &project).unwrap();

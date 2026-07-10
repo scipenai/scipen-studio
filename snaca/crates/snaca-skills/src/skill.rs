@@ -154,14 +154,16 @@ fn split_frontmatter<'a>(content: &'a str, path: &str) -> SkillResult<(&'a str, 
     // Move past "\n---" + the trailing newline (if any).
     let mut body_start = close_idx + 4;
     if let Some(rest) = after_open.get(body_start..) {
-        if let Some(stripped) = rest.strip_prefix("\r\n").or_else(|| rest.strip_prefix('\n')) {
+        if let Some(stripped) = rest
+            .strip_prefix("\r\n")
+            .or_else(|| rest.strip_prefix('\n'))
+        {
             body_start += rest.len() - stripped.len();
         }
     }
     let body = &after_open[body_start.min(after_open.len())..];
     Ok((yaml, body))
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -185,10 +187,7 @@ mod tests {
         );
         assert_eq!(s.frontmatter.name, "review");
         assert_eq!(s.frontmatter.description, "Review pending changes");
-        assert_eq!(
-            s.frontmatter.allowed_tools,
-            vec!["Read", "Grep", "Glob"]
-        );
+        assert_eq!(s.frontmatter.allowed_tools, vec!["Read", "Grep", "Glob"]);
         assert!(s.body.starts_with("# body"));
     }
 
@@ -200,12 +199,8 @@ mod tests {
 
     #[test]
     fn rejects_unterminated_frontmatter() {
-        let err = Skill::from_str(
-            "---\nname: x\nno closing\n",
-            SkillScope::Project,
-            None,
-        )
-        .unwrap_err();
+        let err =
+            Skill::from_str("---\nname: x\nno closing\n", SkillScope::Project, None).unwrap_err();
         assert!(matches!(err, SkillError::UnterminatedFrontmatter { .. }));
     }
 
@@ -217,17 +212,16 @@ mod tests {
             None,
         )
         .unwrap_err();
-        assert!(matches!(err, SkillError::MissingField { field: "name", .. }));
+        assert!(matches!(
+            err,
+            SkillError::MissingField { field: "name", .. }
+        ));
     }
 
     #[test]
     fn invalid_yaml_surfaces_yaml_error() {
-        let err = Skill::from_str(
-            "---\nname: [oops\n---\nbody\n",
-            SkillScope::Project,
-            None,
-        )
-        .unwrap_err();
+        let err = Skill::from_str("---\nname: [oops\n---\nbody\n", SkillScope::Project, None)
+            .unwrap_err();
         assert!(matches!(err, SkillError::Yaml { .. }));
     }
 

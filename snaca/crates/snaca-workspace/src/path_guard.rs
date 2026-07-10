@@ -26,9 +26,7 @@ pub enum WorkspaceError {
 
 pub fn resolve_within(root: &Path, input: &Path) -> Result<PathBuf, WorkspaceError> {
     if !root.is_absolute() {
-        return Err(WorkspaceError::RootNotAbsolute(
-            root.display().to_string(),
-        ));
+        return Err(WorkspaceError::RootNotAbsolute(root.display().to_string()));
     }
 
     let root_normalized = lexically_normalize(root);

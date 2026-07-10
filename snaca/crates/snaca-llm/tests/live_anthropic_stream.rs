@@ -22,8 +22,8 @@ use snaca_llm::{
 async fn anthropic_streaming_responds_with_typewriter_deltas() {
     let key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY env var not set");
     let model = std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "claude-sonnet-4-5".into());
-    let base = std::env::var("ANTHROPIC_BASE_URL")
-        .unwrap_or_else(|_| "https://api.anthropic.com".into());
+    let base =
+        std::env::var("ANTHROPIC_BASE_URL").unwrap_or_else(|_| "https://api.anthropic.com".into());
 
     let client = AnthropicClient::new(
         AnthropicConfig::new(&key)
@@ -34,12 +34,13 @@ async fn anthropic_streaming_responds_with_typewriter_deltas() {
 
     let req = MessageRequest::new(&model)
         .with_system("You are SNACA. Reply in one short English sentence.")
-        .with_messages(vec![Message::user_text(
-            "Count to three, comma-separated.",
-        )])
+        .with_messages(vec![Message::user_text("Count to three, comma-separated.")])
         .with_max_tokens(512);
 
-    let mut stream = client.create_message_stream(req).await.expect("open stream");
+    let mut stream = client
+        .create_message_stream(req)
+        .await
+        .expect("open stream");
 
     let mut accumulated = String::new();
     let mut event_count = 0;
@@ -84,7 +85,10 @@ async fn anthropic_streaming_responds_with_typewriter_deltas() {
 
     assert!(got_message_start, "missing message_start");
     assert!(got_message_stop, "missing message_stop");
-    assert!(event_count > 3, "expected several events; got {event_count}");
+    assert!(
+        event_count > 3,
+        "expected several events; got {event_count}"
+    );
     assert!(
         delta_count >= 1,
         "expected at least one text_delta; got {delta_count}"

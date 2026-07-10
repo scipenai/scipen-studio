@@ -31,10 +31,7 @@ impl Usage {
             (None, Some(b)) => self.cache_creation_input_tokens = Some(b),
             _ => {}
         }
-        match (
-            self.cache_read_input_tokens,
-            other.cache_read_input_tokens,
-        ) {
+        match (self.cache_read_input_tokens, other.cache_read_input_tokens) {
             (Some(a), Some(b)) => self.cache_read_input_tokens = Some(a + b),
             (None, Some(b)) => self.cache_read_input_tokens = Some(b),
             _ => {}

@@ -7,12 +7,40 @@
  * Run:
  *   node scripts/smoke-snaca-editor.mjs
  *
- * Requires snaca-editor.exe at D:\scipen\snaca\target\debug\.
+ * Resolves the binary from (in order): $SNACA_EDITOR_PATH, the staged
+ * resources/bin copy, then snaca/target/{release,debug}. Uses OS temp dirs
+ * for the workspace + metadata roots.
  */
 
 import { spawn } from 'node:child_process';
+import { existsSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const BIN = 'D:\\scipen\\snaca\\target\\debug\\snaca-editor.exe';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const rootDir = resolve(__dirname, '..');
+const exe = process.platform === 'win32' ? '.exe' : '';
+
+function resolveBinary() {
+  const candidates = [
+    process.env.SNACA_EDITOR_PATH,
+    join(rootDir, 'resources', 'bin', `snaca-editor${exe}`),
+    join(rootDir, 'snaca', 'target', 'release', `snaca-editor${exe}`),
+    join(rootDir, 'snaca', 'target', 'debug', `snaca-editor${exe}`),
+  ].filter(Boolean);
+  const found = candidates.find((p) => existsSync(p));
+  if (!found) {
+    console.error('FAIL: snaca-editor binary not found. Tried:\n  ' + candidates.join('\n  '));
+    process.exit(1);
+  }
+  return found;
+}
+
+const BIN = resolveBinary();
+const workspaceRoot = mkdtempSync(join(tmpdir(), 'snaca-smoke-ws-'));
+const metadataRoot = mkdtempSync(join(tmpdir(), 'snaca-smoke-meta-'));
+console.log(`[bin] ${BIN}`);
 
 const child = spawn(BIN, [], {
   stdio: ['pipe', 'pipe', 'pipe'],
@@ -88,8 +116,8 @@ async function main() {
   console.log('[2/4] session.open');
   const open = await send('session.open', {
     project_id: '550e8400-e29b-41d4-a716-446655440000',
-    workspace_root: 'D:/scipen/snaca',
-    metadata_root: 'D:/scipen/snaca-smoke-meta-studio',
+    workspace_root: workspaceRoot,
+    metadata_root: metadataRoot,
     display_name: 'studio smoke',
     project_type: 'latex',
   });

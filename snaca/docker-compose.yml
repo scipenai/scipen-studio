@@ -1,0 +1,23 @@
+services:
+  snaca:
+    build:
+      context: .
+    image: snaca:local
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SNACA_DIR: /app
+      RUST_LOG: info
+      SNACA_APPROVAL_MODE: allow
+      SNACA_BASH_RELAXED: "1"
+    volumes:
+      - snaca-config:/config
+      - snaca-data:/data
+
+volumes:
+  snaca-config:
+  snaca-data:

@@ -36,7 +36,7 @@ async fn seed(data_root: &std::path::Path) {
         id: ThreadId::new("thr-1"),
         tenant_id: alpha.clone(),
         project_id: p1.clone(),
-        title: String::new(),
+        title: "New conversation".to_string(),
     })
     .await
     .unwrap();
@@ -44,7 +44,7 @@ async fn seed(data_root: &std::path::Path) {
         id: ThreadId::new("thr-2"),
         tenant_id: alpha.clone(),
         project_id: p2.clone(),
-        title: String::new(),
+        title: "New conversation".to_string(),
     })
     .await
     .unwrap();
@@ -52,7 +52,7 @@ async fn seed(data_root: &std::path::Path) {
         id: ThreadId::new("thr-3"),
         tenant_id: beta.clone(),
         project_id: p1.clone(),
-        title: String::new(),
+        title: "New conversation".to_string(),
     })
     .await
     .unwrap();
@@ -82,12 +82,7 @@ async fn tenant_list_shows_seeded_tenants() {
     let bin = snaca_cli_binary();
     let stdout = run_cli(
         &bin,
-        &[
-            "tenant",
-            "list",
-            "--data-root",
-            data_root.to_str().unwrap(),
-        ],
+        &["tenant", "list", "--data-root", data_root.to_str().unwrap()],
     );
     assert!(stdout.contains("alpha"), "got: {stdout}");
     assert!(stdout.contains("beta"), "got: {stdout}");
@@ -128,7 +123,10 @@ async fn project_list_filters_by_tenant() {
         ],
     );
     assert!(stdout.contains("proj-one"));
-    assert!(!stdout.contains("proj-two"), "leaked alpha project: {stdout}");
+    assert!(
+        !stdout.contains("proj-two"),
+        "leaked alpha project: {stdout}"
+    );
 }
 
 #[tokio::test]
@@ -158,17 +156,14 @@ async fn empty_tenant_list_reports_no_tenants() {
     let data_root = tmp.path().join("data");
     std::fs::create_dir_all(&data_root).unwrap();
     // Open the DB so `state.sqlite` exists but no threads are inserted.
-    let _ = Database::open(data_root.join("state.sqlite")).await.unwrap();
+    let _ = Database::open(data_root.join("state.sqlite"))
+        .await
+        .unwrap();
 
     let bin = snaca_cli_binary();
     let stdout = run_cli(
         &bin,
-        &[
-            "tenant",
-            "list",
-            "--data-root",
-            data_root.to_str().unwrap(),
-        ],
+        &["tenant", "list", "--data-root", data_root.to_str().unwrap()],
     );
     assert!(stdout.contains("no tenants"), "got: {stdout}");
 }

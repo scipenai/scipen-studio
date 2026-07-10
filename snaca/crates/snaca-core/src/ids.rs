@@ -107,8 +107,14 @@ string_id!(
     "Identifier of a single tool invocation, propagated through the LLM round trip."
 );
 
-uuid_id!(SessionId, "Engine-side conversation session, internal to SNACA.");
-uuid_id!(MessageId, "Engine-side message identifier, internal to SNACA.");
+uuid_id!(
+    SessionId,
+    "Engine-side conversation session, internal to SNACA."
+);
+uuid_id!(
+    MessageId,
+    "Engine-side message identifier, internal to SNACA."
+);
 
 /// Project identifier — stable across renames. Two construction paths:
 /// - [`ProjectId::auto_from_chat`] — derived from IM `chat_id` via blake3,
@@ -152,6 +158,14 @@ impl fmt::Display for ProjectId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
     }
+}
+
+/// 12-char hex prefix of a fresh v4 UUID. Cheap, collision-resistant
+/// enough for log correlation, idempotency keys, and IM message ids
+/// (where collisions on the wire are scoped to a single chat/turn).
+pub fn short_uuid() -> String {
+    let s = Uuid::new_v4().simple().to_string();
+    s[..12].to_string()
 }
 
 #[cfg(test)]

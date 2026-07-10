@@ -16,8 +16,8 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use snaca_engine::{
-    QuestionError, QuestionGateSlot, QuestionOption as EngineOption, QuestionRequest,
+use snaca_agent_api::{
+    QuestionError, QuestionGate, QuestionGateSlot, QuestionOption as EngineOption, QuestionRequest,
     QuestionSpec,
 };
 use snaca_tools_api::{
@@ -164,8 +164,8 @@ impl Tool for AskUserQuestionTool {
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> ToolResult {
-        let parsed: Input = serde_json::from_value(input)
-            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let parsed: Input =
+            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
         validate_input(&parsed)?;
 
         let questions: Vec<QuestionSpec> = parsed
@@ -175,7 +175,7 @@ impl Tool for AskUserQuestionTool {
             .map(|(qi, q)| QuestionSpec {
                 id: format!("q_{qi}"),
                 question: q.question.clone(),
-                header: q.header.clone(),
+                header: normalize_header(q.header.as_deref()),
                 options: q
                     .options
                     .iter()
@@ -304,14 +304,6 @@ fn validate_input(input: &Input) -> Result<(), ToolError> {
                 q.question
             )));
         }
-        if let Some(h) = &q.header {
-            if h.chars().count() > MAX_HEADER_CHARS {
-                return Err(ToolError::InvalidInput(format!(
-                    "question {qi}: header exceeds {MAX_HEADER_CHARS} chars (got {})",
-                    h.chars().count()
-                )));
-            }
-        }
         if q.options.len() < MIN_OPTIONS || q.options.len() > MAX_OPTIONS {
             return Err(ToolError::InvalidInput(format!(
                 "question {qi}: options must be {MIN_OPTIONS}..={MAX_OPTIONS}; got {}",
@@ -342,7 +334,15 @@ fn validate_input(input: &Input) -> Result<(), ToolError> {
     Ok(())
 }
 
-fn gate_from_ctx(ctx: &ToolContext) -> Option<Arc<dyn snaca_engine::QuestionGate>> {
+fn normalize_header(header: Option<&str>) -> Option<String> {
+    let trimmed = header?.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.chars().take(MAX_HEADER_CHARS).collect())
+}
+
+fn gate_from_ctx(ctx: &ToolContext) -> Option<Arc<dyn QuestionGate>> {
     let opaque = ctx.question_gate_opaque()?;
     let slot = opaque.downcast::<QuestionGateSlot>().ok()?;
     Some(slot.gate())
@@ -351,8 +351,13 @@ fn gate_from_ctx(ctx: &ToolContext) -> Option<Arc<dyn snaca_engine::QuestionGate
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use snaca_agent_api::{
+        FixedQuestionGate, NoopQuestionGate, QuestionAnswer, QuestionAnswers, QuestionError,
+        QuestionGate, QuestionRequest,
+    };
     use snaca_core::{ProjectId, SessionId, TenantId};
-    use snaca_engine::{FixedQuestionGate, QuestionAnswer, QuestionAnswers, QuestionGate};
+    use std::sync::{Arc, Mutex};
 
     fn make_ctx(gate: Option<Arc<dyn QuestionGate>>) -> ToolContext {
         let tmp = std::env::temp_dir().join("snaca-ask-test");
@@ -382,6 +387,27 @@ mod tests {
         })
     }
 
+    struct RecordingQuestionGate {
+        seen: Arc<Mutex<Option<QuestionRequest>>>,
+    }
+
+    #[async_trait]
+    impl QuestionGate for RecordingQuestionGate {
+        async fn ask(&self, request: QuestionRequest) -> Result<QuestionAnswers, QuestionError> {
+            *self.seen.lock().expect("recording question gate mutex") = Some(request);
+            Ok(QuestionAnswers {
+                answers: vec![QuestionAnswer {
+                    question_id: "q_0".into(),
+                    selected_option_ids: vec!["opt_0".into()],
+                    other_text: None,
+                    notes: None,
+                }],
+                user_id: "u1".into(),
+                decided_at: "2026-05-24T00:00:00Z".into(),
+            })
+        }
+    }
+
     #[tokio::test]
     async fn accepts_minimal_input_and_returns_fixed_answer() {
         let gate = FixedQuestionGate::new(QuestionAnswers {
@@ -408,6 +434,31 @@ mod tests {
             .unwrap();
         assert_eq!(selected[0], "Chocolate");
         assert_eq!(value["user_id"], "u1");
+    }
+
+    #[tokio::test]
+    async fn truncates_overlong_header_before_gate() {
+        let seen = Arc::new(Mutex::new(None));
+        let ctx = make_ctx(Some(Arc::new(RecordingQuestionGate { seen: seen.clone() })));
+        let input = json!({
+            "questions": [{
+                "question": "Which auth method?",
+                "header": "Authentication Choice",
+                "options": [
+                    {"label": "OAuth"},
+                    {"label": "JWT"}
+                ]
+            }]
+        });
+
+        AskUserQuestionTool.execute(input, &ctx).await.unwrap();
+
+        let seen = seen
+            .lock()
+            .expect("recorded request mutex")
+            .clone()
+            .expect("gate should receive request");
+        assert_eq!(seen.questions[0].header.as_deref(), Some("Authenticati"));
     }
 
     #[tokio::test]
@@ -490,7 +541,7 @@ mod tests {
 
     #[tokio::test]
     async fn unsupported_gate_produces_clean_error() {
-        let ctx = make_ctx(Some(Arc::new(snaca_engine::NoopQuestionGate)));
+        let ctx = make_ctx(Some(Arc::new(NoopQuestionGate)));
         let err = AskUserQuestionTool
             .execute(good_input(), &ctx)
             .await

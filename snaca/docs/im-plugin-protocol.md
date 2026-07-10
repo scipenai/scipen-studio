@@ -1,7 +1,9 @@
 # SNACA IM Plugin Protocol
 
+[中文](./im-plugin-protocol.zh-CN.md) | English
+
 **Version:** 1.0 (draft)
-**Status:** in design — subject to change before M1 freeze.
+**Status:** draft / unstable while the 0.x series evolves.
 
 This document defines the wire protocol between the SNACA host process and IM
 plugins. Any plugin that conforms to this protocol can be hot-plugged into a
@@ -10,7 +12,7 @@ running SNACA server, regardless of language. Existing implementations are:
 | Plugin | Language | Repo | Notes |
 |---|---|---|---|
 | `snaca-plugin-openclaw-host` | Node.js / TypeScript | (separate repo) | Loads `@larksuite/openclaw-lark` and other OpenClaw channel npm packages with **zero source modification** |
-| `snaca-plugin-lark` | Rust | (separate repo, M2) | Native Lark adapter using `openlark` v0.15 |
+| `snaca-plugin-lark` | Rust | this repo | Native Lark/Feishu adapter using `openlark` v0.15 |
 | `snaca-cli mock-plugin` | Rust | this repo | Debug helper |
 
 ## 1. Transport

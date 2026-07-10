@@ -138,8 +138,8 @@ impl Tool for WebSearchTool {
     }
 
     async fn execute(&self, input: Value, _ctx: &ToolContext) -> ToolResult {
-        let input: WebSearchInput = serde_json::from_value(input)
-            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let input: WebSearchInput =
+            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
 
         let query = input.query.trim();
         if query.chars().count() < MIN_QUERY_LEN {
@@ -147,8 +147,14 @@ impl Tool for WebSearchTool {
                 "query must be at least {MIN_QUERY_LEN} characters"
             )));
         }
-        if input.allowed_domains.as_ref().is_some_and(|v| !v.is_empty())
-            && input.blocked_domains.as_ref().is_some_and(|v| !v.is_empty())
+        if input
+            .allowed_domains
+            .as_ref()
+            .is_some_and(|v| !v.is_empty())
+            && input
+                .blocked_domains
+                .as_ref()
+                .is_some_and(|v| !v.is_empty())
         {
             return Err(ToolError::InvalidInput(
                 "allowed_domains and blocked_domains are mutually exclusive".into(),
@@ -249,9 +255,7 @@ fn render_results(query: &str, resp: &TavilyResponse) -> String {
         };
         out.push_str(&format!("- [{}]({})\n", title, r.url));
     }
-    out.push_str(
-        "\nYou MUST cite the sources above in your response using markdown links.\n",
-    );
+    out.push_str("\nYou MUST cite the sources above in your response using markdown links.\n");
     out
 }
 
@@ -364,7 +368,9 @@ mod tests {
         assert!(out.contains("Sources:"));
         assert!(out.contains("- [Rust home](https://www.rust-lang.org/)"));
         // untitled result falls back to URL
-        assert!(out.contains("- [https://doc.rust-lang.org/book/](https://doc.rust-lang.org/book/)"));
+        assert!(
+            out.contains("- [https://doc.rust-lang.org/book/](https://doc.rust-lang.org/book/)")
+        );
         assert!(out.contains("You MUST cite the sources above"));
     }
 

@@ -62,18 +62,14 @@ pub fn parse(text: &str) -> Result<SlashCommand, ParseError> {
     let sub = tokens.next().unwrap_or("help");
     match sub {
         "create" => {
-            let slug = tokens
-                .next()
-                .ok_or(ParseError::MissingArgument("slug"))?;
+            let slug = tokens.next().ok_or(ParseError::MissingArgument("slug"))?;
             validate_slug(slug)?;
             Ok(SlashCommand::Create {
                 slug: slug.to_string(),
             })
         }
         "switch" => {
-            let slug = tokens
-                .next()
-                .ok_or(ParseError::MissingArgument("slug"))?;
+            let slug = tokens.next().ok_or(ParseError::MissingArgument("slug"))?;
             validate_slug(slug)?;
             Ok(SlashCommand::Switch {
                 slug: slug.to_string(),
@@ -182,9 +178,9 @@ pub async fn try_handle(
 ) -> Option<String> {
     match parse(text) {
         Err(ParseError::NotASlashCommand) => None,
-        Err(ParseError::UnknownSubcommand(sub)) => Some(format!(
-            "unknown subcommand `{sub}`. Try `/snaca help`."
-        )),
+        Err(ParseError::UnknownSubcommand(sub)) => {
+            Some(format!("unknown subcommand `{sub}`. Try `/snaca help`."))
+        }
         Err(ParseError::MissingArgument(name)) => {
             Some(format!("missing argument `{name}`. Try `/snaca help`."))
         }
@@ -297,14 +293,7 @@ mod tests {
     async fn execute_status_shows_default_when_no_binding() {
         let db = Database::open_in_memory().await.unwrap();
         let tenant = TenantId::new("t");
-        let reply = execute(
-            SlashCommand::Status,
-            &db,
-            &tenant,
-            "chat_zzz",
-            "user_q",
-        )
-        .await;
+        let reply = execute(SlashCommand::Status, &db, &tenant, "chat_zzz", "user_q").await;
         assert!(reply.contains("auto-"), "got: {reply}");
         assert!(reply.contains("chat_zzz"));
     }
@@ -316,17 +305,13 @@ mod tests {
         let tenant = TenantId::new("t");
         // Distinct thread ids per row; the second alpha thread tests
         // that list_projects_for_tenant deduplicates.
-        let rows = [
-            ("thr-1", "alpha"),
-            ("thr-2", "beta"),
-            ("thr-3", "alpha"),
-        ];
+        let rows = [("thr-1", "alpha"), ("thr-2", "beta"), ("thr-3", "alpha")];
         for (tid, slug) in rows {
             db.insert_thread(&NewThread {
                 id: snaca_core::ThreadId::new(tid),
                 tenant_id: tenant.clone(),
                 project_id: project_id_from_slug(slug),
-                title: String::new(),
+                title: "New conversation".to_string(),
             })
             .await
             .unwrap();

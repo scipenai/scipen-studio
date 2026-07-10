@@ -9,7 +9,9 @@
 use snaca_core::{ProjectId, SessionId, TenantId};
 use snaca_engine::RuntimeToolFactory;
 use snaca_mcp::McpManager;
-use snaca_server::{LayeredToolFactory, PluginRegistry, PluginSpawner};
+use snaca_server::{
+    dispatch::InputAssemblyConfig, LayeredToolFactory, PluginRegistry, PluginSpawner,
+};
 use snaca_skills::{SkillProvider, SkillRegistry};
 use snaca_tools_api::context::ToolContext;
 use snaca_tools_api::ToolRegistry;
@@ -37,11 +39,7 @@ struct NoSkills;
 
 #[async_trait::async_trait]
 impl SkillProvider for NoSkills {
-    async fn skills_for(
-        &self,
-        _tenant: &TenantId,
-        _project: &ProjectId,
-    ) -> SkillRegistry {
+    async fn skills_for(&self, _tenant: &TenantId, _project: &ProjectId) -> SkillRegistry {
         SkillRegistry::empty()
     }
 }
@@ -52,6 +50,10 @@ fn dummy_spawner(engine: Arc<snaca_engine::Engine>, db: snaca_state::Database) -
         db,
         tenant_id: TenantId::new("test"),
         typing_interval: Duration::from_millis(500),
+        input_assembly: InputAssemblyConfig {
+            enabled: false,
+            ..InputAssemblyConfig::default()
+        },
     }
 }
 
@@ -83,11 +85,12 @@ async fn factory_includes_advertised_plugin_tool_and_invoke_round_trips() {
 
     let cli = snaca_cli_binary();
     let plugin_name = "test-tools";
-    let plugin_config = snaca_channel_host::PluginConfig::builder(plugin_name, cli.to_string_lossy())
-        .arg("mock-plugin")
-        .arg("--advertise-tool")
-        .arg("echo")
-        .build();
+    let plugin_config =
+        snaca_channel_host::PluginConfig::builder(plugin_name, cli.to_string_lossy())
+            .arg("mock-plugin")
+            .arg("--advertise-tool")
+            .arg("echo")
+            .build();
     plugins.insert(plugin_config).await.unwrap();
 
     // 2. Build the factory and late-bind the registry.
@@ -129,10 +132,7 @@ async fn factory_includes_advertised_plugin_tool_and_invoke_round_trips() {
         .await
         .unwrap();
     let text = output.render_text();
-    assert!(
-        text.contains("\"echo\":\"hello\""),
-        "got: {text}"
-    );
+    assert!(text.contains("\"echo\":\"hello\""), "got: {text}");
 
     // 5. Cleanup: drop registry refs and shut down the registry.
     drop(registry);

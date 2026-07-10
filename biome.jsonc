@@ -75,7 +75,17 @@
     }
   },
   "files": {
-    "ignore": ["node_modules", "dist", "out", "build", ".git", "*.min.js", "*.d.ts", "coverage"],
+    "ignore": [
+      "node_modules",
+      "dist",
+      "out",
+      "build",
+      ".git",
+      "*.min.js",
+      "*.d.ts",
+      "coverage",
+      "snaca"
+    ],
     "include": ["src/**/*.ts", "src/**/*.tsx", "shared/**/*.ts", "tests/**/*.ts", "tests/**/*.tsx"]
   },
   "overrides": [

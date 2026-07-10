@@ -37,7 +37,9 @@ pub enum PluginCommand {
 
 pub async fn run_health(args: &RemoteArgs) -> Result<()> {
     let url = format!("{}/healthz", args.server.trim_end_matches('/'));
-    let resp = reqwest::get(&url).await.with_context(|| format!("GET {url}"))?;
+    let resp = reqwest::get(&url)
+        .await
+        .with_context(|| format!("GET {url}"))?;
     let status = resp.status();
     let body: serde_json::Value = resp.json().await?;
     if args.json {
@@ -66,10 +68,7 @@ pub async fn run_plugin(cmd: PluginCommand, args: &RemoteArgs) -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&body)?);
                 return Ok(());
             }
-            let plugins = body["plugins"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default();
+            let plugins = body["plugins"].as_array().cloned().unwrap_or_default();
             if plugins.is_empty() {
                 println!("(no plugins registered)");
                 return Ok(());

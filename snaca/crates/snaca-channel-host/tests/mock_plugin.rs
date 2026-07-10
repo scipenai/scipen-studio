@@ -27,8 +27,8 @@ fn mock_plugin_binary() -> PathBuf {
 }
 
 fn config_for(name: &str, args: &[&str]) -> PluginConfig {
-    let mut builder = PluginConfig::builder(name, mock_plugin_binary().to_string_lossy())
-        .arg("mock-plugin");
+    let mut builder =
+        PluginConfig::builder(name, mock_plugin_binary().to_string_lossy()).arg("mock-plugin");
     for a in args {
         builder = builder.arg(*a);
     }
@@ -114,7 +114,10 @@ async fn auto_echo_pushes_inbound_event() {
         .expect("inbound channel still open");
 
     match event {
-        InboundEvent::MessageReceived { plugin: name, params } => {
+        InboundEvent::MessageReceived {
+            plugin: name,
+            params,
+        } => {
             assert_eq!(name, "test-mock-4");
             assert_eq!(params.tenant_id, "tenant-x");
             assert_eq!(params.chat_id, "chat-y");
@@ -139,12 +142,9 @@ async fn shutdown_is_idempotent() {
 #[tokio::test]
 async fn advertised_tools_visible_after_handshake() {
     let _ = tracing_subscriber::fmt::try_init();
-    let plugin = PluginHandle::spawn(config_for(
-        "test-mock-tools",
-        &["--advertise-tool", "echo"],
-    ))
-    .await
-    .expect("spawn");
+    let plugin = PluginHandle::spawn(config_for("test-mock-tools", &["--advertise-tool", "echo"]))
+        .await
+        .expect("spawn");
 
     // tool.advertise is sent by the mock right after initialize completes.
     // It races with the test, so poll briefly.
@@ -154,13 +154,15 @@ async fn advertised_tools_visible_after_handshake() {
         tokio::time::sleep(Duration::from_millis(20)).await;
         tools = plugin.advertised_tools().await;
     }
-    assert_eq!(tools.len(), 1, "expected one advertised tool, got {tools:?}");
+    assert_eq!(
+        tools.len(),
+        1,
+        "expected one advertised tool, got {tools:?}"
+    );
     let t = &tools[0];
     assert_eq!(t.name, "echo");
     assert!(t.is_read_only);
-    assert!(t
-        .description
-        .contains("echoes its arguments"));
+    assert!(t.description.contains("echoes its arguments"));
 
     plugin.shutdown().await.unwrap();
 }

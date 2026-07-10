@@ -88,8 +88,8 @@ fn turn_request(thread: &str, user_text: &str) -> TurnRequest {
         thread_id: ThreadId::new(thread),
         user_text: user_text.into(),
         message_id: None,
-        ephemeral_system: None,
     }
+    ephemeral_system: None,
 }
 
 #[tokio::test]

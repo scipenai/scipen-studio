@@ -83,8 +83,7 @@ impl RetryConfig {
         let base_ms = self.base_delay.as_millis() as u64;
         let scaled = base_ms.saturating_mul(1u64 << exp);
         let capped = scaled.min(self.max_delay.as_millis() as u64);
-        let jitter_window =
-            ((capped as f64) * self.jitter_ratio).max(0.0).round() as u64;
+        let jitter_window = ((capped as f64) * self.jitter_ratio).max(0.0).round() as u64;
         let jitter = if jitter_window == 0 {
             0
         } else {

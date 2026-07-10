@@ -3,8 +3,8 @@
 //! Provider-agnostic on purpose; concrete provider implementations
 //! transform these into their wire format at the boundary.
 
-use serde::{Deserialize, Serialize};
 use snaca_core::Message;
+pub use snaca_core::ToolSchema;
 
 /// One slice of the system prompt, with a hint about whether the slice
 /// is stable enough to benefit from prompt caching.
@@ -141,16 +141,4 @@ impl MessageRequest {
         self.temperature = Some(t);
         self
     }
-}
-
-/// JSON-Schema-shaped tool description sent to the LLM.
-///
-/// Equivalent to `snaca_tools_api::ToolSchema`; we declare a parallel struct
-/// here to avoid `snaca-llm` depending on the tools crate (engine bridges
-/// the two by mapping field-for-field).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolSchema {
-    pub name: String,
-    pub description: String,
-    pub input_schema: serde_json::Value,
 }

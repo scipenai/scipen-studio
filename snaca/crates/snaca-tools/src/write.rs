@@ -73,8 +73,8 @@ impl Tool for WriteTool {
     }
 
     async fn execute(&self, input: Value, ctx: &ToolContext) -> ToolResult {
-        let input: WriteInput = serde_json::from_value(input)
-            .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let input: WriteInput =
+            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
 
         if input.content.len() > MAX_BYTES {
             return Err(ToolError::Execution(format!(
@@ -152,10 +152,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.txt"), "old").unwrap();
         WriteTool
-            .execute(
-                json!({"path": "a.txt", "content": "new"}),
-                &ctx(dir.path()),
-            )
+            .execute(json!({"path": "a.txt", "content": "new"}), &ctx(dir.path()))
             .await
             .unwrap();
         let on_disk = std::fs::read_to_string(dir.path().join("a.txt")).unwrap();
@@ -193,10 +190,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let big = "x".repeat(MAX_BYTES + 1);
         let err = WriteTool
-            .execute(
-                json!({"path": "big.txt", "content": big}),
-                &ctx(dir.path()),
-            )
+            .execute(json!({"path": "big.txt", "content": big}), &ctx(dir.path()))
             .await
             .unwrap_err();
         assert!(matches!(err, ToolError::Execution(_)));
@@ -206,10 +200,7 @@ mod tests {
     async fn empty_content_writes_zero_byte_file() {
         let dir = tempfile::tempdir().unwrap();
         WriteTool
-            .execute(
-                json!({"path": "empty", "content": ""}),
-                &ctx(dir.path()),
-            )
+            .execute(json!({"path": "empty", "content": ""}), &ctx(dir.path()))
             .await
             .unwrap();
         let metadata = std::fs::metadata(dir.path().join("empty")).unwrap();

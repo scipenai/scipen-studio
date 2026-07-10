@@ -154,9 +154,7 @@ SNACA_MOCK_RECORD_UPDATES = {updates_path:?}
     let config = Config::load(&cfg_path).expect("config loads");
 
     let llm: Arc<dyn LlmClient> = Arc::new(ScriptedStreamLlm {
-        queue: Mutex::new(vec![streaming_text_events(&[
-            "Hello", ", ", "world", "!",
-        ])]),
+        queue: Mutex::new(vec![streaming_text_events(&["Hello", ", ", "world", "!"])]),
     });
     let runtime = Runtime::build_with_llm(config, llm).await.expect("runtime");
 
@@ -195,7 +193,11 @@ SNACA_MOCK_RECORD_UPDATES = {updates_path:?}
         updates.len()
     );
     // Each update_message carries the cumulative text up to that point.
-    assert!(updates[0].contains("Hello, "), "first update: {}", updates[0]);
+    assert!(
+        updates[0].contains("Hello, "),
+        "first update: {}",
+        updates[0]
+    );
     assert!(updates_text.contains("Hello, world"));
     assert!(updates_text.contains("Hello, world!"));
 }
