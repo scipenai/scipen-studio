@@ -48,6 +48,7 @@
     "release",
     "cli_tools",
     "scripts",
+    "snaca",
     "tests",
     "src/main/workers",
     "src/renderer/src/workers",
