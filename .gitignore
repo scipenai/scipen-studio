@@ -88,6 +88,8 @@ resources/bin/marksman.exe
 resources/bin/snaca-editor
 resources/bin/snaca-editor.exe
 resources/bin/*.dll
+# Root Cargo workspace build artifacts (crates/snaca-editor + submodule builds).
+/target
 !resources/bin/README.md
 # Bundled skills (staged at build time via scripts/copy-skills.js)
 resources/skills/

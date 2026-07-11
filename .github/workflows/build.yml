@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       # scripts/build-snaca.js compiles the in-tree `snaca/` Rust workspace,
       # which requires rust >= 1.88 (snaca/Cargo.toml). Pin it explicitly so
@@ -68,6 +70,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       # rust >= 1.88 for the snaca workspace; the universal2 build also needs
       # both apple targets (build-snaca.js runs `rustup target add`, but pin
@@ -114,6 +118,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       # rust >= 1.88 for the in-tree snaca workspace.
       - name: Setup Rust toolchain

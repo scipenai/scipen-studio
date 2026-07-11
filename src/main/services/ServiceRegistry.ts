@@ -32,6 +32,7 @@ import { buildSnacaSidecarEnv } from '../ipc/agentHandlers';
 import type { ISnacaSidecarService } from './agent/interfaces/ISnacaSidecarService';
 import type { IEditorProtocolClient } from './agent/interfaces/IEditorProtocolClient';
 import path from 'path';
+import { statSync } from 'node:fs';
 import { app, BrowserWindow } from 'electron';
 
 import { TraceService } from './TraceService';
@@ -147,8 +148,11 @@ export function registerServices(): void {
 /**
  * Resolve the snaca-editor binary path.
  *
- * - In dev: `<repo>/snaca/target/debug/snaca-editor[.exe]` — the in-tree
- *   Rust workspace, built with `cargo build --bin snaca-editor`.
+ * - In dev: use whichever of the debug build (`<repo>/target/debug`, fast
+ *   iterative `cargo build -p snaca-editor`) or the release binary staged by
+ *   `npm run build:snaca` (`<repo>/resources/bin`) is NEWER, so a stale debug
+ *   build never shadows a fresh `build:snaca` (and vice versa). A plain
+ *   `build:snaca` is enough to run `npm run dev`.
  * - Packaged: `resources/bin/snaca-editor[.exe]` (see electron-builder
  *   `extraResources`).
  *
@@ -162,7 +166,23 @@ function resolveSnacaEditorBinaryPath(): string {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'bin', `snaca-editor${ext}`);
   }
-  return path.join(app.getAppPath(), 'snaca', 'target', 'debug', `snaca-editor${ext}`);
+  // Dev: pick the most recently built of the debug and staged-release binaries
+  // by mtime. Missing files sort last (-1), so we fall back cleanly.
+  const appPath = app.getAppPath();
+  const debugBin = path.join(appPath, 'target', 'debug', `snaca-editor${ext}`);
+  const releaseBin = path.join(appPath, 'resources', 'bin', `snaca-editor${ext}`);
+  const mtime = (p: string): number => {
+    try {
+      return statSync(p).mtimeMs;
+    } catch {
+      return -1;
+    }
+  };
+  const debugMtime = mtime(debugBin);
+  const releaseMtime = mtime(releaseBin);
+  // Prefer debug on a tie (a dev iterating with `cargo build` expects it);
+  // fall back to release when debug is absent (debugMtime === -1).
+  return debugMtime >= 0 && debugMtime >= releaseMtime ? debugBin : releaseBin;
 }
 
 // ====== Service Lifecycle ======

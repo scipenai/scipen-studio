@@ -1,0 +1,60 @@
+# Root Rust workspace for SciPen Studio's fork-only crates.
+#
+# `snaca-editor` (the editor-mode sidecar binary) and `snaca-editor-protocol`
+# (its wire protocol) live here, OUTSIDE the vendored-turned-submodule `snaca/`
+# tree. They depend on the unmodified snaca crates via path dependencies into
+# the submodule (`snaca/crates/*`). The submodule keeps its own workspace, so
+# it is excluded from this one.
+[workspace]
+resolver = "2"
+members = ["crates/snaca-editor", "crates/snaca-editor-protocol"]
+exclude = ["snaca"]
+
+[workspace.package]
+version = "0.5.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+repository = "https://github.com/scipenai/scipen-studio"
+authors = ["SciPen Studio Authors"]
+
+[workspace.dependencies]
+# Fork-local sibling crate.
+snaca-editor-protocol = { path = "crates/snaca-editor-protocol" }
+
+# Unmodified snaca crates, path-depended across the submodule boundary.
+# Each resolves its own workspace inheritance from snaca/Cargo.toml.
+snaca-core = { path = "snaca/crates/snaca-core" }
+snaca-agent-api = { path = "snaca/crates/snaca-agent-api" }
+snaca-llm = { path = "snaca/crates/snaca-llm" }
+snaca-state = { path = "snaca/crates/snaca-state" }
+snaca-engine = { path = "snaca/crates/snaca-engine" }
+snaca-mcp = { path = "snaca/crates/snaca-mcp" }
+snaca-memory = { path = "snaca/crates/snaca-memory" }
+snaca-skills = { path = "snaca/crates/snaca-skills" }
+snaca-tools = { path = "snaca/crates/snaca-tools" }
+snaca-tools-api = { path = "snaca/crates/snaca-tools-api" }
+snaca-workspace = { path = "snaca/crates/snaca-workspace" }
+
+# External crates (versions mirrored from snaca/Cargo.toml to keep a single
+# resolved version across the whole build graph).
+tokio = { version = "1.52", features = ["full"] }
+tokio-util = { version = "0.7.18", features = ["codec", "io", "rt"] }
+futures = "0.3.32"
+async-trait = "0.1.89"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+toml = "1.1"
+thiserror = "2.0.18"
+anyhow = "1.0.102"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+uuid = { version = "1.23", features = ["v4", "serde"] }
+chrono = { version = "0.4.44", features = ["serde"] }
+clap = { version = "4.6", features = ["derive", "env"] }
+# Needed by the vendored OpenAI-compatible provider (crates/snaca-editor/src/openai).
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls", "multipart", "query"] }
+bytes = "1.11"
+async-stream = "0.3.6"
+# For the raw cascade delete_thread (0.3.0 upstream dropped Database::delete_thread).
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "macros", "chrono"] }

@@ -144,6 +144,15 @@ interface CompileMessage {
   exception?: string;
 }
 
+/** Thrown when `close()` aborts an in-flight load/compile (user cancel). Lets
+ *  callers distinguish an intentional stop from a real failure. */
+export class BusyTexCancelledError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BusyTexCancelledError';
+  }
+}
+
 /**
  * Wraps the BusyTeX Web Worker.
  *
@@ -164,6 +173,12 @@ export class BusyTexEngine {
   private mainFile = 'main.tex';
   private files: StagedFile[] = [];
   private remoteEndpoint: string | undefined;
+  // Rejects the in-flight async op — either a `loadEngine()` cold start or a
+  // `compile()`. `close()` calls it so a user cancel settles that promise
+  // immediately instead of hanging until the 5-minute timeout (terminating the
+  // worker fires no message/error). load and compile never overlap, so one
+  // slot suffices.
+  private abortPending: (() => void) | null = null;
 
   get ready(): boolean {
     return this._ready;
@@ -212,12 +227,14 @@ export class BusyTexEngine {
         const data = ev.data;
         if (data.exception) {
           clearTimeout(timeout);
+          this.abortPending = null;
           this.worker?.removeEventListener('message', initHandler);
           reject(new Error(`BusyTeX init failed: ${data.exception}`));
           return;
         }
         if (data.initialized) {
           clearTimeout(timeout);
+          this.abortPending = null;
           this._ready = true;
           this.worker!.removeEventListener('message', initHandler);
           this.worker!.addEventListener('message', this.handleMessage.bind(this));
@@ -231,6 +248,7 @@ export class BusyTexEngine {
       this.worker.addEventListener('message', initHandler);
       this.worker.addEventListener('error', (err: ErrorEvent) => {
         clearTimeout(timeout);
+        this.abortPending = null;
         const detail = {
           message: err.message,
           filename: err.filename,
@@ -241,6 +259,15 @@ export class BusyTexEngine {
         logger.error('BusyTeX worker error', detail);
         reject(new Error(`BusyTeX worker failed to load: ${err.message || 'Unknown error'}`));
       });
+
+      // Let close()/cancel abort a cold start too — otherwise a stop during
+      // the (potentially minutes-long) first load hangs until the timeout.
+      this.abortPending = () => {
+        clearTimeout(timeout);
+        this.worker?.removeEventListener('message', initHandler);
+        this.abortPending = null;
+        reject(new BusyTexCancelledError('BusyTeX engine load cancelled'));
+      };
 
       this.worker.postMessage({
         busytex_js: busytexJs,
@@ -319,6 +346,7 @@ export class BusyTexEngine {
         if (data.exception) {
           clearTimeout(timeout);
           this.worker!.removeEventListener('message', handler);
+          this.abortPending = null;
           reject(new Error(`BusyTeX compilation error: ${data.exception}`));
           return;
         }
@@ -326,6 +354,7 @@ export class BusyTexEngine {
         if (data.exit_code !== undefined || data.pdf !== undefined) {
           clearTimeout(timeout);
           this.worker!.removeEventListener('message', handler);
+          this.abortPending = null;
 
           const status = data.exit_code ?? -1;
           const log = data.log ?? '';
@@ -357,6 +386,15 @@ export class BusyTexEngine {
       };
 
       this.worker!.addEventListener('message', handler);
+      // Let close()/cancel settle this promise immediately. `reject` here
+      // makes the awaiting WASMCompilerProvider.compile() return a failed
+      // result (caught in its try/catch), so the UI leaves "compiling".
+      this.abortPending = () => {
+        clearTimeout(timeout);
+        this.worker?.removeEventListener('message', handler);
+        this.abortPending = null;
+        reject(new BusyTexCancelledError('BusyTeX compilation cancelled'));
+      };
       // Files are wrapped to BusyTeX's `{path, contents}` shape. CJK docs
       // pull ctex/xeCJK/fonts from the TeX Live tree (remote endpoint), not
       // from staged assets — so nothing extra is appended here.
@@ -391,6 +429,9 @@ export class BusyTexEngine {
   }
 
   close(): void {
+    // Settle any in-flight compile first — terminate() fires no event, so the
+    // compile promise would otherwise hang until its 5-minute timeout.
+    this.abortPending?.();
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;

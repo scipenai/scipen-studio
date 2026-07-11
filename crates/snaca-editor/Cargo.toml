@@ -1,0 +1,53 @@
+[package]
+name = "snaca-editor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "SNACA editor-mode sidecar binary: stdio JSON-RPC server for Studio×SNACA editor protocol"
+
+[[bin]]
+name = "snaca-editor"
+path = "src/main.rs"
+
+[dependencies]
+snaca-editor-protocol.workspace = true
+snaca-core.workspace = true
+# 0.2.7 relocated the ApprovalGate / QuestionGate / MemoryProvider contracts
+# into this new leaf crate (they used to live in snaca-engine).
+snaca-agent-api.workspace = true
+snaca-llm.workspace = true
+snaca-state.workspace = true
+snaca-engine.workspace = true
+snaca-mcp.workspace = true
+snaca-memory.workspace = true
+snaca-skills.workspace = true
+snaca-tools.workspace = true
+snaca-tools-api.workspace = true
+snaca-workspace.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+async-trait.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+futures.workspace = true
+tokio-util.workspace = true
+# OpenAI-compatible provider (src/openai) — vendored out of snaca-llm.
+reqwest.workspace = true
+bytes.workspace = true
+async-stream.workspace = true
+# Raw cascade delete_thread (0.3.0 dropped Database::delete_thread).
+sqlx.workspace = true
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
