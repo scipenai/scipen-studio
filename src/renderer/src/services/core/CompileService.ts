@@ -76,6 +76,8 @@ export interface CompileOptions {
 
 export interface CompileResult {
   success: boolean;
+  /** User cancelled this compile (stop button) — a neutral outcome, not a failure. */
+  cancelled?: boolean;
   /** Source file path that triggered the compile, used to disambiguate per-file results */
   sourceFile?: string;
   pdfPath?: string;
@@ -316,6 +318,11 @@ export class CompileService implements IDisposable {
    */
   private logCompileResult(result: CompileResult): void {
     const timeStr = ((result.time || 0) / 1000).toFixed(2);
+
+    if (result.cancelled) {
+      this.log('warning', `Compilation cancelled. Time: ${timeStr}s`);
+      return;
+    }
 
     if (result.success) {
       this.log('success', `Compilation succeeded! Time: ${timeStr}s`);

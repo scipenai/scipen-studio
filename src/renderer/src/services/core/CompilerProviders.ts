@@ -8,7 +8,7 @@ import { api } from '../../api';
 import { DEFAULT_TEXLIVE_ENDPOINT } from '../../constants/latex';
 import { t } from '../../locales';
 import { createLogger } from '../LogService';
-import { BusyTexEngine, type BusyTexEngineType } from '../BusyTexEngine';
+import { BusyTexEngine, BusyTexCancelledError, type BusyTexEngineType } from '../BusyTexEngine';
 import { TypstWasmEngine } from '../TypstWasmEngine';
 import { getSettingsService } from './ServiceRegistry';
 import type { CompileResult, LatexEngine, TypstEngine } from './CompileService';
@@ -424,6 +424,9 @@ export class WASMCompilerProvider implements CompilerProvider {
    * — see {@link BusyTexEngine}'s class doc.
    */
   private engine: BusyTexEngine | null = null;
+  // The engine currently running loadEngine(), before it's committed to
+  // `this.engine`. Tracked so cancel() can abort a cold start too.
+  private loadingEngine: BusyTexEngine | null = null;
 
   async compile(
     filePath: string,
@@ -447,8 +450,13 @@ export class WASMCompilerProvider implements CompilerProvider {
       // (every retry would then skip init and throw "not ready").
       if (!this.engine) {
         const engine = new BusyTexEngine();
-        await engine.loadEngine();
-        this.engine = engine;
+        this.loadingEngine = engine;
+        try {
+          await engine.loadEngine();
+          this.engine = engine;
+        } finally {
+          this.loadingEngine = null;
+        }
       }
 
       const settings = getSettingsService().getSettings().compiler;
@@ -519,6 +527,12 @@ export class WASMCompilerProvider implements CompilerProvider {
         warnings: this.parseWarnings(result.log),
       };
     } catch (error) {
+      // A user cancel (stop button) isn't a failure — surface it neutrally so
+      // the log/markers don't show a red error.
+      if (error instanceof BusyTexCancelledError) {
+        logger.info('WASM compilation cancelled');
+        return { success: false, cancelled: true, errors: [], log: '' };
+      }
       const message = error instanceof Error ? error.message : String(error);
       logger.error('WASM compilation failed', { error: message });
       return {
@@ -609,6 +623,9 @@ export class WASMCompilerProvider implements CompilerProvider {
   }
 
   cancel(): void {
+    // Abort a cold start in progress as well as a running compile.
+    this.loadingEngine?.close();
+    this.loadingEngine = null;
     this.engine?.close();
     this.engine = null;
   }
