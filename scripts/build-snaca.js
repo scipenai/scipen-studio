@@ -31,12 +31,16 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(__dirname, '..');
-const snacaDir = resolve(rootDir, 'snaca');
+// snaca-editor lives in the repo-root Cargo workspace (crates/snaca-editor) and
+// path-depends on the snaca submodule. Cargo therefore runs from rootDir and
+// emits into rootDir/target, NOT snaca/target.
+const editorCrateDir = resolve(rootDir, 'crates', 'snaca-editor');
+const targetDir = resolve(rootDir, 'target');
 const isWin = process.platform === 'win32';
 const isMac = process.platform === 'darwin';
 const exe = isWin ? '.exe' : '';
 const binaryName = `snaca-editor${exe}`;
-const cargoOutput = resolve(snacaDir, 'target', 'release', binaryName);
+const cargoOutput = resolve(targetDir, 'release', binaryName);
 const stagedBinDir = resolve(rootDir, 'resources', 'bin');
 const stagedBinary = resolve(stagedBinDir, binaryName);
 
@@ -53,9 +57,19 @@ if (process.env.SCIPEN_SKIP_SNACA_BUILD === '1') {
   process.exit(0);
 }
 
-if (!existsSync(snacaDir)) {
-  err(`snaca workspace not found at ${snacaDir}; skipping build`);
+if (!existsSync(editorCrateDir)) {
+  err(`snaca-editor crate not found at ${editorCrateDir}; skipping build`);
   process.exit(0);
+}
+
+// snaca-editor path-depends on the snaca submodule (snaca/crates/*). Without an
+// initialized submodule those path deps are missing and cargo fails with an
+// opaque error — detect it up front and point at the fix.
+const submoduleManifest = resolve(rootDir, 'snaca', 'Cargo.toml');
+if (!existsSync(submoduleManifest)) {
+  err(`snaca submodule not initialized (missing ${submoduleManifest}).`);
+  err(`Run: git submodule update --init --recursive`);
+  process.exit(1);
 }
 
 // 总是跑 cargo build:cargo 自身的增量编译会在源码未变时秒级返回,
@@ -85,7 +99,7 @@ function runCargoBuild(extraArgs = []) {
   const args = ['build', '--release', '-p', 'snaca-editor', ...extraArgs];
   log(`running cargo ${args.join(' ')}`);
   const r = spawnSync('cargo', args, {
-    cwd: snacaDir,
+    cwd: rootDir,
     stdio: 'inherit',
     shell: isWin, // resolve cargo via PATH on Windows
   });
@@ -108,8 +122,8 @@ function buildMacUniversal() {
   const targets = ['x86_64-apple-darwin', 'aarch64-apple-darwin'];
   for (const t of targets) ensureRustTarget(t);
   for (const t of targets) runCargoBuild(['--target', t]);
-  const x64Bin = resolve(snacaDir, 'target', targets[0], 'release', binaryName);
-  const armBin = resolve(snacaDir, 'target', targets[1], 'release', binaryName);
+  const x64Bin = resolve(targetDir, targets[0], 'release', binaryName);
+  const armBin = resolve(targetDir, targets[1], 'release', binaryName);
   for (const p of [x64Bin, armBin]) {
     if (!existsSync(p)) {
       err(`cargo output not found: ${p}`);

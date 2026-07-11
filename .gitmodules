@@ -1,0 +1,3 @@
+[submodule "snaca"]
+	path = snaca
+	url = https://github.com/scipenai/snaca
