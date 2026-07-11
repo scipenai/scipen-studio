@@ -270,6 +270,12 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   // pdf.js v6 removed PDFDocumentProxy.destroy(); teardown now goes through the loading task,
   // so we keep its handle alongside the doc and destroy that to release the worker/document.
   const loadingTaskRef = useRef<pdfjsLib.PDFDocumentLoadingTask | null>(null);
+  // Monotonic token guarding against overlapping/stale `loadPdfDoc` runs. On
+  // first open, React StrictMode (dev) double-invokes the effect and rapid
+  // pdfData updates during the first compile can start two loads at once; if
+  // the earlier one resolves last it would destroy the task backing the doc a
+  // PdfPage is already rendering → "Cannot read properties of null (getPage)".
+  const loadTokenRef = useRef(0);
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(false);
   const [showThumbnails, setShowThumbnails] = useState(false);
@@ -380,6 +386,11 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
         console.error('Failed to copy PDF data:', error);
       }
     } else {
+      // Invalidate any in-flight load so its late resolution can't resurrect a
+      // stale doc after we've cleared the pane. Its (gated) finally will skip
+      // resetting isInitialLoading, so clear it here to avoid a stuck overlay.
+      loadTokenRef.current += 1;
+      setIsInitialLoading(false);
       setPdfBytes(null);
       void loadingTaskRef.current?.destroy();
       loadingTaskRef.current = null;
@@ -394,6 +405,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   const loadPdfDoc = async (data: Uint8Array | null) => {
     if (!data) return;
 
+    const myToken = (loadTokenRef.current += 1);
     setIsInitialLoading(true);
 
     try {
@@ -420,6 +432,14 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
       const loadingTask = pdfjsLib.getDocument(loadingParams);
       const doc = await loadingTask.promise;
 
+      // A newer load (or a pane clear) superseded this one while it was in
+      // flight. Tear down the doc we just built and bail — never publish a
+      // stale proxy, and never destroy the task backing the live doc.
+      if (myToken !== loadTokenRef.current) {
+        void loadingTask.destroy();
+        return;
+      }
+
       void loadingTaskRef.current?.destroy();
       loadingTaskRef.current = loadingTask;
       pdfDocRef.current = doc;
@@ -433,9 +453,13 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
       cancelIdleTask(THUMBNAIL_TASK_ID);
       thumbnailGenerationTokenRef.current += 1;
     } catch (error) {
-      console.error('Failed to load PDF:', error);
+      if (myToken === loadTokenRef.current) {
+        console.error('Failed to load PDF:', error);
+      }
     } finally {
-      setIsInitialLoading(false);
+      if (myToken === loadTokenRef.current) {
+        setIsInitialLoading(false);
+      }
     }
   };
 
@@ -444,6 +468,8 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     return () => {
       cancelIdleTask(THUMBNAIL_TASK_ID);
       thumbnailGenerationTokenRef.current += 1;
+      // Invalidate in-flight loads so their late resolution discards itself.
+      loadTokenRef.current += 1;
       void loadingTaskRef.current?.destroy();
       loadingTaskRef.current = null;
       pdfDocRef.current = null;
