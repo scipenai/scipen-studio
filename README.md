@@ -31,13 +31,11 @@
 - 🧩 **Built-in compiler** — [BusyTeX](https://github.com/busytex/busytex) (pdfTeX / XeTeX / LuaLaTeX, WebAssembly) and [typst.ts](https://github.com/Myriad-Dreamin/typst.ts) ship with the app, no local TeX install required. Tectonic, TeX Live, and a system Typst CLI are auto-detected when present.
 - ✏️ **Editor** — Monaco with TexLab, Tinymist, and Marksman: completion, diagnostics, hover, and jump-to-definition for LaTeX, Typst, and Markdown.
 - 📄 **Live PDF preview** — pdf.js renderer with SyncTeX two-way jump, KaTeX inline math, smooth zoom, and CJK glyph rendering.
-- 🤖 **AI agent (built-in)** — SNACA runtime ships with the app: file editing with Diff Review, web search / fetch, interactive multiple-choice questions, per-project memory, and bundled academic-research skills (paper / reviewer / pipeline / deep-research, sourced from [Imbad0202/academic-research-skills](https://github.com/Imbad0202/academic-research-skills)). No separate server to run.
-- 📚 **Zotero integration** — Connect to a running Zotero (via Better BibTeX), browse the library inside the app, drag-and-drop attachments, `@cite` autocomplete from the live BibTeX, and semantic search across attachment PDFs via a local embedding index.
+- 🤖 **AI agent (built-in)** — [SNACA](https://github.com/scipenai/snaca) runtime ships with the app: file editing with Diff Review, web search / fetch, interactive multiple-choice questions, per-project memory, and bundled academic-research skills (paper / reviewer / pipeline / deep-research, sourced from [Imbad0202/academic-research-skills](https://github.com/Imbad0202/academic-research-skills)). No separate server to run.
+- ✍️ **Ctrl+K inline edit** — Select code, describe the change, the completion model streams a replacement into the buffer as a single undo step. Independent of the chat agent — uses the *Completion model* directly (no SNACA round-trip).
+- 📚 **Zotero integration** — Connect to a running Zotero (via Better BibTeX), browse the library inside the app, `@cite` autocomplete from the live BibTeX, a right-pane Paper tab that shows the cited item's PDF, and semantic search across attachment PDFs via a local embedding index.
 - 🕘 **Local history & restore** — Background snapshots of your project, no Git required: named labels (manual checkpoints), auto-milestones on successful compile, drift-triggered snapshots after large AI edits, and per-message rollback in chat. Browse, diff, and restore from a unified timeline.
 - ☁️ **Overleaf sync** — Sign in once, projects download to disk, edits stay offline, three-way merge on push.
-
-> [!NOTE]
-> **Status: 0.3.0 — pre-1.0.** Editing, compile, preview, AI agent, Zotero, history, and Overleaf flows are stable. Some settings and APIs may still change before 1.0; breaking changes are noted in [CHANGELOG.md](CHANGELOG.md).
 
 ## Install
 
@@ -57,7 +55,12 @@ The AI assistant and Overleaf sync are optional — first launch needs no config
 ## Build from source
 
 ```bash
-git clone https://github.com/scipenai/scipen-studio.git
+# SNACA agent ships as a git submodule; clone with --recurse-submodules
+# (or run `git submodule update --init --recursive` after a plain clone).
+git clone --recurse-submodules https://github.com/scipenai/scipen-studio.git
+# Bundled academic Skills live in a sibling directory; clone it next to scipen-studio.
+git clone https://github.com/Imbad0202/academic-research-skills.git
+
 cd scipen-studio
 npm install
 npm run prebuild   # download LSPs + BusyTeX + Typst WASM + build SNACA + stage skills (~1 GB)
@@ -65,6 +68,8 @@ npm run dev
 ```
 
 `prebuild` is the first-time bootstrap and must run before `dev` — `npm run setup` only fetches LSP binaries and is not enough on its own. After bootstrap, `npm run dev` is the day-to-day entry point.
+
+The `academic-research-skills` sibling checkout is required so `prebuild` can stage the bundled academic Skills (`academic-paper`, `academic-paper-reviewer`, `academic-pipeline`, `deep-research`); override the location with `ARS_SKILLS_DIR=<path>` or opt out with `SCIPEN_SKIP_SKILLS=1` (the AI agent then boots without those Skills).
 
 Requires **Node.js 20+** and **npm 10+**. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide — testing, IPC contracts, packaging (`build:win` / `build:mac` / `build:linux`), and architectural conventions.
 
@@ -88,6 +93,7 @@ Requires **Node.js 20+** and **npm 10+**. See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 SciPen Studio builds on the work of these open-source projects:
 
+- [SNACA](https://github.com/scipenai/snaca) — the built-in agent runtime (sibling scipenai project, embedded as a git submodule)
 - [Electron](https://www.electronjs.org/) and [electron-vite](https://electron-vite.org/) — desktop runtime and build pipeline
 - [Monaco Editor](https://microsoft.github.io/monaco-editor/) — the editor that powers the writing surface
 - [BusyTeX](https://github.com/busytex/busytex) — the bundled WebAssembly TeX engine (pdfTeX / XeTeX / LuaLaTeX)
