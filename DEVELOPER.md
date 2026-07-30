@@ -86,7 +86,9 @@ export function registerServices(container: ServiceContainer): void {
   // Lazy: created on first use, then cached
   container.registerLazy<IHistoryManager>(
     ServiceNames.HISTORY_MANAGER,
-    () => createHistoryManager()
+    () => createHistoryManager({
+      baseDir: path.join(app.getPath('userData'), 'scipen-studio'),
+    })
   );
 
   // Transient: a new instance per resolution (rarely used in this codebase)
@@ -644,10 +646,10 @@ process; the renderer never speaks to LLM APIs directly. Files under
 
 | File | Role |
 |------|------|
-| `AgentSidecarService.ts` | Spawn / respawn / stop the SNACA process; owns the process handle |
-| `AgentProtocolClient.ts` | JSON-RPC wire — send request, dispatch streamed events (`turn.delta` / `edit.propose` / `tool.approval_request` …) |
+| `SnacaSidecarService.ts` | Spawn / respawn / stop the SNACA process; owns the process handle (bound to `ServiceNames.AGENT_SIDECAR` via `createSnacaSidecarService`) |
+| `EditorProtocolClient.ts` | JSON-RPC wire — send request, dispatch streamed events (`turn.delta` / `edit.propose` / `tool.approval_request` …); bound to `ServiceNames.AGENT_PROTOCOL_CLIENT` |
 | `AgentEditApplyService.ts` | Host-applies edit workflow: read file → validate `base_hash` → apply hunks → forward `editConfirm` to SNACA |
-| `EditorApprovalGate.ts` (in `crates/snaca-editor/`) | Wraps SNACA's approval layer so `Edit`/`Write`/`MultiEdit` route through `edit.propose` (Diff Review) while `Bash` etc. route through `tool.approval_request` |
+| `crates/snaca-editor/src/approval_gate.rs` | Rust: wraps SNACA's approval layer so `Edit`/`Write`/`MultiEdit` route through `edit.propose` (Diff Review) while `Bash` etc. route through `tool.approval_request` |
 | `ContextRequestService.ts` | Reverse-RPC parking — SNACA asks renderer for `flush_unsaved` / `zotero_*` / `AskUserQuestion`, renderer replies, promise resolves |
 
 **Approval model split** — `auto_accept` on the settings side maps to
