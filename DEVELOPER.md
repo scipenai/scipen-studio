@@ -70,13 +70,13 @@ Services are registered in `src/main/services/ServiceRegistry.ts`:
 
 ```typescript
 // src/main/services/ServiceRegistry.ts
-import { ServiceContainer, ServiceNames } from './ServiceContainer';
+import { getServiceContainer, ServiceNames } from './ServiceContainer';
 import { createAIService } from './AIService';
 import type { IAIService } from './interfaces/IAIService';
-import type { ISyncTeXService } from './interfaces/ISyncTeXService';
-import { createSyncTeXService } from './SyncTeXService';
+import { createInlineEditService } from './InlineEditService';
 
-export function registerServices(container: ServiceContainer): void {
+export function registerServices(): void {
+  const container = getServiceContainer();
   // Singleton: same instance for all requests
   container.registerSingleton<IAIService>(
     ServiceNames.AI,
@@ -84,9 +84,10 @@ export function registerServices(container: ServiceContainer): void {
   );
 
   // Lazy: created on first use, then cached
-  container.registerLazy<ISyncTeXService>(
-    ServiceNames.SYNCTEX,
-    () => createSyncTeXService()
+  container.registerLazy(ServiceNames.INLINE_EDIT, () =>
+    createInlineEditService({
+      aiService: container.get<IAIService>(ServiceNames.AI),
+    })
   );
 
   // Transient: a new instance per resolution (rarely used in this codebase)
@@ -94,7 +95,7 @@ export function registerServices(container: ServiceContainer): void {
 }
 ```
 
-> Service-name constants live in `ServiceContainer.ts` (`export const ServiceNames`) and use `SCREAMING_SNAKE_CASE` (`AI`, `FILE_SYSTEM`, `SYNCTEX`, `LATEX_COMPILER`, `OVERLEAF_FILE_SYSTEM`, …).
+> Service-name constants live in `ServiceContainer.ts` (`export const ServiceNames`) and use `SCREAMING_SNAKE_CASE` (`AI`, `FILE_SYSTEM`, `LATEX_COMPILER`, `INLINE_EDIT`, `HISTORY_MANAGER`, `AGENT_SIDECAR`, …).
 
 #### Service Usage (Correct Way)
 
@@ -303,15 +304,15 @@ IPC channels are defined by domain under `shared/ipc/`:
 shared/ipc/
 ├── channels.ts          # IpcChannel enum (every channel name)
 ├── index.ts             # Aggregates IPCApiContract from all domain contracts
-├── ai-contract.ts       # IPCAiContract
-├── app-contract.ts      # IPCAppContract
-├── compile-contract.ts  # IPCCompileContract
-├── file-contract.ts     # IPCFileContract
-├── im-contract.ts       # IPCImContract
-├── lsp-contract.ts      # IPCLspContract
-├── ot-contract.ts       # IPCOtContract
-├── overleaf-contract.ts # IPCOverleafContract
-└── project-contract.ts  # IPCProjectContract
+├── schemas.ts           # Zod runtime validators for event-payload channels
+├── types.ts             # Shared IPC-wire type helpers
+├── ai-contract.ts       # IPCAiContract       (chat / inline-edit / completion)
+├── app-contract.ts      # IPCAppContract      (window / update / config / logging)
+├── compile-contract.ts  # IPCCompileContract  (LaTeX / Typst / WASM artifacts)
+├── file-contract.ts     # IPCFileContract     (fs + watcher + cache; PathSecurity-guarded)
+├── lsp-contract.ts      # IPCLspContract      (texlab / tinymist / marksman)
+├── overleaf-contract.ts # IPCOverleafContract (auth / project / live-collaboration)
+└── zotero-contract.ts   # IPCZoteroContract   (settings / secure keys / snapshot / MinerU / embeddings)
 ```
 
 Channel names live in `channels.ts`, and each domain contract maps channels to `{ args, result }` shapes:
@@ -469,7 +470,8 @@ createMockAIService(overrides?)
 createMockFileSystemService(overrides?)
 createMockCompilerRegistry(overrides?)
 createMockOverleafService(overrides?)
-createMockSyncTeXService(overrides?)
+createMockContainer(options?)      // ServiceContainer pre-populated with mocks
+createMockHandlerDeps(overrides?)  // typed shortcut for IPC-handler deps object
 ```
 
 ### Running Tests
@@ -588,20 +590,34 @@ Example: `feat(compile): add WASM XeTeX engine fallback`
 Constants are defined in `ServiceContainer.ts` as `SCREAMING_SNAKE_CASE`:
 
 ```typescript
-ServiceNames.AI                    // IAIService
-ServiceNames.CHAT_ORCHESTRATOR     // IChatOrchestrator
-ServiceNames.FILE_SYSTEM           // IFileSystemService
-ServiceNames.SYNCTEX               // ISyncTeXService
-ServiceNames.LATEX_COMPILER        // ICompilerRegistry
-ServiceNames.OVERLEAF_FILE_SYSTEM  // IOverleafFileSystemService
-ServiceNames.OVERLEAF_COMPILER     // OverleafCompileService
-ServiceNames.STUDIO_IM             // StudioIMService
-ServiceNames.STUDIO_OT             // StudioOTService
-ServiceNames.STUDIO_OVERLEAF_LIVE  // StudioOverleafLiveService
-ServiceNames.SELECTION             // ISelectionService
-ServiceNames.PROJECT_BINDING       // IProjectBindingService
-ServiceNames.PROJECT_CONVERSATION  // ProjectConversationService
-ServiceNames.CONFIG                // IConfigManager
+// Core
+ServiceNames.AI                       // IAIService
+ServiceNames.INLINE_EDIT              // InlineEditService (Ctrl+K streaming replacement)
+ServiceNames.FILE_SYSTEM              // IFileSystemService
+ServiceNames.CONFIG                   // IConfigManager
+ServiceNames.LOGGER                   // Logger
+ServiceNames.TRACE                    // Trace store
+ServiceNames.SELECTION                // ISelectionService
+
+// Compilation + LSP
+ServiceNames.LATEX_COMPILER           // ICompilerRegistry
+ServiceNames.LSP_MANAGER              // LSP process manager
+ServiceNames.TEXLAB                   // TexLab LSP handle
+ServiceNames.TINYMIST                 // Tinymist LSP handle
+
+// Overleaf
+ServiceNames.OVERLEAF_FILE_SYSTEM     // IOverleafFileSystemService
+ServiceNames.OVERLEAF_COMPILER        // OverleafCompileService
+ServiceNames.STUDIO_OVERLEAF_LIVE     // StudioOverleafLiveService
+
+// History (content-addressed snapshots)
+ServiceNames.HISTORY_MANAGER          // HistoryManager (SQLite + blob store)
+
+// SNACA agent runtime bridge
+ServiceNames.AGENT_SIDECAR            // Long-lived SNACA process manager
+ServiceNames.AGENT_PROTOCOL_CLIENT    // JSON-RPC wire to sidecar
+ServiceNames.AGENT_EDIT_APPLY         // Host-applies edit workflow (Diff Review)
+ServiceNames.AGENT_CONTEXT_REQUEST    // Reverse-RPC parking (context.request / AskUserQuestion)
 ```
 
 ### Important Files

@@ -44,7 +44,7 @@ Key design principles:
 
 ## Hard limits
 
-Match [the project style guide](./CLAUDE.md) where applicable:
+Match the project style guide where applicable:
 
 - Functions: ≤ 50 lines → split if you exceed
 - Files: ≤ 500 lines → extract modules

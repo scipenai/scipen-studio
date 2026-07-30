@@ -209,7 +209,7 @@ Open the settings panel from the command palette (`Ctrl+P`, search "Open Setting
 | API Key | Stored locally |
 | API Host | Custom endpoint, for private proxies or aggregator services |
 | Chat model | Used by the **built-in agent** for chat / tool-use turns |
-| Completion model | Used for **editor inline completion** (`Ctrl+L`) |
+| Completion model | Used for **editor inline completion** (auto) and **`Ctrl+K` inline edit** |
 
 > The chat model is the only thing the agent strictly needs. The agent runtime itself ships inside the app — no separate server.
 
@@ -274,6 +274,7 @@ Customize the bindings for compile, AI invocation, command palette, and other co
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl+L` | Invoke AI on the current selection |
+| `Ctrl+K` | Select code → describe change → completion model streams a replacement inline |
 | `@` (AI input) | Reference a project file |
 
 ### Interface
