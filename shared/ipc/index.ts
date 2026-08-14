@@ -27,6 +27,8 @@ export type {
   SelectionTriggerMode,
   SelectionCaptureDTO,
   SelectionConfigDTO,
+  SelectionLifecycleErrorCode,
+  SelectionLifecycleResultDTO,
 } from './types';
 
 // ====== API Type Contract ======

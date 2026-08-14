@@ -90,6 +90,11 @@ export enum ConfigKeys {
   SelectionEnabled = 'selection.enabled',
   SelectionTriggerMode = 'selection.triggerMode',
   SelectionShortcutKey = 'selection.shortcutKey',
+  // Explicit opt-in to cross-app selection capture. Gated separately from
+  // SelectionEnabled because the privacy story (native hook reads any window's
+  // selected text) needs an unmissable checkbox — the first-time SetupDialog
+  // sets this, and start() refuses to run until it flips true.
+  SelectionCaptureConsent = 'selection.captureConsent',
 
   // ====== Miscellaneous ======
   RecentProjects = 'recentProjects',

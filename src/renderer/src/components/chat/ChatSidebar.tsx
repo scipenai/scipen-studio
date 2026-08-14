@@ -31,20 +31,52 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { useEvent } from '../../hooks';
-import { t as translate, useTranslation } from '../../locales';
+import { getLocale, t as translate, useTranslation, type TranslationKey } from '../../locales';
 import { agentClient, type ThreadSummary } from '../../services/agent/AgentClientService';
 import { buildChatContext } from '../../services/agent/ChatContextBuilder';
 import { buildMentions } from '../../services/AtMentionResolver';
+import { buildSelectionActionPrompt } from '../../services/agent/selectionActionPrompts';
 import { api } from '../../api';
 import { chatStreamStore } from '../../services/agent/ChatStreamStore';
 import { getSettingsService, getUIService } from '../../services/core/ServiceRegistry';
 import { useSettings } from '../../services/core/hooks';
-import { AGENT_NOT_CONFIGURED_MARKER } from '../../../../../shared/ipc/types';
+import { AGENT_NOT_CONFIGURED_MARKER } from '@shared/ipc/types';
+import { ConfigKeys } from '@shared/types/config-keys';
+import type {
+  SelectionAction,
+  SelectionActionRequest,
+  UnifiedSelection,
+} from '@shared/types/selection-action';
 import type { AskAIAboutErrorRequest } from '../../services/core/UIService';
 import { AgentChatInput, type SendIntent } from './AgentChatInput';
 import { ChatMessage } from './ChatMessage';
+import { SelectionActionCard } from './SelectionActionCard';
 import { ThreadHistoryDrawer } from './ThreadHistoryDrawer';
 import { serializeChatThread } from '../../utils/serializeChatThread';
+
+/**
+ * Actions gated behind Zotero integration + the i18n key used to
+ * explain WHY each is unavailable. Single source of truth so the runtime
+ * click guard AND the per-action `disabledActions` reason map both derive
+ * from the same table — adding a Zotero-gated action later means adding
+ * one entry here, not editing two spots.
+ */
+const ZOTERO_GATED_REASON_KEYS = {
+  find_related_lit_local: 'chat.selectionAction.zoteroNotConfigured',
+} as const satisfies Partial<Record<SelectionAction, TranslationKey>>;
+const ZOTERO_GATED_ACTIONS: ReadonlySet<SelectionAction> = new Set(
+  Object.keys(ZOTERO_GATED_REASON_KEYS) as SelectionAction[]
+);
+
+/**
+ * Wrap the plain text as a markdown blockquote for the composer seed, so
+ * a `> ` prefix visually distinguishes injected material from what the
+ * user is about to type. Empty input yields empty string (no quote noise).
+ */
+function quoteForSeed(text: string): string {
+  const trimmed = text.trim();
+  return trimmed ? `> ${trimmed.replace(/\n/g, '\n> ')}\n\n` : '';
+}
 
 interface ChatSidebarProps {
   /** Absolute path of the current project root. Required for startProject. */
@@ -126,8 +158,59 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
   const [threadError, setThreadError] = useState<string | null>(null);
   const [seedValue, setSeedValue] = useState<string | undefined>(undefined);
   const [seedKey, setSeedKey] = useState<number>(0);
+  const [pendingSelection, setPendingSelection] = useState<UnifiedSelection | null>(null);
+  // null = not-yet-loaded; only surface the "Zotero not configured" gate
+  // when we KNOW it's off. Starting at `false` gave a false-negative
+  // disabled state during the mount → first api.config.get resolves gap.
+  const [zoteroEnabled, setZoteroEnabled] = useState<boolean | null>(null);
   const startedFor = useRef<string | null>(null);
+  // Synchronous re-entrancy guard for handleSelectionAction. React state
+  // (`busy`, `pendingSelection`) updates asynchronously, so a rapid second
+  // click landing in the same event batch would otherwise slip past the
+  // guard before the first setState commits. A ref flips inside the
+  // click's synchronous frame, so the second click sees the block.
+  const selectionActionInFlight = useRef<boolean>(false);
   const uiService = useMemo(() => getUIService(), []);
+
+  // Track Zotero master toggle so the SelectionActionCard can gate its
+  // "find related literature" button. Subscribes to Config_Changed so a
+  // user who opens the wizard while the sidebar is mounted sees the
+  // button enable without needing to remount the panel.
+  //
+  // `seq` is a last-write-wins guard: back-to-back Config_Changed events
+  // (or a change landing while the initial read is still in flight) fire
+  // two concurrent api.config.get promises, and their resolution order is
+  // NOT guaranteed — the older value could land last and mis-gate the
+  // button until the next config change. Each invocation captures a fresh
+  // seq id and only writes state when that id is still the newest.
+  useEffect(() => {
+    let cancelled = false;
+    let seq = 0;
+    const applyEnabled = async (): Promise<void> => {
+      const mySeq = ++seq;
+      try {
+        const enabled = await api.config.get<boolean>(ConfigKeys.ZoteroIntegrationEnabled);
+        if (!cancelled && mySeq === seq) setZoteroEnabled(Boolean(enabled));
+      } catch {
+        // Read failure = unknown, NOT "off". The disable-gate policy is
+        // "only surface when we KNOW it's off"; treating a transient IPC
+        // fault as off would gate the button and lie to the user. null
+        // matches the loading-state contract — let the tool call surface
+        // the real state.
+        if (!cancelled && mySeq === seq) setZoteroEnabled(null);
+      }
+    };
+    void applyEnabled();
+    const dispose = api.config.onChanged((payload) => {
+      if (payload.key === ConfigKeys.ZoteroIntegrationEnabled) {
+        void applyEnabled();
+      }
+    });
+    return () => {
+      cancelled = true;
+      dispose();
+    };
+  }, []);
 
   // Subscribe to chatStreamStore's version counter. ANY internal mutation
   // (turn.delta accumulation, tool calls, proposals, active-thread swap,
@@ -277,6 +360,9 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
     (req: AskAIAboutErrorRequest) => {
       setSeedValue(formatErrorPrompt(req));
       setSeedKey((k) => k + 1);
+      // Drain the cached copy on live delivery so a subsequent hide → show
+      // cycle doesn't replay the same error prompt.
+      uiService.consumePendingAIErrorAnalysis();
     },
     []
   );
@@ -284,12 +370,48 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
   useEvent(
     uiService.onDidRequestChatWithText,
     ({ text }) => {
-      const quoted = text.trim() ? `> ${text.trim().replace(/\n/g, '\n> ')}\n\n` : '';
-      setSeedValue(quoted);
+      setSeedValue(quoteForSeed(text));
       setSeedKey((k) => k + 1);
+      // Same drain-on-live-delivery pattern as above.
+      uiService.consumePendingChatWithText();
     },
     []
   );
+
+  useEvent(
+    uiService.onDidRequestSelectionAction,
+    (request: SelectionActionRequest) => {
+      setPendingSelection(request.selection);
+      // UIService writes the cache BEFORE firing so a request made while
+      // this panel is unmounted still lands on the next mount's drain.
+      // When we're mounted (this handler runs), consume the cache so a
+      // subsequent hide → show cycle cannot resurrect a card the user
+      // already dismissed or completed.
+      uiService.consumePendingSelectionAction();
+    },
+    []
+  );
+
+  // Drain any request that fired while ChatSidebar was unmounted (chat
+  // panel hidden at fire time, or the useEvent binding hadn't attached
+  // yet). UIService caches the last request per channel so the very
+  // first paint after unhiding still sees the trigger.
+  useEffect(() => {
+    const pendingSelectionReq = uiService.consumePendingSelectionAction();
+    if (pendingSelectionReq) setPendingSelection(pendingSelectionReq.selection);
+
+    const pendingErrorReq = uiService.consumePendingAIErrorAnalysis();
+    if (pendingErrorReq) {
+      setSeedValue(formatErrorPrompt(pendingErrorReq));
+      setSeedKey((k) => k + 1);
+    }
+
+    const pendingChatReq = uiService.consumePendingChatWithText();
+    if (pendingChatReq) {
+      setSeedValue(quoteForSeed(pendingChatReq.text));
+      setSeedKey((k) => k + 1);
+    }
+  }, [uiService]);
 
   // ---- send / cancel ----
 
@@ -323,7 +445,11 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
   );
 
   const handleSend = useCallback(
-    async (text: string, intent: SendIntent) => {
+    async (
+      text: string,
+      intent: SendIntent,
+      opts?: { skipMentions?: boolean; titleSeed?: string }
+    ): Promise<{ sent: boolean; error?: string }> => {
       // Decide before writing this turn: is this the first message in a
       // not-yet-titled thread?
       const titleThreadId = chatStreamStore.getActiveThreadId();
@@ -338,11 +464,21 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         // receives the inline file content via SNACA's typed channel
         // rather than as opaque chat text. cleanedText keeps the user
         // message readable (tokens become `[attached: path]` markers).
-        const { mentions, cleanedText } = await buildMentions(text, workspaceRoot);
-        if (mentions.length > 0) {
-          context.mentions = [...(context.mentions ?? []), ...mentions];
+        //
+        // Selection-action turns opt out (`skipMentions`): the prompt wraps
+        // the user's captured text in `<reference_material>` and any `@…`
+        // tokens inside it are quoted material, not a request to attach a
+        // project file. Running buildMentions on that text would silently
+        // pull in matching project paths (e.g. main.tex from an external
+        // paper's citation), leaking unrelated project files to the model.
+        let payload = text;
+        if (!opts?.skipMentions) {
+          const { mentions, cleanedText } = await buildMentions(text, workspaceRoot);
+          if (mentions.length > 0) {
+            context.mentions = [...(context.mentions ?? []), ...mentions];
+          }
+          payload = cleanedText;
         }
-        const payload = cleanedText;
         if (intent === 'composer') {
           const { turnId } = await agentClient.startComposer(payload, context, 'plan_first');
           chatStreamStore.beginComposerTurn(turnId, payload);
@@ -351,9 +487,23 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
           chatStreamStore.beginUserTurn(turnId, payload);
         }
         void refreshThreads();
-        if (needsTitle && titleThreadId) void autoGenerateTitle(titleThreadId, text);
+        if (needsTitle && titleThreadId) {
+          // Selection-action turns pass a short titleSeed (action label +
+          // short excerpt) because `text` is a 20K-char prompt starting
+          // with the INJECTION_GUARD sentence — deriveTitleFromText's
+          // first-line rule would otherwise name the thread after that
+          // guard prefix. Regular text turns pass no seed; the raw text
+          // stays authoritative.
+          void autoGenerateTitle(titleThreadId, opts?.titleSeed ?? text);
+        }
+        return { sent: true };
       } catch (err) {
-        setStartup({ kind: 'error', message: extractErrorMessage(err) });
+        const message = extractErrorMessage(err);
+        setStartup({ kind: 'error', message });
+        // Return the message so caller-side surfaces (selection card banner)
+        // can distinguish a network fault from an agent-unavailable error
+        // instead of showing the same generic "send failed" line.
+        return { sent: false, error: message };
       }
     },
     [refreshThreads, workspaceRoot, autoGenerateTitle]
@@ -363,6 +513,94 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
     if (!currentTurn) return;
     await agentClient.cancelTurn(currentTurn.turnId);
   }, [currentTurn]);
+
+  // Card owns only the "which action was clicked" decision. The full send
+  // path (mentions, title generation, composer branch, error surfaces) stays
+  // in handleSend so future changes there apply to selection-driven turns
+  // automatically. Snapshot pendingSelection before clearing so a race with
+  // dismiss can't drop the click mid-send.
+  const handleSelectionAction = useCallback(
+    async (action: SelectionAction) => {
+      // Synchronous re-entrancy check first — see the `selectionActionInFlight`
+      // ref definition above. React batches setState within a single event, so
+      // a rapid second click can pass every state-derived guard until we flip
+      // this synchronous flag.
+      if (selectionActionInFlight.current) return;
+      // Defensive guard mirrors the card's `disabled` prop. The card
+      // already hides the click when startup!=ready or busy, but a stale
+      // focus / keyboard-triggered click could still land here mid-send.
+      if (busy || startup.kind !== 'ready') return;
+      // Only block when we KNOW Zotero is disabled; null (loading) is
+      // treated as "let the user try, tool call will surface the truth".
+      if (ZOTERO_GATED_ACTIONS.has(action) && zoteroEnabled === false) return;
+      const captured = pendingSelection;
+      if (!captured) return;
+      selectionActionInFlight.current = true;
+      // Build the prompt BEFORE clearing the card. buildSelectionActionPrompt
+      // can throw (default-case exhaustiveness assertion for IPC edge cases).
+      // Route the error through the scoped `threadError` banner (NOT
+      // `setStartup`) so the sidebar stays interactive and the card stays
+      // visible + clickable — the user can retry the same action or pick
+      // a different one without waiting for startup to reset.
+      let prompt: string;
+      try {
+        prompt = buildSelectionActionPrompt(action, captured, getLocale());
+      } catch (err) {
+        selectionActionInFlight.current = false;
+        setThreadError(extractErrorMessage(err));
+        return;
+      }
+      // Snapshot the pre-send startup so a send failure inside handleSend
+      // (which flips `startup` to 'error' via its own catch) can be rolled
+      // back — otherwise the card stays visible but its buttons are
+      // disabled by `busy || startup.kind !== 'ready'`, defeating the
+      // whole "keep the card for one-click retry" design.
+      const preSendStartup = startup;
+      try {
+        // skipMentions: the selection may contain `@…` tokens that must be
+        // treated as quoted material, not as file-attachment hints. See the
+        // handleSend body for the full rationale.
+        //
+        // titleSeed: pass a compact "<action label>: <first ~100 chars of
+        // selection>" instead of the full prompt so autoGenerateTitle's
+        // fallback doesn't name the thread after the INJECTION_GUARD
+        // sentence — the first line of the raw prompt.
+        //
+        // Only clear the card on success. handleSend returns sent=false
+        // when it caught an error internally (network fault, agent
+        // unavailable) — recreating an external-app selection would require
+        // the user to switch back to that app and reselect the text, so we
+        // keep the card so retry is one click away.
+        const actionLabel = t(
+          `chat.selectionAction.actions.${
+            action === 'find_related_lit_local' ? 'findRelatedLit' : action
+          }` as TranslationKey
+        );
+        const titleSeed = `${actionLabel}: ${captured.text.slice(0, 100)}`;
+        const { sent, error } = await handleSend(prompt, 'chat', {
+          skipMentions: true,
+          titleSeed,
+        });
+        if (sent) {
+          // Setter form: if a NEW selection arrived while we were
+          // awaiting, `pendingSelection` now points at the new one —
+          // clearing it would silently drop the user's second attempt.
+          setPendingSelection((prev) => (prev === captured ? null : prev));
+        } else {
+          // Roll back the sidebar-wide error state that handleSend set,
+          // and surface the failure via the scoped threadError banner so
+          // the card + composer stay enabled for immediate retry. Include
+          // the underlying error so the user can tell "network down" from
+          // "agent not configured".
+          setStartup(preSendStartup);
+          setThreadError(error ? `${t('chat.sendFailed')}: ${error}` : t('chat.sendFailed'));
+        }
+      } finally {
+        selectionActionInFlight.current = false;
+      }
+    },
+    [pendingSelection, handleSend, busy, startup, zoteroEnabled, t]
+  );
 
   // ---- thread actions ----
 
@@ -472,6 +710,43 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
     />
   );
 
+  // The card sits above the composer in both empty and normal states —
+  // keeping it out of AgentChatInput itself avoids leaking card state into
+  // the textarea's autocomplete/seed machinery. Composer stays interactive
+  // while the card is shown so a user who prefers to type a custom prompt
+  // can still do so.
+  const composerBlock = (
+    <>
+      {pendingSelection && (
+        <SelectionActionCard
+          selection={pendingSelection}
+          onAction={(action) => void handleSelectionAction(action)}
+          onDismiss={() => setPendingSelection(null)}
+          disabled={busy || startup.kind !== 'ready'}
+          disabledActions={
+            // Only gate the button when we KNOW Zotero is off (`false`).
+            // While the config is still loading (`null`), let the user
+            // click — the LLM's tool call will surface any real problem
+            // more accurately than a stale disabled state.
+            //
+            // Derive the reason map from ZOTERO_GATED_REASON_KEYS so a
+            // second gated action added to the table lights up here
+            // automatically. Prior hand-written entry duplicated the
+            // action id + i18n key across two spots.
+            zoteroEnabled === false
+              ? Object.fromEntries(
+                  (
+                    Object.entries(ZOTERO_GATED_REASON_KEYS) as [SelectionAction, TranslationKey][]
+                  ).map(([action, key]) => [action, t(key)])
+                )
+              : undefined
+          }
+        />
+      )}
+      {composer}
+    </>
+  );
+
   return (
     <div
       className="relative flex h-full flex-col bg-[var(--color-bg-secondary)] text-[var(--color-text-primary)]"
@@ -529,7 +804,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
       ) : isEmpty ? (
         <div className="flex-1 overflow-y-auto">
           <EmptyState
-            composerSlot={composer}
+            composerSlot={composerBlock}
             onPickExample={(text) => {
               // Drop the raw text into the input (editable before sending) instead of
               // routing through requestChatWithText, which would wrap it in a
@@ -558,7 +833,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
               {currentTurn && <ChatMessage message={null} turn={currentTurn} />}
             </div>
           </div>
-          <div className="pb-3">{composer}</div>
+          <div className="pb-3">{composerBlock}</div>
         </>
       )}
 

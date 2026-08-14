@@ -95,6 +95,7 @@ class ConfigManagerImpl implements IConfigManager {
       [ConfigKeys.ZoteroBibTexSyncEnabled]: true,
       [ConfigKeys.ZoteroBibTexSyncFileName]: '.scipen/zotero_library.bib',
       [ConfigKeys.ZoteroBibTexSyncTranslator]: 'BetterBibLaTeX',
+      [ConfigKeys.SelectionCaptureConsent]: false,
     };
   }
 

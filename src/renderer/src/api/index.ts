@@ -786,17 +786,21 @@ export const fileWatcher = {
 
 // ==================== Selection API (Text Selection Assistant) ====================
 
-import type { SelectionCaptureDTO, SelectionConfigDTO } from '../../../../shared/ipc/types';
+import type {
+  SelectionCaptureDTO,
+  SelectionConfigDTO,
+  SelectionLifecycleResultDTO,
+} from '../../../../shared/ipc/types';
 
-export type { SelectionCaptureDTO, SelectionConfigDTO };
+export type { SelectionCaptureDTO, SelectionConfigDTO, SelectionLifecycleResultDTO };
 
 export const selection = {
   setEnabled: (enabled: boolean) =>
-    invoke<{ success: boolean; error?: string }>(IpcChannel.Selection_SetEnabled, enabled),
+    invoke<SelectionLifecycleResultDTO>(IpcChannel.Selection_SetEnabled, enabled),
   isEnabled: () => invoke<boolean>(IpcChannel.Selection_IsEnabled),
   getConfig: () => invoke<SelectionConfigDTO | null>(IpcChannel.Selection_GetConfig),
   setConfig: (config: Partial<SelectionConfigDTO>) =>
-    invoke<{ success: boolean; error?: string }>(IpcChannel.Selection_SetConfig, config),
+    invoke<SelectionLifecycleResultDTO>(IpcChannel.Selection_SetConfig, config),
   getText: () => invoke<SelectionCaptureDTO | null>(IpcChannel.Selection_GetText),
   onTextCaptured: (callback: (data: SelectionCaptureDTO) => void) =>
     on(IpcChannel.Selection_TextCaptured, (data) => callback(data as SelectionCaptureDTO)),

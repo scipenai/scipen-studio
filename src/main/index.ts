@@ -915,12 +915,22 @@ function registerIpcHandlers() {
 
   // Auto-start selection service if enabled in config
   if (selectionService.isEnabled()) {
-    selectionService.start().then((success) => {
-      if (success) {
-        log.info('[Main] Selection service started automatically');
-      } else {
-        log.warn('[Main] Selection service failed to start');
-      }
-    });
+    selectionService
+      .start()
+      .then((result) => {
+        if (result.success) {
+          log.info('[Main] Selection service started automatically');
+        } else {
+          log.warn(
+            `[Main] Selection service failed to start (${result.code ?? 'unknown'}): ${result.error ?? ''}`
+          );
+        }
+      })
+      .catch((error) => {
+        // start()'s main body catches, but the pre-try consent check and
+        // any throw from cleanupAfterFailedStart would otherwise reject
+        // this promise as an unhandled rejection in the main process.
+        log.warn('[Main] Selection service auto-start threw unexpectedly:', error);
+      });
   }
 }

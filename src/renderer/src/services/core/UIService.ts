@@ -10,6 +10,30 @@ import {
   type Event,
   type IDisposable,
 } from '../../../../../shared/utils';
+
+/**
+ * Single-slot cache for "fire an event now; a subscriber that mounts later
+ * needs to drain the last value". Extracted because three UI channels
+ * (selection action, AI error analysis, chat-with-text) all need the same
+ * set-before-fire / consume-once-on-mount / clear-on-dispose lifecycle,
+ * and hand-rolled duplicates already forgot dispose-clears in prior rounds
+ * (potentially retaining sensitive captured text past disposal).
+ */
+class PendingRequestSlot<T> implements IDisposable {
+  private _value: T | null = null;
+  set(value: T): void {
+    this._value = value;
+  }
+  consume(): T | null {
+    const value = this._value;
+    this._value = null;
+    return value;
+  }
+  dispose(): void {
+    this._value = null;
+  }
+}
+import type { SelectionActionRequest } from '../../../../../shared/types/selection-action';
 import { api } from '../../api';
 import type { CompilationResult, FilePdfPreviewState, ParsedLogEntry } from '../../types';
 import { getStorageService } from '../StorageService';
@@ -302,6 +326,10 @@ export class UIService implements IDisposable {
   readonly onDidRequestChatWithText: Event<{ text: string; source: 'editor' | 'selection' }> =
     this._onDidRequestChatWithText.event;
 
+  private readonly _onDidRequestSelectionAction = new Emitter<SelectionActionRequest>();
+  readonly onDidRequestSelectionAction: Event<SelectionActionRequest> =
+    this._onDidRequestSelectionAction.event;
+
   constructor() {
     this._disposables.add(this._onDidChangeSidebarTab);
     this._disposables.add(this._onDidChangeSidebarCollapsed);
@@ -327,6 +355,7 @@ export class UIService implements IDisposable {
     this._disposables.add(this._onDidEditorToPreview);
     this._disposables.add(this._onDidPreviewToEditor);
     this._disposables.add(this._onDidRequestChatWithText);
+    this._disposables.add(this._onDidRequestSelectionAction);
 
     this._bindCompileService();
 
@@ -890,24 +919,100 @@ export class UIService implements IDisposable {
 
   // ====== AI Error Analysis ======
 
+  // See PendingRequestSlot: closes the async-mount gap where a synchronous
+  // fire() on the tick chat surface is being revealed reaches zero
+  // listeners (ChatSidebar mounts on the next commit).
+  private readonly _pendingAIErrorAnalysis = new PendingRequestSlot<AskAIAboutErrorRequest>();
+
   /**
    * Request AI analysis of compilation error
    * Automatically switches to AI chat panel and keeps current editor/preview layout
    */
   requestAIErrorAnalysis(request: AskAIAboutErrorRequest): void {
-    this.setSidebarTab('im');
+    this._pendingAIErrorAnalysis.set(request);
+    this._revealChatSurface();
     this._onDidRequestAIErrorAnalysis.fire(request);
   }
 
+  /** Drain the last-fired AI error analysis request; see the pending slot above. */
+  consumePendingAIErrorAnalysis(): AskAIAboutErrorRequest | null {
+    return this._pendingAIErrorAnalysis.consume();
+  }
+
+  /**
+   * Bring the chat surface into view before firing a chat-scoped event.
+   * Extracted so requestChatWithText and requestSelectionAction can't
+   * drift on the "which UI toggles need to happen" question.
+   *
+   * `chatVisible` is included because the chat panel is now toggleable —
+   * without this, an event to a hidden panel fires into zero listeners
+   * (ChatSidebar is only mounted while chatVisible === true).
+   */
+  private _revealChatSurface(): void {
+    this.setSidebarTab('im');
+    this.setSidebarCollapsed(false);
+    this.setChatVisible(true);
+  }
+
   // ====== Chat With Text (Ctrl+L) ======
+
+  // All current callers pass `text: ''` (empty-caret Ctrl+L / Command
+  // Palette focus-chat), so a lost fire is harmless today. Caching anyway
+  // to close the same async-mount gap as selection/error paths: any
+  // future caller passing real seed text would otherwise drop it silently
+  // when the chat panel was hidden.
+  private readonly _pendingChatWithText = new PendingRequestSlot<{
+    text: string;
+    source: 'editor' | 'selection';
+  }>();
 
   /**
    * Send text to the IM input (triggered by Ctrl+L or global selection).
    */
   requestChatWithText(text: string, source: 'editor' | 'selection' = 'editor'): void {
-    this.setSidebarTab('im');
-    this.setSidebarCollapsed(false);
+    this._pendingChatWithText.set({ text, source });
+    this._revealChatSurface();
     this._onDidRequestChatWithText.fire({ text, source });
+  }
+
+  /** Drain the last-fired chat-with-text request; see the pending slot above. */
+  consumePendingChatWithText(): { text: string; source: 'editor' | 'selection' } | null {
+    return this._pendingChatWithText.consume();
+  }
+
+  // ====== Selection Action Card (Ctrl+L / Alt+D → 4-button card) ======
+
+  // See PendingRequestSlot at file top for the async-mount rationale.
+  private readonly _pendingSelectionAction = new PendingRequestSlot<SelectionActionRequest>();
+
+  /**
+   * Explicit-only trigger for the SelectionActionCard in ChatSidebar. Fired from
+   * two places: editor Ctrl+L (via editorSetup) and external Alt+D hook/shortcut
+   * (via ResearchWorkspaceShell). Never subscribes to Monaco selection change —
+   * dragging in the editor must NOT pop the card; only the shortcut does.
+   *
+   * Runs alongside requestChatWithText: old surfaces (compile-error Ask AI,
+   * EmptyState pick example) keep using the seed path, while the card owns the
+   * new selection-driven flow. Separating the events prevents the two flows
+   * from stepping on each other's UI state.
+   *
+   * Caches the request BEFORE firing so a subscriber that mounts later
+   * (chat panel was hidden, or ChatSidebar's `useEvent` binds on next
+   * commit) can drain the missed request via consumePendingSelectionAction.
+   */
+  requestSelectionAction(request: SelectionActionRequest): void {
+    this._pendingSelectionAction.set(request);
+    this._revealChatSurface();
+    this._onDidRequestSelectionAction.fire(request);
+  }
+
+  /**
+   * Drain the last-fired selection-action request. ChatSidebar reads once
+   * on mount so a request that fired while it was unmounted still lands
+   * on the first paint. Returns null if there is nothing to consume.
+   */
+  consumePendingSelectionAction(): SelectionActionRequest | null {
+    return this._pendingSelectionAction.consume();
   }
 
   // ====== Lifecycle ======
@@ -917,6 +1022,12 @@ export class UIService implements IDisposable {
     this._pdfData = null;
     this._zoteroPdf = null;
     this._currentMarkdownSection = null;
+    // Clear the pending slots — they can hold the user's last captured
+    // text (potentially sensitive content from an external app via
+    // Alt+D) and would otherwise survive disposal.
+    this._pendingSelectionAction.dispose();
+    this._pendingAIErrorAnalysis.dispose();
+    this._pendingChatWithText.dispose();
     this._disposables.dispose();
   }
 }

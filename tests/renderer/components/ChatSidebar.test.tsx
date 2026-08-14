@@ -49,7 +49,11 @@ vi.mock('../../../src/renderer/src/services/core/ServiceRegistry', () => ({
   getUIService: () => ({
     onDidRequestAIErrorAnalysis: undefined,
     onDidRequestChatWithText: undefined,
+    onDidRequestSelectionAction: undefined,
     setSidebarTab: vi.fn(),
+    consumePendingSelectionAction: vi.fn().mockReturnValue(null),
+    consumePendingAIErrorAnalysis: vi.fn().mockReturnValue(null),
+    consumePendingChatWithText: vi.fn().mockReturnValue(null),
   }),
 }));
 
@@ -108,6 +112,13 @@ vi.mock('../../../src/renderer/src/api', () => ({
   api: {
     ai: {
       generateTitle: vi.fn(),
+    },
+    config: {
+      // ChatSidebar polls Zotero integration state on mount and subscribes
+      // to config changes so the "find related literature" button stays in
+      // sync when the wizard runs later.
+      get: vi.fn().mockResolvedValue(false),
+      onChanged: vi.fn().mockReturnValue(() => undefined),
     },
   },
 }));

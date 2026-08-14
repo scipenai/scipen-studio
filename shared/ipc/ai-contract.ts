@@ -11,6 +11,7 @@ import type {
   SelectedModels,
   SelectionCaptureDTO,
   SelectionConfigDTO,
+  SelectionLifecycleResultDTO,
 } from './types';
 // ====== AI Types ======
 
@@ -119,7 +120,9 @@ export interface IPCAiContract {
   // ============ Selection Assistant ============
   [IpcChannel.Selection_SetEnabled]: {
     args: [enabled: boolean];
-    result: { success: boolean; error?: string };
+    // Shape shared with Selection_SetConfig and the renderer/preload
+    // wrappers via SelectionLifecycleResultDTO — one place to add codes.
+    result: SelectionLifecycleResultDTO;
   };
   [IpcChannel.Selection_IsEnabled]: {
     args: [];
@@ -131,7 +134,8 @@ export interface IPCAiContract {
   };
   [IpcChannel.Selection_SetConfig]: {
     args: [config: Partial<SelectionConfigDTO>];
-    result: { success: boolean; error?: string };
+    // Same failure shape as Selection_SetEnabled — see SelectionLifecycleResultDTO.
+    result: SelectionLifecycleResultDTO;
   };
   [IpcChannel.Selection_GetText]: {
     args: [];

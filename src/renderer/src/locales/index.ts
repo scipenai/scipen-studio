@@ -104,11 +104,20 @@ type NestedKeyOf<T> = T extends object
 export type TranslationKey = NestedKeyOf<typeof enUS>;
 
 /**
- * Get translation by key
+ * Get translation for an EXPLICIT locale (bypasses `currentLocale`).
+ *
+ * Use when the string being produced is not tied to the current UI locale
+ * — for example, an LLM user-message prompt built for a specific locale
+ * regardless of what the UI happens to be showing. UI code should keep
+ * using `useTranslation()` so React re-renders on language switch.
  */
-export function t(key: TranslationKey, params?: Record<string, string | number>): string {
+export function tForLocale(
+  key: TranslationKey,
+  locale: LocaleKey,
+  params?: Record<string, string | number>
+): string {
   const keys = key.split('.');
-  let value: unknown = translations[currentLocale];
+  let value: unknown = translations[locale];
 
   for (const k of keys) {
     if (value && typeof value === 'object' && k in value) {
@@ -144,6 +153,14 @@ export function t(key: TranslationKey, params?: Record<string, string | number>)
 }
 
 /**
+ * Get translation by key (uses `currentLocale`). See tForLocale for the
+ * explicit-locale variant.
+ */
+export function t(key: TranslationKey, params?: Record<string, string | number>): string {
+  return tForLocale(key, currentLocale, params);
+}
+
+/**
  * React hook for translations
  * Uses useSyncExternalStore to ensure components re-render when language changes
  */
@@ -174,4 +191,4 @@ export function useTranslation() {
 const detectedLocale = detectLocale();
 currentLocale = detectedLocale;
 
-export default { t, getLocale, setLocale, detectLocale, SUPPORTED_LOCALES };
+export default { t, tForLocale, getLocale, setLocale, detectLocale, SUPPORTED_LOCALES };

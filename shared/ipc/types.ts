@@ -159,3 +159,27 @@ export interface SelectionConfigDTO {
   triggerMode: SelectionTriggerMode;
   shortcutKey: string;
 }
+
+/**
+ * Failure taxonomy for the selection assistant lifecycle. Inlined in
+ * `SelectionLifecycleResultDTO` below; the main-services
+ * `SelectionLifecycleResult` is a type alias of that DTO, so a new code
+ * added here propagates to IPC / preload / renderer at compile time.
+ */
+export type SelectionLifecycleErrorCode =
+  | 'consent_required'
+  | 'shortcut_conflict'
+  | 'hook_unavailable'
+  | 'unknown';
+
+/**
+ * Wire shape shared by Selection_SetEnabled + Selection_SetConfig.
+ * `SelectionLifecycleResult` in main/services/interfaces is a type alias
+ * of this DTO (not a mirrored interface), so new error codes AND new
+ * fields both live in exactly one place across IPC / preload / renderer.
+ */
+export interface SelectionLifecycleResultDTO {
+  success: boolean;
+  error?: string;
+  code?: SelectionLifecycleErrorCode;
+}

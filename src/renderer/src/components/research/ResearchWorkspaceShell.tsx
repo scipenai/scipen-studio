@@ -87,12 +87,25 @@ export const ResearchWorkspaceShell: React.FC = () => {
     uiService.setSidebarTab('im');
   }, [uiService]);
 
-  // Global selected text -> prefill SNACA input (via ChatSidebar's seed listener).
+  // External selection (native hook / global shortcut) -> open the
+  // SelectionActionCard in ChatSidebar. Distinct from requestChatWithText
+  // (still used by the empty-caret Ctrl+L fallback and the Command Palette
+  // "Open AI Chat" entry, which just focus the chat input); the card owns
+  // the new 4-button selection flow so external + editor selections share
+  // one UI surface.
   useEffect(() => {
     const dispose = api.selection.onTextCaptured((data) => {
-      if (data.text?.trim()) {
-        uiService.requestChatWithText(data.text.trim(), 'selection');
-      }
+      const text = data.text?.trim();
+      if (!text) return;
+      const capturedAt = Date.parse(data.capturedAt);
+      uiService.requestSelectionAction({
+        selection: {
+          text,
+          source: 'external',
+          sourceApp: data.sourceApp,
+          capturedAt: Number.isFinite(capturedAt) ? capturedAt : Date.now(),
+        },
+      });
     });
     return dispose;
   }, [uiService]);
