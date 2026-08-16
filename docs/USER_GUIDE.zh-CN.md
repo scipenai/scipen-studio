@@ -1,7 +1,7 @@
 # SciPen Studio 用户手册
 
-> **适用版本**: 0.3.0
-> **最后更新**: 2026-06-16
+> **适用版本**: 0.5.0
+> **最后更新**: 2026-07-16
 
 [English](USER_GUIDE.md) · **简体中文**
 
@@ -13,10 +13,12 @@
 2. [编辑器](#编辑器)
 3. [编译与 PDF 预览](#编译与-pdf-预览)
 4. [AI 助手](#ai-助手)
-5. [Overleaf 集成](#overleaf-集成)
-6. [设置](#设置)
-7. [快捷键](#快捷键)
-8. [常见问题](#常见问题)
+5. [Zotero 集成](#zotero-集成)
+6. [本地历史与恢复](#本地历史与恢复)
+7. [Overleaf 集成](#overleaf-集成)
+8. [设置](#设置)
+9. [快捷键](#快捷键)
+10. [常见问题](#常见问题)
 
 ---
 
@@ -82,12 +84,11 @@ LSP 二进制随安装包一同分发,**无需手动安装**。
 
 | 引擎 | 说明 | 是否需要本地安装 |
 |------|------|------------------|
-| **WASM (BusyTeX)** (默认) | 内置 pdfTeX / XeTeX / LuaLaTeX,开箱即用 | 否 |
-| **WASM XeTeX** | 内置,支持 Unicode / CJK | 否 |
+| **WASM BusyTeX** (默认) | 内置 WebAssembly 引擎 —— 在**底部状态栏引擎下拉**中选 `pdftex` / `xetex` / `lualatex`。`xetex` / `lualatex` 通过随包分发的 `scipencjk` 处理 CJK(源码含中文时自动注入,**无需 `\usepackage{ctex}`**)。 | 否 |
 | **Tectonic** | 自动下载宏包,适合大型项目 | 是 |
 | **TeX Live** (pdfLaTeX / XeLaTeX / LuaLaTeX) | 完整发行版 | 是 |
 
-可在 *设置 → 编译器* 切换默认引擎,或针对单个项目通过工具栏选择。
+可在 *设置 → 编译器* 切换默认引擎,或从**底部状态栏引擎下拉**(右下角)按项目切换。下拉列表按能力过滤 —— 无法编译当前文件的引擎会置灰。
 
 ### PDF 预览
 
@@ -122,6 +123,10 @@ LSP 二进制随安装包一同分发,**无需手动安装**。
 - 每个 hunk 旁有独立 ✓ / ✗ 按钮
 
 内置工具包含 `Read` / `Write` / `Edit` / `MultiEdit` / `Grep` / `Glob` / `LS` / `Bash` / `Skill` / 内存 + Zotero / `TodoWrite` / `TaskOutput` / `TaskStop` / **WebSearch / WebFetch** / **AskUserQuestion**。文件改动 / shell / Bash 这类高风险工具会走**审批卡片** —— *允许一次*、*始终允许*、*拒绝*。
+
+### 2a. Ctrl+K 内联编辑
+
+选中一段代码,按 `Ctrl+K`,输入指令(如「重写成 bullet list」/「翻译成英文」),模型会把替换文本**流式写回**缓冲区,合并成**单次撤销步**。**与聊天 Agent 独立** —— 用的是 *设置 → AI* 里的**补全模型**,直连 provider,**不走 SNACA**。流式过程中按 `Esc` 取消,按 `Tab` 接受完成后的替换。
 
 ### 3. AskUserQuestion(多选问题卡)
 
@@ -158,6 +163,70 @@ Agent 把用户偏好和项目事实存为按项目分目录的 Markdown,落在�
 - **Skills 查看器** — 列出当前生效 scope 下所有 Skill(Bundled / Tenant / Project),查看具体内容
 
 低 confidence 的 extractor 条目会被**自动召回**过滤(可配置阈值);它们仍在查看器里可见。
+
+---
+
+## Zotero 集成
+
+有两种数据源可选 —— 本机运行的 **桌面 Zotero**,或 **zotero.org 云端 Web API**。在 *设置 → Zotero → 数据源* 二选一。
+
+### 数据源(Local vs Web)
+
+- **桌面 Zotero (Local API)** —— 默认。需要本机装 Zotero + [Better BibTeX](https://retorque.re/zotero-better-bibtex/) 插件。速度快,支持 BBT 生成的 citation key,首次镜像后即使 Zotero 关闭也能查。
+- **云端 Zotero (Web API)** —— 不装 Zotero 客户端也能用(headless / 云端工作站 / 多设备)。提供你的 numeric **user ID** 与 **API key**(在 <https://www.zotero.org/settings/keys> 生成)。Studio 直接调 `api.zotero.org`;key 走 OS keychain,永不明文回渲染进程。**云模式下 Better BibTeX 与 MinerU 精解析不可用**(阶段 A 限制);citation key 由 Studio 内置 minter 生成(BBT 兼容的 `[auth:lower][year][veryshorttitle:lower]` 公式)并保存在 SQLite 本地库。
+
+切换数据源会立即触发一次 refresh,不用等 focus 事件。
+
+### 连接(Local API)
+
+1. 在 Zotero 里安装 Better BibTeX 并启用本地 HTTP 端点(默认 `http://127.0.0.1:23119`)。
+2. 打开 *设置 → Zotero* 点 **连接**。文献库会被镜像到本地索引,Zotero 关闭时也能查询。
+
+### 连接(Web API)
+
+1. 登录 <https://www.zotero.org/settings/keys>,创建一个**只读 key**(勾选 "Access your Zotero library" 即可)。同一页顶部显示你的 numeric **user ID**。
+2. *设置 → Zotero → 数据源* → 选 **云端 Zotero (Web API)** → 弹出设置对话框。
+3. 粘贴 user ID + key,点 **测试连接**。成功后对话框显示 "已连接: *{username}*",此时 **保存** 按钮才可用。
+4. 保存后 *Sources* 卡片从 "Zotero Local API + BBT" 双行切成 "Zotero Web API" 单行;*Citation Key 归属* 段显示来自 BBT 同步 / Studio 生成 / 用户覆盖三类的计数。
+
+### 你能得到什么
+
+- **实时 BibTeX** —— 镜像随 Zotero 变化事件刷新;`\bibliography{...}` 一加论文就能补全新 citation key。
+- **`@cite` 自动补全** —— 在 `.tex` 里输 `@` 打开实时 citation picker,覆盖当前库。
+- **右侧 Paper 标签** —— 预览列的 *Paper* tab 会渲染当前引用的 Zotero 条目 PDF;Agent 上下文也会带上当前 active item,让模型知道你在引哪篇。
+- **语义 PDF 搜索** —— 本地 embedding 索引覆盖附件 PDF,支持「找相似段落」查询。
+- **Agent 工具** —— SNACA Agent 可调用 Zotero(`zotero_search` / `zotero_lookup` / `zotero_annotations` / `zotero_read`)把写作锚定在你库里真实存在的内容上。
+
+### Embedding 与 MinerU 的 BYOK
+
+语义 PDF 搜索需要 embedding provider(OpenAI 或兼容端点),图像型 PDF 的全文抽取用 [MinerU](https://mineru.net)。两者都**可选**,在 *设置 → Zotero* 配置;不配也能用 Zotero,只是失去语义搜索和图像 PDF 抽取。
+
+---
+
+## 本地历史与恢复
+
+SciPen Studio 为每个项目维护一份**内容寻址的快照库** —— **无需 Git**。快照同时驱动时间线浏览器和 chat 里的按消息回滚。
+
+### 快照触发
+
+| 类型 | 触发 |
+|------|------|
+| **手动 label** | 侧栏 → *History* → *New label*,起名(可选加描述) |
+| **自动 label** | 项目打开期间每 ~6 小时一次 |
+| **Milestone** | 每次编译成功后打一个(5 分钟节流,避免连编时刷屏) |
+| **Drift 快照** | AI Agent 在同一线程里累计改动足够字节后自动触发 |
+| **Step(每次 SNACA 工具调用)** | Agent 每个改文件的工具调用记一条 step,挂在当前 chat thread 的 session 下,parent step 建 DAG |
+
+### 浏览与恢复
+
+- 侧栏 → *History* 打开统一浏览器,含 **Labels** 与 **Sessions** 两个 tab
+- 选任一 label / step 可看每文件相对当前磁盘状态的 unified diff
+- Label 上点 *Restore* 会把所有 tracked 文件写回磁盘(打开的 tab 从快照重新加载)
+- Chat 里 hover 任意 user 消息可见 *Rollback* 按钮 —— 把所有打开 tab 恢复到**该消息之前**记录的最后一个 step(相当于撤销 Agent 在这轮之后做的事)
+
+### 存储
+
+快照落在 `{userData}/scipen-studio/projects/{projectId}/history/` —— SQLite 元数据 + 内容寻址 blob 目录(blob ≤ 4 KiB 内联到 SQLite,更大的落 `blobs/{hexPrefix}/{hash}`)。**孤儿扫描每天一次**,长 chunk 链自动折叠,存储不会无界增长。
 
 ---
 
@@ -208,8 +277,8 @@ SciPen Studio 采用 **本地优先 + 后台同步** 模式:
 | 提供商 | OpenAI / Anthropic / DeepSeek / OpenAI 兼容端点 |
 | API Key | API 密钥 (本地保存) |
 | API Host | 自定义端点,用于私有代理或聚合服务 |
-| 对话模型 | **内置 Agent** 跑对话 / 工具调用用的模型 |
-| 补全模型 | **编辑器内联补全(`Ctrl+L`)用的模型 |
+| 对话模型 | **内置 Agent** 跑对话 / 工具调用 / `Ctrl+L` 选区发到聊天 用的模型 |
+| 补全模型 | **编辑器内联补全 + `Ctrl+K` 内联编辑** 用的模型 |
 
 > Agent 严格需要的只有「对话模型」,Agent 运行时随应用分发,无独立服务。
 
@@ -217,7 +286,7 @@ SciPen Studio 采用 **本地优先 + 后台同步** 模式:
 
 | 选项 | 说明 |
 |------|------|
-| 审批模式 | Agent 改文件 / 跑 shell 前如何确认: *Interactive*(默认,弹卡)/ *Auto-allow* / *Auto-deny*。**Auto-allow 是 CI 用法,桌面用户不推荐**。 |
+| 审批模式 | Agent 改文件 / 跑 shell 前如何确认: *Interactive*(默认,弹审批卡)/ *Auto-allow*(不询问直接 fire accept)/ *Auto-deny*(全拒)。*Interactive* 作默认更稳。 |
 | 联网搜索 → Tavily API key | **WebSearch** 工具必需;**WebFetch** 无需此 key。保存后 Agent 运行时自动重启使其生效;留空则关闭 WebSearch。 |
 | Engine 高级旋钮(折叠) | `max_iterations` / `loop_guard_max_repeats` / `concurrent_tool_limit` / `max_tokens` / `history_limit` / `compact_after_input_tokens` / 缓存 + 记忆参数。**多数用户无需触碰**,默认值按模型自适应。 |
 | Memory 查看器 | 打开二级窗口查看当前项目的记忆条目 |
@@ -273,14 +342,16 @@ SciPen Studio 采用 **本地优先 + 后台同步** 模式:
 
 | 快捷键 | 功能 |
 |--------|------|
-| `Ctrl+L` | 选中文本后调用 AI |
-| `@` (AI 输入框) | 引用项目文件 |
+| `Ctrl+L` | 把选区发到聊天面板 |
+| `Ctrl+K` | 内联编辑 —— 用**补全模型**替换选区(流式写回缓冲区,`Tab` 接受,`Esc` 取消) |
+| `@` (聊天输入框) | 引用项目文件 / 目录 / 符号 |
 
 ### 界面
 
 | 快捷键 | 功能 |
 |--------|------|
 | `Ctrl+Shift+V` | 切换 PDF 预览面板 |
+| `Ctrl+\` | 切换聊天面板(专注写作 / 预览时用) |
 
 > 打开"设置"目前没有专用快捷键,可从命令面板 (`Ctrl+P`) 搜索"打开设置",或点击右上角设置按钮。
 
@@ -320,7 +391,7 @@ SciPen Studio 采用 **本地优先 + 后台同步** 模式:
 
 ### Q: Agent 会偷偷改我的文件吗?
 
-**A**: 不会。*审批模式*默认为 **Interactive**,任何文件改动工具(Edit / Write / MultiEdit)和 shell 命令都会在对话里弹出**审批卡**,由你决定 *允许一次* / *始终允许* / *拒绝*。「始终允许」的决策按项目记忆。只有切到 *Auto-allow* 才会完全放手。
+**A**: 不会。*审批模式*默认为 **Interactive**,任何文件改动工具(Edit / Write / MultiEdit)和 shell 命令都会在对话里弹出**审批卡**,由你决定 *允许一次* / *始终允许* / *拒绝*。「始终允许」的决策按项目记忆。只有切到 *Auto-allow* 才会替你 fire accept。
 
 ### Q: 如何更新软件?
 
