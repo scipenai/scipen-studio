@@ -22,6 +22,9 @@ vi.mock('../../../src/main/services/LoggerService', () => ({
   }),
 }));
 
+// ConfigManager / SecureStorageService / CitationKeyStore side-effect isolation
+// is handled globally in tests/renderer/setup.ts — do not re-declare here.
+
 import { BibTexSyncService } from '../../../src/main/services/zotero/BibTexSyncService';
 import { ZoteroEventBus } from '../../../src/main/services/zotero/ZoteroEventBus';
 import type { ZoteroItemDTO } from '../../../shared/types/zotero';

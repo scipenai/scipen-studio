@@ -73,6 +73,11 @@ export enum ConfigKeys {
   ZoteroBibTexSyncEnabled = 'zotero.bibTexSync.enabled',
   ZoteroBibTexSyncFileName = 'zotero.bibTexSync.fileName',
   ZoteroBibTexSyncTranslator = 'zotero.bibTexSync.translator',
+  // 数据源模式:'local'(默认) | 'web'。Web mode 走 api.zotero.org,
+  // 由 ZoteroOrchestrator.getActiveClient() 分支路由;切换会强制 refresh 重建 client。
+  ZoteroDataSource = 'zotero.dataSource',
+  // zotero.org Web API 用户 numeric ID(仅 dataSource='web' 时使用)。空字符串 = 未配置。
+  ZoteroWebApiUserId = 'zotero.webApiUserId',
 
   // ====== Window Configuration ======
   WindowWidth = 'window.width',

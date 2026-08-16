@@ -178,4 +178,86 @@ vi.mock('electron', () => ({
   },
 }));
 
+// ====== Mock main-process modules with side-effectful module-load ======
+//
+// Two main-process modules materialize a real singleton at import time:
+//   - ConfigManager: `export const configManager = ConfigManager.getInstance()`
+//     → electron-store construction requires app.name (fails without real Electron).
+//   - SecureStorageService: singleton `secureStore` lazily inits on first use,
+//     but ancillary helpers (`isSecureStorageAvailable`) touch safeStorage on call.
+//
+// These get stubbed globally so any test that transitively imports them (via
+// ZoteroOrchestrator / BibTexSyncService / handlers etc.) doesn't need to
+// re-declare the mock. Tests that DO want real behavior can override with
+// a local `vi.mock(...)` — vitest hoists local mocks above global ones.
+//
+// CitationKeyStore is NOT globally mocked: its module load is side-effect-free
+// (sqlite opens only on `new CitationKeyStore(...)` call). Only the singleton
+// factory `getCitationKeyStore()` needs `app.getPath('userData')` — we stub
+// just the factory, leaving the real class importable by its own unit test.
+//
+// True root fix = refactor these modules to `export function getFoo()` so
+// module load is side-effect-free. Tracked separately as a P1 refactor.
+
+// Pure stub — no `importActual`, because loading the real module executes
+// `export const configManager = ConfigManager.getInstance()` which crashes.
+// Tests that need to exercise the real ConfigManager (its own unit test)
+// must call `vi.unmock('.../ConfigManager')` at the top of the file to
+// opt out of this default.
+vi.mock('../../src/main/services/ConfigManager', () => ({
+  configManager: {
+    get: vi.fn(),
+    set: vi.fn(),
+    has: vi.fn(),
+    delete: vi.fn(),
+  },
+  ConfigManager: class MockConfigManager {
+    static getInstance = vi.fn();
+    get = vi.fn();
+    set = vi.fn();
+    has = vi.fn();
+    delete = vi.fn();
+  },
+  ConfigChangeEvent: class {},
+}));
+
+vi.mock('../../src/main/services/SecureStorageService', () => ({
+  getZoteroWebApiKey: vi.fn(() => null),
+  getZoteroMinerUApiKey: vi.fn(() => null),
+  getZoteroEmbeddingApiKey: vi.fn(() => null),
+  getOverleafCookies: vi.fn(() => null),
+  setZoteroWebApiKey: vi.fn(() => true),
+  setZoteroMinerUApiKey: vi.fn(() => true),
+  setZoteroEmbeddingApiKey: vi.fn(() => true),
+  setOverleafCookies: vi.fn(() => true),
+  deleteZoteroWebApiKey: vi.fn(),
+  deleteZoteroMinerUApiKey: vi.fn(),
+  deleteZoteroEmbeddingApiKey: vi.fn(),
+  deleteOverleafCookies: vi.fn(),
+  secureHas: vi.fn(() => false),
+  secureGet: vi.fn(() => null),
+  secureSet: vi.fn(() => true),
+  secureDelete: vi.fn(),
+  isSecureStorageAvailable: vi.fn(() => false),
+  SecureStorageKeys: {
+    OverleafCookies: 'overleaf.cookies',
+    OverleafCsrfToken: 'overleaf.csrfToken',
+    ZoteroMinerUApiKey: 'zotero.mineruApiKey',
+    ZoteroEmbeddingApiKey: 'zotero.embeddingApiKey',
+    ZoteroWebApiKey: 'zotero.webApiKey',
+  },
+}));
+
+// Preserve the real CitationKeyStore class (needed by its own test) — only
+// stub the singleton factory, which is the piece that reaches into Electron.
+vi.mock('../../src/main/services/zotero/CitationKeyStore', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../src/main/services/zotero/CitationKeyStore')
+  >('../../src/main/services/zotero/CitationKeyStore');
+  return {
+    ...actual,
+    getCitationKeyStore: vi.fn(),
+  };
+});
+
 export { mockElectronAPI };

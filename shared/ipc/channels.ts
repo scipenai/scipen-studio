@@ -211,6 +211,16 @@ export enum IpcChannel {
   Zotero_SetEmbeddingApiKey = 'zotero:set-embedding-api-key',
   /** Clear the stored embedding-provider API key. */
   Zotero_ClearEmbeddingApiKey = 'zotero:clear-embedding-api-key',
+  /** Write the Zotero Web API key to OS keychain (dataSource='web' credential). */
+  Zotero_SetWebApiKey = 'zotero:set-web-api-key',
+  /** Clear the stored Zotero Web API key. */
+  Zotero_ClearWebApiKey = 'zotero:clear-web-api-key',
+  /**
+   * Probe api.zotero.org with the given userId + apiKey pair. Returns
+   * `{ ok, username?, error? }`. Used by Settings "Test connection" button
+   * BEFORE committing the key to keychain (so users get instant feedback).
+   */
+  Zotero_PingWebApi = 'zotero:ping-web-api',
   /** Auto-detect a local Zotero installation. Returns { found, path?, version? }. */
   Zotero_DetectInstallation = 'zotero:detect-installation',
   /** Ping the Zotero Local API at localhost:23119. Returns { ok, version?, error? }. */

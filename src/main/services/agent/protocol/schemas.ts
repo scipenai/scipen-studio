@@ -771,8 +771,18 @@ export const ContextPayloadSchema = z.discriminatedUnion('kind', [
     kind: z.literal('zotero_read'),
     text: z.string(),
     truncated: z.boolean(),
-    tier: z.enum(['local', 'none', 'mineru']),
+    // Keep in sync with ZoteroFullTextResultDTO.tier in shared/types/zotero.ts.
+    // `web_pending` is the web-mode sentinel — dropping it here would reject
+    // legitimate web-mode responses at the schema boundary.
+    tier: z.enum(['local', 'none', 'mineru', 'web_pending']),
     quality: z.enum(['good', 'poor']).optional(),
+    // Non-fatal disambiguation hint for tier='none' cases — LLM can tell
+    // "genuinely no PDF" apart from "key couldn't be resolved to itemKey"
+    // (agent passed a citation key we don't recognize). Emitted by the
+    // renderer responder on mirror miss; SNACA / LLM tool_result copies it
+    // through so the model can adjust follow-up (retry after refresh, try
+    // a different key, etc.) instead of concluding "paper has no text".
+    reason: z.string().optional(),
   }),
   z.object({
     kind: z.literal('ask_user_question'),

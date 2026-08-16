@@ -6,6 +6,11 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Opt out of the global ConfigManager stub in tests/renderer/setup.ts —
+// this file exercises the real ConfigManager class + `configManager` singleton
+// after locally mocking electron-store.
+vi.unmock('../../../src/main/services/ConfigManager');
+
 // ====== Mock Setup ======
 // vi.hoisted ensures mocks are available when vi.mock is hoisted
 const { mockStore, MockStoreConstructor } = vi.hoisted(() => {

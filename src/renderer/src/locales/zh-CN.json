@@ -617,6 +617,28 @@
     "shotFailed": "预览不可用",
     "noPdf": "无 PDF 附件"
   },
+  "zoteroWebApi": {
+    "dialog": {
+      "title": "配置 Zotero 云端账号",
+      "instructionsTitle": "在哪里拿 userID + API key?",
+      "instructionsBody": "登录 zotero.org → Settings → Feeds/API 页面创建一个只读密钥,顶部会显示你的用户 numeric ID。",
+      "openZoteroSettings": "打开 Zotero Web 设置",
+      "userIdLabel": "用户 ID",
+      "userIdPlaceholder": "如 123456",
+      "apiKeyLabel": "API Key",
+      "apiKeyPlaceholder": "粘贴 Zotero.org 生成的密钥",
+      "showKey": "显示 Key",
+      "hideKey": "隐藏 Key",
+      "test": "测试连接",
+      "save": "保存",
+      "cancel": "取消",
+      "saveNeedsTest": "请先点击「测试连接」验证凭据",
+      "connectedAs": "已连接:{{username}}",
+      "connectedNoUsername": "已连接",
+      "errorUnknown": "未知错误",
+      "errorSaveFailed": "保存失败"
+    }
+  },
   "zoteroMineru": {
     "dialog": {
       "title": "配置 MinerU 精解析",
@@ -1095,6 +1117,37 @@
         "conflict": "冲突:外部修改了 .bib，已暂停",
         "error": "失败"
       }
+    },
+    "dataSource": {
+      "title": "数据源",
+      "description": "选择从本地 Zotero 客户端还是 zotero.org 云端拉取文献",
+      "local": "桌面 Zotero (Local API)",
+      "localDesc": "需要本地已装并运行 Zotero,支持 Better BibTeX 等插件",
+      "web": "云端 Zotero (Web API)",
+      "webDesc": "不装 Zotero 客户端也能用;citation key 由 Studio 生成"
+    },
+    "webApi": {
+      "credential": "云端凭据",
+      "userIdLabel": "用户 ID",
+      "userIdEmpty": "未配置",
+      "apiKeyLabel": "API Key",
+      "apiKeyEmpty": "尚未保存",
+      "apiKeyStored": "已存入密钥库(不明文回传)",
+      "configure": "配置连接",
+      "reconfigure": "重新配置",
+      "clear": "清除凭据",
+      "warningTitle": "云端模式限制",
+      "warningBody": "Better BibTeX / MinerU 精解析在阶段 A 不可用;citation key 由 Studio 生成并本地记忆",
+      "source": "Zotero Web API"
+    },
+    "citationKey": {
+      "title": "Citation Key 归属",
+      "description": "统计当前索引里每个 key 的来源(BBT 同步 / Studio 生成 / 用户覆盖)",
+      "bbt": "BBT 同步",
+      "studioMint": "Studio 生成",
+      "userOverride": "用户覆盖",
+      "manage": "管理 citation keys…",
+      "manageComingSoon": "阶段 B 交付"
     }
   },
   "zotero": {

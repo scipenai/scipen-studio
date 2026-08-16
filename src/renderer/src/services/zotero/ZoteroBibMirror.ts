@@ -153,9 +153,22 @@ export class ZoteroBibMirror {
   // Sync reads
   // ============================================================
 
+  /**
+   * Look up an item by BBT citation key. Tries exact match first (fast
+   * O(1) hit in `keyToItem`); on miss, falls back to case-insensitive
+   * lookup via the existing lowercase index. Rationale: BBT default
+   * formula produces all-lowercase keys (`smith2024deep`), but user
+   * templates can yield mixed-case (`SmithSCAN2020…`); LLM agents don't
+   * always preserve the exact casing when quoting a key back to their
+   * own tools, so a strict case-sensitive lookup produced spurious
+   * "not found" answers. Collision risk is negligible — two items
+   * would have to share a citation key modulo case, which BBT itself
+   * treats as a conflict.
+   */
   getByCitationKey(citationKey: string): ZoteroItemDTO | undefined {
     if (!citationKey) return undefined;
-    const itemKey = this.keyToItem.get(citationKey);
+    const itemKey =
+      this.keyToItem.get(citationKey) ?? this.citationKeyLower.get(citationKey.toLowerCase());
     return itemKey ? this.items.get(itemKey) : undefined;
   }
 

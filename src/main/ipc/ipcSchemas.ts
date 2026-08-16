@@ -889,6 +889,7 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.Zotero_PingLocalApi, z.tuple([])],
   [IpcChannel.Zotero_ClearMinerUApiKey, z.tuple([])],
   [IpcChannel.Zotero_ClearEmbeddingApiKey, z.tuple([])],
+  [IpcChannel.Zotero_ClearWebApiKey, z.tuple([])],
   [IpcChannel.Zotero_RequestRefresh, z.tuple([])],
   [IpcChannel.Zotero_GetDiagnostics, z.tuple([])],
   [IpcChannel.Zotero_SyncBibTex, z.tuple([])],
@@ -936,6 +937,10 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
             })
             .strict()
             .optional(),
+          dataSource: z.enum(['local', 'web']).optional(),
+          // Numeric-ID string; allow empty to signal "cleared". Real numeric format
+          // check happens in the web mode's ping / getItems path with structured error.
+          webApiUserId: z.string().optional(),
         })
         .strict(),
     ]),
@@ -944,6 +949,20 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   // Real validity is checked the first time the provider is actually called.
   [IpcChannel.Zotero_SetMinerUApiKey, z.tuple([z.string().min(1)])],
   [IpcChannel.Zotero_SetEmbeddingApiKey, z.tuple([z.string().min(1)])],
+  [IpcChannel.Zotero_SetWebApiKey, z.tuple([z.string().min(1)])],
+  // Ping web API BEFORE persisting the key — userId + apiKey travel through IPC
+  // once, are validated by remote, then the key is committed via SetWebApiKey.
+  [
+    IpcChannel.Zotero_PingWebApi,
+    z.tuple([
+      z
+        .object({
+          userId: z.string().min(1),
+          apiKey: z.string().min(1),
+        })
+        .strict(),
+    ]),
+  ],
   // Bib index snapshot pull: `since` is the previously persisted etag; omit it to request a full snapshot.
   [
     IpcChannel.Zotero_GetSnapshot,

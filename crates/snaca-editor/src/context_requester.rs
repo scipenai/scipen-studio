@@ -107,8 +107,25 @@ impl HostContext for EditorContextRequester {
                     params: ZoteroReadParams { key },
                 };
                 match self.send(payload).await? {
-                    ContextPayload::ZoteroRead { text, truncated, tier } => {
-                        Ok(json!({ "text": text, "truncated": truncated, "tier": tier }))
+                    ContextPayload::ZoteroRead { text, truncated, tier, quality, reason } => {
+                        // Propagate every field the wire carries — the LLM
+                        // needs `quality` (extraction fidelity hint) and
+                        // `reason` (unresolved_key disambiguation) to make
+                        // correct follow-up decisions. Dropping either here
+                        // silently degrades the sentinels the TS side worked
+                        // hard to emit.
+                        let mut out = json!({
+                            "text": text,
+                            "truncated": truncated,
+                            "tier": tier,
+                        });
+                        if let Some(q) = quality {
+                            out["quality"] = json!(q);
+                        }
+                        if let Some(r) = reason {
+                            out["reason"] = json!(r);
+                        }
+                        Ok(out)
                     }
                     other => Err(wrong_kind("zotero_read", &other)),
                 }

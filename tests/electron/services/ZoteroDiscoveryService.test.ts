@@ -154,4 +154,83 @@ describe('ZoteroDiscoveryService', () => {
     expect(order.indexOf('api-start')).toBeLessThan(order.indexOf('bbt-end'));
     expect(order.indexOf('bbt-start')).toBeLessThan(order.indexOf('api-end'));
   });
+
+  describe('probeWebApi', () => {
+    it('rejects empty userId without hitting the network', async () => {
+      const api = makeApi({ ok: false });
+      const bbt = makeBBT({ ok: false });
+      const service = new ZoteroDiscoveryService(api, bbt);
+      const fetchSpy = vi.fn();
+      vi.stubGlobal('fetch', fetchSpy);
+      try {
+        const result = await service.probeWebApi('', 'somekey');
+        expect(result.ok).toBe(false);
+        expect(result.error).toMatch(/user id/i);
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('rejects empty apiKey without hitting the network', async () => {
+      const api = makeApi({ ok: false });
+      const bbt = makeBBT({ ok: false });
+      const service = new ZoteroDiscoveryService(api, bbt);
+      const fetchSpy = vi.fn();
+      vi.stubGlobal('fetch', fetchSpy);
+      try {
+        const result = await service.probeWebApi('123456', '');
+        expect(result.ok).toBe(false);
+        expect(result.error).toMatch(/api key/i);
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('returns ok=true + username when api.zotero.org accepts credentials', async () => {
+      const api = makeApi({ ok: false });
+      const bbt = makeBBT({ ok: false });
+      const service = new ZoteroDiscoveryService(api, bbt);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string) => {
+          if (/items\?limit=1/.test(url)) {
+            return new Response('[]', {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          return new Response(JSON.stringify({ username: 'alice' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        })
+      );
+      try {
+        const result = await service.probeWebApi('123456', 'valid-key');
+        expect(result.ok).toBe(true);
+        expect(result.username).toBe('alice');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('returns ok=false with invalid-key error on 401', async () => {
+      const api = makeApi({ ok: false });
+      const bbt = makeBBT({ ok: false });
+      const service = new ZoteroDiscoveryService(api, bbt);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response('unauthorized', { status: 401 }))
+      );
+      try {
+        const result = await service.probeWebApi('123456', 'bad-key');
+        expect(result.ok).toBe(false);
+        expect(result.error).toMatch(/invalid|expired/i);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
 });

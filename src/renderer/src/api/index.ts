@@ -811,6 +811,7 @@ import type {
   ZoteroPingResultDTO,
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
+  ZoteroWebApiPingResultDTO,
 } from '../../../../shared/types/zotero';
 import type {
   MinerUContentList,
@@ -840,6 +841,11 @@ export const zotero = {
   setEmbeddingApiKey: (token: string) =>
     invoke<{ success: boolean }>(IpcChannel.Zotero_SetEmbeddingApiKey, token),
   clearEmbeddingApiKey: () => invoke<{ success: boolean }>(IpcChannel.Zotero_ClearEmbeddingApiKey),
+  setWebApiKey: (token: string) =>
+    invoke<{ success: boolean }>(IpcChannel.Zotero_SetWebApiKey, token),
+  clearWebApiKey: () => invoke<{ success: boolean }>(IpcChannel.Zotero_ClearWebApiKey),
+  pingWebApi: (req: { userId: string; apiKey: string }) =>
+    invoke<ZoteroWebApiPingResultDTO>(IpcChannel.Zotero_PingWebApi, req),
   detectInstallation: () => invoke<ZoteroDetectionResultDTO>(IpcChannel.Zotero_DetectInstallation),
   pingLocalApi: () => invoke<ZoteroPingResultDTO>(IpcChannel.Zotero_PingLocalApi),
   getSnapshot: (req: GetSnapshotRequestDTO = {}) =>

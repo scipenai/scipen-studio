@@ -13,10 +13,14 @@
 import { app } from 'electron';
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import type { ZoteroDetectionResultDTO } from '../../../../shared/types/zotero';
+import type {
+  ZoteroDetectionResultDTO,
+  ZoteroWebApiPingResultDTO,
+} from '../../../../shared/types/zotero';
 import { createLogger } from '../LoggerService';
 import { type BetterBibTexClient, getBetterBibTexClient } from './BetterBibTexClient';
 import { type ZoteroLocalApiClient, getZoteroLocalApiClient } from './ZoteroLocalApiClient';
+import { ZoteroWebApiClient } from './ZoteroWebApiClient';
 
 const logger = createLogger('ZoteroDiscoveryService');
 
@@ -52,6 +56,31 @@ export class ZoteroDiscoveryService {
 
   private async findDataDir(): Promise<string | null> {
     return resolveZoteroDataDir();
+  }
+
+  /**
+   * Probe api.zotero.org for a userId + apiKey pair BEFORE committing the
+   * key to secure storage. Called by the Settings "Test connection" button
+   * so users see instant feedback instead of a silent failure later.
+   *
+   * Returns a discriminated result: `ok: true` with `username` on success,
+   * `ok: false` with a user-friendly `error` categorised by HTTP status
+   * (invalid key / user not found / network). Never throws.
+   */
+  async probeWebApi(userId: string, apiKey: string): Promise<ZoteroWebApiPingResultDTO> {
+    if (!userId || !userId.trim()) {
+      return { ok: false, error: 'Zotero user ID is required' };
+    }
+    if (!apiKey || !apiKey.trim()) {
+      return { ok: false, error: 'Zotero API key is required' };
+    }
+    try {
+      const client = new ZoteroWebApiClient({ userId: userId.trim(), apiKey: apiKey.trim() });
+      return await client.ping();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: `Probe failed: ${message}` };
+    }
   }
 }
 

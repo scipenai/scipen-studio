@@ -20,6 +20,9 @@ vi.mock('../../../src/main/services/LoggerService', () => ({
   }),
 }));
 
+// ConfigManager / SecureStorageService / CitationKeyStore side-effect isolation
+// is handled globally in tests/renderer/setup.ts — do not re-declare here.
+
 import {
   ZoteroOrchestrator,
   mergeBbtIntoItems,
@@ -231,6 +234,232 @@ describe('mergeBbtIntoItems', () => {
   it('passes through unchanged when no keys', () => {
     const items = [item('AAA')];
     expect(mergeBbtIntoItems(items, new Map())).toBe(items);
+  });
+});
+
+describe('ZoteroOrchestrator / web mode + 3-layer citation key normalization', () => {
+  interface FakeWebApi {
+    ping: () => Promise<{ ok: boolean; username?: string; error?: string }>;
+    getAllItems: () => Promise<ZoteroItemDTO[]>;
+  }
+  interface FakeStore {
+    get: (
+      itemKey: string
+    ) => { key: string; origin: 'bbt' | 'studio_mint' | 'user_override' } | null;
+    put: ReturnType<typeof vi.fn>;
+    updateFromBbt: ReturnType<typeof vi.fn>;
+    getAllExistingKeys: () => Set<string>;
+  }
+
+  function makeWebOrchestrator(
+    web: Partial<FakeWebApi>,
+    store: Partial<FakeStore> = {},
+    opts: { events?: ZoteroEventDTO[] } = {}
+  ): { orch: ZoteroOrchestrator; store: FakeStore } {
+    const events = opts.events ?? [];
+    const bus = new ZoteroEventBus((_channel, payload) => {
+      events.push(payload as ZoteroEventDTO);
+    });
+    const fullStore: FakeStore = {
+      get: store.get ?? (() => null),
+      put: store.put ?? vi.fn(),
+      updateFromBbt: store.updateFromBbt ?? vi.fn(),
+      getAllExistingKeys: store.getAllExistingKeys ?? (() => new Set<string>()),
+    };
+    const orch = new ZoteroOrchestrator({
+      localApi: {
+        ping: async () => ({ ok: false, error: 'not used' }),
+        getAllItems: async () => [],
+      } as never,
+      bbt: { ping: async () => ({ ok: false }) } as never,
+      bus,
+      index: new ZoteroIndex(),
+      now: () => 1_700_000_000_000,
+      keyStore: fullStore as never,
+      getWebApiClient: () =>
+        ({
+          ping: web.ping ?? (async () => ({ ok: true, username: 'alice' })),
+          getAllItems: web.getAllItems ?? (async () => []),
+        }) as never,
+      getSettings: () => ({ dataSource: 'web', webApiUserId: '123456', hasWebApiKey: true }),
+    });
+    return { orch, store: fullStore };
+  }
+
+  it('layer 1: BBT-synced citationKey wins + persists via updateFromBbt', async () => {
+    const events: ZoteroEventDTO[] = [];
+    const { orch, store } = makeWebOrchestrator(
+      {
+        getAllItems: async () => [item('AAA', 'Deep Learning', 'smith2024deep')],
+      },
+      {},
+      { events }
+    );
+    await orch.bootstrap();
+    const stored = orch.getIndex().getByItemKey('AAA');
+    expect(stored?.citationKey).toBe('smith2024deep');
+    expect(stored?.citationKeyOrigin).toBe('bbt');
+    expect(store.updateFromBbt).toHaveBeenCalledWith('AAA', 'smith2024deep');
+    expect(store.put).not.toHaveBeenCalled();
+  });
+
+  it('layer 2: store hit preserves stored origin (user_override / studio_mint)', async () => {
+    const { orch, store } = makeWebOrchestrator(
+      {
+        getAllItems: async () => [item('AAA', 'Deep Learning', undefined)],
+      },
+      {
+        get: (k) => (k === 'AAA' ? { key: 'custom_key_from_user', origin: 'user_override' } : null),
+      }
+    );
+    await orch.bootstrap();
+    const stored = orch.getIndex().getByItemKey('AAA');
+    expect(stored?.citationKey).toBe('custom_key_from_user');
+    expect(stored?.citationKeyOrigin).toBe('user_override');
+    expect(store.put).not.toHaveBeenCalled();
+  });
+
+  it('layer 3: minter runs + result persisted as studio_mint', async () => {
+    const { orch, store } = makeWebOrchestrator(
+      {
+        getAllItems: async () => [
+          { ...item('AAA', 'Deep Learning', undefined), creatorsLabel: 'Smith' },
+        ],
+      },
+      {
+        get: () => null,
+        getAllExistingKeys: () => new Set(),
+      }
+    );
+    await orch.bootstrap();
+    const stored = orch.getIndex().getByItemKey('AAA');
+    expect(stored?.citationKey).toBe('smith2024deep');
+    expect(stored?.citationKeyOrigin).toBe('studio_mint');
+    expect(store.put).toHaveBeenCalledWith('AAA', 'smith2024deep', 'studio_mint');
+  });
+
+  it('layer 1 dup: two items with same BBT key resolve via mint fallback', async () => {
+    // Two Zotero items both carry the same data.citationKey (rare, but users
+    // can hand-edit). Layer 1 alone would echo the duplicate; the !existing.has
+    // guard forces the second collision through Layer 3 minting.
+    const { orch, store } = makeWebOrchestrator(
+      {
+        getAllItems: async () => [
+          { ...item('AAA', 'Deep Learning', 'smith2024deep'), creatorsLabel: 'Smith' },
+          { ...item('BBB', 'Deep Learning', 'smith2024deep'), creatorsLabel: 'Smith' },
+        ],
+      },
+      { get: () => null, getAllExistingKeys: () => new Set() }
+    );
+    await orch.bootstrap();
+    const a = orch.getIndex().getByItemKey('AAA');
+    const b = orch.getIndex().getByItemKey('BBB');
+    expect(a?.citationKey).toBe('smith2024deep');
+    expect(a?.citationKeyOrigin).toBe('bbt');
+    // Second item falls through: existing already has smith2024deep, mints postfix.
+    expect(b?.citationKey).toBe('smith2024deepa');
+    expect(b?.citationKeyOrigin).toBe('studio_mint');
+    // Only the first (successful BBT) call reconciled the store.
+    expect(store.updateFromBbt).toHaveBeenCalledTimes(1);
+    expect(store.put).toHaveBeenCalledWith('BBB', 'smith2024deepa', 'studio_mint');
+  });
+
+  it('sqlite failure in getAllExistingKeys falls through to pass-through items', async () => {
+    const failingStore: FakeStore = {
+      get: () => null,
+      put: vi.fn(),
+      updateFromBbt: vi.fn(),
+      getAllExistingKeys: () => {
+        throw new Error('database disk image is malformed');
+      },
+    };
+    const bus = new ZoteroEventBus(() => undefined);
+    const orch = new ZoteroOrchestrator({
+      localApi: {
+        ping: async () => ({ ok: false }),
+        getAllItems: async () => [],
+      } as never,
+      bbt: { ping: async () => ({ ok: false }) } as never,
+      bus,
+      index: new ZoteroIndex(),
+      now: () => 1_700_000_000_000,
+      keyStore: failingStore as never,
+      getWebApiClient: () =>
+        ({
+          ping: async () => ({ ok: true, username: 'alice' }),
+          getAllItems: async () => [item('AAA', 'Deep Learning', 'smith2024deep')],
+        }) as never,
+      getSettings: () => ({ dataSource: 'web', webApiUserId: '123456', hasWebApiKey: true }),
+    });
+    const result = await orch.bootstrap();
+    // Refresh completes despite the sqlite failure; items pass through unnormalized.
+    expect(result.status).toBe('ready');
+    const stored = orch.getIndex().getByItemKey('AAA');
+    // Original data.citationKey preserved (Layer 1/2/3 never ran).
+    expect(stored?.citationKey).toBe('smith2024deep');
+    expect(stored?.citationKeyOrigin).toBeUndefined();
+  });
+
+  it('layer 3 batch: two minted items in same refresh do not collide', async () => {
+    const { orch } = makeWebOrchestrator({
+      getAllItems: async () => [
+        {
+          ...item('AAA', 'Deep Learning', undefined),
+          creatorsLabel: 'Smith',
+        },
+        {
+          // Same year + author + title tail as AAA — collision must resolve
+          // via the in-batch `minted` set (both entries persisted separately).
+          ...item('BBB', 'Deep Learning', undefined),
+          creatorsLabel: 'Smith',
+        },
+      ],
+    });
+    await orch.bootstrap();
+    const a = orch.getIndex().getByItemKey('AAA');
+    const b = orch.getIndex().getByItemKey('BBB');
+    expect(a?.citationKey).toBe('smith2024deep');
+    expect(b?.citationKey).toBe('smith2024deepa');
+  });
+
+  it('web mode: BBT probe reported as skipped in diagnostics', async () => {
+    const { orch } = makeWebOrchestrator({
+      getAllItems: async () => [item('AAA', 'X', 'x')],
+    });
+    await orch.bootstrap();
+    const diag = orch.getDiagnostics();
+    expect(diag.sources.web?.ok).toBe(true);
+    expect(diag.sources.betterBibTex.detail).toMatch(/skipped in web/);
+    expect(diag.sources.localApi.detail).toMatch(/skipped in web/);
+  });
+
+  it('web mode fetch failure surfaces as error status (index stays warm)', async () => {
+    const { orch } = makeWebOrchestrator({
+      ping: async () => ({ ok: false, error: 'invalid api key' }),
+    });
+    const result = await orch.bootstrap();
+    expect(result.status).toBe('error');
+    expect(orch.getDiagnostics().sources.web?.ok).toBe(false);
+    expect(orch.getDiagnostics().sources.web?.error).toMatch(/invalid api key/);
+  });
+
+  it('web mode without configured client returns descriptive error', async () => {
+    const bus = new ZoteroEventBus(() => {});
+    const orch = new ZoteroOrchestrator({
+      localApi: {
+        ping: async () => ({ ok: false }),
+        getAllItems: async () => [],
+      } as never,
+      bbt: { ping: async () => ({ ok: false }) } as never,
+      bus,
+      index: new ZoteroIndex(),
+      now: () => 1_700_000_000_000,
+      getWebApiClient: () => null, // no credentials
+      getSettings: () => ({ dataSource: 'web', webApiUserId: '', hasWebApiKey: false }),
+    });
+    const result = await orch.bootstrap();
+    expect(result.status).toBe('error');
+    expect(result.detail).toMatch(/not configured/i);
   });
 });
 

@@ -21,12 +21,13 @@ import { createLogger } from '../services/LoggerService';
 import {
   deleteZoteroEmbeddingApiKey,
   deleteZoteroMinerUApiKey,
+  deleteZoteroWebApiKey,
   secureHas,
   SecureStorageKeys,
   setZoteroEmbeddingApiKey,
   setZoteroMinerUApiKey,
+  setZoteroWebApiKey,
 } from '../services/SecureStorageService';
-import { getBetterBibTexClient } from '../services/zotero/BetterBibTexClient';
 import { getZoteroDiscoveryService } from '../services/zotero/ZoteroDiscoveryService';
 import { getMinerUParseService } from '../services/zotero/MinerUParseService';
 import {
@@ -34,7 +35,10 @@ import {
   resolveZoteroPdfPath,
 } from '../services/zotero/ZoteroFullTextService';
 import { getZoteroLocalApiClient } from '../services/zotero/ZoteroLocalApiClient';
-import { getZoteroOrchestrator } from '../services/zotero/ZoteroOrchestrator';
+import {
+  getZoteroOrchestrator,
+  invalidateWebApiCredentials,
+} from '../services/zotero/ZoteroOrchestrator';
 import { getBibTexSyncService } from '../services/zotero/BibTexSyncService';
 import { getEmbeddingIndexService } from '../services/zotero/EmbeddingIndexService';
 import { registerHandler } from './typedIpc';
@@ -78,6 +82,8 @@ function describeFetchError(err: unknown): Record<string, unknown> {
 
 function readSettings(): ZoteroSettingsDTO {
   const provider = configManager.get<string>(ConfigKeys.ZoteroEmbeddingProvider, 'zhipu');
+  const dataSourceRaw = configManager.get<string>(ConfigKeys.ZoteroDataSource, 'local');
+  const dataSource: 'local' | 'web' = dataSourceRaw === 'web' ? 'web' : 'local';
   return {
     integrationEnabled: configManager.get<boolean>(ConfigKeys.ZoteroIntegrationEnabled, false),
     path: configManager.get<string>(ConfigKeys.ZoteroPath, ''),
@@ -86,6 +92,9 @@ function readSettings(): ZoteroSettingsDTO {
     activeRecommendation: configManager.get<boolean>(ConfigKeys.ZoteroActiveRecommendation, false),
     hasMinerUApiKey: secureHas(SecureStorageKeys.ZoteroMinerUApiKey),
     hasEmbeddingApiKey: secureHas(SecureStorageKeys.ZoteroEmbeddingApiKey),
+    dataSource,
+    webApiUserId: configManager.get<string>(ConfigKeys.ZoteroWebApiUserId, ''),
+    hasWebApiKey: secureHas(SecureStorageKeys.ZoteroWebApiKey),
     bibTexSync: {
       enabled: configManager.get<boolean>(ConfigKeys.ZoteroBibTexSyncEnabled, true),
       fileName: configManager.get<string>(
@@ -109,6 +118,7 @@ function broadcastSettingsChanged(settings: ZoteroSettingsDTO): void {
 }
 
 function applySettingsPatch(patch: ZoteroSettingsPatchDTO): { success: boolean } {
+  let dataSourceChanged = false;
   if (typeof patch.integrationEnabled === 'boolean') {
     configManager.set(ConfigKeys.ZoteroIntegrationEnabled, patch.integrationEnabled);
   }
@@ -117,6 +127,21 @@ function applySettingsPatch(patch: ZoteroSettingsPatchDTO): { success: boolean }
   }
   if (typeof patch.localApiEnabled === 'boolean') {
     configManager.set(ConfigKeys.ZoteroLocalApiEnabled, patch.localApiEnabled);
+  }
+  if (patch.dataSource === 'local' || patch.dataSource === 'web') {
+    const prev = configManager.get<string>(ConfigKeys.ZoteroDataSource, 'local');
+    if (prev !== patch.dataSource) {
+      configManager.set(ConfigKeys.ZoteroDataSource, patch.dataSource);
+      dataSourceChanged = true;
+    }
+  }
+  if (typeof patch.webApiUserId === 'string') {
+    configManager.set(ConfigKeys.ZoteroWebApiUserId, patch.webApiUserId.trim());
+    // Treat userId edits as source config change too — orchestrator's WebApiClient
+    // is constructed per refresh, so a fresh refresh will pick up the new ID.
+    if (configManager.get<string>(ConfigKeys.ZoteroDataSource, 'local') === 'web') {
+      dataSourceChanged = true;
+    }
   }
   if (isValidEmbeddingProvider(patch.embeddingProvider)) {
     configManager.set(ConfigKeys.ZoteroEmbeddingProvider, patch.embeddingProvider);
@@ -138,7 +163,56 @@ function applySettingsPatch(patch: ZoteroSettingsPatchDTO): { success: boolean }
 
   broadcastSettingsChanged(readSettings());
   logger.info('[Zotero] Settings updated', { patchKeys: Object.keys(patch) });
+
+  // When the user flips data source (local ↔ web) or edits web credentials
+  // while in web mode, kick off an immediate refresh so the UI reflects the
+  // new library instantly — otherwise they'd stare at stale items until the
+  // next focus event. Fire-and-forget; orchestrator's own cooldown / error
+  // handling gate the actual fetch, and the diagnostics push at the end
+  // surfaces any failure to the renderer.
+  if (dataSourceChanged) {
+    triggerPostSettingsRefresh('manual', 'settings-patch');
+  }
   return { success: true };
+}
+
+/**
+ * Fire-and-forget refresh after a settings mutation. On failure, DON'T just
+ * `log.warn` and vanish — also broadcast the updated diagnostics so the
+ * renderer's ZoteroTab / StatusBadge can reflect the resulting error state
+ * (previously the transition was invisible to the UI until the next explicit
+ * `getDiagnostics` call). The refresh itself already runs `transition()`
+ * inside orchestrator on error paths, so this is a belt-and-braces push for
+ * cases where transition never fires (e.g. cooldown-suppressed refresh).
+ */
+function triggerPostSettingsRefresh(
+  reason: 'manual' | 'focus' | 'error-recovery',
+  origin: string
+): void {
+  void getZoteroOrchestrator()
+    .refresh(reason)
+    .then((result) => {
+      if (result.status === 'error') {
+        logger.warn('[Zotero] Post-settings refresh reported error', {
+          origin,
+          detail: result.detail,
+        });
+      }
+    })
+    .catch((err) => {
+      logger.warn('[Zotero] Post-settings refresh threw', {
+        origin,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // Push the current diagnostics so the renderer sees the failure state
+      // instead of assuming the refresh silently succeeded.
+      try {
+        broadcastSettingsChanged(readSettings());
+      } catch {
+        // Broadcast failure is not recoverable at this layer; the next
+        // explicit renderer poll will still see updated state.
+      }
+    });
 }
 
 export function registerZoteroHandlers(): void {
@@ -172,6 +246,36 @@ export function registerZoteroHandlers(): void {
     return { success: true };
   });
 
+  // ---- Web API credential + probe ----
+  registerHandler(IpcChannel.Zotero_SetWebApiKey, (token) => {
+    const ok = setZoteroWebApiKey(token);
+    if (ok) {
+      // Bump orchestrator's memoized WebApiClient BEFORE broadcasting/refresh,
+      // else the next refresh would reuse a stale client built from the old key.
+      invalidateWebApiCredentials();
+      broadcastSettingsChanged(readSettings());
+      // Web-mode active: rebuild source snapshot with new key immediately.
+      if (configManager.get<string>(ConfigKeys.ZoteroDataSource, 'local') === 'web') {
+        triggerPostSettingsRefresh('manual', 'set-web-api-key');
+      }
+    }
+    return { success: ok };
+  });
+  registerHandler(IpcChannel.Zotero_ClearWebApiKey, () => {
+    deleteZoteroWebApiKey();
+    invalidateWebApiCredentials();
+    broadcastSettingsChanged(readSettings());
+    if (configManager.get<string>(ConfigKeys.ZoteroDataSource, 'local') === 'web') {
+      // Web mode now un-authenticated — trigger refresh so orchestrator surfaces
+      // the "not configured" error rather than silently serving stale data.
+      triggerPostSettingsRefresh('error-recovery', 'clear-web-api-key');
+    }
+    return { success: true };
+  });
+  registerHandler(IpcChannel.Zotero_PingWebApi, async ({ userId, apiKey }) =>
+    getZoteroDiscoveryService().probeWebApi(userId, apiKey)
+  );
+
   // ---- Discovery / liveness probes (side-effect free; wizard decides whether to finish() based on the return value) ----
   registerHandler(IpcChannel.Zotero_DetectInstallation, () => getZoteroDiscoveryService().detect());
   registerHandler(IpcChannel.Zotero_PingLocalApi, () => getZoteroLocalApiClient().ping());
@@ -191,20 +295,29 @@ export function registerZoteroHandlers(): void {
   registerHandler(IpcChannel.Zotero_SyncBibTex, () => getBibTexSyncService().syncNow());
   registerHandler(IpcChannel.Zotero_GetBibTexSyncStatus, () => getBibTexSyncService().getStatus());
 
+  // The three read handlers below route through `orchestrator.getActiveSource()`
+  // — the facade layer that hides mode (local vs web) from IPC callers.
+  // Handlers stay mode-agnostic; if we ever add a third data source, only
+  // the facade grows a new impl, these handlers are untouched.
   registerHandler(IpcChannel.Zotero_GetCslByKey, async (rawKey): Promise<unknown | null> => {
     if (typeof rawKey !== 'string' || rawKey.length === 0) return null;
-    return getBetterBibTexClient().getCslByKey(rawKey);
+    const source = getZoteroOrchestrator().getActiveSource();
+    if (!source) return null;
+    return source.getCslByCitationKey(rawKey);
   });
 
   registerHandler(
     IpcChannel.Zotero_GetItemAnnotations,
     async (rawItemKey): Promise<ZoteroAnnotationDTO[]> => {
       if (typeof rawItemKey !== 'string' || rawItemKey.length === 0) return [];
+      const source = getZoteroOrchestrator().getActiveSource();
+      if (!source) return [];
       try {
-        return await getZoteroLocalApiClient().getItemAnnotations(rawItemKey);
+        return await source.getItemAnnotations(rawItemKey);
       } catch (err) {
         logger.warn('[Zotero] getItemAnnotations failed', {
           itemKey: rawItemKey,
+          sourceKind: source.kind,
           ...describeFetchError(err),
         });
         return [];
@@ -218,7 +331,9 @@ export function registerZoteroHandlers(): void {
       if (typeof rawItemKey !== 'string' || rawItemKey.length === 0) {
         return { text: '', truncated: false, tier: 'none' };
       }
-      return getZoteroFullTextService().getFullText(rawItemKey);
+      const source = getZoteroOrchestrator().getActiveSource();
+      if (!source) return { text: '', truncated: false, tier: 'none' };
+      return source.getFullText(rawItemKey);
     }
   );
 

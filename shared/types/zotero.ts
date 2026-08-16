@@ -7,8 +7,24 @@
 export type ZoteroEmbeddingProvider = 'zhipu' | 'aliyun' | 'openai';
 
 /**
+ * Zotero 数据源模式(二选一):
+ *   - `local`(默认)= 走本地 Zotero 客户端 LocalApi(`127.0.0.1:23119`)+ BBT
+ *   - `web`         = 走 zotero.org Web API(`https://api.zotero.org`)
+ * 阶段 A 内不并存,`ZoteroOrchestrator.getActiveClient()` 严格按此字段路由。
+ */
+export type ZoteroDataSource = 'local' | 'web';
+
+/**
+ * Citation key 归一化来源。`bbt` = 用户曾装 BBT 并同步到云;`studio_mint` =
+ * 本地 minter 生成;`user_override` = 用户在 studio 内手改。UI 分组显示 + BBT
+ * 后接管 override 时用。
+ */
+export type ZoteroCitationKeyOrigin = 'bbt' | 'studio_mint' | 'user_override';
+
+/**
  * 返回给 renderer 的 Zotero 设置。**API key 永不以明文经 IPC 传输**,只暴露
- * 「是否已存入 OS keychain」的布尔标记(hasMinerUApiKey / hasEmbeddingApiKey)。
+ * 「是否已存入 OS keychain」的布尔标记(hasMinerUApiKey / hasEmbeddingApiKey /
+ * hasWebApiKey)。
  */
 export interface ZoteroSettingsDTO {
   /**
@@ -38,6 +54,19 @@ export interface ZoteroSettingsDTO {
   /** OS keychain 中是否已存入 embedding 提供商 API key。 */
   hasEmbeddingApiKey: boolean;
   /**
+   * 数据源:`local` 走本地 Zotero + BBT;`web` 走 api.zotero.org。默认 `local`。
+   * 切换会触发 orchestrator refresh + client 重建。web mode 下 BBT / MinerU
+   * (阶段 A)不可用。
+   */
+  dataSource: ZoteroDataSource;
+  /**
+   * zotero.org Web API 用户 numeric ID(如 "123456")。仅在 dataSource='web'
+   * 生效;由用户在 Settings 手填。空字符串 = 未配置。
+   */
+  webApiUserId: string;
+  /** OS keychain 中是否已存入 Zotero Web API key。 */
+  hasWebApiKey: boolean;
+  /**
    * `references.bib` 自动同步配置。M2 加入:订阅 main 的 canonical 索引,
    * 用 BBT export 把全库写到项目 root 的 `.bib` 文件,让 LaTeX/biber 编译能找到。
    */
@@ -66,6 +95,8 @@ export type ZoteroSettingsPatchDTO = Partial<
     | 'embeddingProvider'
     | 'activeRecommendation'
     | 'bibTexSync'
+    | 'dataSource'
+    | 'webApiUserId'
   >
 >;
 
@@ -95,6 +126,29 @@ export interface ZoteroPingResultDTO {
 }
 
 /**
+ * 探测 Zotero Web API(`api.zotero.org`)的结果 —— userId + apiKey 有效性 +
+ * 用户名回显。Settings 里 "Test connection" 按钮消费此结果。
+ */
+export interface ZoteroWebApiPingResultDTO {
+  ok: boolean;
+  /** 云端返回的 username(如 "alice");仅 ok 时存在。 */
+  username?: string;
+  /**
+   * 分类错误信息;仅 !ok 时存在。与 `ZoteroWebApiClient.ping()` +
+   * `ZoteroDiscoveryService.probeWebApi()` 里的实际映射保持同步:
+   *   - 输入校验失败(空 userId / apiKey)→ "Zotero user ID/API key is required"
+   *   - 401 Unauthorized                  → "API key invalid or expired"
+   *   - 403 Forbidden                     → "API key lacks required permissions"
+   *   - 404 Not Found                     → "Zotero user ID not found"
+   *   - 429 Too Many Requests             → "Rate limited by Zotero API; try again shortly"
+   *   - 其他 HTTP 非 2xx                   → "Zotero Web API returned HTTP {status}"
+   *   - 网络 / DNS / 超时                 → "Cannot reach api.zotero.org (network or DNS issue)"
+   *   - 构造 client 异常                   → "Probe failed: {reason}"
+   */
+  error?: string;
+}
+
+/**
  * Zotero 库条目在线协议上的最小投影。我们只暴露 IDE 实际消费的字段 —
  * 完整 Zotero item 携带数十个大部分为空的 CSL 槽位,既膨胀 IPC payload
  * 也会让我们跟 Zotero schema 演进强耦合。
@@ -116,6 +170,11 @@ export interface ZoteroItemDTO {
    * (Orchestrator 把 BBT 拉来的映射 join 进来)填入,不是 LocalApi 字段。
    */
   citationKey?: string;
+  /**
+   * citationKey 来源(web mode 下的 3 层 fallback)。omit 表示 local mode
+   * 且用 8-char itemKey 兜底(未走归一化路径)。
+   */
+  citationKeyOrigin?: ZoteroCitationKeyOrigin;
   /** `?include=citation` 返回的格式化引用 HTML(尽力)。 */
   citation?: string;
   /** `?include=bib` 返回的格式化参考条目 HTML(尽力)。 */
@@ -146,19 +205,22 @@ export interface ZoteroGetItemsOptionsDTO {
 
 /**
  * 论文正文抽取结果(文本来源档位)。
- *   - `local` = pdf-parse 原始抽取(公式/表格可能乱序,LLM 应知保真度有限)
- *   - `none`  = 该条目无 PDF 附件 / 不可读
- *   - `mineru`(预留)= M2-b 的结构化 MD
+ *   - `local`             = pdf-parse 原始抽取(公式/表格可能乱序,LLM 应知保真度有限)
+ *   - `none`              = 该条目无 PDF 附件 / 不可读
+ *   - `mineru`(预留)     = M2-b 的结构化 MD
+ *   - `web_pending`       = 数据源是 Web API,PDF 在云端未本地缓存;stage B 加 lazy
+ *                           download + LRU 后可用。LLM 应知"不是没全文,是暂不支持"
+ *                           而非做出"该文献无内容"的错误推断。
  */
 export interface ZoteroFullTextResultDTO {
   text: string;
   /** 超出字节上限被截断(尾部带 `[...truncated]`)。 */
   truncated: boolean;
-  tier: 'local' | 'none' | 'mineru';
+  tier: 'local' | 'none' | 'mineru' | 'web_pending';
   /**
    * 档1(`local`)抽取的可读性自检结论。`poor` = 大量乱码/空白(扫描版、
    * 公式密集、字体无 ToUnicode),LLM 应据此判断别逐字引用、建议升档解析;
-   * `good` = 正常正文。`mineru` 恒为 `good`,`none` 不带。
+   * `good` = 正常正文。`mineru` 恒为 `good`,`none` / `web_pending` 不带。
    */
   quality?: 'good' | 'poor';
 }
