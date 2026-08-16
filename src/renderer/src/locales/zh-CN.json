@@ -522,6 +522,16 @@
     "initializing": "初始化中…",
     "send": "发送",
     "sendFailed": "发送失败,请重试。",
+    "queue": {
+      "full": "排队消息已达上限,请等当前对话结束后再发。",
+      "count": "{{n}} 条排队",
+      "expand": "点击展开",
+      "collapse": "点击收起",
+      "remove": "移除此条",
+      "cancelled": "已取消 {{n}} 条排队消息",
+      "hint": "消息将排入队列,当前对话结束后发送",
+      "sendTitle": "发送(排入队列)"
+    },
     "stop": "停止",
     "cancel": "取消",
     "startupIdle": "请先打开一个项目",

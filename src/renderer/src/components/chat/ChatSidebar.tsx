@@ -31,6 +31,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { useEvent } from '../../hooks';
+import { useSendQueue } from '../../hooks/useSendQueue';
 import { getLocale, t as translate, useTranslation, type TranslationKey } from '../../locales';
 import { agentClient, type ThreadSummary } from '../../services/agent/AgentClientService';
 import { buildChatContext } from '../../services/agent/ChatContextBuilder';
@@ -51,6 +52,7 @@ import type { AskAIAboutErrorRequest } from '../../services/core/UIService';
 import { AgentChatInput, type SendIntent } from './AgentChatInput';
 import { ChatMessage } from './ChatMessage';
 import { SelectionActionCard } from './SelectionActionCard';
+import { QueuedMessagesChip } from './QueuedMessagesChip';
 import { ThreadHistoryDrawer } from './ThreadHistoryDrawer';
 import { serializeChatThread } from '../../utils/serializeChatThread';
 
@@ -417,6 +419,13 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
 
   const busy = currentTurn?.pending === true;
 
+  // FIFO queue for messages typed while a turn is in flight. SNACA rejects
+  // concurrent turns (per-session single-slot inflight, deliberate),
+  // so the UI queues and drains one turn at a time — "post-turn FIFO",
+  // borrowed from codex-rs's queued_user_messages. See useSendQueue for
+  // the ref+state mirror rationale.
+  const sendQueue = useSendQueue<SendIntent>();
+
   // After the first user message in a new thread, generate a topic title via
   // the completion model; fall back to the leading-line extract on failure
   // or when LLM is not configured. Only fires when the thread has no title;
@@ -448,8 +457,43 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
     async (
       text: string,
       intent: SendIntent,
-      opts?: { skipMentions?: boolean; titleSeed?: string }
+      opts?: {
+        skipMentions?: boolean;
+        titleSeed?: string;
+        /**
+         * Set by the drain useEffect when replaying a queued message. Callers
+         * never set this; it bypasses the busy → queue gate so a message
+         * pulled off the queue actually reaches the wire instead of being
+         * re-enqueued in a loop.
+         */
+        fromQueue?: boolean;
+      }
     ): Promise<{ sent: boolean; error?: string }> => {
+      // Queue gate: if a turn is currently in flight and this send is not
+      // a drain replay, park the message rather than reject the click. The
+      // drain effect below flushes the head as soon as `busy` flips false.
+      // Startup errors still hard-reject — no point queueing when the
+      // service isn't up.
+      if (busy && !opts?.fromQueue) {
+        if (startup.kind !== 'ready') {
+          return { sent: false, error: startup.kind === 'error' ? startup.message : undefined };
+        }
+        const entry = sendQueue.enqueue(text, intent);
+        if (!entry) {
+          // Queue full. AgentChatInput.submit() calls onSend and then
+          // unconditionally clears the textarea (its onSend signature is
+          // fire-and-forget), so relying on the returned error alone would
+          // silently discard the typed text. Surface via threadError so
+          // both selection-card and composer paths get user-visible feedback.
+          const fullError = t('chat.queue.full');
+          setThreadError(fullError);
+          return { sent: false, error: fullError };
+        }
+        // From the caller's perspective the submission was accepted;
+        // selection-action UX treats this the same as a live send (card
+        // clears, composer resets) since the queue owns delivery.
+        return { sent: true };
+      }
       // Decide before writing this turn: is this the first message in a
       // not-yet-titled thread?
       const titleThreadId = chatStreamStore.getActiveThreadId();
@@ -506,13 +550,72 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         return { sent: false, error: message };
       }
     },
-    [refreshThreads, workspaceRoot, autoGenerateTitle]
+    [refreshThreads, workspaceRoot, autoGenerateTitle, busy, startup, sendQueue, t]
   );
+
+  // Drain the send queue as turns complete. Edge-triggered on busy: true→false
+  // so a stable busy state doesn't re-fire; isFlushingRef additionally guards
+  // against StrictMode double-invocation. One item per completion; the next
+  // send flips busy=true again which re-arms the edge for the item after.
+  //
+  // sendQueue is intentionally in the deps: its identity is stable per render
+  // (useSendQueue memoizes its return), and referencing it directly avoids a
+  // render-phase ref-mirror assignment (React anti-pattern under concurrent
+  // rendering). The prevBusyRef edge guard already neutralizes any re-runs
+  // triggered by identity drift.
+  const prevBusyRef = useRef(false);
+  const isFlushingRef = useRef(false);
+  useEffect(() => {
+    const wasBusy = prevBusyRef.current;
+    // Only advance the edge tracker after the gate checks pass — otherwise a
+    // startup-not-ready run consumes the true→false edge and later drains
+    // are skipped when startup recovers.
+    if (!wasBusy || busy) {
+      prevBusyRef.current = busy;
+      return;
+    }
+    if (isFlushingRef.current) return;
+    if (startup.kind !== 'ready') return; // do NOT advance prevBusyRef yet
+    prevBusyRef.current = busy;
+    const head = sendQueue.dequeue();
+    if (!head) return;
+    isFlushingRef.current = true;
+    void handleSend(head.text, head.intent, { fromQueue: true })
+      .then((res) => {
+        // Replay failed before a new turn started (network fault, startup
+        // flip, etc.). busy never rearms → without this branch the popped
+        // message vanishes silently and the rest of the queue strands.
+        // Surface via threadError; the remaining queue stays intact so the
+        // user can decide whether to Cancel (wipe) or retry (re-send from
+        // the composer, which uses the same drain path).
+        if (!res.sent) {
+          const detail = res.error ?? t('chat.sendFailed');
+          setThreadError(detail);
+        }
+      })
+      .finally(() => {
+        isFlushingRef.current = false;
+      });
+  }, [busy, startup.kind, handleSend, sendQueue, t]);
 
   const handleCancel = useCallback(async () => {
     if (!currentTurn) return;
-    await agentClient.cancelTurn(currentTurn.turnId);
-  }, [currentTurn]);
+    // Clear BEFORE awaiting: busy is store-driven (finalizeTurn fires on the
+    // stream 'done'/'error' event, which can beat the cancelTurn IPC roundtrip).
+    // If the busy true→false edge fires while we're still awaiting, the drain
+    // effect would pop and send the queue head — violating "cancel = full stop"
+    // and misreporting the toast count. try/finally keeps the toast even if
+    // the IPC rejects (otherwise the rejection escapes onClick unhandled and
+    // the user sees the queue vanish with no explanation).
+    const dropped = sendQueue.clear();
+    try {
+      await agentClient.cancelTurn(currentTurn.turnId);
+    } finally {
+      if (dropped > 0) {
+        setThreadError(t('chat.queue.cancelled', { n: String(dropped) }));
+      }
+    }
+  }, [currentTurn, sendQueue, t]);
 
   // Card owns only the "which action was clicked" decision. The full send
   // path (mentions, title generation, composer branch, error surfaces) stays
@@ -611,6 +714,11 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         return;
       }
       setThreadError(null);
+      // Queue belongs to the previous thread's conversation context;
+      // carrying it into a different thread would silently mix messages
+      // across chats. Drop silently on switch (unlike cancel, which
+      // announces via toast — thread swap is an intentional context reset).
+      sendQueue.clear();
       try {
         await agentClient.switchThread(threadId);
         chatStreamStore.setActiveThread(threadId);
@@ -620,11 +728,13 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         setThreadError(`${t('thread.switchFailed')}: ${extractErrorMessage(err)}`);
       }
     },
-    [activeThreadId, hydrateThread, t]
+    [activeThreadId, hydrateThread, t, sendQueue]
   );
 
   const handleCreateThread = useCallback(async () => {
     setThreadError(null);
+    // Same rationale as handleSelectThread — new thread = fresh context.
+    sendQueue.clear();
     try {
       const result = await agentClient.newThread();
       chatStreamStore.setActiveThread(result.threadId);
@@ -633,7 +743,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
     } catch (err) {
       setThreadError(`${t('thread.createFailed')}: ${extractErrorMessage(err)}`);
     }
-  }, [refreshThreads, t]);
+  }, [refreshThreads, t, sendQueue]);
 
   const handleRenameThread = useCallback(
     async (threadId: string, title: string) => {
@@ -654,6 +764,10 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
   const handleDeleteThread = useCallback(
     async (threadId: string) => {
       setThreadError(null);
+      // If the deleted thread is the active one, the queue is about to
+      // apply to whatever thread SNACA falls back to — drop it to avoid
+      // silently posting into a different conversation.
+      if (threadId === activeThreadId) sendQueue.clear();
       try {
         // Main process trusts SNACA's chosen fallback (most-recent surviving
         // thread, or a freshly auto-spawned one when the deleted thread was
@@ -669,7 +783,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         setThreadError(`${t('thread.deleteFailed')}: ${extractErrorMessage(err)}`);
       }
     },
-    [hydrateThread, refreshThreads, t]
+    [hydrateThread, refreshThreads, t, activeThreadId, sendQueue]
   );
 
   // ---- placeholders / labels ----
@@ -698,6 +812,8 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
       busy={busy}
       disabled={startup.kind !== 'ready'}
       placeholder={placeholder}
+      allowQueueWhileBusy
+      queuePlaceholder={t('chat.queue.hint')}
       onSend={handleSend}
       onCancel={handleCancel}
       seedValue={seedValue}
@@ -743,6 +859,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
           }
         />
       )}
+      <QueuedMessagesChip items={sendQueue.items} onRemove={sendQueue.remove} />
       {composer}
     </>
   );

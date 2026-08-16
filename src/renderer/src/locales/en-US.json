@@ -522,6 +522,16 @@
     "initializing": "Initializing…",
     "send": "Send",
     "sendFailed": "Send failed. Please retry.",
+    "queue": {
+      "full": "Queue is full. Wait for the current turn to finish before sending more.",
+      "count": "{{n}} queued",
+      "expand": "Show queued messages",
+      "collapse": "Hide queued messages",
+      "remove": "Remove this message",
+      "cancelled": "Cancelled {{n}} queued message(s)",
+      "hint": "Message will queue; sent after the current turn finishes",
+      "sendTitle": "Send (add to queue)"
+    },
     "stop": "Stop",
     "cancel": "Cancel",
     "startupIdle": "Open a project first",
