@@ -7,34 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-08-17
+
 ### Added
 
-- **Zotero Web API data source (stage A)** — new `dataSource: 'local' | 'web'` mode-switch under _Settings → Zotero_. Web mode talks to `api.zotero.org` directly with a user-generated read-only key, so studio works on machines without a local Zotero client (headless / cloud workstations / multi-device). Includes:
-  - `ZoteroWebApiClient` mirroring `LocalApiClient` shape, with `Zotero-API-Key` + `Zotero-API-Version: 3` headers, 429 `Retry-After` respect (up to 3 retries), and one 5xx backoff.
-  - `ZoteroDiscoveryService.probeWebApi(userId, apiKey)` for instant _Test connection_ feedback before persisting the key.
-  - `ZoteroWebApiSetupDialog` (test-before-save gate; keychain-backed apiKey, plaintext never returned to renderer).
-  - Data-source radio + `WebApiSetupDialog` + `CitationKeyOriginSection` (BBT / studio-mint / user-override breakdown) in `ZoteroTab`.
-- **Citation key mint + persistence** — new `citationKeyMinter` (BBT-compatible default formula `[auth:lower][year][veryshorttitle:lower]`, German two-letter unicode transliteration, `a..z → aa..zz` collision postfix) + `CitationKeyStore` (SQLite via `node:sqlite`, WAL, STRICT tables, versioned migrations). Powers the 3-layer citation-key fallback in web mode: `data.citationKey` → store hit → studio mint.
-- **Ctrl+K inline edit** — select code, describe the change, the completion model streams a replacement into the buffer as a single undo step. Independent of the chat agent; uses the _Completion model_ configured under _Settings → AI_.
-- **Auto-accept + 5-minute Undo window (Diff Review scheme C)** — new `Auto-accept` approval mode fires the accept for you but the Diff Review decoration + `RevertAppliedService` per-hunk undo stay live for 5 minutes; toolbar shows countdown chip + _Undo Latest_. Zero SNACA changes — the wire value stays `interactive`, only the renderer bridge is aware of the local intent (`Agent_GetLocalApprovalIntent` / `Agent_LocalApprovalIntentChanged`).
-- **Per-turn Step DAG aggregation** — every SNACA tool turn's file mutations collapse into one history step under the active thread's session, so `edit.propose` never disappears from the version-control view (previously per-tool-call steps could land outside the DAG when a turn finished mid-edit).
-- **Diff Review observability** — warn logs on evict / zero-hunks / null-review silent paths so silent renderer-side drops surface in diagnostics.
+- **Zotero Web API data source** — a _Local_ / _Web API_ switch under _Settings → Zotero_. Web mode connects to `api.zotero.org` with a personal read-only key, so studio works on machines without a local Zotero (headless, cloud, second device). Setup dialog with a test-before-save gate; the key stays in the OS keychain.
+- **Citation key mint + persistence** — for web-mode items without a Better BibTeX key, studio mints one locally using the BBT default formula (`[auth:lower][year][veryshorttitle:lower]`, Unicode transliteration, `a..z → aa..zz` collision suffix) and keeps it stable across restarts.
+- **Selection helper** — capture the current selection in the editor (`Ctrl+L`) or in any external app (`Alt+D`), then send it to chat as one of four actions: translate, explain, distill, or find in Zotero. Off by default; enable under _Settings → Selection_.
+- **Message queue** — messages typed while a turn is in flight now queue up and drain one at a time as turns complete. A chip above the composer shows the queue count and lets you remove individual entries. Cancel wipes the queue.
 
 ### Changed
 
-- **Docs synced to code** — READMEs, USER_GUIDE (en + zh-CN), DEVELOPER, SECURITY all realigned: SNACA / Zotero / SNACA-Agent subsystems documented, dead `SyncTeXService` / `im-contract` / `ot-contract` references removed, `ServiceNames` cheatsheet refreshed, Approval mode naming (`auto_allow` → `auto_accept`) normalised across docs and UI copy.
-
-### Fixed
-
-- **Diff Review Ask-mode discoverability** — after an Ask-mode Accept, show a 3-second `Ctrl+Z can undo` hint at the toolbar; Undo button gets a visible CSS variant (previously the icon was invisible and users had to blind-click a blank chunk-toolbar spot).
-- **PathSecurity Windows case-insensitive** — NTFS treats `D:\` and `d:\` as the same path, but our project-root comparison was case-sensitive, producing spurious "access denied" errors when the Undo write hit a lowercased root path.
-- **OCR review round 1 & 2 (Diff Review)** — 12 findings across correctness / lifecycle / performance: `DiffReviewRenderer` setTimeout leak on unmount, hardcoded APPLIED_TTL_MS duplicate, `stepRecordChain` race between concurrent turn records, sizeDelta reading UTF-16 char count instead of UTF-8 bytes, `useSyncExternalStore` inline subscribe identity churn, and more.
-- **OCR review round on Zotero stage A** — 7 high + 12 medium: `CitationKeyStore` constructor leak on migration failure, orchestrator sqlite exceptions crashing the whole refresh, `mirror.getAllItems()` breaking `useMemo` in `CitationKeyOriginSection`, `WebApiSetupDialog` plaintext state persistence + test-race + non-atomic save, `WebApiClient` 5xx throwing `Error('null')` at the retry-loop boundary, nested-ternary rule violations, `apiKey` decrypt on every refresh (now version-memoized), BBT duplicate-key collision (now falls through to Layer 3 mint).
+- **Docs synced to code** — READMEs, USER_GUIDE (EN + zh-CN), DEVELOPER, and SECURITY realigned with the current subsystem layout.
 
 ### Security
 
-- **Zotero Web API key** goes exclusively through `SecureStorageService` (safeStorage / OS keychain); IPC exposes only `hasWebApiKey: boolean`, never plaintext after save. Renderer state is fully cleared on dialog close so DevTools inspection can't recover a previously-shown key.
-- **CitationKeyStore transactions** — `updateFromBbt` / `setUserOverride` wrap `DELETE` + `UPSERT` in a `BEGIN`/`COMMIT` block with defensive nested-catch on `ROLLBACK` so a secondary error can't mask the primary write failure.
+- **Zotero Web API key** stays in the OS keychain via safeStorage. The renderer only ever sees `hasWebApiKey: boolean`, and dialog state is cleared on close so plaintext cannot leak through DevTools.
 
 ## [0.5.0] — 2026-07-16
 
