@@ -7,10 +7,15 @@ const apiMocks = vi.hoisted(() => ({
   setSettings: vi.fn(),
   getDiagnostics: vi.fn(),
   detectInstallation: vi.fn(),
+  onSettingsChanged: vi.fn(() => () => undefined),
+  clearWebApiKey: vi.fn(),
+  setWebApiKey: vi.fn(),
+  pingWebApi: vi.fn(),
 }));
 
 const mirrorMocks = vi.hoisted(() => ({
   refresh: vi.fn(),
+  getAllItems: vi.fn(() => []),
 }));
 
 const wizardMocks = vi.hoisted(() => ({
@@ -113,6 +118,9 @@ describe('ZoteroTab', () => {
     apiMocks.getSettings.mockResolvedValue({
       integrationEnabled: zoteroEnabled,
       localApiEnabled: true,
+      dataSource: 'local',
+      webApiUserId: '',
+      hasWebApiKey: false,
     });
     apiMocks.setSettings.mockResolvedValue(undefined);
     apiMocks.getDiagnostics.mockResolvedValue({

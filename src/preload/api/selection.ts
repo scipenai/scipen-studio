@@ -6,7 +6,11 @@
 
 import { ipcRenderer } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
-import type { SelectionCaptureDTO, SelectionConfigDTO } from '../../../shared/ipc/types';
+import type {
+  SelectionCaptureDTO,
+  SelectionConfigDTO,
+  SelectionLifecycleResultDTO,
+} from '../../../shared/ipc/types';
 import { createSafeListener } from './_shared';
 
 /**
@@ -19,7 +23,7 @@ export const selectionApi = {
    * Set selection assistant enabled state
    * @sideeffect Enables/disables global text selection monitoring
    */
-  setEnabled: (enabled: boolean): Promise<{ success: boolean; error?: string }> =>
+  setEnabled: (enabled: boolean): Promise<SelectionLifecycleResultDTO> =>
     ipcRenderer.invoke(IpcChannel.Selection_SetEnabled, enabled),
 
   isEnabled: (): Promise<boolean> => ipcRenderer.invoke(IpcChannel.Selection_IsEnabled),
@@ -27,7 +31,7 @@ export const selectionApi = {
   getConfig: (): Promise<SelectionConfigDTO | null> =>
     ipcRenderer.invoke(IpcChannel.Selection_GetConfig),
 
-  setConfig: (config: Partial<SelectionConfigDTO>): Promise<{ success: boolean; error?: string }> =>
+  setConfig: (config: Partial<SelectionConfigDTO>): Promise<SelectionLifecycleResultDTO> =>
     ipcRenderer.invoke(IpcChannel.Selection_SetConfig, config),
 
   // ====== Selection Operations ======

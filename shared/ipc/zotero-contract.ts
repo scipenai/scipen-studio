@@ -13,6 +13,7 @@ import type {
   ZoteroPingResultDTO,
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
+  ZoteroWebApiPingResultDTO,
 } from '../types/zotero';
 import type { MinerUContentList, MinerUParseStatusDTO } from '../types/zotero-mineru';
 import type {
@@ -52,6 +53,18 @@ export interface IPCZoteroContract {
   [IpcChannel.Zotero_ClearEmbeddingApiKey]: {
     args: [];
     result: { success: boolean };
+  };
+  [IpcChannel.Zotero_SetWebApiKey]: {
+    args: [token: string];
+    result: { success: boolean };
+  };
+  [IpcChannel.Zotero_ClearWebApiKey]: {
+    args: [];
+    result: { success: boolean };
+  };
+  [IpcChannel.Zotero_PingWebApi]: {
+    args: [req: { userId: string; apiKey: string }];
+    result: ZoteroWebApiPingResultDTO;
   };
   [IpcChannel.Zotero_DetectInstallation]: {
     args: [];

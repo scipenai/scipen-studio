@@ -16,6 +16,7 @@ import type {
   ZoteroPingResultDTO,
   ZoteroSettingsDTO,
   ZoteroSettingsPatchDTO,
+  ZoteroWebApiPingResultDTO,
 } from '../../../shared/types/zotero';
 import type { MinerUContentList, MinerUParseStatusDTO } from '../../../shared/types/zotero-mineru';
 import type {
@@ -65,6 +66,25 @@ export const zoteroApi = {
   /** Delete the stored embedding API key. */
   clearEmbeddingApiKey: (): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IpcChannel.Zotero_ClearEmbeddingApiKey),
+
+  /**
+   * Write the Zotero Web API key to the OS keychain.
+   * @sideeffect Persisted via safeStorage; renderer can never retrieve plaintext afterwards.
+   */
+  setWebApiKey: (token: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_SetWebApiKey, token),
+
+  /** Delete the stored Zotero Web API key. */
+  clearWebApiKey: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_ClearWebApiKey),
+
+  /**
+   * Probe api.zotero.org with candidate userId + apiKey. Returns
+   * `{ ok, username?, error? }` for instant Settings feedback BEFORE
+   * committing the key to keychain.
+   */
+  pingWebApi: (req: { userId: string; apiKey: string }): Promise<ZoteroWebApiPingResultDTO> =>
+    ipcRenderer.invoke(IpcChannel.Zotero_PingWebApi, req),
 
   /** Auto-detect the local Zotero installation. Called by the setup wizard. */
   detectInstallation: (): Promise<ZoteroDetectionResultDTO> =>

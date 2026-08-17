@@ -1,7 +1,7 @@
 # SciPen Studio User Guide
 
-> **Version:** 0.3.0
-> **Last updated:** 2026-06-16
+> **Version:** 0.5.0
+> **Last updated:** 2026-07-16
 
 **English** · [简体中文](USER_GUIDE.zh-CN.md)
 
@@ -13,10 +13,12 @@
 2. [Editor](#editor)
 3. [Compile and PDF preview](#compile-and-pdf-preview)
 4. [AI assistant](#ai-assistant)
-5. [Overleaf integration](#overleaf-integration)
-6. [Settings](#settings)
-7. [Keyboard shortcuts](#keyboard-shortcuts)
-8. [FAQ](#faq)
+5. [Zotero integration](#zotero-integration)
+6. [Local history and restore](#local-history-and-restore)
+7. [Overleaf integration](#overleaf-integration)
+8. [Settings](#settings)
+9. [Keyboard shortcuts](#keyboard-shortcuts)
+10. [FAQ](#faq)
 
 ---
 
@@ -82,12 +84,11 @@ LSP binaries ship with the installer — **no manual setup needed**.
 
 | Engine | Notes | Local install required |
 |--------|-------|------------------------|
-| **WASM (BusyTeX)** (default) | Bundled pdfTeX / XeTeX / LuaLaTeX, works out of the box | No |
-| **WASM XeTeX** | Bundled, supports Unicode / CJK | No |
+| **WASM BusyTeX** (default) | Bundled WebAssembly engine — pick `pdftex` / `xetex` / `lualatex` from the status-bar engine dropdown. `xetex` / `lualatex` handle CJK via the shipped `scipencjk` preamble (auto-injected when the source contains CJK, no `\usepackage{ctex}` needed). | No |
 | **Tectonic** | Fetches packages on demand, good for larger projects | Yes |
 | **TeX Live** (pdfLaTeX / XeLaTeX / LuaLaTeX) | Full distribution | Yes |
 
-Switch the default engine under *Settings → Compiler*, or override per project via the toolbar engine selector.
+Switch the default engine under *Settings → Compiler*, or override per project from the **status-bar engine dropdown** (bottom right). The engine list is capability-aware — engines that can't compile the current file are grayed out.
 
 ### PDF preview
 
@@ -122,6 +123,10 @@ Once a chat model is configured, the assistant can call tools to read / edit pro
 - Each hunk has its own ✓ / ✗ buttons
 
 Built-in tools include `Read` / `Write` / `Edit` / `MultiEdit` / `Grep` / `Glob` / `LS` / `Bash` / `Skill` / memory + Zotero / `TodoWrite` / `TaskOutput` / `TaskStop` / **WebSearch / WebFetch** / **AskUserQuestion**. The high-risk ones (file mutations, shell, Bash) route through an **approval card** in chat — *Allow once*, *Always allow*, or *Deny*.
+
+### 2a. Ctrl+K inline edit
+
+Select a piece of code, press `Ctrl+K`, type an instruction (e.g. "rewrite as bullet list" / "translate to English"), and the model streams a replacement directly into the buffer as a single undo step. Independent of the chat agent — uses the *Completion model* configured under *Settings → AI*, streams straight from the provider without going through SNACA. Press `Esc` to cancel mid-stream, `Tab` to accept the completed replacement.
 
 ### 3. AskUserQuestion (interactive multiple-choice)
 
@@ -158,6 +163,70 @@ The agent remembers user preferences and project facts in per-project markdown u
 - **Skills viewer** — list all Skills currently in scope (Bundled / Tenant / Project), inspect their body
 
 Low-confidence extractor entries are filtered out of automatic recall (configurable floor); they still show in the viewer.
+
+---
+
+## Zotero integration
+
+Connect to your Zotero library via one of two data sources — a **desktop Zotero** running locally, or the **zotero.org Web API**. Pick whichever fits your setup under *Settings → Zotero → Data Source*.
+
+### Data source (Local vs Web)
+
+- **Desktop Zotero (Local API)** — default. Requires a running Zotero client on the same machine with the [Better BibTeX](https://retorque.re/zotero-better-bibtex/) plugin installed. Faster, supports BBT-generated citation keys, works offline once the library is mirrored.
+- **Cloud Zotero (Web API)** — works without a local Zotero client (headless / cloud workstations / multi-device). You provide a numeric **user ID** and an **API key** generated at <https://www.zotero.org/settings/keys>. Studio talks to `api.zotero.org` directly; the key is stored in the OS keychain and never round-trips to the renderer. Better BibTeX and MinerU precision-parse are unavailable in Web mode (stage A limitation); citation keys are then generated locally by Studio's minter (BBT-compatible `[auth:lower][year][veryshorttitle:lower]` formula) and remembered in a per-app SQLite store.
+
+Switching data source triggers an immediate refresh so the library reflects the new source without waiting for the next focus event.
+
+### Connect (Local API)
+
+1. Install Better BibTeX in your Zotero and enable its local HTTP endpoint (default `http://127.0.0.1:23119`).
+2. Open *Settings → Zotero* and click **Connect**. The library is mirrored to a local index so lookups stay fast even when Zotero is closed.
+
+### Connect (Web API)
+
+1. Sign in at <https://www.zotero.org/settings/keys> and create a **read-only key** (the "Access your Zotero library" permission is enough). Your numeric **user ID** appears at the top of the same page.
+2. Open *Settings → Zotero → Data Source* → pick **Cloud Zotero (Web API)** → the setup dialog opens.
+3. Paste the user ID and key, click **Test connection**. On success the dialog echoes "Connected as *{username}*"; only then can you click **Save**.
+4. After save, the *Sources* card switches from "Zotero Local API + BBT" rows to a single "Zotero Web API" row; the *Citation Key Origins* section shows how many keys came from BBT sync vs Studio mint vs user overrides.
+
+### What you get
+
+- **Live BibTeX** — the mirror refreshes on Zotero change events; `\bibliography{...}` picks up citation keys as soon as you add a paper.
+- **`@cite` autocomplete** — type `@` in a `.tex` file to open a live citation picker over the current library.
+- **Right-pane Paper tab** — the right preview column has a *Paper* tab that renders the currently referenced Zotero item's PDF; agent context also carries the active item so the model knows which paper you're citing.
+- **Semantic PDF search** — a local embedding index over attachment PDFs powers "find related passages" queries.
+- **Agent tools** — the SNACA agent can call Zotero (`zotero_search` / `zotero_lookup` / `zotero_annotations` / `zotero_read`) to ground its writing in what's actually in your library.
+
+### BYOK for embeddings and MinerU
+
+Semantic PDF search needs an embedding provider (OpenAI or a compatible endpoint), and full-text extraction from image-heavy PDFs uses [MinerU](https://mineru.net). Both are optional and configured under *Settings → Zotero*; without them, Zotero still works — you just lose semantic search and image-PDF text extraction.
+
+---
+
+## Local history and restore
+
+SciPen Studio keeps a **content-addressed snapshot store** for every project — no Git required. Snapshots power both the timeline browser and per-message rollback in chat.
+
+### Snapshot triggers
+
+| Kind | Trigger |
+|------|---------|
+| **Manual label** | Sidebar → *History* → *New label*. Give it a name and (optionally) description. |
+| **Auto label** | Every ~6 hours while the project is open. |
+| **Milestone** | Emitted after every successful compile (5-minute throttle so a burst of compiles doesn't drown the list). |
+| **Drift snapshot** | Fires automatically after the AI agent has cumulatively changed enough bytes in one thread. |
+| **Step (per SNACA tool call)** | Every file-mutating tool call from the agent records a step under the active chat thread's session, keyed by parent step — builds a per-thread DAG. |
+
+### Browse and restore
+
+- Sidebar → *History* opens a unified browser with two tabs: **Labels** and **Sessions**.
+- Pick any label / step to see the per-file unified diff against the current disk state.
+- Click *Restore* on a label to write every tracked file back to disk (open tabs reload from the snapshot).
+- In chat, hover any user message to reveal a *Rollback* button — restores all open tabs to the last step recorded **before** that message (undoes what the agent did after that turn).
+
+### Storage
+
+Snapshots live under `{userData}/scipen-studio/projects/{projectId}/history/` — SQLite metadata plus a content-addressed blob directory (blobs ≤ 4 KiB inline in SQLite, larger blobs on disk under `blobs/{hexPrefix}/{hash}`). An orphan sweep runs daily and long chunk chains are folded automatically, so the store stays bounded over time.
 
 ---
 
@@ -208,8 +277,8 @@ Open the settings panel from the command palette (`Ctrl+P`, search "Open Setting
 | Provider | OpenAI / Anthropic / DeepSeek / OpenAI-compatible endpoint |
 | API Key | Stored locally |
 | API Host | Custom endpoint, for private proxies or aggregator services |
-| Chat model | Used by the **built-in agent** for chat / tool-use turns |
-| Completion model | Used for **editor inline completion** (auto) and **`Ctrl+K` inline edit** |
+| Chat model | Used by the **built-in agent** for chat / tool-use turns and `Ctrl+L` chat-with-selection |
+| Completion model | Used for **editor inline completion** and **`Ctrl+K` inline edit** |
 
 > The chat model is the only thing the agent strictly needs. The agent runtime itself ships inside the app — no separate server.
 
@@ -217,7 +286,7 @@ Open the settings panel from the command palette (`Ctrl+P`, search "Open Setting
 
 | Option | Description |
 |--------|-------------|
-| Approval mode | How the agent confirms before file mutations / shell tools: *Interactive* (default; pop a card) / *Auto-allow* / *Auto-deny*. *Auto-allow* is a CI-style default — not recommended for a desktop user. |
+| Approval mode | How the agent confirms before file mutations / shell tools: *Interactive* (default; pop an approval card) / *Auto-allow* (fire accept without asking) / *Auto-deny* (reject every request). *Interactive* stays safer as the default. |
 | Web search → Tavily API key | Required for the **WebSearch** tool; **WebFetch** works without it. Saving restarts the agent runtime so the change takes effect. Leave empty to disable WebSearch. |
 | Engine knobs (folded) | `max_iterations` / `loop_guard_max_repeats` / `concurrent_tool_limit` / `max_tokens` / `history_limit` / `compact_after_input_tokens` / cache + memory tunables. Most users never touch these; defaults are model-aware. |
 | Memory viewer | Open the secondary window listing memory entries for the active project. |
@@ -273,15 +342,16 @@ Customize the bindings for compile, AI invocation, command palette, and other co
 
 | Shortcut | Action |
 |----------|--------|
-| `Ctrl+L` | Invoke AI on the current selection |
-| `Ctrl+K` | Select code → describe change → completion model streams a replacement inline |
-| `@` (AI input) | Reference a project file |
+| `Ctrl+L` | Send the current selection to the chat panel |
+| `Ctrl+K` | Inline edit — replace the selection using the *Completion model* (streams into the buffer, `Tab` accepts, `Esc` cancels) |
+| `@` (chat input) | Reference a project file / folder / symbol |
 
 ### Interface
 
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl+Shift+V` | Toggle PDF preview pane |
+| `Ctrl+\` | Toggle chat panel (focus mode for writing / preview) |
 
 > There is no dedicated shortcut for "Open Settings" yet — search "Open Settings" in the command palette (`Ctrl+P`), or click the settings button in the top-right corner.
 
@@ -321,7 +391,7 @@ Customize the bindings for compile, AI invocation, command palette, and other co
 
 ### Q: Will the agent edit my files without asking?
 
-**A:** No, by default *Approval mode* is **Interactive**: any file-mutation tool (Edit / Write / MultiEdit) and any shell command surface an approval card in chat. You decide *Allow once* / *Always allow* / *Deny*. The result of an *Always allow* decision is remembered per project. Switch to *Auto-allow* only if you're comfortable letting the agent run unsupervised.
+**A:** No, by default *Approval mode* is **Interactive**: any file-mutation tool (Edit / Write / MultiEdit) and any shell command surface an approval card in chat. You decide *Allow once* / *Always allow* / *Deny*. The result of an *Always allow* decision is remembered per project. Switch to *Auto-allow* only if you're comfortable letting the agent apply file edits directly.
 
 ### Q: How do I update the app?
 

@@ -268,9 +268,28 @@ export function setupShortcuts(editor: Editor, monacoInstance: Monaco): void {
   shortcutService.registerHandler('chatWithSelection', () => {
     const selection = editor.getSelection();
     const model = editor.getModel();
-    const selectedText =
+    const rawText =
       selection && !selection.isEmpty() && model ? model.getValueInRange(selection) : '';
-    getUIService().requestChatWithText(selectedText, 'editor');
+    // Trim once up front so the emptiness gate and the payload agree, and
+    // full-line selections (triple-click) don't ship a trailing `\n` into
+    // the card / prompt. Matches the ResearchWorkspaceShell external
+    // capture path which also sends `.trim()`.
+    const text = rawText.trim();
+    // When there is non-empty selected text, open the SelectionActionCard
+    // (translate/explain/distill/find-related-lit); when there is none, fall
+    // back to seeding the input so Ctrl+L on an empty caret still routes the
+    // user into the chat panel.
+    if (text) {
+      uiService.requestSelectionAction({
+        selection: {
+          text,
+          source: 'editor',
+          capturedAt: Date.now(),
+        },
+      });
+    } else {
+      uiService.requestChatWithText('', 'editor');
+    }
   });
 
   shortcutService.registerHandler('inlineEdit', () => {

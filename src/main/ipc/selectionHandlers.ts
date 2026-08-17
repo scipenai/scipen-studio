@@ -15,6 +15,20 @@ import { createTypedHandlers } from './typedIpc';
 const logger = createLogger('SelectionHandlers');
 
 /**
+ * Uniform shape returned when a lifecycle handler catches an unexpected
+ * exception. Stamps `code: 'unknown'` so the renderer's error UI can
+ * branch on `result.code` without a special-case for the catch path
+ * (mirrors the try-branch's `result.code ?? 'unknown'` log).
+ */
+function unknownLifecycleFailure(error: unknown): {
+  success: false;
+  code: 'unknown';
+  error: string;
+} {
+  return { success: false, code: 'unknown', error: String(error) };
+}
+
+/**
  * Dependencies required for selection handler registration.
  */
 export interface SelectionHandlersDeps {
@@ -53,15 +67,15 @@ export function registerSelectionHandlers(deps: SelectionHandlersDeps): void {
       [IpcChannel.Selection_SetEnabled]: async (enabled: boolean) => {
         try {
           const service = getSelectionService();
-          const success = await service.setEnabled(enabled);
+          const result = await service.setEnabled(enabled);
 
           logger.info(
-            `[SelectionHandlers] Selection assistant ${enabled ? 'enabled' : 'disabled'}`
+            `[SelectionHandlers] Selection assistant ${enabled ? 'enable' : 'disable'} → ${result.success ? 'ok' : `failed (${result.code ?? 'unknown'})`}`
           );
-          return { success };
+          return result;
         } catch (error) {
           logger.error('[SelectionHandlers] Failed to set enabled state:', error);
-          return { success: false, error: String(error) };
+          return unknownLifecycleFailure(error);
         }
       },
 
@@ -96,12 +110,15 @@ export function registerSelectionHandlers(deps: SelectionHandlersDeps): void {
       [IpcChannel.Selection_SetConfig]: async (config: Partial<SelectionConfigDTO>) => {
         try {
           const service = getSelectionService();
-          await service.updateConfig(config);
-          logger.info('[SelectionHandlers] Config updated:', config);
-          return { success: true };
+          const result = await service.updateConfig(config);
+          logger.info(
+            `[SelectionHandlers] Config update → ${result.success ? 'ok' : `failed (${result.code ?? 'unknown'})`}`,
+            config
+          );
+          return result;
         } catch (error) {
           logger.error('[SelectionHandlers] Failed to set config:', error);
-          return { success: false, error: String(error) };
+          return unknownLifecycleFailure(error);
         }
       },
 

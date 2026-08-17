@@ -172,8 +172,21 @@ pub enum ContextPayload {
     ZoteroRead {
         text: String,
         truncated: bool,
-        /// Text source tier: "local" (pdf-parse) | "none" (no PDF).
+        /// Text source tier: "local" (pdf-parse) | "mineru" (structured MD) |
+        /// "none" (no PDF) | "web_pending" (Web API mode, PDF in cloud;
+        /// stage-B lazy download not yet available). LLM must distinguish
+        /// "web_pending" from "none" to avoid concluding "paper has no content".
         tier: String,
+        /// Optional quality self-report from tier-1 extraction: "good" | "poor".
+        /// `mineru` is always "good"; `none` and `web_pending` omit this field.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quality: Option<String>,
+        /// Non-fatal disambiguation hint. Emitted by the renderer responder
+        /// on mirror miss (e.g. "unresolved_key" when the raw key couldn't be
+        /// normalised to an itemKey). LLM can use this to retry with a
+        /// canonical key rather than concluding "paper has no readable content".
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
     },
     AskUserQuestion {
         answers: QuestionAnswersWire,
@@ -377,14 +390,43 @@ mod tests {
             "kind": "zotero_read",
             "text": "Abstract...",
             "truncated": true,
-            "tier": "local"
+            "tier": "local",
+            "quality": "good"
         });
         let payload: ContextPayload = serde_json::from_value(raw).unwrap();
         match payload {
-            ContextPayload::ZoteroRead { text, truncated, tier } => {
+            ContextPayload::ZoteroRead { text, truncated, tier, quality, reason } => {
                 assert_eq!(text, "Abstract...");
                 assert!(truncated);
                 assert_eq!(tier, "local");
+                assert_eq!(quality, Some("good".to_string()));
+                assert_eq!(reason, None);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn zotero_read_web_pending_sentinel_roundtrips() {
+        // Regression guard for the web-mode sentinel: pdf lives in Zotero
+        // cloud, stage-B lazy download not implemented — LLM must see
+        // `tier: "web_pending"` verbatim (NOT coerced to "none") and can
+        // read `reason` to distinguish "unresolved key" from "genuine no PDF".
+        let raw = json!({
+            "kind": "zotero_read",
+            "text": "",
+            "truncated": false,
+            "tier": "web_pending",
+            "reason": "unresolved_key"
+        });
+        let payload: ContextPayload = serde_json::from_value(raw).unwrap();
+        match payload {
+            ContextPayload::ZoteroRead { text, truncated, tier, quality, reason } => {
+                assert_eq!(text, "");
+                assert!(!truncated);
+                assert_eq!(tier, "web_pending");
+                assert_eq!(quality, None);
+                assert_eq!(reason, Some("unresolved_key".to_string()));
             }
             _ => panic!("wrong variant"),
         }

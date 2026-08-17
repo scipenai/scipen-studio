@@ -39,10 +39,11 @@ export interface ZoteroDiagnosticsDTO {
   status: BibStatus;
   /** Last successful refresh wall-clock time (ISO string). */
   lastSyncedAt?: string;
-  /** Source health flags. */
+  /** Source health flags. `web` is the api.zotero.org probe (`detail: 'skipped in local mode'` when inactive). */
   sources: {
-    localApi: { ok: boolean; error?: string };
-    betterBibTex: { ok: boolean; error?: string };
+    localApi: { ok: boolean; error?: string; detail?: string };
+    betterBibTex: { ok: boolean; error?: string; detail?: string };
+    web?: { ok: boolean; error?: string; detail?: string };
   };
   /** Current item count in the canonical index. */
   itemCount: number;

@@ -478,14 +478,26 @@ function shapeZoteroPayload(
         >['annotations'],
       };
     case 'zotero_read': {
-      const tier = obj.tier === 'local' || obj.tier === 'mineru' ? obj.tier : 'none';
+      // Whitelist mirrors ZoteroFullTextResultDTO.tier union in shared/types/zotero.ts —
+      // `web_pending` is the web-mode sentinel meaning "PDF is in Zotero cloud, deferred
+      // to stage-B lazy download". Coercing it to 'none' here would drop the sentinel
+      // before it reaches SNACA / the LLM, making the agent wrongly conclude "no PDF".
+      const tier =
+        obj.tier === 'local' || obj.tier === 'mineru' || obj.tier === 'web_pending'
+          ? obj.tier
+          : 'none';
       const quality = obj.quality === 'good' || obj.quality === 'poor' ? obj.quality : undefined;
+      // Optional disambiguation hint (e.g. 'unresolved_key' when mirror miss
+      // forced a raw-key fall-through). Preserved verbatim; SNACA + LLM
+      // decide how to act on it.
+      const reason = typeof obj.reason === 'string' ? obj.reason : undefined;
       return {
         kind: 'zotero_read',
         text: typeof obj.text === 'string' ? obj.text : '',
         truncated: Boolean(obj.truncated),
         tier,
         quality,
+        reason,
       };
     }
   }

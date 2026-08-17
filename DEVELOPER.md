@@ -84,9 +84,10 @@ export function registerServices(): void {
   );
 
   // Lazy: created on first use, then cached
-  container.registerLazy(ServiceNames.INLINE_EDIT, () =>
-    createInlineEditService({
-      aiService: container.get<IAIService>(ServiceNames.AI),
+  container.registerLazy<IHistoryManager>(
+    ServiceNames.HISTORY_MANAGER,
+    () => createHistoryManager({
+      baseDir: path.join(app.getPath('userData'), 'scipen-studio'),
     })
   );
 
@@ -95,7 +96,7 @@ export function registerServices(): void {
 }
 ```
 
-> Service-name constants live in `ServiceContainer.ts` (`export const ServiceNames`) and use `SCREAMING_SNAKE_CASE` (`AI`, `FILE_SYSTEM`, `LATEX_COMPILER`, `INLINE_EDIT`, `HISTORY_MANAGER`, `AGENT_SIDECAR`, …).
+> Service-name constants live in `ServiceContainer.ts` (`export const ServiceNames`) and use `SCREAMING_SNAKE_CASE` (`AI`, `FILE_SYSTEM`, `LATEX_COMPILER`, `HISTORY_MANAGER`, `AGENT_SIDECAR`, `LSP_MANAGER`, …).
 
 #### Service Usage (Correct Way)
 
@@ -302,17 +303,17 @@ IPC channels are defined by domain under `shared/ipc/`:
 
 ```
 shared/ipc/
-├── channels.ts          # IpcChannel enum (every channel name)
+├── channels.ts          # IpcChannel enum (every channel name — one source of truth)
 ├── index.ts             # Aggregates IPCApiContract from all domain contracts
 ├── schemas.ts           # Zod runtime validators for event-payload channels
-├── types.ts             # Shared IPC-wire type helpers
-├── ai-contract.ts       # IPCAiContract       (chat / inline-edit / completion)
-├── app-contract.ts      # IPCAppContract      (window / update / config / logging)
-├── compile-contract.ts  # IPCCompileContract  (LaTeX / Typst / WASM artifacts)
-├── file-contract.ts     # IPCFileContract     (fs + watcher + cache; PathSecurity-guarded)
-├── lsp-contract.ts      # IPCLspContract      (texlab / tinymist / marksman)
-├── overleaf-contract.ts # IPCOverleafContract (auth / project / live-collaboration)
-└── zotero-contract.ts   # IPCZoteroContract   (settings / secure keys / snapshot / MinerU / embeddings)
+├── types.ts             # Shared IPC-wire type helpers (e.g. IpcChannelType alias)
+├── ai-contract.ts       # IPCAiContract           (chat / inline-edit / completion)
+├── app-contract.ts      # IPCAppContract          (window / update / config / logging)
+├── compile-contract.ts  # IPCCompileContract      (LaTeX / Typst / WASM artifacts)
+├── file-contract.ts     # IPCFileContract         (fs + watcher + cache; all PathSecurity-guarded)
+├── lsp-contract.ts      # IPCLspContract          (texlab / tinymist / marksman probes + rpc)
+├── overleaf-contract.ts # IPCOverleafContract     (auth / project / live-collaboration)
+└── zotero-contract.ts   # IPCZoteroContract       (settings / secure keys / snapshot / diagnostics / MinerU / embeddings / Web API)
 ```
 
 Channel names live in `channels.ts`, and each domain contract maps channels to `{ args, result }` shapes:
@@ -470,8 +471,7 @@ createMockAIService(overrides?)
 createMockFileSystemService(overrides?)
 createMockCompilerRegistry(overrides?)
 createMockOverleafService(overrides?)
-createMockContainer(options?)      // ServiceContainer pre-populated with mocks
-createMockHandlerDeps(overrides?)  // typed shortcut for IPC-handler deps object
+createMockHistoryManager(overrides?)
 ```
 
 ### Running Tests
@@ -591,16 +591,16 @@ Constants are defined in `ServiceContainer.ts` as `SCREAMING_SNAKE_CASE`:
 
 ```typescript
 // Core
-ServiceNames.AI                       // IAIService
+ServiceNames.AI                       // IAIService (chat + inline-edit + completion)
 ServiceNames.INLINE_EDIT              // InlineEditService (Ctrl+K streaming replacement)
 ServiceNames.FILE_SYSTEM              // IFileSystemService
-ServiceNames.CONFIG                   // IConfigManager
+ServiceNames.CONFIG                   // IConfigManager (electron-store wrapper)
 ServiceNames.LOGGER                   // Logger
-ServiceNames.TRACE                    // Trace store
-ServiceNames.SELECTION                // ISelectionService
+ServiceNames.TRACE                    // Trace store (dev-time)
+ServiceNames.SELECTION                // ISelectionService (system-wide text capture)
 
 // Compilation + LSP
-ServiceNames.LATEX_COMPILER           // ICompilerRegistry
+ServiceNames.LATEX_COMPILER           // ICompilerRegistry (LaTeX + Typst dispatch)
 ServiceNames.LSP_MANAGER              // LSP process manager
 ServiceNames.TEXLAB                   // TexLab LSP handle
 ServiceNames.TINYMIST                 // Tinymist LSP handle
@@ -608,10 +608,10 @@ ServiceNames.TINYMIST                 // Tinymist LSP handle
 // Overleaf
 ServiceNames.OVERLEAF_FILE_SYSTEM     // IOverleafFileSystemService
 ServiceNames.OVERLEAF_COMPILER        // OverleafCompileService
-ServiceNames.STUDIO_OVERLEAF_LIVE     // StudioOverleafLiveService
+ServiceNames.STUDIO_OVERLEAF_LIVE     // StudioOverleafLiveService (WS bridge)
 
-// History (content-addressed snapshots)
-ServiceNames.HISTORY_MANAGER          // HistoryManager (SQLite + blob store)
+// History / snapshots (content-addressed)
+ServiceNames.HISTORY_MANAGER          // IHistoryManager (SQLite + blob store)
 
 // SNACA agent runtime bridge
 ServiceNames.AGENT_SIDECAR            // Long-lived SNACA process manager
@@ -619,6 +619,8 @@ ServiceNames.AGENT_PROTOCOL_CLIENT    // JSON-RPC wire to sidecar
 ServiceNames.AGENT_EDIT_APPLY         // Host-applies edit workflow (Diff Review)
 ServiceNames.AGENT_CONTEXT_REQUEST    // Reverse-RPC parking (context.request / AskUserQuestion)
 ```
+
+> Zotero services (`ZoteroOrchestrator` / `ZoteroLocalApiClient` / `ZoteroWebApiClient` / `BetterBibTexClient` / `CitationKeyStore` / `EmbeddingIndexService` / `MinerUParseService` / `BibTexSyncService` / `ZoteroFullTextService` / `ZoteroDiscoveryService`) do **not** register in the DI container — they are module-level singletons accessed via `getXxx()` factories. This keeps their lazy-init semantics (SQLite open, Zotero probe) independent of the app's cold-boot ServiceContainer flush.
 
 ### Important Files
 
@@ -633,6 +635,76 @@ ServiceNames.AGENT_CONTEXT_REQUEST    // Reverse-RPC parking (context.request / 
 | Event System | `shared/utils/event.ts` |
 | Lifecycle Utils | `shared/utils/lifecycle.ts` |
 | Test Mocks | `tests/setup/MockServiceContainer.ts` |
+
+---
+
+## SNACA Agent Runtime
+
+The chat agent lives in a **long-lived sidecar process** launched by the main
+process; the renderer never speaks to LLM APIs directly. Files under
+`src/main/services/agent/`:
+
+| File | Role |
+|------|------|
+| `SnacaSidecarService.ts` | Spawn / respawn / stop the SNACA process; owns the process handle (bound to `ServiceNames.AGENT_SIDECAR` via `createSnacaSidecarService`) |
+| `EditorProtocolClient.ts` | JSON-RPC wire — send request, dispatch streamed events (`turn.delta` / `edit.propose` / `tool.approval_request` …); bound to `ServiceNames.AGENT_PROTOCOL_CLIENT` |
+| `AgentEditApplyService.ts` | Host-applies edit workflow: read file → validate `base_hash` → apply hunks → forward `editConfirm` to SNACA |
+| `crates/snaca-editor/src/approval_gate.rs` | Rust: wraps SNACA's approval layer so `Edit`/`Write`/`MultiEdit` route through `edit.propose` (Diff Review) while `Bash` etc. route through `tool.approval_request` |
+| `ContextRequestService.ts` | Reverse-RPC parking — SNACA asks renderer for `flush_unsaved` / `zotero_*` / `AskUserQuestion`, renderer replies, promise resolves |
+
+`scripts/build-snaca.js` builds the SNACA binary and stages bundled
+academic-research skills (paper / reviewer / pipeline / deep-research) into
+the resources directory at package time. SNACA itself is a **git submodule**
+under `snaca/`; run `npm run setup` to init.
+
+---
+
+## Zotero Integration
+
+Two data sources, one orchestrator. Files under `src/main/services/zotero/`:
+
+| File | Role |
+|------|------|
+| `ZoteroOrchestrator.ts` | State machine (`idle → bootstrapping → ready/degraded/error`); routes `local` vs `web` via `getActiveClient()` branch; runs 3-layer citation-key normalization in web mode |
+| `ZoteroLocalApiClient.ts` | HTTP client for the desktop Zotero at `127.0.0.1:23119` (default local data source) |
+| `ZoteroWebApiClient.ts` | HTTPS client for `api.zotero.org` — `Zotero-API-Key` header, 429 `Retry-After` retry, 5xx backoff |
+| `BetterBibTexClient.ts` | BBT JSON-RPC — probes `/better-bibtex/json-rpc`; citation keys read directly from `data.citationKey` in local mode |
+| `CitationKeyStore.ts` | SQLite persistence of `itemKey → { citationKey, origin }` under `{userData}/scipen-studio/zotero/citations.db`; 3 origins (`bbt` / `studio_mint` / `user_override`) |
+| `citationKeyMinter.ts` | Pure function `mint(ctx, existingKeys) → string` following BBT default formula `[auth:lower][year][veryshorttitle:lower]`; German-two-letter unicode transliteration; collision postfix `a..z → aa..zz` |
+| `ZoteroDiscoveryService.ts` | Detect local Zotero install + probe both LocalApi + WebApi (used by Settings "Test connection") |
+| `ZoteroIndex.ts` | In-memory canonical bib index; hydrate / patch / diagnostics |
+| `ZoteroEventBus.ts` | `bib:*` event fan-out to renderer mirror |
+| `ZoteroFullTextService.ts` | Tier-1 pdf.js local extraction (single-attachment fallback when MinerU absent) |
+| `MinerUParseService.ts` | Tier-2 precise parse via MinerU cloud (BYOK; disabled in web-mode stage A) |
+| `EmbeddingIndexService.ts` | M3 active-recommendation semantic search over attachment PDFs |
+| `BibTexSyncService.ts` | Auto-write `references.bib` under project root when the index changes |
+
+**Data source switch**: `Settings → Zotero → Data Source` radio flips
+`ConfigKeys.ZoteroDataSource`; the handler layer bumps
+`invalidateWebApiCredentials()` + broadcasts settings + kicks a refresh so
+the orchestrator rebuilds its active client before the next request.
+
+**Secret storage**: MinerU token, embedding key, and Zotero Web API key all
+live in `SecureStorageService` (`safeStorage` + `electron-store`). IPC
+exposes only `hasXxxKey: boolean` — plaintext never round-trips to the
+renderer.
+
+---
+
+## SQLite Persistence
+
+Two per-app SQLite databases, both via `node:sqlite` (Node 22+ / Electron
+42+ builtin) with `createRequire` to bypass vite's bundler:
+
+| DB | Location | Owner | Purpose |
+|----|----------|-------|---------|
+| History | `{userData}/scipen-studio/projects/{projectId}/history/meta.db` | `history/MetaDb.ts` | Content-addressed blobs + steps + labels + sessions (per project) |
+| Citations | `{userData}/scipen-studio/zotero/citations.db` | `zotero/CitationKeyStore.ts` | Web-mode citation key persistence (single global) |
+
+Both follow the same template: WAL journaling, `synchronous = NORMAL`,
+STRICT tables, versioned migrations as an in-source array (never `.sql`
+files — dodges vite bundling). Constructor uses `try/catch` to close the
+handle on migration failure so a bad `up` never leaks file descriptors.
 
 ---
 

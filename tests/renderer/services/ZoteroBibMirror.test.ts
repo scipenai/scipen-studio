@@ -111,6 +111,12 @@ describe('ZoteroBibMirror — start + initial snapshot', () => {
     expect(mirror.getState().ready).toBe(true);
     expect(mirror.getByItemKey('A1')?.itemKey).toBe('A1');
     expect(mirror.getByCitationKey('smith2024')?.itemKey).toBe('A1');
+    // Case-insensitive fallback — BBT keys are case-sensitive by spec but
+    // agent LLMs frequently re-quote keys with altered casing, so exact
+    // miss falls back to lowercase index. Verifies we hit an item whose
+    // stored key is `smith2024` (mixed case here shouldn't matter).
+    expect(mirror.getByCitationKey('SMITH2024')?.itemKey).toBe('A1');
+    expect(mirror.getByCitationKey('Smith2024')?.itemKey).toBe('A1');
   });
 
   it('applies BibPatchDTO when getSnapshot returns a delta', async () => {

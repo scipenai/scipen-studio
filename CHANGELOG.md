@@ -5,6 +5,153 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.5.1] — 2026-08-17
+
+### Added
+
+- **Zotero Web API data source** — a _Local_ / _Web API_ switch under _Settings → Zotero_. Web mode connects to `api.zotero.org` with a personal read-only key, so studio works on machines without a local Zotero (headless, cloud, second device). Setup dialog with a test-before-save gate; the key stays in the OS keychain.
+- **Citation key mint + persistence** — for web-mode items without a Better BibTeX key, studio mints one locally using the BBT default formula (`[auth:lower][year][veryshorttitle:lower]`, Unicode transliteration, `a..z → aa..zz` collision suffix) and keeps it stable across restarts.
+- **Selection helper** — capture the current selection in the editor (`Ctrl+L`) or in any external app (`Alt+D`), then send it to chat as one of four actions: translate, explain, distill, or find in Zotero. Off by default; enable under _Settings → Selection_.
+- **Message queue** — messages typed while a turn is in flight now queue up and drain one at a time as turns complete. A chip above the composer shows the queue count and lets you remove individual entries. Cancel wipes the queue.
+
+### Changed
+
+- **Docs synced to code** — READMEs, USER_GUIDE (EN + zh-CN), DEVELOPER, and SECURITY realigned with the current subsystem layout.
+
+### Security
+
+- **Zotero Web API key** stays in the OS keychain via safeStorage. The renderer only ever sees `hasWebApiKey: boolean`, and dialog state is cleared on close so plaintext cannot leak through DevTools.
+
+## [0.5.0] — 2026-07-16
+
+SNACA moves from a vendored fork to a first-class git submodule, so a scipen-studio
+checkout no longer carries a divergent copy of the agent runtime and upstream fixes
+apply with a plain `git submodule update`. `ws` picks up its latest security fix.
+The stop button and PDF pane pick up long-tail robustness fixes.
+
+### Added
+
+- **Cancellable WASM LaTeX load and compile.** The stop button on the compiler
+  toolbar now aborts both engine warm-up (`.wasm` fetch + init) and the compile
+  itself — previously the button only cancelled the compile step, so a hang
+  during first-run engine load could not be interrupted without killing the
+  window.
+
+### Changed
+
+- **SNACA agent runtime is now a git submodule** (`snaca/` → `scipenai/snaca`).
+  Replaces the vendored fork that shipped as source-in-tree. Fresh clones need
+  `--recurse-submodules` (or `git submodule update --init --recursive`) — the
+  README and build docs call this out explicitly.
+
+### Fixed
+
+- **PDF preview raced on overlapping loads.** Switching PDFs faster than pdf.js
+  could finish loading (fast tab-swap, or a compile finishing while the user
+  navigates) could leave the pane on the older buffer. `PdfPreviewPane` now
+  tracks a load token and drops out-of-order resolves.
+
+### Security
+
+- Bumped `ws` to 8.21.0 to pick up the latest advisory-mitigating release.
+
+## [0.4.0] — 2026-07-04
+
+Cleanup release for the SNACA import path — no user-facing feature changes.
+Vendored SNACA gets rebased onto upstream `scipenai/snaca` v0.2.7 and the
+in-tree copy is excluded from lint / format sweeps so the wrapper crate can
+stay a thin veneer.
+
+### Changed
+
+- **SNACA vendored fork rebased onto upstream `scipenai/snaca` 0.2.7.** Studio
+  keeps a wrapper crate (`crates/snaca-editor`) that path-depends on the vendored
+  copy; this rebase syncs the agent runtime with upstream bug fixes ahead of the
+  0.5.0 submodule swap.
+- **Biome + OxLint now ignore `snaca/`.** The vendored copy is not our code to
+  lint; excluding it removes noise from `format:check` / `lint:check`.
+
+## [0.3.7] — 2026-07-01
+
+### Fixed
+
+- **Windows file-tree watcher missed edits when the path casing differed from
+  disk.** `@parcel/watcher` emits paths in the on-disk case, while renderer
+  callers sometimes supplied paths as typed (`C:\` vs `c:\`, `paper/` vs
+  `Paper/`). Path matching in the tree watcher is now case-insensitive on
+  Windows so a save in `Paper\main.tex` refreshes even if the tree stored
+  `paper\main.tex`.
+- **`package-lock.json` out of sync** with the `@tailwindcss/oxide` optional
+  wasm dependency set introduced by the Tailwind v4 upgrade — regenerated so
+  CI installs stay deterministic across platforms.
+
+## [0.3.6] — 2026-06-29
+
+The big dependency refresh (six batches) plus a rewrite of SyncTeX to remove
+the external `synctex` CLI. Also fixes packaged-app CJK for the WASM engine
+and a Monaco find-widget regression.
+
+### Added
+
+- **In-renderer SyncTeX parser.** Previously the app shelled out to the
+  system `synctex` binary and parsed its stdout; now the `.synctex.gz`
+  file is decoded in the renderer via `fflate`. Removes an external
+  runtime dependency, works identically across dev and packaged builds,
+  and lands a couple of edge-case fixes the CLI could not express.
+
+### Changed
+
+- **Dependency refresh (six batches).**
+  - Batch 1: dropped unused `uuid`; bumped `lucide-react` / `katex` /
+    `react-resizable-panels`.
+  - Batch 2: AI SDK v6 → v7 (`ai`, `@ai-sdk/anthropic`, `@ai-sdk/openai`).
+  - Batch 3: `pdfjs-dist` 5 → 6 (canvas rendering + CMap paths updated).
+  - Batch 4: `selection-hook` 1 → 2 (breaking API for text selection on
+    macOS / Linux — see the CI change below for the Linux build side-effect).
+  - Batch 6: Tailwind v3 → v4 (`@tailwindcss/postcss`, `tailwindcss@4`,
+    `@tailwindcss/typography` refresh).
+- **CI installs Linux X11 / evdev / wayland dev headers** so `selection-hook`
+  v2 can build its native module in the Ubuntu job.
+
+### Fixed
+
+- **WASM LaTeX CJK compile failed in packaged app** — the WASM engine's
+  package endpoint defaulted to a value only reachable from dev, and the
+  proxy that fetches TeX packages on demand refused unknown hosts inside
+  the sandbox. Endpoint default flipped to the ships-with-installer value
+  and the fetch proxy now honours the endpoint even inside the packaged
+  bundle.
+- **Monaco find widget could not be closed** (pre-existing regression) —
+  root-caused to Monaco's default `Escape` handler not firing when the
+  widget was mounted outside its usual DOM ancestry; restored via an
+  explicit close handler.
+- **Post-upgrade UI regressions from `react-resizable-panels` v4 QA sweep**
+  — `PanelGroup` → `Group`, `PanelResizeHandle` → `Separator`, `direction`
+  → `orientation`, and size props now accept `${n}%` strings.
+
+## [0.3.4] — 2026-06-25
+
+### Added
+
+- **`standard-ctex` CJK support for the WASM LaTeX engine.** `\usepackage{ctex}`
+  now works end-to-end under `wasm-xetex` / `wasm-lualatex` without pulling
+  a system TeX distribution — companion to the `scipencjk` auto-injection
+  shipped in 0.3.2.
+- **Local-first auto engine selection.** New projects pick the engine that
+  can handle their content without user intervention (BusyTeX / Tectonic /
+  TeX Live based on capability + availability); users can still override
+  from the status-bar dropdown.
+
+### Fixed
+
+- **Unified WASM PDF output path.** The compile pipeline had two competing
+  ideas of where the WASM engine writes the PDF (renderer temp vs main
+  process cache); tab-swap or fast recompiles could show the wrong buffer
+  in the preview. Consolidated to a single source of truth in the main
+  process and cleaned up the renderer-side state layer accordingly.
+
 ## [0.3.2] — 2026-06-24
 
 WASM LaTeX engine learns Chinese. A user document containing CJK characters now

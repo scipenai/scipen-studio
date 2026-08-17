@@ -44,6 +44,21 @@ interface AgentChatInputProps {
   disabled?: boolean;
   placeholder?: string;
   /**
+   * When true, submitting while `busy` is still allowed — the parent is
+   * responsible for queuing the message and flushing it once the current
+   * turn completes. Default false preserves the historical "busy blocks
+   * send" behavior for callers that don't wire a queue.
+   */
+  allowQueueWhileBusy?: boolean;
+  /**
+   * Hint shown while `busy && allowQueueWhileBusy`: used as the textarea
+   * placeholder so the user knows the message will queue instead of
+   * dispatching immediately. Falls back to `t('chat.inputPlaceholder')`
+   * when omitted; the `placeholder` prop, when set, always wins (which
+   * hides this hint entirely — callers should not set both).
+   */
+  queuePlaceholder?: string;
+  /**
    * Submit callback. `intent` reflects the input's armed state at submit
    * time; armed state is reset immediately after dispatch so callers never
    * need to (and cannot) manage it externally.
@@ -76,6 +91,8 @@ export function AgentChatInput({
   busy,
   disabled,
   placeholder,
+  allowQueueWhileBusy = false,
+  queuePlaceholder,
   onSend,
   onCancel,
   seedValue,
@@ -247,13 +264,17 @@ export function AgentChatInput({
 
   const submit = useCallback(() => {
     const text = value.trim();
-    if (!text || busy || disabled) return;
+    // `busy` is only a hard block when the parent hasn't opted into
+    // queuing — with `allowQueueWhileBusy`, the parent's onSend enqueues
+    // the message and drains it after the current turn.
+    if (!text || disabled) return;
+    if (busy && !allowQueueWhileBusy) return;
     const intent: SendIntent = armed ? 'composer' : 'chat';
     onSend(text, intent);
     setValue('');
     setArmed(false);
     setCaretPos(0);
-  }, [value, busy, disabled, onSend, armed]);
+  }, [value, busy, disabled, onSend, armed, allowQueueWhileBusy]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -311,6 +332,24 @@ export function AgentChatInput({
   const syncCaret = useCallback((e: React.SyntheticEvent<HTMLTextAreaElement>) => {
     setCaretPos(e.currentTarget.selectionStart ?? 0);
   }, []);
+
+  // Resolve textarea placeholder via early returns instead of a nested ternary
+  // (project style rule + easier to extend when future busy/disabled variants
+  // are added).
+  let resolvedPlaceholder: string;
+  if (placeholder) {
+    resolvedPlaceholder = placeholder;
+  } else if (disabled) {
+    resolvedPlaceholder = t('chat.initializing');
+  } else if (busy && allowQueueWhileBusy) {
+    resolvedPlaceholder = queuePlaceholder ?? t('chat.inputPlaceholder');
+  } else {
+    resolvedPlaceholder = t('chat.inputPlaceholder');
+  }
+  // Send + Stop render side-by-side while a queued turn is in flight
+  // (~74px combined). The textarea needs wider right padding so the buttons
+  // don't visually overlap the tail of the wrapped last line.
+  const showSideBySideButtons = busy && !!onCancel && allowQueueWhileBusy;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-2">
@@ -372,16 +411,20 @@ export function AgentChatInput({
           aria-autocomplete={activeDropdownId ? 'list' : undefined}
           aria-controls={activeDropdownId}
           aria-activedescendant={activeDescendantId}
-          placeholder={
-            placeholder ?? (disabled ? t('chat.initializing') : t('chat.inputPlaceholder'))
-          }
+          placeholder={resolvedPlaceholder}
           disabled={disabled}
           rows={1}
           onKeyDown={handleKeyDown}
-          className="w-full resize-none bg-transparent px-3 py-2.5 pr-12 chat-msg-text leading-[1.55] text-[var(--color-text-primary)] caret-[var(--color-accent)] outline-none placeholder:text-[var(--color-text-muted)] disabled:cursor-not-allowed"
+          className={`w-full resize-none bg-transparent px-3 py-2.5 ${showSideBySideButtons ? 'pr-20' : 'pr-12'} chat-msg-text leading-[1.55] text-[var(--color-text-primary)] caret-[var(--color-accent)] outline-none placeholder:text-[var(--color-text-muted)] disabled:cursor-not-allowed`}
         />
         <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1">
-          {busy && onCancel ? (
+          {/*
+            Queue-enabled layout: show Stop AND Send side-by-side while busy,
+            so the user can either interrupt the current turn or queue the
+            next one. Legacy layout (`!allowQueueWhileBusy`) still swaps
+            Send → Stop as a single action for callers without a queue.
+          */}
+          {busy && onCancel && (
             <button
               type="button"
               onClick={onCancel}
@@ -391,12 +434,13 @@ export function AgentChatInput({
             >
               <Square size={13} aria-hidden="true" />
             </button>
-          ) : (
+          )}
+          {(!busy || allowQueueWhileBusy) && (
             <button
               type="button"
               onClick={submit}
               disabled={!value.trim() || disabled}
-              title={t('chat.send')}
+              title={busy && allowQueueWhileBusy ? t('chat.queue.sendTitle') : t('chat.send')}
               aria-label={t('chat.send')}
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-accent)] text-white transition-colors hover:bg-[var(--color-accent-dim)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
             >

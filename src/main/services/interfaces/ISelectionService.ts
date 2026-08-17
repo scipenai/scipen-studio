@@ -4,6 +4,7 @@
  * @depends SelectionService
  */
 
+import type { SelectionLifecycleResultDTO } from '@shared/ipc/types';
 import type { Event } from '@shared/utils';
 import type { IDisposable } from '../ServiceContainer';
 
@@ -34,6 +35,20 @@ export interface SelectionConfig {
 }
 
 /**
+ * Result of a lifecycle change, carrying the specific reason a failed
+ * start / re-register can be surfaced to the user (shortcut already
+ * bound, consent missing, hook load failed, etc.). Previous `boolean`
+ * return silently ate the reason; consumers had to guess.
+ *
+ * Aliased to the wire DTO in `@shared/ipc/types`: IPC handlers already
+ * pass-through service results with no field remapping, so the shape is
+ * de facto one type. Aliasing (not just importing the `code` union) means
+ * a new FIELD added to the DTO — not only a new code — is caught at
+ * compile time on both sides in lockstep.
+ */
+export type SelectionLifecycleResult = SelectionLifecycleResultDTO;
+
+/**
  * Selection helper interface.
  */
 export interface ISelectionService extends Partial<IDisposable> {
@@ -43,7 +58,7 @@ export interface ISelectionService extends Partial<IDisposable> {
    * Starts selection capture service.
    * @sideeffect Registers global shortcut or starts global hook
    */
-  start(): Promise<boolean>;
+  start(): Promise<SelectionLifecycleResult>;
 
   /**
    * Stops selection capture service.
@@ -61,7 +76,7 @@ export interface ISelectionService extends Partial<IDisposable> {
   /**
    * Sets enabled state.
    */
-  setEnabled(enabled: boolean): Promise<boolean>;
+  setEnabled(enabled: boolean): Promise<SelectionLifecycleResult>;
 
   /**
    * Returns enabled state.
@@ -74,10 +89,14 @@ export interface ISelectionService extends Partial<IDisposable> {
   getConfig(): SelectionConfig;
 
   /**
-   * Updates configuration.
-   * @sideeffect May reconfigure hooks or shortcuts
+   * Updates configuration. Returns the failure reason when a shortcut re-registration
+   * or trigger-mode switch cannot bring the service back up — the caller is expected
+   * to surface the reason and NOT treat a persistence write as evidence the runtime
+   * is happy. On failure, the persisted config is rolled back to the previous values
+   * so the UI + service stay in sync.
+   * @sideeffect May reconfigure hooks or shortcuts; rolls back on failure
    */
-  updateConfig(config: Partial<SelectionConfig>): Promise<void>;
+  updateConfig(config: Partial<SelectionConfig>): Promise<SelectionLifecycleResult>;
 
   // ====== Core Features ======
 

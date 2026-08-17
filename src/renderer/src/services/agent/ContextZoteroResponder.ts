@@ -126,10 +126,29 @@ export class ContextZoteroResponder {
     const entry = mirror.getByCitationKey(key) ?? mirror.getByItemKey(key);
 
     if (!entry) {
+      // Mirror miss = key is not in the currently-hydrated canonical set. In
+      // web mode the mirror IS the canonical set (orchestrator hydrated from
+      // api.zotero.org), so this usually means the item genuinely doesn't
+      // exist. But mirrors can be stale (window opened before a cloud add /
+      // refresh cooldown suppressed the last poll), so:
+      //   1. Emit `reason` in the response — LLM can distinguish "no such
+      //      item" from "possibly stale snapshot, try again after refresh".
+      //   2. Fire-and-forget trigger a refresh so a follow-up call has a
+      //      chance to hit. Cooldown inside the orchestrator gates real work.
+      // Extending to real backend lookup (via a new IPC handler + facade
+      // capability, so we can single-item-fetch the key from local/web
+      // backend directly) is stage B/C work — needed alongside group-library
+      // support so lookup crosses libraries too. For stage A, honest signal
+      // + refresh nudge is the minimal correct answer.
+      logger.warn('lookup mirror miss — triggering refresh', { key });
+      void api.zotero.requestRefresh().catch(() => undefined);
       await agentClient.respondContextZotero({
         requestId: req.requestId,
         ok: true,
-        data: { found: false },
+        data: {
+          found: false,
+          reason: 'mirror_miss_at_current_snapshot',
+        },
       });
       return;
     }
@@ -201,19 +220,36 @@ export class ContextZoteroResponder {
       return;
     }
 
-    // key may be citationKey or itemKey; full-text extraction is keyed by itemKey, so normalize via mirror first.
+    // Normalise citationKey → itemKey via mirror (full-text extraction is
+    // keyed by itemKey). On mirror miss (stale mirror / cross-mode key
+    // mismatch / never-cached item) fall through with the raw key rather
+    // than hardcoded 'none' return — the main-side handler + data-source
+    // facade owns the honest answer for each mode:
+    //   - local mode: FullTextService → 'none' if no PDF (accurate)
+    //   - web mode:   ZoteroWebDataSource → 'web_pending' sentinel (accurate)
+    // A previous version short-circuited with 'none' here, which
+    // silently under-reported web-mode capability and masked stale-mirror
+    // problems as "no PDF".
+    //
+    // On mirror miss, delegate raw key to handler + emit `reason:'unresolved_key'`
+    // so downstream (SNACA → LLM) can distinguish "genuine no PDF" from
+    // "gave the tool a key we couldn't map to an item". The LLM can then
+    // retry with a canonical key rather than concluding the paper has no
+    // readable content.
+    //
+    // Key subtlety: reason is a **tier='none' disambiguator only**. If the
+    // raw key happened to be a valid itemKey and getFullText returned real
+    // text (`tier:'local'|'mineru'`) or the web-mode sentinel
+    // (`tier:'web_pending'`), emitting `reason:'unresolved_key'` alongside
+    // would give the LLM contradictory signals (valid text + "key unresolved"
+    // makes no sense). So only attach reason when the tier actually needs
+    // disambiguation — i.e. `tier === 'none'`.
     const mirror = getZoteroBibMirror();
     const entry = mirror.getByCitationKey(key) ?? mirror.getByItemKey(key);
-    if (!entry) {
-      await agentClient.respondContextZotero({
-        requestId: req.requestId,
-        ok: true,
-        data: { text: '', truncated: false, tier: 'none' },
-      });
-      return;
-    }
+    const itemKey = entry?.itemKey ?? key;
 
-    const result = await api.zotero.getFullText(entry.itemKey);
+    const result = await api.zotero.getFullText(itemKey);
+    const reason = !entry && result.tier === 'none' ? 'unresolved_key' : undefined;
     await agentClient.respondContextZotero({
       requestId: req.requestId,
       ok: true,
@@ -222,6 +258,7 @@ export class ContextZoteroResponder {
         truncated: result.truncated,
         tier: result.tier,
         quality: result.quality,
+        reason,
       },
     });
   }

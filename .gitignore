@@ -146,3 +146,8 @@ public/wasm/typst-ts/fonts/
 
 # Reference clones studied during development (not part of the app)
 reference/
+
+# Local skill registry artifacts (populated by skill installers per-machine;
+# not project source and diverges between developers).
+.agents/
+skills-lock.json
