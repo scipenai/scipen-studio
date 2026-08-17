@@ -70,13 +70,13 @@ Services are registered in `src/main/services/ServiceRegistry.ts`:
 
 ```typescript
 // src/main/services/ServiceRegistry.ts
-import { ServiceContainer, ServiceNames } from './ServiceContainer';
+import { getServiceContainer, ServiceNames } from './ServiceContainer';
 import { createAIService } from './AIService';
 import type { IAIService } from './interfaces/IAIService';
-import type { ISyncTeXService } from './interfaces/ISyncTeXService';
-import { createSyncTeXService } from './SyncTeXService';
+import { createInlineEditService } from './InlineEditService';
 
-export function registerServices(container: ServiceContainer): void {
+export function registerServices(): void {
+  const container = getServiceContainer();
   // Singleton: same instance for all requests
   container.registerSingleton<IAIService>(
     ServiceNames.AI,
