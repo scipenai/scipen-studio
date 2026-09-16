@@ -98,7 +98,7 @@ if (isMac) {
 function runCargoBuild(extraArgs = []) {
   const args = ['build', '--release', '-p', 'snaca-editor', ...extraArgs];
   log(`running cargo ${args.join(' ')}`);
-  const r = spawnSync('cargo', args, {
+  const r = spawnSync(cargoBin('cargo'), args, {
     cwd: rootDir,
     stdio: 'inherit',
     shell: isWin, // resolve cargo via PATH on Windows
@@ -109,9 +109,29 @@ function runCargoBuild(extraArgs = []) {
   }
 }
 
+// GUI-launched builds often lack ~/.cargo/bin on PATH (the Rust installer
+// edits shell profiles, not the GUI session). Resolve rustup/cargo through
+// the standard install location as a fallback.
+function cargoBin(name) {
+  if (spawnSync(name, ['--version'], { encoding: 'utf8' }).status === 0) return name;
+  const fallback = resolve(process.env.HOME ?? '', '.cargo', 'bin', name);
+  if (spawnSync(fallback, ['--version'], { encoding: 'utf8' }).status === 0) return fallback;
+  return name; // let the real spawn surface the error
+}
+
 function ensureRustTarget(target) {
   log(`ensuring rustup target ${target}`);
-  const r = spawnSync('rustup', ['target', 'add', target], { stdio: 'inherit' });
+  // Skip when already installed: `rustup target add` re-contacts the release
+  // server even for present targets, which hard-fails in offline / proxied
+  // environments where the binary is perfectly buildable.
+  const installed = spawnSync(cargoBin('rustup'), ['target', 'list', '--installed'], {
+    encoding: 'utf8',
+  });
+  if (installed.status === 0 && installed.stdout.split('\n').includes(target)) {
+    log(`rustup target ${target} already installed — skipping`);
+    return;
+  }
+  const r = spawnSync(cargoBin('rustup'), ['target', 'add', target], { stdio: 'inherit' });
   if (r.status !== 0) {
     err(`rustup target add ${target} failed (exit ${r.status ?? 'null'})`);
     process.exit(r.status ?? 1);

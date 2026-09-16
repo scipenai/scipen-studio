@@ -151,3 +151,10 @@ reference/
 # not project source and diverges between developers).
 .agents/
 skills-lock.json
+.bench-tmp/
+
+# Local plan/agent working dir (per-machine, not project source).
+.zcode/
+
+# BusyTeX font-clone sources downloaded at bake time (re-fetchable, ~24MB)
+public/wasm/font-alias/
