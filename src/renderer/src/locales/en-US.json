@@ -55,7 +55,9 @@
       "reconfigure": "Reconfigure",
       "retryConnect": "Retry Connection",
       "cookieExpired": "Cookie may have expired, please reconfigure."
-    }
+    },
+    "newFromTemplate": "New from template",
+    "newFromTemplateDesc": "Pick a starting point and begin writing"
   },
   "menu": {},
   "sidebar": {},
@@ -278,7 +280,10 @@
     "syncTexTypstSupport": "No Typst engine currently supports SyncTeX; source/PDF bidirectional jump is unavailable.",
     "syncTexOverleafSupport": "Overleaf supports bidirectional source/PDF sync.",
     "auto": "Auto (recommended)",
-    "autoResolved": "Will use: {{engine}}"
+    "autoResolved": "Will use: {{engine}}",
+    "texliveEndpointTest": "Test",
+    "texliveEndpointOk": "Reachable · {{ms}} ms",
+    "texliveEndpointFailed": "Unreachable: {{error}}"
   },
   "aiConfig": {},
   "modelPicker": {},
@@ -585,7 +590,14 @@
         "distill": "Distill the text below into: (1) core claims; (2) supporting evidence / methods; (3) phrasings usable in your own writing (direct quote or paraphrase suggestions).",
         "findRelatedLit": "Find related literature from my Zotero library for the selection below (**use only the zotero_search tool — do NOT search the web**). Return at least 3 items, each with: citation key, title, and one sentence on why it is relevant. If Zotero returns fewer than 3 results, or the results are weakly related, say so explicitly and add “local library has limited matches; a web search can follow.”:"
       }
-    }
+    },
+    "agentCrashed": "Agent process crashed — auto-retrying (attempt {{attempt}}/10)…",
+    "agentFailed": "Agent stopped: the process kept crashing and auto-recovery failed",
+    "agentBinaryMissing": "Agent binary is missing — please reinstall SciPen Studio",
+    "agentStopped": "Agent is not running",
+    "agentRestart": "Restart Agent",
+    "agentStartupFailed": "Agent session failed to initialize",
+    "agentRetry": "Retry"
   },
   "fileConflict": {
     "fileDeleted": "File has been deleted",
@@ -768,7 +780,8 @@
     "noWarnings": "warnings",
     "noInfo": "info",
     "logs": "logs",
-    "unknownLog": "Unknown log"
+    "unknownLog": "Unknown log",
+    "askAgent": "Fix with Agent"
   },
   "syncTeX": {
     "compilePdfFirst": "SyncTeX: Please compile document to generate PDF first",
@@ -807,7 +820,9 @@
     "compileFailed": "Compile failed",
     "localCompiler": "Local Compiler",
     "selectCompileEngine": "Select Compile Engine",
-    "typstCompiler": "Typst Compiler"
+    "typstCompiler": "Typst Compiler",
+    "words": "{{count}} words",
+    "wordCountHint": "{{words}} words / {{chars}} characters of prose (math, commands and preamble excluded)"
   },
   "outline": {
     "noFileOpen": "No file open",
@@ -918,7 +933,8 @@
     "llmContextOverflow": "Context too long even after compaction",
     "timeout": "Request timed out",
     "notInitialized": "Agent sidecar is not ready yet",
-    "openSettings": "Open Settings"
+    "openSettings": "Open Settings",
+    "retry": "Retry"
   },
   "atFileDropdown": {
     "label": "File suggestions",
@@ -951,7 +967,10 @@
     "queued": "Queued",
     "stop": "Stop",
     "cached": "cached",
-    "usageHint": "Cumulative tokens / estimated cost for this conversation"
+    "usageHint": "Cumulative tokens / estimated cost for this conversation",
+    "sidecarCrashed": "Agent unhealthy — auto-retrying (attempt {{attempt}}/10). Click to view",
+    "sidecarFailed": "Agent stopped: {{reason}}. Click to view",
+    "sidecarStopped": "Agent not running. Click to view"
   },
   "settingsAgent": {
     "sectionCoreBehavior": "Core Behavior",
@@ -1198,8 +1217,12 @@
       "studioMint": "Studio generated",
       "userOverride": "User override",
       "manage": "Manage citation keys…",
-      "manageComingSoon": "shipping in stage B"
-    }
+      "manageComingSoon": "shipping in stage B",
+      "badgeMinted": "local",
+      "badgeMintedHint": "This citation key was generated locally by SciPen (the Zotero item has no Better BibTeX key). It may differ on another machine — install Better BibTeX in Zotero for stable keys."
+    },
+    "bibTexWrittenNotice": "SciPen generated {{file}} from your Zotero library (maintained by citation sync; can be turned off in settings)",
+    "bibTexWrittenReveal": "Open file"
   },
   "zotero": {
     "status": {
@@ -1226,5 +1249,34 @@
   },
   "cjk": {
     "addSupport": "Add Chinese support (ctex)"
+  },
+  "templates": {
+    "dialogTitle": "New project from template",
+    "dialogDesc": "Pick a starting point. SciPen creates the project folder where you choose. Every template compiles offline.",
+    "projectName": "Project name",
+    "projectNamePlaceholder": "my-paper",
+    "create": "Choose location and create",
+    "creating": "Creating…",
+    "cancel": "Cancel",
+    "offlineReady": "Compiles offline",
+    "needsNetwork": "First compile needs internet",
+    "empty": "No templates available",
+    "createFailed": "Could not create project: {{error}}",
+    "article": {
+      "name": "Academic paper",
+      "description": "Standard article class: abstract, sections, equations, tables, bibliography"
+    },
+    "ieee": {
+      "name": "IEEE conference paper",
+      "description": "Two-column IEEEtran format with author blocks and keywords"
+    },
+    "thesis": {
+      "name": "Thesis / dissertation",
+      "description": "Generic report skeleton: front matter, chapters, appendix, bibliography"
+    },
+    "beamer": {
+      "name": "Presentation slides",
+      "description": "Beamer 16:9 with outline, columns and a closing frame"
+    }
   }
 }

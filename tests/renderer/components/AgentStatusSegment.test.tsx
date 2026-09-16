@@ -14,6 +14,13 @@ const mockAgentState = vi.hoisted(() => ({
   },
 }));
 
+/** Stable snapshot reference — see the getSidecarStateSync mock below. */
+const RUNNING_SIDECAR_STATE = vi.hoisted(() => ({
+  kind: 'running' as const,
+  pid: 1,
+  startedAt: 0,
+}));
+
 vi.mock('../../../src/renderer/src/locales', () => ({
   useTranslation: () => ({
     t: (key: string) => {
@@ -34,6 +41,15 @@ vi.mock('../../../src/renderer/src/locales', () => ({
 vi.mock('../../../src/renderer/src/services/agent/AgentClientService', () => ({
   agentClient: {
     cancelTurn: mockAgentState.cancelTurn,
+    // Sidecar health mirror (useAgentSidecarState). 'running' is the healthy
+    // baseline these activity/usage assertions assume — it keeps the health
+    // dot hidden so the visible labels are unchanged.
+    //
+    // The snapshot MUST be a stable reference: useSyncExternalStore compares
+    // snapshots identity-wise, and a fresh object literal per call loops the
+    // renderer until React bails with "Maximum update depth exceeded".
+    subscribeSidecarState: () => () => undefined,
+    getSidecarStateSync: () => RUNNING_SIDECAR_STATE,
   },
 }));
 

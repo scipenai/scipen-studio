@@ -90,6 +90,41 @@ export const updateStatusSchema = z.object({
  */
 export const eventSchemas: ReadonlyMap<IpcChannel, z.ZodSchema> = new Map<IpcChannel, z.ZodSchema>([
   [IpcChannel.App_UpdateStatus, updateStatusSchema],
+  // Mirrors SidecarState (main/services/agent/interfaces/ISnacaSidecarService).
+  // The chat panel destructures kind/reason/lastError — a malformed frame
+  // must be dropped at the boundary, not crash the banner.
+  [
+    IpcChannel.Agent_SidecarStateChanged,
+    z.union([
+      z.object({ kind: z.literal('stopped') }),
+      z.object({ kind: z.literal('starting'), pid: z.number().optional() }),
+      z.object({ kind: z.literal('running'), pid: z.number(), startedAt: z.number() }),
+      z.object({
+        kind: z.literal('crashed'),
+        lastError: z.string(),
+        retryAt: z.number(),
+        attempt: z.number(),
+      }),
+      z.object({
+        kind: z.literal('failed'),
+        reason: z.enum(['binary-missing', 'crash']),
+        lastError: z.string(),
+        attempts: z.number(),
+        failedAt: z.number(),
+      }),
+      z.object({ kind: z.literal('stopping') }),
+    ]),
+  ],
+  [
+    IpcChannel.Compile_Progress,
+    z.object({
+      engine: z.enum(['latex', 'typst']),
+      stage: z.enum(['engine-load', 'staging', 'pass', 'postprocess', 'writing', 'cli']),
+      message: z.string().max(4000),
+      percent: z.number().min(0).max(100).optional(),
+      passIndex: z.number().int().min(1).max(99).optional(),
+    }),
+  ],
 ]);
 
 // ============================================================================

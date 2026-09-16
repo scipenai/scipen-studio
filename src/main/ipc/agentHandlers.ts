@@ -312,8 +312,12 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
   store.add(sidecar.onStateChange((s) => broadcast(IpcChannel.Agent_SidecarStateChanged, s)));
   store.add(
     client.onTurnDelta((e) => {
-      if (e.kind === 'done') {
-        // Clear inflight slot on terminal event.
+      // Terminal for the turn: `done` OR `error`. SNACA's turn_engine emits
+      // Error *without* a paired Done on engine failures (LLM auth, rate
+      // limit, loop guard), so keying only on `done` leaves this slot — and
+      // the reverse-RPC parking below — stuck for the rest of the session,
+      // which in turn blocks deferred sidecar config reloads.
+      if (e.kind === 'done' || e.kind === 'error') {
         if (state.inflightTurn?.turnId === e.turn_id) {
           state.inflightTurn = null;
         }
@@ -551,6 +555,15 @@ export function registerAgentHandlers(deps: AgentHandlersDeps): DisposableStore 
   ipcMain.handle(IpcChannel.Agent_StartProject, async (_e, rawParams: unknown) => {
     const params = parseOrThrow(startProjectParamsSchema, rawParams, 'startProject params');
     return await openSessionFor(params);
+  });
+
+  ipcMain.handle(IpcChannel.Agent_Restart, async () => {
+    // Reset the crash backoff, stop the process, spawn a fresh one. Session
+    // re-open is intentionally NOT done here — the renderer re-runs
+    // startProject so its startup state machine (init / needs-config /
+    // thread hydration) drives the recovery visibly.
+    await sidecar.restart();
+    return { restarted: true, state: sidecar.state };
   });
 
   ipcMain.handle(IpcChannel.Agent_NewThread, async (_e, rawTitle: unknown) => {

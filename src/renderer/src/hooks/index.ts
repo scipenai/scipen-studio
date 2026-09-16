@@ -48,6 +48,7 @@ export { useLocaleSync } from './useLocaleSync';
 export { useAIConfigSync } from './useConfigSync';
 export { useLSPInit } from './useLSPInit';
 export { useFileWatcher } from './useFileWatcher';
+export { useAgentSidecarState } from './useAgentSidecarState';
 export { useGlobalShortcuts } from './useGlobalShortcuts';
 export { useMemoryCleanup } from './useMemoryCleanup';
 export { useFileOpen } from './useFileOpen';

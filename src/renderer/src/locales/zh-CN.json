@@ -55,7 +55,9 @@
       "reconfigure": "重新配置",
       "retryConnect": "重试连接",
       "cookieExpired": "Cookie 可能已过期，请重新配置。"
-    }
+    },
+    "newFromTemplate": "从模板新建",
+    "newFromTemplateDesc": "选一个起点,马上开始写"
   },
   "menu": {},
   "sidebar": {},
@@ -278,7 +280,10 @@
     "syncTexTypstSupport": "Typst 引擎(三档全部)目前不支持 SyncTeX,代码与 PDF 双向跳转暂不可用。",
     "syncTexOverleafSupport": "Overleaf 支持源码与 PDF 双向同步。",
     "auto": "自动 (推荐)",
-    "autoResolved": "将使用：{{engine}}"
+    "autoResolved": "将使用：{{engine}}",
+    "texliveEndpointTest": "测速",
+    "texliveEndpointOk": "可用 · 延迟 {{ms}} ms",
+    "texliveEndpointFailed": "不可用:{{error}}"
   },
   "modelPicker": {},
   "aiConfig": {},
@@ -585,7 +590,14 @@
         "distill": "请提炼下面文本的:(1) 核心主张;(2) 支撑证据 / 方法;(3) 可直接用于自己写作的表述(原文引用或改写建议)。",
         "findRelatedLit": "请从我的 Zotero 库中找与下面选中内容相关的文献(**只使用 zotero_search 工具,不要联网搜索**)。给出至少 3 条,每条包含:citation key、标题、为什么相关(1 句)。若 Zotero 结果不足 3 条或相关度不高,请如实告知“本地库中相关文献不足,可后续继续联网检索”:"
       }
-    }
+    },
+    "agentCrashed": "Agent 进程崩溃,正在自动重试(第 {{attempt}}/10 次)…",
+    "agentFailed": "Agent 已停止:进程反复崩溃,自动恢复失败",
+    "agentBinaryMissing": "Agent 未安装或程序文件缺失,请重新安装 SciPen Studio",
+    "agentStopped": "Agent 未运行",
+    "agentRestart": "重启 Agent",
+    "agentStartupFailed": "Agent 会话初始化失败",
+    "agentRetry": "重试"
   },
   "fileConflict": {
     "fileDeleted": "文件已被删除",
@@ -768,7 +780,8 @@
     "noWarnings": "警告",
     "noInfo": "信息",
     "logs": "日志",
-    "unknownLog": "未知日志"
+    "unknownLog": "未知日志",
+    "askAgent": "让 Agent 修复"
   },
   "syncTeX": {
     "compilePdfFirst": "SyncTeX: 请先编译文档生成 PDF",
@@ -807,7 +820,9 @@
     "compileFailed": "编译失败",
     "localCompiler": "本地编译器",
     "selectCompileEngine": "选择编译引擎",
-    "typstCompiler": "Typst 编译器"
+    "typstCompiler": "Typst 编译器",
+    "words": "{{count}} 字",
+    "wordCountHint": "正文 {{words}} 字 / {{chars}} 字符(不含公式、命令与导言区)"
   },
   "outline": {
     "noFileOpen": "暂无打开的文件",
@@ -918,7 +933,8 @@
     "llmContextOverflow": "上下文过长,即使压缩也超过模型限制",
     "timeout": "请求超时",
     "notInitialized": "Agent 子进程尚未就绪",
-    "openSettings": "打开设置"
+    "openSettings": "打开设置",
+    "retry": "重试"
   },
   "atFileDropdown": {
     "label": "文件建议",
@@ -951,7 +967,10 @@
     "queued": "排队中",
     "stop": "停止",
     "cached": "缓存",
-    "usageHint": "本对话累计 token / 估算成本"
+    "usageHint": "本对话累计 token / 估算成本",
+    "sidecarCrashed": "Agent 异常,自动重试中(第 {{attempt}}/10 次)——点击查看",
+    "sidecarFailed": "Agent 已停止:{{reason}}——点击查看",
+    "sidecarStopped": "Agent 未运行——点击查看"
   },
   "settingsAgent": {
     "sectionCoreBehavior": "核心行为",
@@ -1198,8 +1217,12 @@
       "studioMint": "Studio 生成",
       "userOverride": "用户覆盖",
       "manage": "管理 citation keys…",
-      "manageComingSoon": "阶段 B 交付"
-    }
+      "manageComingSoon": "阶段 B 交付",
+      "badgeMinted": "本机生成",
+      "badgeMintedHint": "该引用键由 SciPen 在本机生成(Zotero 条目没有 Better BibTeX 键)。在其他机器上可能不同,建议在 Zotero 中安装 Better BibTeX 以获得稳定的引用键。"
+    },
+    "bibTexWrittenNotice": "SciPen 已根据 Zotero 库自动生成 {{file}}(由引文同步维护,可在设置中关闭)",
+    "bibTexWrittenReveal": "打开文件"
   },
   "zotero": {
     "status": {
@@ -1226,5 +1249,34 @@
   },
   "cjk": {
     "addSupport": "添加中文支持 (ctex)"
+  },
+  "templates": {
+    "dialogTitle": "从模板新建项目",
+    "dialogDesc": "选择一个起点,SciPen 会在你指定的位置创建项目文件夹。所有模板都可离线编译。",
+    "projectName": "项目名称",
+    "projectNamePlaceholder": "my-paper",
+    "create": "选择位置并创建",
+    "creating": "正在创建…",
+    "cancel": "取消",
+    "offlineReady": "可离线编译",
+    "needsNetwork": "首次编译需要联网",
+    "empty": "没有可用模板",
+    "createFailed": "创建失败:{{error}}",
+    "article": {
+      "name": "学术论文",
+      "description": "标准 article 类:摘要、章节、公式、表格、参考文献"
+    },
+    "ieee": {
+      "name": "IEEE 会议论文",
+      "description": "IEEEtran 双栏格式,含作者块与关键词"
+    },
+    "thesis": {
+      "name": "学位论文",
+      "description": "通用 report 骨架:前置部分、章节、附录、参考文献"
+    },
+    "beamer": {
+      "name": "演示幻灯片",
+      "description": "Beamer 16:9,含大纲页、分栏与结论页"
+    }
   }
 }

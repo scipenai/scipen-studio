@@ -1,0 +1,88 @@
+\documentclass[aspectratio=169]{beamer}
+% Beamer ships with TeX Live. `aspectratio=169` matches modern projectors;
+% use the default (4:3) if your venue requires it.
+
+\usetheme{default}
+\usecolortheme{dove}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}[frame number]
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+
+\title{Your Talk Title}
+\subtitle{A short, honest subtitle}
+\author{Your Name}
+\institute{Your Institution}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Outline}
+  \tableofcontents
+\end{frame}
+
+\section{Motivation}
+
+\begin{frame}{The Problem}
+  \begin{itemize}
+    \item One idea per bullet.
+    \item Say why the audience should care within the first two minutes.
+    \item<2-> Overlays reveal points step by step.
+  \end{itemize}
+\end{frame}
+
+\section{Approach}
+
+\begin{frame}{Method}
+  \begin{columns}[T]
+    \begin{column}{0.5\textwidth}
+      \begin{itemize}
+        \item Key idea.
+        \item Why it works.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \begin{equation*}
+        \hat{y} = \arg\max_{y} P(y \mid x)
+      \end{equation*}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\section{Results}
+
+\begin{frame}{Results}
+  \begin{table}
+    \centering
+    \begin{tabular}{lrr}
+      \toprule
+      Method   & Accuracy & Time (s) \\
+      \midrule
+      Baseline & 0.81     & 12.4     \\
+      Ours     & 0.93     & 10.1     \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+  \vspace{1em}
+  \begin{block}{Takeaway}
+    State the single number the audience should remember.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Thank You}
+  \centering
+  \Large Questions?
+  \vspace{1em}
+
+  \normalsize you@example.com
+\end{frame}
+
+\end{document}

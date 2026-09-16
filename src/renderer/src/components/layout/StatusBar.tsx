@@ -17,6 +17,7 @@ import { api } from '../../api';
 import { useClickOutside, useEvent } from '../../hooks';
 import { getLanguageForFile } from '../../utils';
 import { AgentStatusSegment } from './AgentStatusSegment';
+import { WordCountSegment } from './WordCountSegment';
 import { ZoteroStatusBadge } from './ZoteroStatusBadge';
 import { ActiveRecommendationSegment } from './ActiveRecommendationSegment';
 import { getEditorService, getSettingsService } from '../../services/core/ServiceRegistry';
@@ -441,6 +442,9 @@ export const StatusBar: React.FC = () => {
             {cursorPosition.column}
           </span>
         </div>
+
+        {/* Word count — next to the cursor position, matching VS Code / Overleaf */}
+        <WordCountSegment />
 
         {/* Encoding */}
         <div

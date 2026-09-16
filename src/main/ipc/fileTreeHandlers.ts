@@ -6,9 +6,11 @@
  * @security All path operations go through assertPathSecurity.
  */
 
-import { dialog } from 'electron';
+import { app, dialog } from 'electron';
 import fs from 'fs-extra';
+import path from 'node:path';
 import { IpcChannel } from '../../../shared/ipc/channels';
+import type { ProjectTemplateDTO } from '../../../shared/ipc/file-contract';
 import { addAllowedDirectory, clearAllowedDirectories } from '../services/LocalFileProtocol';
 import { getBibTexSyncService } from '../services/zotero/BibTexSyncService';
 import { createTypedHandlers } from './typedIpc';
@@ -22,6 +24,56 @@ import {
 
 // ============ Registration ============
 
+/**
+ * Locate the bundled templates directory. Mirrors `resolveBundledSkillsDir`
+ * in agentHandlers: packaged builds put extraResources under
+ * `process.resourcesPath`, dev runs read them from the repo.
+ */
+function resolveBundledTemplatesDir(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'templates')
+    : path.join(app.getAppPath(), 'resources', 'templates');
+}
+
+/**
+ * Read the template manifest. Returns an empty list (never throws) when the
+ * manifest is missing or malformed — a broken bundle should degrade to "no
+ * templates offered", not break the welcome screen.
+ */
+async function readTemplateManifest(): Promise<ProjectTemplateDTO[]> {
+  const manifestPath = path.join(resolveBundledTemplatesDir(), 'manifest.json');
+  try {
+    const raw = await fs.readFile(manifestPath, 'utf-8');
+    const parsed = JSON.parse(raw) as { templates?: unknown };
+    if (!Array.isArray(parsed.templates)) return [];
+    return parsed.templates.flatMap((entry) => {
+      const t = entry as Partial<ProjectTemplateDTO> & { dir?: string };
+      if (typeof t.id !== 'string' || typeof t.mainFile !== 'string') return [];
+      return [
+        {
+          id: t.id,
+          mainFile: t.mainFile,
+          engine: t.engine === 'typst' ? ('typst' as const) : ('latex' as const),
+          offline: t.offline !== false,
+        },
+      ];
+    });
+  } catch (error) {
+    logger.warn('Template manifest unreadable', {
+      manifestPath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+}
+
+/**
+ * Test-only access to the manifest reader. Exported (rather than the reader
+ * itself) so the name states its purpose and production callers are not
+ * tempted to reach past the IPC handler.
+ */
+export const __readTemplateManifestForTests = readTemplateManifest;
+
 export function registerFileTreeHandlers(deps: FileHandlersDeps): void {
   const { fileSystemService, getMainWindow, getWindows, addRecentProject, loadRecentProjects } =
     deps;
@@ -29,6 +81,73 @@ export function registerFileTreeHandlers(deps: FileHandlersDeps): void {
   createTypedHandlers(
     {
       // ============ Project ============
+      [IpcChannel.Project_ListTemplates]: async () => readTemplateManifest(),
+
+      [IpcChannel.Project_CreateFromTemplate]: async (templateId, projectName) => {
+        const mainWindow = getMainWindow();
+        if (!mainWindow) return { ok: false as const, error: 'No window available' };
+
+        const template = (await readTemplateManifest()).find((t) => t.id === templateId);
+        if (!template) return { ok: false as const, error: `Unknown template: ${templateId}` };
+
+        const templateDir = path.join(resolveBundledTemplatesDir(), templateId);
+        if (!(await fs.pathExists(templateDir))) {
+          return { ok: false as const, error: `Template files missing: ${templateId}` };
+        }
+
+        const picked = await dialog.showOpenDialog(mainWindow, {
+          properties: ['openDirectory', 'createDirectory'],
+          title: 'Choose where to create the project',
+        });
+        if (picked.canceled || picked.filePaths.length === 0) {
+          return { ok: false as const, cancelled: true as const };
+        }
+
+        const parentDir = picked.filePaths[0];
+        const projectPath = path.join(parentDir, projectName);
+        // Defence in depth: the Zod schema already rejects separators and
+        // traversal, but re-derive the containment here so a future schema
+        // change cannot silently widen where we write.
+        if (path.dirname(path.resolve(projectPath)) !== path.resolve(parentDir)) {
+          return { ok: false as const, error: 'Invalid project name' };
+        }
+        if (await fs.pathExists(projectPath)) {
+          return { ok: false as const, error: `"${projectName}" already exists in that folder` };
+        }
+
+        try {
+          // The destination is outside any open project, so the standard
+          // write guard would reject it. The user picked this directory in a
+          // native dialog, which is exactly the consent this authorization
+          // records (same pattern as fileDialogHandlers).
+          PathSecurityService.authorizePathsTemporarily([parentDir, projectPath]);
+          await fs.copy(templateDir, projectPath, { errorOnExist: true });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.error('Template scaffold failed', { templateId, projectPath, error: message });
+          return { ok: false as const, error: message };
+        }
+
+        // Reuse the open-by-path tail verbatim: watcher, recent list, path
+        // sandbox root and BibTeX sync all have to be (re)pointed at the new
+        // project, and re-implementing that list is how it drifts.
+        const fileTree = await fileSystemService.buildFileTree(projectPath);
+        fileSystemService.startWatching(projectPath);
+        await addRecentProject(projectPath);
+        PathSecurityService.setProjectPath(projectPath);
+        clearAllowedDirectories();
+        addAllowedDirectory(projectPath);
+        getBibTexSyncService().setProjectPath(projectPath);
+
+        logger.info('Project created from template', { templateId, projectPath });
+        return {
+          ok: true as const,
+          projectPath,
+          mainFile: template.mainFile,
+          fileTree,
+        };
+      },
+
       [IpcChannel.Project_GetRecent]: async () => {
         const projects = await loadRecentProjects();
         return projects.map((p) => ({

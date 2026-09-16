@@ -1,0 +1,87 @@
+\documentclass[conference]{IEEEtran}
+% IEEEtran ships with TeX Live. If your target venue provides its own
+% class file, drop it beside this file and change the line above.
+
+\usepackage{cite}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+
+\begin{document}
+
+\title{Your Paper Title}
+
+\author{
+  \IEEEauthorblockN{First Author}
+  \IEEEauthorblockA{
+    \textit{Department} \\
+    \textit{Institution} \\
+    City, Country \\
+    first.author@example.com
+  }
+  \and
+  \IEEEauthorblockN{Second Author}
+  \IEEEauthorblockA{
+    \textit{Department} \\
+    \textit{Institution} \\
+    City, Country \\
+    second.author@example.com
+  }
+}
+
+\maketitle
+
+\begin{abstract}
+  A single paragraph, typically 150--250 words for IEEE venues: context,
+  gap, approach, headline result.
+\end{abstract}
+
+\begin{IEEEkeywords}
+  keyword one, keyword two, keyword three
+\end{IEEEkeywords}
+
+\section{Introduction}
+\label{sec:introduction}
+
+IEEE conference papers open by framing the problem and stating the
+contribution explicitly. Cite prior art as you go~\cite{knuth1984}.
+
+\section{Related Work}
+\label{sec:related}
+
+Group prior work by approach rather than chronology.
+
+\section{Method}
+\label{sec:method}
+
+\begin{equation}
+  \label{eq:example}
+  \hat{y} = \arg\max_{y} P(y \mid x) .
+\end{equation}
+
+\section{Experiments}
+\label{sec:experiments}
+
+\begin{table}[htbp]
+  \caption{Replace with your own results.}
+  \label{tab:results}
+  \centering
+  \begin{tabular}{lrr}
+    \toprule
+    Method   & Accuracy & Latency (ms) \\
+    \midrule
+    Baseline & 0.81     & 124          \\
+    Ours     & 0.93     & 101          \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+State the contribution and the most promising next step.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

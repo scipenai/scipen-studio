@@ -1,0 +1,103 @@
+\documentclass[12pt,a4paper,oneside]{report}
+% A generic thesis skeleton. Most institutions mandate their own class or
+% style file — when yours does, drop it beside this file and swap the line
+% above. The structure below (front matter, numbered chapters, appendix,
+% bibliography) is what nearly every regulation asks for.
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{setspace}
+\usepackage[hidelinks]{hyperref}
+
+\onehalfspacing
+
+\title{Your Thesis Title}
+\author{Your Name}
+\date{\today}
+
+\begin{document}
+
+% ---------- Front matter ----------
+\pagenumbering{roman}
+\maketitle
+
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+A concise summary of the whole thesis: problem, approach, findings,
+significance. Usually one page.
+
+\chapter*{Acknowledgements}
+\addcontentsline{toc}{chapter}{Acknowledgements}
+Thank the people and funders who made the work possible.
+
+\tableofcontents
+\listoffigures
+\listoftables
+
+% ---------- Main matter ----------
+\cleardoublepage
+\pagenumbering{arabic}
+
+\chapter{Introduction}
+\label{ch:introduction}
+
+Motivate the research, state the questions, and outline the thesis
+structure. Reference prior work as you go~\cite{knuth1984}.
+
+\chapter{Literature Review}
+\label{ch:literature}
+
+Organise by theme, and end with the gap your work addresses.
+
+\chapter{Methodology}
+\label{ch:methodology}
+
+\begin{equation}
+  \label{eq:example}
+  \mathcal{L}(\theta) = -\frac{1}{N}\sum_{i=1}^{N} \log p_\theta(y_i \mid x_i) .
+\end{equation}
+
+\chapter{Results}
+\label{ch:results}
+
+\begin{table}[ht]
+  \centering
+  \begin{tabular}{lrr}
+    \toprule
+    Condition & Measure A & Measure B \\
+    \midrule
+    Control   & 0.42      & 1.8       \\
+    Treatment & 0.67      & 2.4       \\
+    \bottomrule
+  \end{tabular}
+  \caption{Replace with your own results.}
+  \label{tab:results}
+\end{table}
+
+\chapter{Discussion}
+\label{ch:discussion}
+
+Interpret the results against the questions from
+Chapter~\ref{ch:introduction}, and be explicit about limitations.
+
+\chapter{Conclusion}
+\label{ch:conclusion}
+
+Restate the contribution and outline future work.
+
+% ---------- Back matter ----------
+\appendix
+\chapter{Supplementary Material}
+\label{app:supplementary}
+
+Extra derivations, full tables, instrument text.
+
+\bibliographystyle{plain}
+\bibliography{references}
+\addcontentsline{toc}{chapter}{Bibliography}
+
+\end{document}
