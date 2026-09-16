@@ -6,6 +6,8 @@
 
 import { ipcRenderer } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
+import type { CompileProgressPayload } from '../../../shared/ipc/compile-contract';
+import { createSafeListener } from './_shared';
 
 // ====== Project Management ======
 export const projectApi = {
@@ -13,6 +15,9 @@ export const projectApi = {
   getRecentProjects: () => ipcRenderer.invoke(IpcChannel.Project_GetRecent),
   openProjectByPath: (projectPath: string) =>
     ipcRenderer.invoke(IpcChannel.Project_OpenByPath, projectPath),
+  listTemplates: () => ipcRenderer.invoke(IpcChannel.Project_ListTemplates),
+  createFromTemplate: (templateId: string, projectName: string) =>
+    ipcRenderer.invoke(IpcChannel.Project_CreateFromTemplate, templateId, projectName),
 };
 
 // ====== Compilation ======
@@ -21,6 +26,19 @@ export const compileApi = {
   compileLatex: (content: string, options?: unknown) =>
     ipcRenderer.invoke(IpcChannel.Compile_LaTeX, content, options),
   getLaTeXCapabilities: () => ipcRenderer.invoke(IpcChannel.LaTeX_GetCapabilities),
+
+  /** Latency probe for a TeX Live remote endpoint (runs in main). */
+  testTexliveEndpoint: (endpoint: string) =>
+    ipcRenderer.invoke(IpcChannel.Compile_TestTexliveEndpoint, endpoint),
+
+  // BusyTeX engine process (runs in an Electron UtilityProcess).
+  busyTeXPrepare: () => ipcRenderer.invoke(IpcChannel.Compile_BusyTeX_Prepare),
+  busyTeXCompile: (request: unknown) =>
+    ipcRenderer.invoke(IpcChannel.Compile_BusyTeX_Compile, request),
+  busyTeXCancel: () => ipcRenderer.invoke(IpcChannel.Compile_BusyTeX_Cancel),
+
+  /** Live CLI compile progress (main → renderer push). Zod-validated at the boundary. */
+  onProgress: createSafeListener<CompileProgressPayload>(IpcChannel.Compile_Progress),
 
   // Typst compilation
   compileTypst: (
@@ -34,10 +52,6 @@ export const compileApi = {
   getTypstAvailability: () => ipcRenderer.invoke(IpcChannel.Typst_Available),
   getTypstCapabilities: () => ipcRenderer.invoke(IpcChannel.Typst_GetCapabilities),
   cancelCompile: (type?: 'latex' | 'typst') => ipcRenderer.invoke(IpcChannel.Compile_Cancel, type),
-
-  // BusyTeX WASM artifact persistence (pdf + .synctex.gz → temp paths)
-  writeWasmArtifacts: (pdfBuffer: Uint8Array, synctexBuffer: Uint8Array, baseName?: string) =>
-    ipcRenderer.invoke(IpcChannel.Compile_WriteWasmArtifacts, pdfBuffer, synctexBuffer, baseName),
 };
 
 // ====== App Info ======

@@ -6,6 +6,12 @@
 
 import { IpcChannel } from '../../../../shared/ipc/channels';
 import type { UpdateStatus } from '../../../../shared/ipc/app-contract';
+import type {
+  BusyTeXCompileRequestDTO,
+  BusyTeXCompileResultDTO,
+  CompileProgressPayload,
+  TexliveEndpointProbeResult,
+} from '../../../../shared/ipc/compile-contract';
 import {
   eventSchemas,
   invokeResultSchemas,
@@ -26,6 +32,10 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 }
 import { type ConfigKey, ConfigKeys } from '../../../../shared/types/config-keys';
 import type { FileNode } from '../types';
+import type {
+  ProjectCreateFromTemplateResult,
+  ProjectTemplateDTO,
+} from '../../../../shared/ipc/file-contract';
 
 export { ConfigKeys, type ConfigKey };
 
@@ -242,6 +252,23 @@ export const file = {
 
     return record;
   },
+  batchReadBinary: async (paths: string[]) => {
+    const record: Record<string, string> = {};
+
+    for (const chunk of chunkArray(paths, IPC_BATCH_LIMIT)) {
+      const results = await invoke<
+        Array<{ path: string; success: boolean; base64?: string; error?: string }>
+      >(IpcChannel.File_BatchReadBinary, chunk);
+
+      for (const result of results) {
+        if (result.success && result.base64 !== undefined) {
+          record[result.path] = result.base64;
+        }
+      }
+    }
+
+    return record;
+  },
   batchStat: async (paths: string[]) => {
     const record: Record<string, { size: number; mtime: number }> = {};
 
@@ -307,6 +334,19 @@ export const project = {
     invoke<Array<{ path: string; name: string; lastOpened: number; isRemote?: boolean }>>(
       IpcChannel.Project_GetRecent
     ),
+  /** Starter templates bundled with the app. Empty list = none available. */
+  listTemplates: () => invoke<ProjectTemplateDTO[]>(IpcChannel.Project_ListTemplates),
+  /**
+   * Scaffold a project from a bundled template. Main prompts for the parent
+   * directory, so the result may be `{ ok: false, cancelled: true }` — that
+   * is a normal outcome, not an error.
+   */
+  createFromTemplate: (templateId: string, projectName: string) =>
+    invoke<ProjectCreateFromTemplateResult>(
+      IpcChannel.Project_CreateFromTemplate,
+      templateId,
+      projectName
+    ),
 };
 
 export const collaborationOwner = {
@@ -362,29 +402,33 @@ export const compile = {
     ),
   cancel: (type?: 'latex' | 'typst') =>
     invoke<{ success: boolean; cancelled: number }>(IpcChannel.Compile_Cancel, type),
+  /**
+   * Live CLI compile progress (main → renderer push over `Compile_Progress`).
+   * The payload is Zod-validated centrally in `onEvent` (`eventSchemas`); this
+   * wrapper only forwards. WASM compile phases do NOT travel over IPC — the
+   * engine runs in this process — they arrive via `CompilerOptions.onPhase`.
+   */
+  onProgress: (callback: (progress: CompileProgressPayload) => void): (() => void) =>
+    onEvent<CompileProgressPayload>(IpcChannel.Compile_Progress, callback),
   getStatus: () =>
     invoke<{
       latex: { isCompiling: boolean; queueLength: number; currentTaskId: string | null };
       typst: { isCompiling: boolean };
     }>(IpcChannel.Compile_GetStatus),
   /**
-   * Persist a BusyTeX WASM compile result to the project directory on disk so
-   * the on-disk PDF matches the local compiler's output path and the renderer
-   * can read the sibling `.synctex.gz` for in-process sync. Returns the paths.
+   * Measure latency to a TeX Live remote endpoint. Runs in main so it takes
+   * the same `net.fetch` route the WASM engine's package fetches use; the
+   * result is total (never throws) so the settings UI can render it directly.
    */
-  writeWasmArtifacts: (
-    pdfBuffer: Uint8Array,
-    synctexBuffer: Uint8Array,
-    baseName: string,
-    outputDir: string
-  ) =>
-    invoke<{ pdfPath: string; synctexPath: string }>(
-      IpcChannel.Compile_WriteWasmArtifacts,
-      pdfBuffer,
-      synctexBuffer,
-      baseName,
-      outputDir
-    ),
+  testTexliveEndpoint: (endpoint: string) =>
+    invoke<TexliveEndpointProbeResult>(IpcChannel.Compile_TestTexliveEndpoint, endpoint),
+  /** Warm the BusyTeX engine process (load wasm + data packages). */
+  busyTeXPrepare: () => invoke<{ ok: boolean }>(IpcChannel.Compile_BusyTeX_Prepare),
+  /** Run one compile in the engine process; artifacts land on disk. */
+  busyTeXCompile: (request: BusyTeXCompileRequestDTO) =>
+    invoke<BusyTeXCompileResultDTO>(IpcChannel.Compile_BusyTeX_Compile, request),
+  /** Tear the engine process down (stop button / idle release). */
+  busyTeXCancel: () => invoke<{ ok: boolean }>(IpcChannel.Compile_BusyTeX_Cancel),
 };
 
 // ==================== AI API ====================

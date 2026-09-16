@@ -11,14 +11,24 @@
  * - Dynamic compiler selection by file extension or engine name
  */
 
+import { BrowserWindow } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
+import type {
+  BusyTeXCompileRequestDTO,
+  CompileProgressPayload,
+} from '../../../shared/ipc/compile-contract';
 import type { LaTeXCompiler } from '../services/LaTeXCompiler';
 import { createLogger } from '../services/LoggerService';
 import { type PathAccessMode, checkPathSecurity } from '../services/PathSecurityService';
 import type { TypstCompiler } from '../services/TypstCompiler';
-import { resolveWasmRoot } from '../services/WasmAssetProtocol';
+import { probeTexliveEndpoint, resolveWasmRoot } from '../services/WasmAssetProtocol';
+import { BUSYTEX_STOPPED_MESSAGE, getBusyTexProcessClient } from '../services/BusyTexProcessClient';
 import { CompilerRegistry } from '../services/compiler/CompilerRegistry';
-import type { CompileMessage } from '../services/compiler/interfaces/ICompiler';
+import type {
+  CompileMessage,
+  CompileProgress,
+  ICompiler,
+} from '../services/compiler/interfaces/ICompiler';
 import { createTypedHandlers } from './typedIpc';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -121,6 +131,44 @@ export interface CompileTypstOptions {
 // ====== Handler Registration ======
 
 /**
+ * Push a compile-progress payload to every renderer window over
+ * `Compile_Progress`. Same broadcast pattern as MinerUParseService —
+ * getAllWindows + isDestroyed guard. Payloads are Zod-validated on the
+ * renderer side (`eventSchemas`).
+ */
+function broadcastCompileProgress(payload: CompileProgressPayload): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(IpcChannel.Compile_Progress, payload);
+    }
+  }
+}
+
+/**
+ * Subscribe to a compiler's `progress` event for the duration of one compile
+ * and re-broadcast it over IPC. Scoped attach/detach (instead of a global
+ * subscription at registration time) keeps `CompilerRegistry` lazy — no
+ * compiler is instantiated until a compile actually needs it, and two
+ * compilers never leak listeners into each other (compiles are serialized
+ * by the queue upstream).
+ */
+function forwardCompilerProgress(
+  compiler: ICompiler,
+  engine: CompileProgressPayload['engine']
+): () => void {
+  const listener = (progress: CompileProgress) => {
+    broadcastCompileProgress({
+      engine,
+      stage: 'cli',
+      message: progress.message || progress.stage || '',
+      percent: typeof progress.percent === 'number' ? progress.percent : undefined,
+    });
+  };
+  compiler.on('progress', listener);
+  return () => compiler.off('progress', listener);
+}
+
+/**
  * Register compilation-related IPC handlers.
  * @sideeffect Registers handlers on ipcMain for compile operations
  */
@@ -150,7 +198,13 @@ export function registerCompileHandlers(): void {
                 mainFile: safeMainFile,
               }
             : undefined;
-          const result = await latexCompiler.compile(content, compilationOptions);
+          const detachProgress = forwardCompilerProgress(latexCompiler, 'latex');
+          let result;
+          try {
+            result = await latexCompiler.compile(content, compilationOptions);
+          } finally {
+            detachProgress();
+          }
           // The IPC contract still requires LaTeXError[] / LaTeXWarning[].
           // Renderer-side already normalizes defensively, so keep the protocol backward-compatible.
           const errors = result.errors?.map((msg) => ({
@@ -187,26 +241,6 @@ export function registerCompileHandlers(): void {
             ],
           };
         }
-      },
-
-      // Persist BusyTeX WASM artifacts (pdf + .synctex.gz) to the project
-      // directory (outputDir) so the on-disk PDF matches the local compiler's
-      // output path — the single source of truth on disk. Buffer is the
-      // renderer's Uint8Array — it crosses the IPC boundary as a Node Buffer.
-      [IpcChannel.Compile_WriteWasmArtifacts]: async (
-        pdfBuffer,
-        synctexBuffer,
-        baseName,
-        outputDir
-      ) => {
-        const safeName = baseName && /^[A-Za-z0-9_.-]+$/.test(baseName) ? baseName : 'main';
-        const safeOutputDir = assertPathSecurity(outputDir, 'write');
-        await fs.mkdir(safeOutputDir, { recursive: true });
-        const pdfPath = path.join(safeOutputDir, `${safeName}.pdf`);
-        const synctexPath = path.join(safeOutputDir, `${safeName}.synctex.gz`);
-        await fs.writeFile(pdfPath, Buffer.from(pdfBuffer));
-        await fs.writeFile(synctexPath, Buffer.from(synctexBuffer));
-        return { pdfPath, synctexPath };
       },
 
       [IpcChannel.LaTeX_GetCapabilities]: async () => {
@@ -409,6 +443,51 @@ export function registerCompileHandlers(): void {
 
         logger.info(`[Compile_Cancel] Cancelled ${cancelled} compilation tasks`);
         return { success: true, cancelled };
+      },
+
+      [IpcChannel.Compile_TestTexliveEndpoint]: async (endpoint) => {
+        // Probe runs in main so it exercises the same `net.fetch` route the
+        // BusyTeX worker's package fetches take (see WasmAssetProtocol).
+        return probeTexliveEndpoint(endpoint);
+      },
+
+      [IpcChannel.Compile_BusyTeX_Prepare]: async () => {
+        await getBusyTexProcessClient().ensureLoaded();
+        return { ok: true };
+      },
+
+      [IpcChannel.Compile_BusyTeX_Compile]: async (request: BusyTeXCompileRequestDTO) => {
+        const client = getBusyTexProcessClient();
+        // Phases parsed from engine prints flow to the renderer over the
+        // existing Compile_Progress channel; scoped so a compile that starts
+        // mid-flight cannot leak another compile's prints into it.
+        const disposePhase = client.onPhase((phase) => broadcastCompileProgress(phase));
+        try {
+          const result = await client.compile(request);
+          return {
+            success: result.exitCode === 0,
+            exitCode: result.exitCode,
+            pdfPath: result.pdfPath,
+            synctexPath: result.synctexPath,
+            log: result.log,
+            errors: result.exitCode === 0 ? [] : ['Compilation failed'],
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          // Stop button / idle release — neutral outcome, not a failure.
+          if (message === BUSYTEX_STOPPED_MESSAGE) {
+            return { success: false, cancelled: true, log: '', errors: [] };
+          }
+          logger.error('BusyTeX engine compile failed', { error: message });
+          return { success: false, log: '', errors: [message] };
+        } finally {
+          disposePhase.dispose();
+        }
+      },
+
+      [IpcChannel.Compile_BusyTeX_Cancel]: async () => {
+        getBusyTexProcessClient().kill();
+        return { ok: true };
       },
 
       [IpcChannel.Compile_GetStatus]: async () => {

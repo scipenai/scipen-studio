@@ -241,6 +241,18 @@ export function useIsCompiling() {
   return useServiceEvent(service.onDidChangeCompiling, () => service.isCompiling);
 }
 
+/** Returns the current compile phase (engine load / pass / postprocess...), null while idle. */
+export function useCompilePhase() {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangeCompilePhase, () => service.compilePhase);
+}
+
+/** Returns the visible transient notifications (see components/ui/Toast.tsx). */
+export function useToasts() {
+  const service = getUIService();
+  return useServiceEvent(service.onDidChangeToasts, () => service.toasts);
+}
+
 /** Returns last compilation result. */
 export function useCompilationResult() {
   const service = getUIService();

@@ -28,6 +28,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '../../locales';
 import { getSyncTeXService } from '../../services/SyncTeXService';
 import type { PdfHighlight } from '../../services/core';
+import type { ParsedLogEntry } from '../../types';
 import { openFileInEditor } from '../../services/core/FileOpenService';
 import {
   TaskPriority,
@@ -42,6 +43,7 @@ import {
 import {
   useActiveTabPath,
   useCompilationResult,
+  useCompilePhase,
   useIsCompiling,
   usePdfData,
   usePdfHighlight,
@@ -253,8 +255,10 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   const pdfData = source === 'zotero' ? zoteroPdfData : compilePdfData;
 
   const rawIsCompiling = useIsCompiling();
+  const rawCompilePhase = useCompilePhase();
   const rawCompilationResult = useCompilationResult();
   const isCompiling = source === 'zotero' ? false : rawIsCompiling;
+  const compilePhase = source === 'zotero' ? null : rawCompilePhase;
   const compilationResult = source === 'zotero' ? null : rawCompilationResult;
 
   const pdfHighlight = usePdfHighlight();
@@ -375,6 +379,28 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
       })
     );
   }, []);
+
+  /**
+   * Hand one diagnostic to the agent. Mirrors the header-level "Ask Agent"
+   * button but scoped to a single entry, so a document with a dozen errors
+   * can be worked through one at a time instead of dumping the whole log.
+   * Lives at component scope because both CompileLogPanel mount points (the
+   * failure view and the floating log panel) need it.
+   */
+  const askAgentAboutEntry = useCallback(
+    (entry: ParsedLogEntry) => {
+      const result = getUIService().compilationResult;
+      getUIService().requestAIErrorAnalysis({
+        errorMessage: entry.message,
+        errorContent: entry.content?.trim(),
+        file: entry.file,
+        line: entry.line ?? undefined,
+        compilerType: compileLogCompilerType,
+        rawLog: result?.log?.trim() || undefined,
+      });
+    },
+    [compileLogCompilerType]
+  );
 
   useEffect(() => {
     if (pdfData) {
@@ -816,7 +842,10 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     [totalPages]
   );
 
-  if (isCompiling) {
+  // Full-pane compiling state only when there is no PDF to keep on screen
+  // (first compile / document switched). A recompile over an existing PDF
+  // keeps it visible and shows the phase overlay in the PDF branch below.
+  if (isCompiling && !pdfDoc) {
     return (
       <div className="h-full flex flex-col bg-[var(--color-bg-secondary)]">
         <div className="flex-1 flex items-center justify-center">
@@ -825,6 +854,14 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
             <p className="text-sm font-medium text-[var(--color-text-primary)]">
               {t('preview.compiling')}
             </p>
+            {compilePhase && (
+              <p
+                className="mt-2 text-xs text-[var(--color-text-muted)] max-w-[420px] mx-auto truncate"
+                title={compilePhase.message}
+              >
+                {compilePhase.message}
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -1077,6 +1114,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
                         info={parsedInfo}
                         embedded
                         showHeader={false}
+                        onAskAgent={askAgentAboutEntry}
                         onJumpToLine={(file, line) => {
                           void jumpToCompileLocation(file, line);
                         }}
@@ -1141,7 +1179,33 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
 
   if (pdfDoc && totalPages > 0) {
     return (
-      <div className="h-full flex flex-col bg-[var(--color-bg-secondary)]">
+      <div className="relative h-full flex flex-col bg-[var(--color-bg-secondary)]">
+        {isCompiling && (
+          <div
+            className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border px-4 py-1.5 text-xs shadow-[var(--shadow-md)]"
+            style={{
+              borderColor: 'var(--color-border)',
+              background: 'color-mix(in srgb, var(--color-bg-elevated) 90%, transparent)',
+            }}
+            role="status"
+          >
+            <span
+              className="inline-block h-3 w-3 animate-spin rounded-full"
+              style={{
+                border: '2px solid var(--color-accent)',
+                borderTopColor: 'transparent',
+              }}
+              aria-hidden="true"
+            />
+            <span className="text-[var(--color-text-secondary)]">
+              {compilePhase
+                ? compilePhase.percent != null
+                  ? `${compilePhase.message} (${compilePhase.percent}%)`
+                  : compilePhase.message
+                : t('preview.compiling')}
+            </span>
+          </div>
+        )}
         <div
           className="flex min-h-[54px] flex-wrap items-center justify-between gap-y-2 border-b px-4 py-2.5"
           style={{
@@ -1385,6 +1449,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
             errors={compilationResult?.parsedErrors}
             warnings={compilationResult?.parsedWarnings}
             info={compilationResult?.parsedInfo}
+            onAskAgent={askAgentAboutEntry}
             onClose={() => setShowLogPanel(false)}
           />
         )}

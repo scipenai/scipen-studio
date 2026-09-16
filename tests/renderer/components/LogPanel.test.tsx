@@ -34,6 +34,9 @@ vi.mock('../../../src/renderer/src/services/core', () => ({
   useCompilationLogs: () => logs,
   useCompilationResult: () => ({ success: false, time: 1200 }),
   useIsCompiling: () => false,
+  // null = idle. The phase label only renders while a compile is running,
+  // so these log-panel assertions stay unaffected.
+  useCompilePhase: () => null,
 }));
 
 vi.mock('../../../src/renderer/src/locales', () => ({

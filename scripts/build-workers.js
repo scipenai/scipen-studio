@@ -16,8 +16,9 @@ const rootDir = resolve(__dirname, '..');
 
 const workersOutDir = resolve(rootDir, 'out/main/workers');
 const lspProcessOutDir = resolve(rootDir, 'out/main/lsp-process');
+const busytexProcessOutDir = resolve(rootDir, 'out/main/busytex-process');
 
-for (const dir of [workersOutDir, lspProcessOutDir]) {
+for (const dir of [workersOutDir, lspProcessOutDir, busytexProcessOutDir]) {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
@@ -56,6 +57,12 @@ const utilityProcesses = [
     // UtilityProcess requires .cjs format for Electron module system compatibility
     outfile: resolve(lspProcessOutDir, 'index.cjs'),
     // Externalize Electron modules and native dependencies that may be imported dynamically
+    external: ['electron']
+  },
+  {
+    name: 'BusyTeX Engine Process',
+    entry: resolve(rootDir, 'src/main/busytex-process/index.ts'),
+    outfile: resolve(busytexProcessOutDir, 'index.cjs'),
     external: ['electron']
   }
 ];

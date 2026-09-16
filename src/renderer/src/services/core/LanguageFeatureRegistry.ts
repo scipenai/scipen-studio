@@ -10,6 +10,7 @@ import {
   type Event,
   type IDisposable,
 } from '../../../../../shared/utils';
+import type { CompileProgressPayload } from '../../../../../shared/ipc/compile-contract';
 import type { EditorTab } from '../../types';
 import type { CompileResult } from './CompileService';
 
@@ -20,6 +21,14 @@ export interface CompilerOptions {
   mainFile?: string;
   projectPath?: string;
   activeTab?: EditorTab;
+  /**
+   * Live compile-phase observer, injected by CompileService (which fans the
+   * events out to the UI). Providers call it for meaningful steps — engine
+   * load, staging, typesetting passes, artifact writing — and own nothing
+   * else about presentation. Optional: providers must no-op cleanly when it
+   * is absent (e.g. direct registry calls in tests).
+   */
+  onPhase?: (phase: CompileProgressPayload) => void;
 }
 
 export interface CompilerProvider {
@@ -33,6 +42,19 @@ export interface CompilerProvider {
 
   canHandle?(filePath: string, options?: CompilerOptions): boolean;
   cancel?(): void;
+
+  /**
+   * Optional: bring the provider's engine up before the first compile needs
+   * it. Only meaningful for the in-renderer WASM engines, whose cold start
+   * downloads and instantiates ~100 MB — otherwise that cost lands on the
+   * user's first Ctrl+Enter.
+   *
+   * Contract for implementers: idempotent, safe to call concurrently with a
+   * real compile (share the in-flight load, never build a second engine),
+   * and never throws — a failed prewarm must leave the normal compile path
+   * to report the error properly.
+   */
+  prewarm?(): Promise<void>;
 }
 
 interface ProviderEntry<T> {
@@ -154,20 +176,4 @@ export class CompilerRegistry extends LanguageFeatureRegistry<CompilerProvider> 
     if (lastDot < 0) return '';
     return filePath.slice(lastDot + 1).toLowerCase();
   }
-}
-
-// ====== Lazy Service Getter ======
-
-let _compilerRegistry: CompilerRegistry | null = null;
-
-export function getCompilerRegistry(): CompilerRegistry {
-  if (!_compilerRegistry) {
-    const { getServices } = require('./ServiceRegistry');
-    _compilerRegistry = getServices().compiler;
-  }
-  return _compilerRegistry!;
-}
-
-export function _setCompilerRegistryInstance(instance: CompilerRegistry): void {
-  _compilerRegistry = instance;
 }

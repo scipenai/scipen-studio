@@ -10,8 +10,11 @@ import {
   type Event,
   type IDisposable,
   Throttler,
+  toDisposable,
 } from '../../../../../shared/utils';
+import type { CompileProgressPayload } from '../../../../../shared/ipc/compile-contract';
 import type { EditorTab } from '../../types';
+import { api } from '../../api';
 import { createLogger } from '../LogService';
 import {
   LaTeXCompilerProvider,
@@ -20,6 +23,9 @@ import {
   WASMCompilerProvider,
 } from './CompilerProviders';
 import { CompilerRegistry, type CompilerProvider } from './LanguageFeatureRegistry';
+import { ProjectService } from './ProjectService';
+import { getSettingsService } from './ServiceRegistry';
+import { hasCompiledWithWasm, rememberWasmCompile } from './wasmPrewarmMemory';
 import {
   getLatexCapabilities,
   isLocalLatexEngine,
@@ -27,6 +33,19 @@ import {
 } from './latexEngineResolver';
 
 const logger = createLogger('CompileService');
+
+/**
+ * How long after a project opens before the engine prewarm is even
+ * considered. Long enough for the startup storm (Monaco, LSP spawn, pdf.js,
+ * file indexing) to finish — warming during it is what made the app feel
+ * frozen for ~20 s.
+ */
+const PREWARM_DELAY_MS = 30_000;
+
+/** True for engines that run in-renderer and therefore have a cold start. */
+function isWasmEngine(engine: string | undefined): boolean {
+  return typeof engine === 'string' && engine.startsWith('wasm-');
+}
 
 /**
  * Fallback engine used when the `auto`-resolved local engine turns out to be
@@ -143,14 +162,135 @@ export class CompileService implements IDisposable {
   private readonly _onDidLog = new Emitter<CompileLogEntry>();
   readonly onDidLog: Event<CompileLogEntry> = this._onDidLog.event;
 
+  /**
+   * Live compile phase stream. Two producers, one consumer-facing event:
+   *   - WASM engines emit renderer-internally via the `onPhase` callback this
+   *     service injects into CompilerOptions (the engine runs in this
+   *     process — no IPC).
+   *   - CLI engines push through the `Compile_Progress` IPC event (main
+   *     process broadcasts the compile worker's progress), subscribed here.
+   * UIService fans this out to the log panel / preview overlay.
+   */
+  private readonly _onDidCompilePhase = new Emitter<CompileProgressPayload>();
+  readonly onDidCompilePhase: Event<CompileProgressPayload> = this._onDidCompilePhase.event;
+
   constructor() {
     this._disposables.add(this._onDidStartCompile);
     this._disposables.add(this._onDidFinishCompile);
     this._disposables.add(this._onDidLog);
+    this._disposables.add(this._onDidCompilePhase);
 
     this._compilerRegistry = new CompilerRegistry();
     this._disposables.add(this._compilerRegistry);
     this._registerBuiltinProviders();
+
+    // CLI engines: the main process broadcasts the compile worker's progress
+    // over `Compile_Progress`; merge it into the same phase stream the WASM
+    // providers feed locally. The subscription is unconditional and lives
+    // for the service lifetime — payloads arriving outside a compile (should
+    // not happen; compiles are queued) are still harmless log lines.
+    this._disposables.add(
+      toDisposable(api.compile.onProgress((phase) => this._onDidCompilePhase.fire(phase)))
+    );
+
+    // Engine prewarm. Deliberately conservative — see `_schedulePrewarm` for
+    // why this is gated on prior use and deferred well past startup.
+    //
+    // ProjectService.getInstance() rather than getProjectService(): this
+    // constructor runs *inside* ServiceRegistry's constructor, so reaching
+    // back through the registry would re-enter its getInstance() before the
+    // singleton is assigned. ProjectService owns its own singleton.
+    this._disposables.add(
+      ProjectService.getInstance().onDidChangeProject((e) => {
+        this._cancelPrewarm();
+        if (e.path) this._schedulePrewarm(e.path);
+      })
+    );
+    this._disposables.add(this._onDidStartCompile.event(() => this._cancelPrewarm()));
+    this._disposables.add(toDisposable(() => this._cancelPrewarm()));
+  }
+
+  /** Pending prewarm deferral, if any. Cleared by {@link _cancelPrewarm}. */
+  private _prewarmTimer: ReturnType<typeof setTimeout> | null = null;
+  private _prewarmIdleHandle: number | null = null;
+
+  private _cancelPrewarm(): void {
+    if (this._prewarmTimer !== null) {
+      clearTimeout(this._prewarmTimer);
+      this._prewarmTimer = null;
+    }
+    if (this._prewarmIdleHandle !== null) {
+      const cancelIdle = (globalThis as { cancelIdleCallback?: (h: number) => void })
+        .cancelIdleCallback;
+      cancelIdle?.(this._prewarmIdleHandle);
+      this._prewarmIdleHandle = null;
+    }
+  }
+
+  /**
+   * Warm the WASM engine so the user's first Ctrl+Enter doesn't pay the
+   * ~120 MB cold start (wasm + TeX Live data packages).
+   *
+   * The cost is real — loading pushes that much data through the renderer and
+   * grows the Emscripten heap by hundreds of MB — so this is gated three ways:
+   *
+   *   1. **Prior use.** Only projects where a WASM compile has already
+   *      succeeded are warmed. A first visit pays the cold start once (with
+   *      visible progress); every later session is fast. Users who open a
+   *      project to fix a typo and never compile pay nothing.
+   *   2. **Explicit engine.** `auto` resolves local-first, so a machine with
+   *      TeX Live installed would never touch the WASM engine; CLI engines
+   *      have no renderer-side cold start at all.
+   *   3. **Timing.** Deferred past the startup storm (Monaco, LSP spawn,
+   *      pdf.js) and then queued for a *genuinely* idle moment. The shared
+   *      IdleTaskScheduler is not used here: it passes `timeout: 5000` to
+   *      requestIdleCallback, which force-runs the task even when the app is
+   *      busy — exactly the jank this guard exists to avoid.
+   *
+   * Only one engine is warmed; holding BusyTeX and typst-ts at once doubles
+   * renderer memory for no benefit.
+   */
+  private _schedulePrewarm(projectPath: string): void {
+    if (!hasCompiledWithWasm(projectPath)) return;
+
+    this._prewarmTimer = setTimeout(() => {
+      this._prewarmTimer = null;
+      const requestIdle = (
+        globalThis as {
+          requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;
+        }
+      ).requestIdleCallback;
+
+      const run = (): void => {
+        this._prewarmIdleHandle = null;
+        void this._runPrewarm();
+      };
+
+      // No `timeout` option: if the app never goes idle, skipping the
+      // prewarm is the correct outcome.
+      this._prewarmIdleHandle = requestIdle ? requestIdle(run) : null;
+      if (!requestIdle) run();
+    }, PREWARM_DELAY_MS);
+  }
+
+  private async _runPrewarm(): Promise<void> {
+    if (this.isCompiling) return;
+    const settings = getSettingsService().getSettings().compiler;
+    const engine: CompileEngine | null =
+      typeof settings.engine === 'string' && settings.engine.startsWith('wasm-')
+        ? (settings.engine as CompileEngine)
+        : settings.typstEngine === 'wasm-typst'
+          ? 'wasm-typst'
+          : null;
+    if (!engine) return;
+
+    // Provider selection is keyed on the engine id, same as a compile;
+    // the filename only has to carry a matching extension.
+    const probeFile = engine === 'wasm-typst' ? 'prewarm.typ' : 'prewarm.tex';
+    const provider = this._compilerRegistry.getCompilerForFile(probeFile, { engine });
+    if (!provider?.prewarm) return;
+    logger.info('Prewarming WASM engine', { engine, provider: provider.id });
+    await provider.prewarm();
   }
 
   private _registerBuiltinProviders(): void {
@@ -274,8 +414,14 @@ export class CompileService implements IDisposable {
       const engineName = options.engine || provider.id.split('-')[0];
       this.log('info', `Using compiler: ${engineName} (${provider.id})`);
 
+      // Inject the phase observer (dependency inversion: providers see a
+      // callback, not this service). Both provider calls below share it.
+      const phaseListener = (phase: CompileProgressPayload): void => {
+        this._onDidCompilePhase.fire(phase);
+      };
+
       this._currentProvider = provider;
-      result = await provider.compile(filePath, content, options);
+      result = await provider.compile(filePath, content, { ...options, onPhase: phaseListener });
       this._currentProvider = null;
 
       // `auto` fallback: if the local engine we chose turns out to be missing
@@ -290,13 +436,22 @@ export class CompileService implements IDisposable {
         const wasmProvider = this._compilerRegistry.getCompilerForFile(filePath, wasmOptions);
         if (wasmProvider) {
           this._currentProvider = wasmProvider;
-          result = await wasmProvider.compile(filePath, content, wasmOptions);
+          result = await wasmProvider.compile(filePath, content, {
+            ...wasmOptions,
+            onPhase: phaseListener,
+          });
           this._currentProvider = null;
         }
       }
 
       result.sourceFile = filePath;
       result.time = Date.now() - startTime;
+      // Remember that this project really does compile with a WASM engine —
+      // that is what makes it eligible for prewarming next session. Recorded
+      // only on success, and only for the engines that have a cold start.
+      if (result.success && isWasmEngine(options.engine) && options.projectPath) {
+        rememberWasmCompile(options.projectPath);
+      }
       this.logCompileResult(result);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
