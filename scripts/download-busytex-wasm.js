@@ -30,6 +30,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn, spawnSync } from 'child_process';
+import { applyPipelinePatch } from './patch-busytex-pipeline.js';
+import { applyFontPatch } from './patch-busytex-fonts.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -97,6 +99,16 @@ const wantedTarPaths = [
     // Manifest reflects current `--minimal`↔full mode; refresh on every
     // run so a toggle is picked up even without re-downloading the tarball.
     writeManifest(DEST_DIR, minimal);
+    // The pipeline is a vendored upstream asset — re-assert our local
+    // rerun-skip patch here too, or a fresh clone's first prebuild would
+    // ship the unpatched 3-pass schedule until the next re-download.
+    applyPipelinePatch(DEST_DIR);
+    // Font bake is network-bound (downloads ~8MB of fonts on first run) and
+    // re-runs are no-ops; failures are fail-open (the engine compiles fine
+    // without it — documents using system-font names just won't).
+    if (!applyFontPatch(DEST_DIR)) {
+      console.warn('⚠️  FONT BAKE SKIPPED — pdf2tex documents referencing system font names (SimSun, Times New Roman, …) will fail to compile until this succeeds.');
+    }
     return;
   }
 
@@ -118,6 +130,13 @@ const wantedTarPaths = [
     }
     extractSelective(TARBALL_CACHE_PATH, DEST_DIR, wantedTarPaths);
     writeManifest(DEST_DIR, minimal);
+    applyPipelinePatch(DEST_DIR);
+    // Font bake is network-bound (downloads ~8MB of fonts on first run) and
+    // re-runs are no-ops; failures are fail-open (the engine compiles fine
+    // without it — documents using system-font names just won't).
+    if (!applyFontPatch(DEST_DIR)) {
+      console.warn('⚠️  FONT BAKE SKIPPED — pdf2tex documents referencing system font names (SimSun, Times New Roman, …) will fail to compile until this succeeds.');
+    }
     console.log(`\n✓ Done. Extracted ${wantedTarPaths.length} files into ${DEST_DIR}`);
     console.log(`  (tarball cached at ${TARBALL_CACHE_PATH} for future re-extracts)`);
   } catch (err) {

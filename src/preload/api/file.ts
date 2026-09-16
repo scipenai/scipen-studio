@@ -92,6 +92,17 @@ export const fileApi = {
     }>
   > => ipcRenderer.invoke(IpcChannel.File_BatchRead, filePaths),
 
+  batchReadBinary: (
+    filePaths: string[]
+  ): Promise<
+    Array<{
+      path: string;
+      success: boolean;
+      base64?: string;
+      error?: string;
+    }>
+  > => ipcRenderer.invoke(IpcChannel.File_BatchReadBinary, filePaths),
+
   batchStatFiles: (
     filePaths: string[]
   ): Promise<

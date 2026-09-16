@@ -45,6 +45,36 @@ export function registerFileBatchHandlers(deps: FileHandlersDeps): void {
         return results;
       },
 
+      // Binary read for engine staging — bytes travel as base64; the
+      // engine process decodes before writing into its virtual FS.
+      [IpcChannel.File_BatchReadBinary]: async (filePaths) => {
+        const results: Array<{
+          path: string;
+          success: boolean;
+          base64?: string;
+          error?: string;
+        }> = [];
+
+        await Promise.all(
+          filePaths.map(async (filePath) => {
+            try {
+              const safePath = assertPathSecurity(filePath, 'read');
+              const buf = await fs.readFile(safePath);
+              await fileSystemService.recordFileMtime(safePath);
+              results.push({ path: filePath, success: true, base64: buf.toString('base64') });
+            } catch (error) {
+              results.push({
+                path: filePath,
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          })
+        );
+
+        return results;
+      },
+
       [IpcChannel.File_BatchStat]: async (filePaths) => {
         const results: Array<{
           path: string;
