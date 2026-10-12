@@ -336,6 +336,10 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const pagesContainerRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
+  // Per-page intersection state (page → currently intersecting), maintained
+  // by the virtual-scroll observer so the visible window can be rebuilt
+  // instead of only ever growing.
+  const pageIntersectionRef = useRef(new Map<number, boolean>());
   // While true, the page auto-fits the container width (default and after
   // "fit width"); a manual zoom flips it off so resizing no longer overrides
   // the user's chosen scale. Prevents the page from overflowing the panel
@@ -522,27 +526,40 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     };
   }, [source, pdfHighlight, pdfDoc, totalPages, uiService]);
 
-  // Use IntersectionObserver for virtual scrolling: detect visible pages
-  // Use functional state updates to avoid including visiblePages in deps and prevent infinite loops
+  // Use IntersectionObserver for virtual scrolling: detect visible pages.
+  // The page window is REBUILT from per-page intersection state instead of
+  // accumulating: the previous add-only logic never removed pages, so
+  // browsing deep into a long PDF kept every visited page's canvas (and its
+  // bitmap) mounted for the rest of the session.
   useEffect(() => {
     if (!pagesContainerRef.current || viewMode !== 'scroll') return;
 
+    pageIntersectionRef.current.clear();
+
     observerRef.current = new IntersectionObserver(
       (entries) => {
-        // Use functional update to avoid closure capturing stale visiblePages value
+        const states = pageIntersectionRef.current;
+        for (const entry of entries) {
+          const pageNum = Number.parseInt(entry.target.getAttribute('data-page') || '0');
+          if (pageNum > 0) states.set(pageNum, entry.isIntersecting);
+        }
+        // Window = ±2 pages around every page currently intersecting (the
+        // 200px rootMargin already pre-loads ahead of the viewport).
+        const desired = new Set<number>();
+        for (const [pageNum, intersecting] of states) {
+          if (!intersecting) continue;
+          for (let i = Math.max(1, pageNum - 2); i <= Math.min(totalPages, pageNum + 2); i++) {
+            desired.add(i);
+          }
+        }
         setVisiblePages((prev) => {
-          const newVisible = new Set(prev);
-
-          entries.forEach((entry) => {
-            const pageNum = Number.parseInt(entry.target.getAttribute('data-page') || '0');
-            if (entry.isIntersecting) {
-              for (let i = Math.max(1, pageNum - 2); i <= Math.min(totalPages, pageNum + 2); i++) {
-                newVisible.add(i);
-              }
-            }
-          });
-
-          return newVisible;
+          // Identity-stable no-op when the window didn't change — observer
+          // callbacks fire for leaving pages too, and those must not
+          // trigger a re-render of the whole page list.
+          if (prev.size === desired.size && [...prev].every((p) => desired.has(p))) {
+            return prev;
+          }
+          return desired;
         });
       },
       {
@@ -552,11 +569,13 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
       }
     );
 
+    // Every page renders a wrapper (placeholder pages included), so all
+    // wrappers can be observed up front.
     const pages = pagesContainerRef.current.querySelectorAll('[data-page]');
     pages.forEach((page) => observerRef.current?.observe(page));
 
     return () => observerRef.current?.disconnect();
-  }, [totalPages, viewMode]); // Removed visiblePages from deps, using functional updates instead
+  }, [totalPages, viewMode]);
 
   const generateThumbnailRange = useCallback(
     async (

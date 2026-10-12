@@ -220,7 +220,12 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
   // fresh snapshots from the direct getters below. Subscribing to a
   // sub-shape (e.g. activeThreadId alone) would skip re-renders for
   // streaming text since the thread id doesn't change mid-turn.
-  useSyncExternalStore(
+  //
+  // `storeVersion` is passed ONLY to the live-turn row as a memo-buster:
+  // the store mutates the turn object in place, so ChatMessage's memo
+  // needs the version to know the in-flight row changed — while historical
+  // rows (stable message/turn references) skip re-rendering entirely.
+  const storeVersion = useSyncExternalStore(
     (cb) => chatStreamStore.subscribe(cb),
     () => chatStreamStore.getVersion(),
     () => 0
@@ -947,7 +952,9 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
                   }
                 />
               ))}
-              {currentTurn && <ChatMessage message={null} turn={currentTurn} />}
+              {currentTurn && (
+                <ChatMessage message={null} turn={currentTurn} streamVersion={storeVersion} />
+              )}
             </div>
           </div>
           <div className="pb-3">{composerBlock}</div>

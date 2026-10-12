@@ -267,7 +267,7 @@ export const EditorPane: React.FC = React.memo(() => {
       const scrollDisposable = setupScrollTracking(editor);
       disposablesRef.current.add(scrollDisposable);
       setupSyncTexClick(editor);
-      setupShortcuts(editor, monacoInstance);
+      disposablesRef.current.add(setupShortcuts(editor, monacoInstance));
       setupContentChangeTracking(editor, isProgrammaticUpdateRef);
       disposablesRef.current.add(setupActiveRecommendation(editor));
 

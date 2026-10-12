@@ -205,6 +205,7 @@ export abstract class BaseLSPService extends EventEmitter implements ILanguageSe
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
       method: string;
+      timer: NodeJS.Timeout;
     }
   > = new Map();
   protected rawBuffer: Buffer = Buffer.alloc(0);
@@ -355,6 +356,13 @@ export abstract class BaseLSPService extends EventEmitter implements ILanguageSe
     this.virtualMode = false;
     this.virtualRootUri = null;
     this.openDocuments.clear();
+    // Settle in-flight requests (the process is dead) and clear their
+    // timeout timers — a bare clear() would leave the promises pending
+    // forever now that the timers no longer fire as a backstop.
+    for (const pending of this.pendingRequests.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error(`${this.getServiceName()} stopped`));
+    }
     this.pendingRequests.clear();
   }
 
@@ -631,7 +639,18 @@ export abstract class BaseLSPService extends EventEmitter implements ILanguageSe
       }
 
       const id = ++this.messageId;
-      this.pendingRequests.set(id, { resolve, reject, method });
+
+      // Timeout handling — the handle lives on the pending entry so a
+      // normally-completed request clears it; an uncleared timer used to
+      // linger 30s per request (completion spam kept hundreds alive).
+      const timer = setTimeout(() => {
+        if (this.pendingRequests.has(id)) {
+          this.pendingRequests.delete(id);
+          reject(new Error(`Request timeout: ${method}`));
+        }
+      }, 30000);
+
+      this.pendingRequests.set(id, { resolve, reject, method, timer });
 
       const message: LSPMessage = {
         jsonrpc: '2.0',
@@ -641,14 +660,6 @@ export abstract class BaseLSPService extends EventEmitter implements ILanguageSe
       };
 
       this.sendMessage(message);
-
-      // Timeout handling
-      setTimeout(() => {
-        if (this.pendingRequests.has(id)) {
-          this.pendingRequests.delete(id);
-          reject(new Error(`Request timeout: ${method}`));
-        }
-      }, 30000);
     });
   }
 
@@ -727,6 +738,7 @@ export abstract class BaseLSPService extends EventEmitter implements ILanguageSe
       const pending = this.pendingRequests.get(message.id as number);
       if (pending) {
         this.pendingRequests.delete(message.id as number);
+        clearTimeout(pending.timer);
         if (message.error) {
           pending.reject(new Error(message.error.message));
         } else {
