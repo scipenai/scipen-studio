@@ -403,24 +403,3 @@ export const ContextKeys = {
   IS_COMPILING: 'isCompiling',
   AI_GENERATING: 'aiGenerating',
 } as const;
-
-// ====== React Hooks ======
-
-import { useEffect } from 'react';
-
-export function useKeybinding(keybinding: Keybinding, deps: React.DependencyList = []): void {
-  useEffect(() => {
-    const disposable = getKeybindingService().registerKeybinding(keybinding);
-    return () => disposable.dispose();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-}
-
-export function useContextKey(key: string, value: unknown): void {
-  useEffect(() => {
-    getKeybindingService().setContext(key, value);
-    return () => {
-      getKeybindingService().deleteContext(key);
-    };
-  }, [key, value]);
-}

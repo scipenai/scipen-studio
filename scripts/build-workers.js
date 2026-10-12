@@ -40,11 +40,6 @@ const workers = [
     // Externalize native modules that can't be bundled
     outfile: resolve(workersOutDir, 'file.worker.cjs'),
     external: ['@parcel/watcher', 'fsevents']
-  },
-  {
-    entry: resolve(rootDir, 'src/main/workers/logParser.worker.ts'),
-    outfile: resolve(workersOutDir, 'logParser.worker.cjs'),
-    external: []
   }
 ];
 

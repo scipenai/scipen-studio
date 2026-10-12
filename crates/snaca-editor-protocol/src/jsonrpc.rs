@@ -16,16 +16,6 @@ pub enum JsonRpcRequestId {
     Null,
 }
 
-impl JsonRpcRequestId {
-    pub fn from_u64(n: u64) -> Self {
-        Self::Number(n as i64)
-    }
-
-    pub fn from_uuid(uuid: &str) -> Self {
-        Self::String(uuid.to_string())
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JsonRpcRequest {
     pub jsonrpc: String,

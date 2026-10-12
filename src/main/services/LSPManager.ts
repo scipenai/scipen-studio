@@ -503,11 +503,6 @@ export class LSPManager extends EventEmitter {
     };
   }
 
-  async isAnyAvailable(): Promise<boolean> {
-    const availability = await this.checkAvailability();
-    return availability.texlab || availability.tinymist || availability.marksman;
-  }
-
   async isTexLabAvailable(): Promise<boolean> {
     return this.texlabService.isAvailable();
   }
@@ -544,29 +539,7 @@ export class LSPManager extends EventEmitter {
 
     // Lazy mode: don't start services immediately, return true for "configuration success"
     // This differs from old behavior which started all services immediately
-    // If caller explicitly wants immediate start, call startAllNow()
     return { texlab: true, tinymist: true, marksman: true };
-  }
-
-  /** Starts all services immediately (bypasses lazy mode) */
-  async startAllNow(
-    rootPath?: string,
-    options?: LSPStartOptions
-  ): Promise<{ texlab: boolean; tinymist: boolean; marksman: boolean }> {
-    const path = rootPath || this.rootPath;
-    if (!path) return { texlab: false, tinymist: false, marksman: false };
-
-    this.rootPath = path;
-    this.startOptions = options || this.startOptions;
-    this.configured = true;
-
-    const [texlabStarted, tinymistStarted, markmanStarted] = await Promise.all([
-      this.startTexLabNow(path, this.startOptions),
-      this.startTinymistNow(path, this.startOptions),
-      this.startMarkmanNow(path, this.startOptions),
-    ]);
-
-    return { texlab: texlabStarted, tinymist: tinymistStarted, marksman: markmanStarted };
   }
 
   /**

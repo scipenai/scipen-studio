@@ -1,6 +1,6 @@
 /**
  * @file CompileWorkerClient - Compile Worker Client
- * @description Provides async interface for compile.worker communication, executes LaTeX/Typst compilation
+ * @description Provides async interface for compile.worker communication, executes LaTeX compilation
  * @depends worker_threads, workerUtils
  */
 
@@ -16,12 +16,6 @@ interface CompileLatexPayload {
   options?: CompilationOptions;
 }
 
-/** Typst compilation request payload */
-interface CompileTypstPayload {
-  content: string;
-  options?: TypstCompilationOptions;
-}
-
 /** Cleanup request payload */
 type CleanupPayload = {};
 
@@ -33,7 +27,6 @@ interface AbortPayload {
 /** Worker message - uses Discriminated Union for type safety */
 type WorkerMessage =
   | { id: string; type: 'compile'; payload: CompileLatexPayload }
-  | { id: string; type: 'compileTypst'; payload: CompileTypstPayload }
   | { id: string; type: 'cleanup'; payload: CleanupPayload }
   | { id: string; type: 'abort'; payload: AbortPayload };
 
@@ -70,12 +63,6 @@ export interface CompileLog {
 
 export interface CompilationOptions {
   engine?: 'tectonic' | 'pdflatex' | 'xelatex' | 'lualatex';
-  mainFile?: string;
-  projectPath?: string;
-}
-
-export interface TypstCompilationOptions {
-  engine?: 'typst' | 'tinymist';
   mainFile?: string;
   projectPath?: string;
 }
@@ -368,27 +355,6 @@ class CompileWorkerClient extends EventEmitter {
   ): Promise<CompilationResult> {
     return this.sendRequest<CompilationResult>(
       'compile',
-      { content, options },
-      {
-        timeout,
-        onProgress,
-        onLog,
-      }
-    );
-  }
-
-  /**
-   * Compile Typst document
-   */
-  public async compileTypst(
-    content: string,
-    options: TypstCompilationOptions = {},
-    onProgress?: (progress: CompileProgress) => void,
-    onLog?: (log: CompileLog) => void,
-    timeout?: number
-  ): Promise<CompilationResult> {
-    return this.sendRequest<CompilationResult>(
-      'compileTypst',
       { content, options },
       {
         timeout,

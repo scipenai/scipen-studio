@@ -90,33 +90,6 @@ impl ErrorCode {
             ErrorCode::Other(c) => c,
         }
     }
-
-    pub const fn symbol(self) -> &'static str {
-        match self {
-            ErrorCode::ParseError => "parse_error",
-            ErrorCode::InvalidRequest => "invalid_request",
-            ErrorCode::MethodNotFound => "method_not_found",
-            ErrorCode::InvalidParams => "invalid_params",
-            ErrorCode::InternalError => "internal_error",
-            ErrorCode::NotInitialized => "not_initialized",
-            ErrorCode::SessionNotFound => "session_not_found",
-            ErrorCode::ThreadNotFound => "thread_not_found",
-            ErrorCode::TurnNotFound => "turn_not_found",
-            ErrorCode::ProposalNotFound => "proposal_not_found",
-            ErrorCode::InflightTurnBusy => "inflight_turn_busy",
-            ErrorCode::CapabilityNotSupported => "capability_not_supported",
-            ErrorCode::ConfigInvalid => "config_invalid",
-            ErrorCode::WorkspaceInvalid => "workspace_invalid",
-            ErrorCode::LlmAuthFailed => "llm_auth_failed",
-            ErrorCode::LlmContextOverflow => "llm_context_overflow",
-            ErrorCode::LlmRateLimited => "llm_rate_limited",
-            ErrorCode::BaseHashMismatch => "base_hash_mismatch",
-            ErrorCode::Cancelled => "cancelled",
-            ErrorCode::Timeout => "timeout",
-            ErrorCode::NotFound => "not_found",
-            ErrorCode::Other(_) => "other",
-        }
-    }
 }
 
 impl From<i32> for ErrorCode {

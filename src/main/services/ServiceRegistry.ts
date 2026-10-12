@@ -43,7 +43,6 @@ import type { IAIService, IFileSystemService, ISelectionService } from './interf
 
 import { compileWorkerClient } from '../workers/CompileWorkerClient';
 import { getFileWorkerClient } from '../workers/FileWorkerClient';
-import { getLogParserClient } from '../workers/LogParserClient';
 import { getPDFWorkerClient } from '../workers/PDFWorkerClient';
 
 // ====== Service Registration ======
@@ -233,13 +232,6 @@ export async function shutdownServices(): Promise<void> {
     workerShutdownPromises.push(pdfWorkerClient.close());
   } catch {
     logger.error('[ServiceRegistry] Failed to close PDFWorkerClient');
-  }
-
-  try {
-    const logParserClient = getLogParserClient();
-    workerShutdownPromises.push(logParserClient.terminate());
-  } catch {
-    logger.error('[ServiceRegistry] Failed to close LogParserClient');
   }
 
   try {
