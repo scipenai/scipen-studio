@@ -810,6 +810,76 @@ fn render_history_row(
     })
 }
 
+/// Apply the host's wire-shape `EngineConfig` overrides onto the
+/// model-aware defaults. Extracted from `build_session_engine` so the
+/// field-by-field mapping has one home (and can be unit-tested);
+/// `memory_extractor` / `memory_extractor_model` deliberately do NOT
+/// land here — they feed the post-turn extractor wiring instead.
+fn apply_engine_overrides(
+    ec: &snaca_editor_protocol::types::config::EngineConfig,
+    cfg: &mut EngineConfig,
+) {
+    if let Some(v) = ec.max_iterations {
+        cfg.max_iterations = v as usize;
+    }
+    if let Some(v) = ec.loop_guard_max_repeats {
+        cfg.loop_guard_max_repeats = Some(v as usize);
+    }
+    if let Some(v) = ec.concurrent_tool_limit {
+        cfg.concurrent_tool_limit = v as usize;
+    }
+    if let Some(v) = ec.max_tokens {
+        cfg.max_tokens = Some(v);
+    }
+    if let Some(v) = ec.history_limit {
+        cfg.conversation_history_limit = v;
+    }
+    if let Some(v) = ec.compact_after_input_tokens {
+    cfg.compact_after_input_tokens = Some(v as u32);
+}
+if let Some(v) = ec.compact_keep_recent {
+    cfg.compact_keep_recent = v as usize;
+}
+if let Some(v) = ec.protect_first_n {
+    cfg.protect_first_n = v as usize;
+}
+if let Some(v) = ec.compact_max_retries {
+    cfg.compact_max_retries = v as u8;
+}
+if let Some(sp) = ec.system_prompt.as_ref() {
+    if !sp.is_empty() {
+        cfg.system_prompt = sp.clone();
+    }
+}
+if let Some(v) = ec.compact_summary_max_tokens {
+    if v > 0 {
+        cfg.compact_summary_max_tokens = v;
+    }
+}
+if let Some(v) = ec.history_max_bytes {
+    cfg.history_max_bytes = v as usize;
+}
+if let Some(v) = ec.turn_timeout_secs {
+    // 0 disables — same convention as snaca-server.
+    cfg.turn_timeout_secs = if v == 0 { None } else { Some(v) };
+}
+if let Some(v) = ec.collapse_tool_results_threshold {
+    cfg.collapse_tool_results_threshold = v as usize;
+}
+if let Some(b) = ec.stream_tool_execution {
+    cfg.stream_tool_execution = b;
+}
+if let Some(v) = ec.max_output_token_escalation_attempts {
+    cfg.max_output_token_escalation_attempts = v;
+}
+if let Some(v) = ec.max_output_token_ceiling {
+    if v > 0 {
+        cfg.max_output_token_ceiling = v;
+    }
+}
+
+}
+
 /// Build the per-session Engine. `metadata_root` owns SNACA's internal
 /// data; `workspace_root` is pinned via `with_explicit_workspace` so
 /// file tools operate on the user's real project. Returns `None` on
@@ -848,59 +918,7 @@ fn build_session_engine(
 
     // Overlay SnacaConfig.engine overrides on the model-aware defaults.
     let mut engine_config = EngineConfig::default_for(snaca_config.llm.model.clone());
-    let ec = &snaca_config.engine;
-    if let Some(v) = ec.max_iterations { engine_config.max_iterations = v as usize; }
-    if let Some(v) = ec.loop_guard_max_repeats {
-        engine_config.loop_guard_max_repeats = Some(v as usize);
-    }
-    if let Some(v) = ec.concurrent_tool_limit {
-        engine_config.concurrent_tool_limit = v as usize;
-    }
-    if let Some(v) = ec.max_tokens { engine_config.max_tokens = Some(v); }
-    if let Some(v) = ec.history_limit { engine_config.conversation_history_limit = v; }
-    if let Some(v) = ec.compact_after_input_tokens {
-        engine_config.compact_after_input_tokens = Some(v as u32);
-    }
-    if let Some(v) = ec.compact_keep_recent {
-        engine_config.compact_keep_recent = v as usize;
-    }
-    if let Some(v) = ec.protect_first_n {
-        engine_config.protect_first_n = v as usize;
-    }
-    if let Some(v) = ec.compact_max_retries {
-        engine_config.compact_max_retries = v as u8;
-    }
-    if let Some(sp) = ec.system_prompt.as_ref() {
-        if !sp.is_empty() {
-            engine_config.system_prompt = sp.clone();
-        }
-    }
-    if let Some(v) = ec.compact_summary_max_tokens {
-        if v > 0 {
-            engine_config.compact_summary_max_tokens = v;
-        }
-    }
-    if let Some(v) = ec.history_max_bytes {
-        engine_config.history_max_bytes = v as usize;
-    }
-    if let Some(v) = ec.turn_timeout_secs {
-        // 0 disables — same convention as snaca-server.
-        engine_config.turn_timeout_secs = if v == 0 { None } else { Some(v) };
-    }
-    if let Some(v) = ec.collapse_tool_results_threshold {
-        engine_config.collapse_tool_results_threshold = v as usize;
-    }
-    if let Some(b) = ec.stream_tool_execution {
-        engine_config.stream_tool_execution = b;
-    }
-    if let Some(v) = ec.max_output_token_escalation_attempts {
-        engine_config.max_output_token_escalation_attempts = v;
-    }
-    if let Some(v) = ec.max_output_token_ceiling {
-        if v > 0 {
-            engine_config.max_output_token_ceiling = v;
-        }
-    }
+    apply_engine_overrides(&snaca_config.engine, &mut engine_config);
 
     let tools = editor_base_registry();
 
@@ -1022,4 +1040,34 @@ fn build_session_engine(
     };
     engine = engine.with_memory_provider(provider);
     Some(Arc::new(engine))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn engine_overrides_apply_and_zero_conventions_hold() {
+        let wire = snaca_editor_protocol::types::config::EngineConfig {
+            max_iterations: Some(7),
+            turn_timeout_secs: Some(0), // 0 = disabled on the wire
+            system_prompt: Some(String::new()), // empty = ignored
+            ..Default::default()
+        };
+        let mut cfg = EngineConfig::default_for("gpt-test");
+        apply_engine_overrides(&wire, &mut cfg);
+        assert_eq!(cfg.max_iterations, 7);
+        assert_eq!(cfg.turn_timeout_secs, None, "wire 0 must disable the cap");
+        assert_ne!(
+            cfg.system_prompt.is_empty(),
+            true,
+            "empty wire prompt must not blank the default"
+        );
+
+        // Defaults must survive an empty overlay untouched.
+        let mut fresh = EngineConfig::default_for("gpt-test");
+        let before = fresh.max_iterations;
+        apply_engine_overrides(&Default::default(), &mut fresh);
+        assert_eq!(fresh.max_iterations, before);
+    }
 }

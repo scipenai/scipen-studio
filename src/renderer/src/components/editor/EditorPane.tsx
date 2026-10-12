@@ -351,6 +351,20 @@ export const EditorPane: React.FC = React.memo(() => {
 
   // ====== Content Change Handler ======
 
+  // Normalized (forward-slash) tab paths, cached per tab object — this runs on
+  // EVERY keystroke, and re-running the backslash regex across all tabs per
+  // key was pure waste. Tab paths are immutable after creation, so the cache
+  // never goes stale.
+  const tabPathNormCache = new WeakMap<{ path: string }, string>();
+  function normalizedTabPath(tab: { path: string }): string {
+    let norm = tabPathNormCache.get(tab);
+    if (norm === undefined) {
+      norm = tab.path.includes('\\') ? tab.path.replace(/\\/g, '/') : tab.path;
+      tabPathNormCache.set(tab, norm);
+    }
+    return norm;
+  }
+
   const handleEditorChange: OnChange = useCallback(
     (value) => {
       if (isProgrammaticUpdateRef.current) return;
@@ -360,13 +374,16 @@ export const EditorPane: React.FC = React.memo(() => {
       // to prevent cross-tab content pollution
       const model = editorRef.current?.getModel();
       if (!model) return;
-      const modelPath = model.uri.path.replace(/^\/+/, '').replace(/\\/g, '/');
+      const rawModelPath = model.uri.path.replace(/^\/+/, '');
+      const modelPath = rawModelPath.includes('\\')
+        ? rawModelPath.replace(/\\/g, '/')
+        : rawModelPath;
 
       const editorService = getEditorService();
-      const matchedTab = editorService.tabs.find((tab) => {
-        const tabNorm = tab.path.replace(/\\/g, '/');
-        return tabNorm.endsWith(modelPath) || modelPath.endsWith(tabNorm);
-      });
+      const matchedTab = editorService.tabs.find(
+        (tab) =>
+          normalizedTabPath(tab).endsWith(modelPath) || modelPath.endsWith(normalizedTabPath(tab))
+      );
       if (!matchedTab) return;
 
       startTransition(() => {
