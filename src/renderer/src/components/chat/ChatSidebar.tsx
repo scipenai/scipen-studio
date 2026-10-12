@@ -19,6 +19,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { Bot, Check, Copy, History, MessageCircleQuestion, Plus, Settings2 } from 'lucide-react';
 import type React from 'react';
 import {
@@ -257,7 +258,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         const { messages: wire } = await agentClient.getMessages(threadId);
         chatStreamStore.replaceMessages(threadId, wire);
       } catch (err) {
-        setThreadError(`${t('thread.loadFailed')}: ${extractErrorMessage(err)}`);
+        setThreadError(`${t('thread.loadFailed')}: ${getErrorMessage(err)}`);
       }
     },
     [t]
@@ -324,7 +325,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         }
       })
       .catch((err) => {
-        const message = extractErrorMessage(err);
+        const message = getErrorMessage(err);
         // `includes` (not strict equality): Electron prefixes cross-process
         // Error.message with "Error invoking remote method '…':", sandwiching
         // the marker in the middle.
@@ -547,7 +548,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         }
         return { sent: true };
       } catch (err) {
-        const message = extractErrorMessage(err);
+        const message = getErrorMessage(err);
         setStartup({ kind: 'error', message });
         // Return the message so caller-side surfaces (selection card banner)
         // can distinguish a network fault from an agent-unavailable error
@@ -655,7 +656,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         prompt = buildSelectionActionPrompt(action, captured, getLocale());
       } catch (err) {
         selectionActionInFlight.current = false;
-        setThreadError(extractErrorMessage(err));
+        setThreadError(getErrorMessage(err));
         return;
       }
       // Snapshot the pre-send startup so a send failure inside handleSend
@@ -730,7 +731,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         await hydrateThread(threadId);
         setDrawerOpen(false);
       } catch (err) {
-        setThreadError(`${t('thread.switchFailed')}: ${extractErrorMessage(err)}`);
+        setThreadError(`${t('thread.switchFailed')}: ${getErrorMessage(err)}`);
       }
     },
     [activeThreadId, hydrateThread, t, sendQueue]
@@ -746,7 +747,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
       await refreshThreads();
       setDrawerOpen(false);
     } catch (err) {
-      setThreadError(`${t('thread.createFailed')}: ${extractErrorMessage(err)}`);
+      setThreadError(`${t('thread.createFailed')}: ${getErrorMessage(err)}`);
     }
   }, [refreshThreads, t, sendQueue]);
 
@@ -758,7 +759,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
       try {
         await agentClient.renameThread(threadId, title);
       } catch (err) {
-        setThreadError(`${t('thread.renameFailed')}: ${extractErrorMessage(err)}`);
+        setThreadError(`${t('thread.renameFailed')}: ${getErrorMessage(err)}`);
         // Roll back by re-listing.
         await refreshThreads();
       }
@@ -785,7 +786,7 @@ function ChatSidebarInner({ workspaceRoot, displayName }: ChatSidebarProps): Rea
         }
         await refreshThreads();
       } catch (err) {
-        setThreadError(`${t('thread.deleteFailed')}: ${extractErrorMessage(err)}`);
+        setThreadError(`${t('thread.deleteFailed')}: ${getErrorMessage(err)}`);
       }
     },
     [hydrateThread, refreshThreads, t, activeThreadId, sendQueue]
@@ -1170,12 +1171,6 @@ function EmptyState({
       </div>
     </div>
   );
-}
-
-function extractErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'string') return err;
-  return String(err);
 }
 
 /**

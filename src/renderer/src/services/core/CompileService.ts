@@ -4,6 +4,7 @@
  * @depends CompilerRegistry, CompilerProviders
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import {
   DisposableStore,
   Emitter,
@@ -220,7 +221,7 @@ export class CompileService implements IDisposable {
       // fall back to the always-available WASM engine. getLatexCapabilities
       // clears its cache on rejection so a later compile can retry detection.
       logger.warn('LaTeX capability probe failed; auto falls back to WASM', {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       resolved = AUTO_WASM_FALLBACK;
     }

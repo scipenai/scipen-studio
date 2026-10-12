@@ -16,6 +16,7 @@
  *   - Total across all mentions capped at 1 MB
  */
 
+import { getErrorMessage } from '../utils/getErrorMessage';
 import { api } from '../api';
 import type { Mention } from '../../../main/services/agent/protocol/schemas';
 import { truncateToBytes, utf8ByteLength } from '../../../../shared/utils';
@@ -122,7 +123,7 @@ export async function buildMentions(
     } catch (err) {
       failed.push({
         token: rawToken,
-        reason: err instanceof Error ? err.message : String(err),
+        reason: getErrorMessage(err),
       });
     }
   }

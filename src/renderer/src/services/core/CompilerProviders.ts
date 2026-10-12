@@ -4,6 +4,7 @@
  * @depends IPC (api.compiler), CompilerRegistry, BusyTexEngine
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { api } from '../../api';
 import { DEFAULT_TEXLIVE_ENDPOINT } from '../../constants/latex';
 import { t } from '../../locales';
@@ -292,7 +293,7 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
         parsedInfo: [],
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       logger.error('Typst WASM compile failed', { error: message });
       return {
         success: false,
@@ -533,7 +534,7 @@ export class WASMCompilerProvider implements CompilerProvider {
         logger.info('WASM compilation cancelled');
         return { success: false, cancelled: true, errors: [], log: '' };
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       logger.error('WASM compilation failed', { error: message });
       return {
         success: false,

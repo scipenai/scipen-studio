@@ -5,6 +5,7 @@
  * @description handleCompile + handleCompileResult logic
  */
 
+import { getErrorMessage } from '../../../utils/getErrorMessage';
 import type { Monaco } from '@monaco-editor/react';
 import type * as monaco from 'monaco-editor';
 import { useCallback } from 'react';
@@ -161,7 +162,7 @@ export function useCompilation({
         uiService.addCompilationLog({
           type: 'error',
           message: t('editor.cancelFailed', {
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
           }),
         });
       }

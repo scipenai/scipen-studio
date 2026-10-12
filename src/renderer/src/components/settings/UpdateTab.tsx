@@ -4,6 +4,7 @@
  * and installs/restarts.
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { RefreshCw, Download, RotateCcw, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
@@ -50,7 +51,7 @@ export const UpdateTab: React.FC = () => {
       const result = await api.app.checkUpdate();
       setStatus(result);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err);
       setStatus((prev) => ({ ...prev, state: 'error', error: msg }));
     }
   }, []);

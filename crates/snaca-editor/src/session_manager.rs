@@ -123,7 +123,7 @@ impl SessionManager {
         })?;
         db.run_migrations()
             .await
-            .map_err(|e| ProtocolError::internal(format!("migrations failed: {e}")))?;
+            .map_err(internal_err("migrations"))?;
 
         let tenant = TenantId::new(STUDIO_TENANT_ID);
         let project = ProjectId::from_raw(&project_id);
@@ -132,7 +132,7 @@ impl SessionManager {
         let mut summaries_rows = db
             .list_thread_summaries(&tenant, &project)
             .await
-            .map_err(|e| ProtocolError::internal(format!("list_thread_summaries failed: {e}")))?;
+            .map_err(internal_err("list_thread_summaries"))?;
 
         let active_thread_id = if summaries_rows.is_empty() {
             let thread_id = Uuid::new_v4().to_string();
@@ -208,17 +208,14 @@ impl SessionManager {
         offset: Option<u32>,
     ) -> Result<(Vec<ThreadSummary>, u32), ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         let tenant = TenantId::new(STUDIO_TENANT_ID);
         let project = ProjectId::from_raw(&session.project_id);
         let rows = session
             .db
             .list_thread_summaries(&tenant, &project)
             .await
-            .map_err(|e| ProtocolError::internal(format!("list_thread_summaries failed: {e}")))?;
+            .map_err(internal_err("list_thread_summaries"))?;
         let total = rows.len() as u32;
         let off = offset.unwrap_or(0) as usize;
         let lim = limit.map(|l| l as usize).unwrap_or(rows.len());
@@ -232,10 +229,7 @@ impl SessionManager {
         title: Option<String>,
     ) -> Result<(String, String), ProtocolError> {
         let mut inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get_mut(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of_mut(&mut inner, session_id)?;
         if session.inflight.is_some() {
             return Err(ProtocolError::inflight_turn_busy());
         }
@@ -259,10 +253,7 @@ impl SessionManager {
         thread_id: &str,
     ) -> Result<ThreadSummary, ProtocolError> {
         let mut inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get_mut(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of_mut(&mut inner, session_id)?;
         if session.inflight.is_some() {
             return Err(ProtocolError::inflight_turn_busy());
         }
@@ -283,10 +274,7 @@ impl SessionManager {
         thread_id: &str,
     ) -> Result<String, ProtocolError> {
         let mut inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get_mut(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of_mut(&mut inner, session_id)?;
         if session.inflight.is_some() {
             return Err(ProtocolError::inflight_turn_busy());
         }
@@ -308,7 +296,7 @@ impl SessionManager {
             .db
             .list_thread_summaries(&tenant, &project)
             .await
-            .map_err(|e| ProtocolError::internal(format!("list_thread_summaries failed: {e}")))?;
+            .map_err(internal_err("list_thread_summaries"))?;
 
         if let Some(top) = survivors.first() {
             let next_active = top.thread.id.as_str().to_string();
@@ -332,16 +320,13 @@ impl SessionManager {
         title: String,
     ) -> Result<(), ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         let tid = ThreadId::new(thread_id);
         let exists = session
             .db
             .find_thread(&tid)
             .await
-            .map_err(|e| ProtocolError::internal(format!("find_thread failed: {e}")))?
+            .map_err(internal_err("find_thread"))?
             .is_some();
         if !exists {
             return Err(ProtocolError::thread_not_found(thread_id));
@@ -350,7 +335,7 @@ impl SessionManager {
             .db
             .set_thread_meta(&tid, &serde_json::json!({ "title": title }))
             .await
-            .map_err(|e| ProtocolError::internal(format!("set_thread_meta failed: {e}")))?;
+            .map_err(internal_err("set_thread_meta"))?;
         Ok(())
     }
 
@@ -362,10 +347,7 @@ impl SessionManager {
         session_id: &str,
     ) -> Result<(Option<Arc<Engine>>, String, PathBuf), ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         Ok((
             session.engine.clone(),
             session.project_id.clone(),
@@ -378,10 +360,7 @@ impl SessionManager {
     /// is writing under `WorkspaceLayout::memory_dir`.
     pub async fn memory_dir_for(&self, session_id: &str) -> Result<PathBuf, ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         Ok(session.memory_dir())
     }
 
@@ -392,10 +371,7 @@ impl SessionManager {
         session_id: &str,
     ) -> Result<(PathBuf, PathBuf, Option<PathBuf>), ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         Ok((
             session.project_skills_dir(),
             session.tenant_skills_dir(),
@@ -411,10 +387,7 @@ impl SessionManager {
         session_id: &str,
     ) -> Result<(Database, PathBuf, PathBuf, String), ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         Ok((
             session.db.clone(),
             session.metadata_root.clone(),
@@ -432,10 +405,7 @@ impl SessionManager {
         kind: TurnKind,
     ) -> Result<String, ProtocolError> {
         let mut inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get_mut(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of_mut(&mut inner, session_id)?;
         if session.inflight.is_some() {
             return Err(ProtocolError::inflight_turn_busy());
         }
@@ -444,7 +414,7 @@ impl SessionManager {
             .db
             .find_thread(&ThreadId::new(thread_id))
             .await
-            .map_err(|e| ProtocolError::internal(format!("find_thread failed: {e}")))?
+            .map_err(internal_err("find_thread"))?
             .is_some();
         if !exists {
             return Err(ProtocolError::thread_not_found(thread_id));
@@ -468,10 +438,7 @@ impl SessionManager {
         abort: AbortHandle,
     ) -> Result<(), ProtocolError> {
         let mut inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get_mut(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of_mut(&mut inner, session_id)?;
         match session.inflight.as_mut() {
             Some(t) if t.turn_id == turn_id => {
                 t.abort = abort;
@@ -509,10 +476,7 @@ impl SessionManager {
         turn_id: Option<String>,
     ) -> Result<(), ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         // Parse session_id as a uuid for the messages table column. SNACA
         // sessions are uuids (we generate them in `open`); we re-parse
         // instead of caching to keep `Session` allocation-free for now.
@@ -528,7 +492,7 @@ impl SessionManager {
                 content: msg.content,
             })
             .await
-            .map_err(|e| ProtocolError::internal(format!("append_message failed: {e}")))?;
+            .map_err(internal_err("append_message"))?;
         // 0.3.0 has no `messages.turn_id` column — stash it in message_meta.
         // Best-effort: the message row is already committed, and turn_id is an
         // auxiliary UI tag (re-associating thinking trace on reload). A meta
@@ -589,16 +553,13 @@ impl SessionManager {
         limit: Option<u32>,
     ) -> Result<(Vec<ThreadMessage>, u32), ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         // Validate the thread belongs to this session's project.
         let row = session
             .db
             .find_thread(&ThreadId::new(thread_id))
             .await
-            .map_err(|e| ProtocolError::internal(format!("find_thread failed: {e}")))?;
+            .map_err(internal_err("find_thread"))?;
         if row.is_none() {
             return Err(ProtocolError::thread_not_found(thread_id));
         }
@@ -607,7 +568,7 @@ impl SessionManager {
             .db
             .recent_messages(&tid, limit.unwrap_or(u32::MAX))
             .await
-            .map_err(|e| ProtocolError::internal(format!("recent_messages failed: {e}")))?;
+            .map_err(internal_err("recent_messages"))?;
         let turn_ids = load_turn_ids(&session.db, &rows).await;
         let rendered: Vec<ThreadMessage> = rows
             .iter()
@@ -655,6 +616,32 @@ pub type SessionManagerArc = Arc<SessionManager>;
 
 // ---------------- private helpers ----------------
 
+/// Uniform `ProtocolError::internal("<op> failed: <e>")` mapping for the
+/// per-call DB / IO failures in this module — replaces the seventeen
+/// hand-written `map_err` closures that used to live at the call sites.
+fn internal_err<E: std::fmt::Display>(op: &'static str) -> impl Fn(E) -> ProtocolError {
+    move |e| ProtocolError::internal(format!("{op} failed: {e}"))
+}
+
+/// `inner.sessions.get(id)` → session or `session_not_found`.
+fn session_of<'a>(inner: &'a Inner, session_id: &str) -> Result<&'a Session, ProtocolError> {
+    inner
+        .sessions
+        .get(session_id)
+        .ok_or_else(|| ProtocolError::session_not_found(session_id))
+}
+
+/// Mutable variant of [`session_of`].
+fn session_of_mut<'a>(
+    inner: &'a mut Inner,
+    session_id: &str,
+) -> Result<&'a mut Session, ProtocolError> {
+    inner
+        .sessions
+        .get_mut(session_id)
+        .ok_or_else(|| ProtocolError::session_not_found(session_id))
+}
+
 fn row_to_summary(row: &snaca_state::ThreadSummaryRow) -> ThreadSummary {
     ThreadSummary {
         thread_id: row.thread.id.as_str().to_string(),
@@ -686,10 +673,10 @@ async fn insert_thread_titled(
         project_id: project.clone(),
     })
     .await
-    .map_err(|e| ProtocolError::internal(format!("insert_thread failed: {e}")))?;
+    .map_err(internal_err("insert_thread"))?;
     db.set_thread_meta(&tid, &serde_json::json!({ "title": title }))
         .await
-        .map_err(|e| ProtocolError::internal(format!("set_thread_meta failed: {e}")))?;
+        .map_err(internal_err("set_thread_meta"))?;
     Ok(())
 }
 
@@ -703,7 +690,7 @@ async fn delete_thread_cascade(db: &Database, id: &ThreadId) -> Result<bool, Pro
         .bind(id.as_str())
         .execute(db.pool())
         .await
-        .map_err(|e| ProtocolError::internal(format!("delete_thread failed: {e}")))?;
+        .map_err(internal_err("delete_thread"))?;
     Ok(res.rows_affected() > 0)
 }
 
@@ -786,7 +773,7 @@ async fn lookup_thread_summary(
     let rows = db
         .list_thread_summaries(&tenant, &project)
         .await
-        .map_err(|e| ProtocolError::internal(format!("list_thread_summaries failed: {e}")))?;
+        .map_err(internal_err("list_thread_summaries"))?;
     rows.iter()
         .find(|r| r.thread.id.as_str() == thread_id)
         .map(row_to_summary)

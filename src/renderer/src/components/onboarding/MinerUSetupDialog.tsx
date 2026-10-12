@@ -6,6 +6,7 @@
  *   cloud) must be ticked before saving is allowed.
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Eye, EyeOff, Loader2, ShieldAlert, X } from 'lucide-react';
 import type React from 'react';
@@ -42,7 +43,7 @@ export const MinerUSetupDialog: React.FC<Props> = ({ open, onClose, onConfirmed 
       onClose();
       onConfirmed();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }

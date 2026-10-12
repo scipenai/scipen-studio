@@ -13,6 +13,7 @@
  *              can toggle the trial on/off without losing their configuration.
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import {
   BookMarked,
   CheckCircle2,
@@ -119,7 +120,7 @@ export const ZoteroTab: React.FC = () => {
         setAutoOpenedOnce(false);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err);
       setError(msg);
       logger.warn('toggle integrationEnabled failed', err);
     } finally {
