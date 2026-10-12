@@ -759,18 +759,11 @@ impl MessageHandler for EditorHandler {
 
 /// Assemble the per-turn system prompt: base instruction followed by the
 /// host-supplied `ChatContext` rendered as XML. Empty contexts collapse to
-/// just the base instruction.
+/// just the base instruction (`render_xml_opt` owns that check).
 fn build_system_prompt(context: &ChatContext) -> String {
-    let xml = context_inject::render_xml(context);
-    // `render_xml` always returns at least `<context>\n</context>\n`. Skip the
-    // wrapper when there is nothing meaningful inside to keep the prompt tight.
-    let context_is_empty = xml
-        .lines()
-        .all(|l| matches!(l.trim(), "" | "<context>" | "</context>"));
-    if context_is_empty {
-        BASE_SYSTEM_PROMPT.to_string()
-    } else {
-        format!("{BASE_SYSTEM_PROMPT}\n\n{xml}")
+    match context_inject::render_xml_opt(context) {
+        Some(xml) => format!("{BASE_SYSTEM_PROMPT}\n\n{xml}"),
+        None => BASE_SYSTEM_PROMPT.to_string(),
     }
 }
 

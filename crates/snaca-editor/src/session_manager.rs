@@ -19,6 +19,7 @@ use snaca_llm::LlmClient;
 use snaca_state::{Database, NewMessage, NewThread};
 use crate::tools::editor_base_registry;
 use snaca_workspace::WorkspaceLayout;
+use sqlx::Row;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -607,12 +608,21 @@ impl SessionManager {
             .recent_messages(&tid, limit.unwrap_or(u32::MAX))
             .await
             .map_err(|e| ProtocolError::internal(format!("recent_messages failed: {e}")))?;
-        let turn_ids = load_turn_ids(&session.db, &tid).await;
+        let turn_ids = load_turn_ids(&session.db, &rows).await;
         let rendered: Vec<ThreadMessage> = rows
             .iter()
             .filter_map(|r| render_history_row(r, &turn_ids))
             .collect();
-        let total = rendered.len() as u32;
+        // `total` must reflect the thread's renderable history (the pool
+        // `messages` draws from), not the post-filter page length — the old
+        // `rendered.len()` collapsed it to <= limit, which broke the
+        // documented `>= messages.len()` contract for has-more checks.
+        let total = count_renderable_messages(&session.db, &tid)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!("count_renderable_messages failed: {e}");
+                rendered.len() as u32
+            });
         Ok((rendered, total))
     }
 
@@ -706,25 +716,61 @@ fn title_from_meta(meta: &Option<serde_json::Value>) -> String {
         .unwrap_or_else(|| DEFAULT_THREAD_TITLE.to_string())
 }
 
-/// Batch-load `turn_id` (0.3.0 stores it in `message_meta`) for a thread →
-/// map keyed by message-id string. Best-effort: empty map on error.
+/// Batch-load `turn_id` (0.3.0 stores it in `message_meta`) for just the
+/// messages on the requested page — one `IN (...)` query, so a `limit: 20`
+/// hydrate no longer pulls meta for the thread's entire history. Keyed by
+/// message-id string. Best-effort: empty map on error.
 async fn load_turn_ids(
     db: &Database,
-    thread: &ThreadId,
-) -> std::collections::HashMap<String, String> {
-    db.get_message_meta_for_thread(thread)
-        .await
-        .map(|pairs| {
-            pairs
-                .into_iter()
-                .filter_map(|(id, data)| {
-                    data.get("turn_id")
-                        .and_then(|t| t.as_str())
-                        .map(|t| (id.to_string(), t.to_string()))
-                })
-                .collect()
+    rows: &[snaca_state::MessageRow],
+) -> HashMap<String, String> {
+    if rows.is_empty() {
+        return HashMap::new();
+    }
+    let placeholders = vec!["?"; rows.len()].join(", ");
+    let sql = format!(
+        "SELECT message_id, data FROM message_meta WHERE message_id IN ({placeholders})"
+    );
+    let mut query = sqlx::query(&sql);
+    for row in rows {
+        query = query.bind(row.id.to_string());
+    }
+    let Ok(meta_rows) = query.fetch_all(db.pool()).await else {
+        return HashMap::new();
+    };
+    meta_rows
+        .into_iter()
+        .filter_map(|r| {
+            let id: String = r.try_get("message_id").ok()?;
+            let data: String = r.try_get("data").ok()?;
+            let value: serde_json::Value = serde_json::from_str(&data).ok()?;
+            value
+                .get("turn_id")?
+                .as_str()
+                .map(|t| (id, t.to_string()))
         })
-        .unwrap_or_default()
+        .collect()
+}
+
+/// Count the messages `session.get_messages` can render for a thread
+/// (user/assistant rows carrying a non-empty text block) — the SQL mirror
+/// of `render_history_row`'s filter. Keeps the wire `total` truthful for
+/// has-more math instead of collapsing to the current page length.
+async fn count_renderable_messages(
+    db: &Database,
+    thread: &ThreadId,
+) -> Result<u32, sqlx::Error> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM messages WHERE thread_id = ? \
+         AND role IN ('user', 'assistant') \
+         AND EXISTS (SELECT 1 FROM json_each(messages.content) AS block \
+                     WHERE json_extract(block.value, '$.type') = 'text' \
+                     AND length(trim(json_extract(block.value, '$.text'))) > 0)",
+    )
+    .bind(thread.as_str())
+    .fetch_one(db.pool())
+    .await?;
+    Ok(count.clamp(0, u32::MAX as i64) as u32)
 }
 
 /// Fetch a thread's wire-shape summary by id; errors with `thread_not_found`

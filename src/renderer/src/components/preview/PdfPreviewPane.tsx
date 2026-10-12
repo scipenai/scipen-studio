@@ -502,7 +502,9 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
       return newSet;
     });
 
-    setTimeout(() => {
+    // Late timers from a superseded highlight must not scroll to the old
+    // page or clear the new highlight early.
+    const scrollTimer = setTimeout(() => {
       const pageElement = pagesContainerRef.current?.querySelector(`[data-page="${page}"]`);
       if (pageElement) {
         pageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -510,9 +512,14 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     }, 100);
 
     // Clear highlight state to prevent repeated navigation
-    setTimeout(() => {
+    const clearTimer = setTimeout(() => {
       uiService.setPdfHighlight(null);
     }, 500);
+
+    return () => {
+      clearTimeout(scrollTimer);
+      clearTimeout(clearTimer);
+    };
   }, [source, pdfHighlight, pdfDoc, totalPages, uiService]);
 
   // Use IntersectionObserver for virtual scrolling: detect visible pages

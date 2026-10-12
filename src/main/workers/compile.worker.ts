@@ -135,8 +135,13 @@ function isAborted(id: string): boolean {
 function abortTask(abortId: string): boolean {
   const entry = activeProcesses.get(abortId);
   if (!entry) {
+    // Prefix fallback for family ids — segment-aligned so 'compile-4' never
+    // matches 'compile-42-<ts>'. The old second condition
+    // (`abortId.startsWith(id.split('-')[0])`) matched literally every task,
+    // since all ids start with 'compile-', and could kill an unrelated
+    // compilation when the exact id had already finished.
     for (const [id, e] of activeProcesses) {
-      if (id.startsWith(abortId) || abortId.startsWith(id.split('-')[0])) {
+      if (id.startsWith(`${abortId}-`)) {
         e.aborted = true;
         try {
           e.process.kill('SIGTERM');
