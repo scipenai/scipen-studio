@@ -854,7 +854,9 @@
     "copyLog": "复制日志",
     "pdfPreviewTab": "PDF 预览",
     "partialOutput": "输出截止于出错点（{{count}} 个错误）",
-    "viewLogs": "查看日志"
+    "viewLogs": "查看日志",
+    "logs": "日志",
+    "rawLogs": "原始日志"
   },
   "markdownPreview": {
     "documentLabel": "Markdown 文档"

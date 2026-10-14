@@ -54,6 +54,8 @@ interface CompileLogPanelProps {
   errors?: ParsedLogEntry[];
   warnings?: ParsedLogEntry[];
   info?: ParsedLogEntry[];
+  /** Full raw compiler output — rendered as a collapsible section. */
+  rawLog?: string;
   onJumpToLine?: (file: string, line: number) => void;
   onClose?: () => void;
   embedded?: boolean;
@@ -69,6 +71,7 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
   errors = [],
   warnings = [],
   info = [],
+  rawLog,
   onJumpToLine,
   onClose,
   embedded = false,
@@ -76,6 +79,7 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
 }) => {
   const [filter, setFilter] = useState<LogFilter>('all');
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [rawOpen, setRawOpen] = useState(false);
   const { t } = useTranslation();
   const unknownLogFallback = t('compileLog.unknownLog');
   const normalizedErrors = useMemo(
@@ -242,7 +246,7 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
     [expandedItems, getLevelColor, getLevelIcon, handleJumpToLine, toggleExpand]
   );
 
-  if (totalCount === 0) {
+  if (totalCount === 0 && !rawLog?.trim()) {
     return null;
   }
 
@@ -251,7 +255,9 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
   return (
     <div
       className={clsx(
-        'flex flex-col max-h-64',
+        // Fills the pane Overleaf-style — the parent decides the footprint
+        // (full-size overlay of the preview viewer area).
+        'flex h-full min-h-0 flex-col',
         embedded
           ? 'bg-transparent border-0'
           : 'bg-[var(--color-bg-secondary)] border-t border-[var(--color-border)]'
@@ -321,7 +327,7 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
         </div>
       )}
 
-      <div className="flex-1 overflow-hidden" style={{ height: 200 }}>
+      <div className="flex-1 min-h-0 overflow-hidden">
         {filteredItems.length === 0 ? (
           <div className="flex items-center justify-center h-20 text-[var(--color-text-muted)] text-sm">
             {t('compileLog.noLogs')}{' '}
@@ -347,6 +353,32 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
           </div>
         )}
       </div>
+
+      {rawLog?.trim() && (
+        <div className="border-t border-[var(--color-border)]">
+          <button
+            type="button"
+            onClick={() => setRawOpen((v) => !v)}
+            aria-expanded={rawOpen}
+            className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
+          >
+            {rawOpen ? (
+              <ChevronDown size={14} aria-hidden="true" />
+            ) : (
+              <ChevronRight size={14} aria-hidden="true" />
+            )}
+            <span className="font-medium">{t('pdfPreview.rawLogs')}</span>
+            <span className="text-xs text-[var(--color-text-muted)]">
+              {rawLog.length.toLocaleString()} chars
+            </span>
+          </button>
+          {rawOpen && (
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all border-t border-[var(--color-border-subtle)] px-3 py-2 font-mono text-xs leading-5 text-[var(--color-text-muted)]">
+              {rawLog.trim()}
+            </pre>
+          )}
+        </div>
+      )}
     </div>
   );
 };

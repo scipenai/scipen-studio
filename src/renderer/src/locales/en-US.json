@@ -854,7 +854,9 @@
     "copyLog": "Copy log",
     "pdfPreviewTab": "PDF Preview",
     "partialOutput": "Output stopped at the error ({{count}} errors)",
-    "viewLogs": "View logs"
+    "viewLogs": "View logs",
+    "logs": "Logs",
+    "rawLogs": "Raw logs"
   },
   "markdownPreview": {
     "documentLabel": "Markdown Document"

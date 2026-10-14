@@ -14,6 +14,7 @@ import {
   FileText,
   Grid3X3,
   Maximize2,
+  ScrollText,
   Sidebar,
   Sparkles,
   ZoomIn,
@@ -326,15 +327,18 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   const firstFailedError =
     compilationResult?.parsedErrors?.[0]?.message ?? compilationResult?.errors?.[0] ?? null;
 
-  // Auto-show log panel on compilation failure to surface errors immediately
+  // Overleaf semantics: a failed compile auto-opens the logs pane; a
+  // successful compile auto-closes it. Manual toggling (toolbar button /
+  // banner) always stays available — the PDF remains mounted underneath.
   useEffect(() => {
-    // Only when there is NO PDF to show — with a (partial or stale) PDF the
-    // banner's "view logs" button opens the panel instead, so the preview is
-    // never covered automatically (Overleaf convention).
-    if (compilationResult && !compilationResult.success && hasLogs && !pdfDoc) {
+    if (!compilationResult) return;
+    if (!compilationResult.success && (hasLogs || hasFallbackDiagnostics)) {
       setShowLogPanel(true);
+    } else if (compilationResult.success) {
+      setShowLogPanel(false);
     }
-  }, [compilationResult, hasLogs, pdfDoc]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hasLogs/hasFallback are derived from compilationResult
+  }, [compilationResult]);
 
   useEffect(() => {
     if (compilationResult && !compilationResult.success) {
@@ -1365,6 +1369,30 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
             <div className="w-px h-4 bg-[var(--color-border)] mx-1" />
             <button
               type="button"
+              onClick={() => setShowLogPanel((v) => !v)}
+              disabled={!(hasLogs || hasFallbackDiagnostics)}
+              aria-pressed={showLogPanel}
+              aria-label={t('pdfPreview.logs')}
+              className={clsx(
+                'relative cursor-pointer rounded p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40',
+                showLogPanel
+                  ? 'bg-[var(--color-accent)] text-white'
+                  : 'hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
+              )}
+              title={t('pdfPreview.logs')}
+            >
+              <ScrollText size={16} aria-hidden="true" />
+              {compileFailedWithPdf && failedErrorCount > 0 && (
+                <span
+                  className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none text-white"
+                  style={{ background: 'var(--color-error)' }}
+                >
+                  {failedErrorCount > 99 ? '99+' : failedErrorCount}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
               onClick={handleDownload}
               aria-label="Download PDF"
               className="cursor-pointer rounded p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
@@ -1375,7 +1403,7 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
           </div>
         </div>
 
-        <div className="flex-1 flex overflow-hidden">
+        <div className="relative flex-1 flex overflow-hidden">
           <AnimatePresence>
             {showThumbnails && (
               <motion.div
@@ -1455,19 +1483,28 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
               </div>
             )}
           </div>
-        </div>
 
-        {showLogPanel && (hasLogs || hasFallbackDiagnostics) && (
-          <CompileLogPanel
-            errors={
-              compilationResult?.parsedErrors ??
-              compilationResult?.errors?.map((message) => ({ line: null, message }))
-            }
-            warnings={compilationResult?.parsedWarnings}
-            info={compilationResult?.parsedInfo}
-            onClose={() => setShowLogPanel(false)}
-          />
-        )}
+          {/*
+            Logs pane — Overleaf-style: a full-size overlay of the viewer area
+            (PDF stays mounted underneath, toolbar above stays clickable).
+            Auto-opens on compile failure, auto-closes on success; also
+            toggled from the toolbar logs button / failure banner.
+          */}
+          {showLogPanel && (hasLogs || hasFallbackDiagnostics) && (
+            <div className="absolute inset-0 z-10 flex min-h-0 flex-col bg-[var(--color-bg-secondary)]">
+              <CompileLogPanel
+                errors={
+                  compilationResult?.parsedErrors ??
+                  compilationResult?.errors?.map((message) => ({ line: null, message }))
+                }
+                warnings={compilationResult?.parsedWarnings}
+                info={compilationResult?.parsedInfo}
+                rawLog={compilationResult?.log}
+                onClose={() => setShowLogPanel(false)}
+              />
+            </div>
+          )}
+        </div>
       </div>
     );
   }
