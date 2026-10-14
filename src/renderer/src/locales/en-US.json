@@ -645,10 +645,6 @@
   },
   "mainLayout": {
     "editor": "Editor",
-    "pdfPreview": "PDF Preview",
-    "markdownPreview": "Markdown Preview",
-    "typstPreview": "Typst Preview",
-    "preview": "Preview",
     "logPanel": "Log Panel"
   },
   "zoteroPaper": {
