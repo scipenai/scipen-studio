@@ -22,6 +22,7 @@
  * reconciliation into a non-React island.
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import type * as Monaco from 'monaco-editor';
 import { t } from '../../locales';
 import { createLogger } from '../LogService';
@@ -131,7 +132,7 @@ class InlineEditControllerImpl {
     if (session.turnId && session.widget.state === 'streaming') {
       inlineEditClient.cancel(session.turnId).catch((err) => {
         logger.warn('cancel rpc failed', {
-          error: err instanceof Error ? err.message : String(err),
+          error: getErrorMessage(err),
         });
       });
     }
@@ -186,7 +187,7 @@ class InlineEditControllerImpl {
       });
       session.turnId = turnId;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getErrorMessage(err);
       session.widget.setError(message);
     }
   }

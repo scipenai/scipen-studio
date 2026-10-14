@@ -13,8 +13,6 @@ export {
   getCommandService,
   CommandServiceImpl,
   Commands,
-  useCommand,
-  useCommandExecutor,
   type CommandHandler,
   type CommandMetadata,
   type CommandExecutionEvent,
@@ -25,7 +23,5 @@ export {
   getKeybindingService,
   KeybindingServiceImpl,
   ContextKeys,
-  useKeybinding,
-  useContextKey,
   type Keybinding,
 } from './KeybindingService';

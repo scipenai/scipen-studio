@@ -245,7 +245,7 @@ async function openZoteroPaper(key: string): Promise<void> {
  * Note: These shortcuts take effect when editor is focused.
  * Global shortcuts are handled by useGlobalShortcuts hook (when editor is not focused).
  */
-export function setupShortcuts(editor: Editor, monacoInstance: Monaco): void {
+export function setupShortcuts(editor: Editor, monacoInstance: Monaco): monaco.IDisposable {
   const shortcutService = getShortcutService();
   const settingsService = getSettingsService();
   const uiService = getUIService();
@@ -331,8 +331,10 @@ export function setupShortcuts(editor: Editor, monacoInstance: Monaco): void {
     }
   );
 
-  // Listen for settings changes and dynamically update shortcuts
-  settingsService.onDidChangeSettings((newSettings) => {
+  // Listen for settings changes and dynamically update shortcuts. Returned
+  // so the caller can dispose it with the editor — a dropped disposable
+  // here accumulates one listener per editor remount.
+  return settingsService.onDidChangeSettings((newSettings) => {
     shortcutService.registerShortcuts(newSettings.shortcuts);
   });
 }

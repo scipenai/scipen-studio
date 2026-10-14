@@ -4,6 +4,7 @@
  * @depends IPC (api.ai)
  */
 
+import { getErrorMessage } from '../utils/getErrorMessage';
 import { api } from '../api';
 import type { AIConfig, AIMessageSimple, StreamCallbacks } from '../types';
 
@@ -99,7 +100,7 @@ class AIServiceClass {
       if (signal?.aborted) {
         return;
       }
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = getErrorMessage(error);
       callbacks.onError(new Error(errorMessage || 'AI streaming chat exception'));
     } finally {
       signal?.removeEventListener('abort', abortHandler);

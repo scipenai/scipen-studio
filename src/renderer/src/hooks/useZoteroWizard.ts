@@ -16,6 +16,7 @@
  *              effects, preventing a "half-enabled" dirty state.
  */
 
+import { getErrorMessage } from '../utils/getErrorMessage';
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { api } from '../api';
 import type {
@@ -98,7 +99,7 @@ async function recheckZotero(): Promise<void> {
       zoteroStep: { status: result.found ? 'ok' : 'missing' },
     }));
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = getErrorMessage(err);
     logger.warn('detectInstallation failed', err);
     setState((prev) => ({
       ...prev,
@@ -121,7 +122,7 @@ async function recheckLocalApi(): Promise<void> {
       },
     }));
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = getErrorMessage(err);
     logger.warn('pingLocalApi failed', err);
     setState((prev) => ({
       ...prev,
@@ -146,7 +147,7 @@ async function recheckBBT(): Promise<void> {
       skippedBBT: false,
     }));
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = getErrorMessage(err);
     logger.warn('BBT recheck failed', err);
     setState((prev) => ({
       ...prev,

@@ -3,7 +3,7 @@
  * @description Declarative React Hooks for browser/DOM APIs, automatically handles cleanup on unmount
  */
 
-import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useRef } from 'react';
 
 // ============ useWindowEvent ============
 
@@ -132,62 +132,6 @@ export function useInterval(callback: () => void, delay: number | null): void {
   }, [delay]);
 }
 
-// ============ useTimeout ============
-
-/**
- * React Hook: useTimeout
- *
- * Declarative setTimeout that automatically clears on unmount.
- * Returns a reset function to restart the timer.
- * Pass `null` as delay to disable.
- *
- * @example
- * ```tsx
- * function Notification({ message }) {
- *   const [visible, setVisible] = useState(true);
- *
- *   // Auto-hide after 3 seconds
- *   useTimeout(() => {
- *     setVisible(false);
- *   }, 3000);
- *
- *   return visible ? <div>{message}</div> : null;
- * }
- * ```
- */
-export function useTimeout(
-  callback: () => void,
-  delay: number | null
-): { reset: () => void; clear: () => void } {
-  const callbackRef = useRef(callback);
-  const timeoutIdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  callbackRef.current = callback;
-
-  const clear = useCallback(() => {
-    if (timeoutIdRef.current !== null) {
-      clearTimeout(timeoutIdRef.current);
-      timeoutIdRef.current = null;
-    }
-  }, []);
-
-  const reset = useCallback(() => {
-    clear();
-    if (delay !== null) {
-      timeoutIdRef.current = setTimeout(() => {
-        callbackRef.current();
-      }, delay);
-    }
-  }, [delay, clear]);
-
-  useEffect(() => {
-    reset();
-    return clear;
-  }, [delay, reset, clear]);
-
-  return { reset, clear };
-}
-
 // ============ useClickOutside ============
 
 /**
@@ -268,121 +212,6 @@ export function useEscapeKey(handler: () => void, enabled = true): void {
       handler();
     }
   });
-}
-
-// ============ useIntersectionObserver ============
-
-/**
- * React Hook: useIntersectionObserver
- *
- * Wrapper for IntersectionObserver to track element visibility.
- * Automatically disconnects on unmount.
- *
- * @example
- * ```tsx
- * function LazyImage({ src }) {
- *   const imgRef = useRef<HTMLImageElement>(null);
- *   const { isIntersecting, entry } = useIntersectionObserver(imgRef, {
- *     rootMargin: '200px',
- *     threshold: 0.1,
- *   });
- *
- *   return (
- *     <img
- *       ref={imgRef}
- *       src={isIntersecting ? src : placeholder}
- *       alt="Lazy loaded"
- *     />
- *   );
- * }
- * ```
- */
-export function useIntersectionObserver<T extends HTMLElement = HTMLElement>(
-  ref: RefObject<T | null>,
-  options?: IntersectionObserverInit
-): {
-  isIntersecting: boolean;
-  entry: IntersectionObserverEntry | null;
-} {
-  const [entry, setEntry] = useState<IntersectionObserverEntry | null>(null);
-
-  // Memoize options to prevent infinite re-subscription when caller passes inline object
-  // threshold can be number or array, so JSON.stringify it for stable comparison
-  const memoizedOptions = useMemo(
-    () => options,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional shallow option memoization, identity-based deps would re-subscribe every parent render
-    [options?.root, options?.rootMargin, JSON.stringify(options?.threshold)]
-  );
-
-  useEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-
-    const observer = new IntersectionObserver(([entry]) => {
-      setEntry(entry);
-    }, memoizedOptions);
-
-    observer.observe(element);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [ref, memoizedOptions]);
-
-  return {
-    isIntersecting: entry?.isIntersecting ?? false,
-    entry,
-  };
-}
-
-// ============ useAnimationFrame ============
-
-/**
- * React Hook: useAnimationFrame
- *
- * Runs a callback on every animation frame.
- * Automatically cancels on unmount.
- *
- * @example
- * ```tsx
- * function AnimatedComponent() {
- *   const [position, setPosition] = useState(0);
- *
- *   useAnimationFrame((deltaTime) => {
- *     setPosition(p => p + deltaTime * 0.1);
- *   });
- *
- *   return <div style={{ transform: `translateX(${position}px)` }} />;
- * }
- * ```
- */
-export function useAnimationFrame(callback: (deltaTime: number) => void, enabled = true): void {
-  const callbackRef = useRef(callback);
-  const frameRef = useRef<number | null>(null);
-  const previousTimeRef = useRef<number | null>(null);
-
-  callbackRef.current = callback;
-
-  useEffect(() => {
-    if (!enabled) return;
-
-    const animate = (time: number) => {
-      if (previousTimeRef.current !== null) {
-        const deltaTime = time - previousTimeRef.current;
-        callbackRef.current(deltaTime);
-      }
-      previousTimeRef.current = time;
-      frameRef.current = requestAnimationFrame(animate);
-    };
-
-    frameRef.current = requestAnimationFrame(animate);
-
-    return () => {
-      if (frameRef.current !== null) {
-        cancelAnimationFrame(frameRef.current);
-      }
-    };
-  }, [enabled]);
 }
 
 // ============ useRequestAnimationFrame ============

@@ -7,6 +7,7 @@
  *   index building.
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Eye, EyeOff, Loader2, ShieldAlert, X } from 'lucide-react';
 import type React from 'react';
@@ -50,7 +51,7 @@ export const EmbeddingSetupDialog: React.FC<Props> = ({ open, onClose, onConfirm
       onClose();
       onConfirmed();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }

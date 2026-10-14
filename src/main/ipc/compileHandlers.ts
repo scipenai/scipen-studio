@@ -197,7 +197,8 @@ export function registerCompileHandlers(): void {
         pdfBuffer,
         synctexBuffer,
         baseName,
-        outputDir
+        outputDir,
+        logText
       ) => {
         const safeName = baseName && /^[A-Za-z0-9_.-]+$/.test(baseName) ? baseName : 'main';
         const safeOutputDir = assertPathSecurity(outputDir, 'write');
@@ -206,6 +207,12 @@ export function registerCompileHandlers(): void {
         const synctexPath = path.join(safeOutputDir, `${safeName}.synctex.gz`);
         await fs.writeFile(pdfPath, Buffer.from(pdfBuffer));
         await fs.writeFile(synctexPath, Buffer.from(synctexBuffer));
+        // Match the local compiler's behavior of dropping {base}.log next to
+        // the PDF — the WASM log only lived in memory before, which made
+        // diagnosing partial/broken output impossible after the fact.
+        if (typeof logText === 'string' && logText.length > 0) {
+          await fs.writeFile(path.join(safeOutputDir, `${safeName}.log`), logText, 'utf8');
+        }
         return { pdfPath, synctexPath };
       },
 

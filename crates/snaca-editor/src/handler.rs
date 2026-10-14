@@ -394,12 +394,6 @@ impl MessageHandler for EditorHandler {
                 // ---- P5 path: snaca-engine drives the turn ----
                 // Engine owns user/assistant/tool message persistence,
                 // tool selection, the loop, and approval gating.
-                let outbound = self.outbound.clone();
-                let sessions = self.sessions.clone();
-                let session_id = params.session_id.clone();
-                let thread_id = params.thread_id.clone();
-                let turn_id_clone = turn_id.clone();
-                let user_text = params.content.clone();
                 // Render the editor's volatile context into a per-turn
                 // system-prompt suffix. None when nothing is in focus.
                 let editor_context = crate::context_inject::render_xml_opt(&params.context);
@@ -411,46 +405,18 @@ impl MessageHandler for EditorHandler {
                     .as_ref()
                     .map(|c| c.approval_mode)
                     .unwrap_or(snaca_editor_protocol::types::config::ApprovalMode::Interactive);
-                let cancel_token = tokio_util::sync::CancellationToken::new();
-                self.pending_turns
-                    .lock()
-                    .unwrap()
-                    .insert(turn_id.clone(), cancel_token.clone());
-                let gate = gate_for_mode(
+                self.spawn_engine_turn(
+                    engine,
                     approval_mode,
-                    outbound.clone(),
-                    turn_id_clone.clone(),
-                    self.pending_approvals.clone(),
-                    self.pending_edit_approvals.clone(),
-                    workspace_root.clone(),
-                    cancel_token.clone(),
-                );
-
-                let pending_turns_for_task = self.pending_turns.clone();
-                let handle = tokio::spawn(async move {
-                    run_engine_turn(
-                        engine,
-                        outbound,
-                        sessions,
-                        session_id,
-                        project_id,
-                        thread_id,
-                        turn_id_clone.clone(),
-                        user_text,
-                        editor_context,
-                        gate,
-                        cancel_token,
-                    )
-                    .await;
-                    pending_turns_for_task
-                        .lock()
-                        .unwrap()
-                        .remove(&turn_id_clone);
-                });
-                let _ = self
-                    .sessions
-                    .set_abort(&params.session_id, &turn_id, handle.abort_handle())
-                    .await;
+                    &params.session_id,
+                    &project_id,
+                    &workspace_root,
+                    &params.thread_id,
+                    &turn_id,
+                    params.content.clone(),
+                    editor_context,
+                )
+                .await;
             }
             None => {
                 // ---- Legacy P1 path: bare LLM round-trip. ----
@@ -532,53 +498,28 @@ impl MessageHandler for EditorHandler {
                 .ok_or_else(ProtocolError::not_initialized)?
         };
         let llm = self.get_llm().await?;
-        let cancel = tokio_util::sync::CancellationToken::new();
-        self.pending_turns
-            .lock()
-            .unwrap()
-            .insert(plan_turn_id.clone(), cancel.clone());
 
         match params.mode {
             ComposerMode::Immediate => {
-                let gate = gate_for_mode(
+                self.spawn_engine_turn(
+                    engine,
                     snaca_config.approval_mode,
-                    self.outbound.clone(),
-                    plan_turn_id.clone(),
-                    self.pending_approvals.clone(),
-                    self.pending_edit_approvals.clone(),
-                    workspace_root.clone(),
-                    cancel.clone(),
-                );
-                let outbound = self.outbound.clone();
-                let sessions = self.sessions.clone();
-                let session_id = params.session_id.clone();
-                let thread_id = params.thread_id.clone();
-                let turn_id_clone = plan_turn_id.clone();
-                let user_text = params.instruction.clone();
-                let pending_turns = self.pending_turns.clone();
-                let handle = tokio::spawn(async move {
-                    run_engine_turn(
-                        engine,
-                        outbound,
-                        sessions,
-                        session_id,
-                        project_id,
-                        thread_id,
-                        turn_id_clone.clone(),
-                        user_text,
-                        None,
-                        gate,
-                        cancel,
-                    )
-                    .await;
-                    pending_turns.lock().unwrap().remove(&turn_id_clone);
-                });
-                let _ = self
-                    .sessions
-                    .set_abort(&params.session_id, &plan_turn_id, handle.abort_handle())
-                    .await;
+                    &params.session_id,
+                    &project_id,
+                    &workspace_root,
+                    &params.thread_id,
+                    &plan_turn_id,
+                    params.instruction.clone(),
+                    None,
+                )
+                .await;
             }
             ComposerMode::PlanFirst => {
+                let cancel = tokio_util::sync::CancellationToken::new();
+                self.pending_turns
+                    .lock()
+                    .unwrap()
+                    .insert(plan_turn_id.clone(), cancel.clone());
                 let (db, metadata_root, _ws, _proj) =
                     self.sessions.composer_context(&params.session_id).await?;
                 let args = ComposerPlanArgs {
@@ -757,20 +698,82 @@ impl MessageHandler for EditorHandler {
     }
 }
 
+impl EditorHandler {
+    /// Shared engine-turn dispatch for `chat.send` and composer Immediate:
+    /// registers the cancellation token, builds the approval gate, spawns
+    /// [`run_engine_turn`], removes the pending-turn entry when it settles,
+    /// and registers the abort handle with the session. Fire-and-forget —
+    /// failures stream out as turn deltas, not through this return value.
+    #[allow(clippy::too_many_arguments)]
+    async fn spawn_engine_turn(
+        &self,
+        engine: Arc<snaca_engine::Engine>,
+        approval_mode: snaca_editor_protocol::types::config::ApprovalMode,
+        session_id: &str,
+        project_id: &str,
+        workspace_root: &std::path::Path,
+        thread_id: &str,
+        turn_id: &str,
+        user_text: String,
+        editor_context: Option<String>,
+    ) {
+        let outbound = self.outbound.clone();
+        let sessions = self.sessions.clone();
+        let cancel_token = tokio_util::sync::CancellationToken::new();
+        self.pending_turns
+            .lock()
+            .unwrap()
+            .insert(turn_id.to_string(), cancel_token.clone());
+        let gate = gate_for_mode(
+            approval_mode,
+            outbound.clone(),
+            turn_id.to_string(),
+            self.pending_approvals.clone(),
+            self.pending_edit_approvals.clone(),
+            workspace_root.to_path_buf(),
+            cancel_token.clone(),
+        );
+
+        // Convert borrows to owned before spawning — the task must be
+        // 'static.
+        let session_id = session_id.to_string();
+        let project_id = project_id.to_string();
+        let thread_id = thread_id.to_string();
+
+        let pending_turns_for_task = self.pending_turns.clone();
+        let turn_id_task = turn_id.to_string();
+        let session_id_for_abort = session_id.clone();
+        let handle = tokio::spawn(async move {
+            run_engine_turn(
+                engine,
+                outbound,
+                sessions,
+                session_id,
+                project_id,
+                thread_id,
+                turn_id_task.clone(),
+                user_text,
+                editor_context,
+                gate,
+                cancel_token,
+            )
+            .await;
+            pending_turns_for_task.lock().unwrap().remove(&turn_id_task);
+        });
+        let _ = self
+            .sessions
+            .set_abort(&session_id_for_abort, turn_id, handle.abort_handle())
+            .await;
+    }
+}
+
 /// Assemble the per-turn system prompt: base instruction followed by the
 /// host-supplied `ChatContext` rendered as XML. Empty contexts collapse to
-/// just the base instruction.
+/// just the base instruction (`render_xml_opt` owns that check).
 fn build_system_prompt(context: &ChatContext) -> String {
-    let xml = context_inject::render_xml(context);
-    // `render_xml` always returns at least `<context>\n</context>\n`. Skip the
-    // wrapper when there is nothing meaningful inside to keep the prompt tight.
-    let context_is_empty = xml
-        .lines()
-        .all(|l| matches!(l.trim(), "" | "<context>" | "</context>"));
-    if context_is_empty {
-        BASE_SYSTEM_PROMPT.to_string()
-    } else {
-        format!("{BASE_SYSTEM_PROMPT}\n\n{xml}")
+    match context_inject::render_xml_opt(context) {
+        Some(xml) => format!("{BASE_SYSTEM_PROMPT}\n\n{xml}"),
+        None => BASE_SYSTEM_PROMPT.to_string(),
     }
 }
 
@@ -778,71 +781,31 @@ fn build_system_prompt(context: &ChatContext) -> String {
 /// supplied. Used at init / config.reload so operators can verify the
 /// fields landed on the wire — and notice when Studio sent nothing
 /// (the engine then keeps `EngineConfig::default_for(model)`).
+///
+/// Derived from serde serialization of the wire struct rather than a
+/// hand-written per-field list: every field is `skip_serializing_if =
+/// Option::is_none`, so the JSON object contains exactly the overrides
+/// the host set — a new protocol field shows up here automatically
+/// instead of drifting like the old enumeration did.
 fn format_engine_overrides(ec: &snaca_editor_protocol::types::config::EngineConfig) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    if let Some(v) = ec.max_iterations {
-        parts.push(format!("max_iterations={v}"));
+    let Ok(serde_json::Value::Object(map)) = serde_json::to_value(ec) else {
+        return "<defaults>".into();
+    };
+    if map.is_empty() {
+        return "<defaults>".into();
     }
-    if let Some(v) = ec.loop_guard_max_repeats {
-        parts.push(format!("loop_guard={v}"));
-    }
-    if let Some(v) = ec.concurrent_tool_limit {
-        parts.push(format!("concurrent={v}"));
-    }
-    if let Some(v) = ec.max_tokens {
-        parts.push(format!("max_tokens={v}"));
-    }
-    if let Some(v) = ec.history_limit {
-        parts.push(format!("history_limit={v}"));
-    }
-    if let Some(v) = ec.compact_after_input_tokens {
-        parts.push(format!("compact_after={v}"));
-    }
-    if let Some(v) = ec.compact_keep_recent {
-        parts.push(format!("compact_keep={v}"));
-    }
-    if let Some(v) = ec.protect_first_n {
-        parts.push(format!("protect_first={v}"));
-    }
-    if let Some(v) = ec.compact_max_retries {
-        parts.push(format!("compact_retries={v}"));
-    }
-    if ec.system_prompt.as_ref().is_some_and(|s| !s.is_empty()) {
-        parts.push("system_prompt=set".into());
-    }
-    if let Some(b) = ec.memory_extractor {
-        parts.push(format!("memory_extractor={b}"));
-    }
-    if let Some(v) = ec.compact_summary_max_tokens {
-        parts.push(format!("compact_summary_max_tokens={v}"));
-    }
-    if let Some(v) = ec.history_max_bytes {
-        parts.push(format!("history_max_bytes={v}"));
-    }
-    if let Some(v) = ec.turn_timeout_secs {
-        parts.push(format!("turn_timeout_secs={v}"));
-    }
-    if let Some(v) = ec.collapse_tool_results_threshold {
-        parts.push(format!("collapse_tool_results_threshold={v}"));
-    }
-    if let Some(b) = ec.stream_tool_execution {
-        parts.push(format!("stream_tool_execution={b}"));
-    }
-    if let Some(v) = ec.max_output_token_escalation_attempts {
-        parts.push(format!("max_output_token_escalation_attempts={v}"));
-    }
-    if let Some(v) = ec.max_output_token_ceiling {
-        parts.push(format!("max_output_token_ceiling={v}"));
-    }
-    if let Some(v) = ec.mcp_idle_ttl_secs {
-        parts.push(format!("mcp_idle_ttl_secs={v}"));
-    }
-    if let Some(v) = ec.mcp_reaper_period_secs {
-        parts.push(format!("mcp_reaper_period_secs={v}"));
-    }
-    if parts.is_empty() {
-        "<defaults>".into()
-    } else {
-        parts.join(", ")
-    }
+    let parts: Vec<String> = map
+        .into_iter()
+        .map(|(k, v)| {
+            // Mask the prompt body — the field's presence is the signal.
+            if k == "system_prompt" {
+                return "system_prompt=set".to_string();
+            }
+            match v {
+                serde_json::Value::String(s) => format!("{k}={s}"),
+                other => format!("{k}={other}"),
+            }
+        })
+        .collect();
+    parts.join(", ")
 }

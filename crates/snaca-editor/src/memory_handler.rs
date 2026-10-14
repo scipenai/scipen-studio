@@ -15,11 +15,15 @@ use snaca_editor_protocol::messages::memory::{
     MemoryWriteResult,
 };
 use snaca_memory::{MemoryError, MemoryScope, MemoryStore};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::warn;
 
 const PREVIEW_MAX_CHARS: usize = 200;
+/// How much of an entry file `memory.list` reads for the preview. The
+/// preview only needs the first non-empty line (≤200 chars), so a large
+/// memory file must not be slurped whole on every viewer refresh.
+const PREVIEW_HEAD_BYTES: usize = 2048;
 
 pub(crate) fn scope_to_store(s: WireScope) -> MemoryScope {
     match s {
@@ -55,8 +59,7 @@ async fn require_session_dir(
     sessions: &SessionManager,
     session_id: &str,
 ) -> Result<PathBuf, ProtocolError> {
-    let dir = sessions.memory_dir_for(session_id).await?;
-    Ok(dir)
+    sessions.memory_dir_for(session_id).await
 }
 
 pub async fn handle_memory_list(
@@ -90,13 +93,13 @@ async fn summarize_entry(memory_dir: &PathBuf, scope: MemoryScope, name: &str) -
         Ok(md) => md
             .modified()
             .ok()
-            .and_then(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339().into())
+            .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
             .unwrap_or_default(),
         Err(_) => String::new(),
     };
-    let preview = match tokio::fs::read_to_string(&path).await {
-        Ok(content) => preview_of(&content),
-        Err(_) => String::new(),
+    let preview = match read_head(&path, PREVIEW_HEAD_BYTES).await {
+        Some(head) => preview_of(&head),
+        None => String::new(),
     };
     MemoryEntrySummary {
         scope: scope_to_wire(scope),
@@ -104,6 +107,25 @@ async fn summarize_entry(memory_dir: &PathBuf, scope: MemoryScope, name: &str) -
         last_modified,
         preview,
     }
+}
+
+/// Read at most `max_bytes` from the start of a file. `None` when the file
+/// cannot be opened or read; lossy UTF-8 keeps a multi-byte char cut at the
+/// boundary from failing the whole preview.
+async fn read_head(path: &Path, max_bytes: usize) -> Option<String> {
+    use tokio::io::AsyncReadExt;
+    let mut file = tokio::fs::File::open(path).await.ok()?;
+    let mut buf = vec![0u8; max_bytes];
+    let mut filled = 0usize;
+    while filled < buf.len() {
+        match file.read(&mut buf[filled..]).await {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(_) => return None,
+        }
+    }
+    buf.truncate(filled);
+    Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
 fn preview_of(content: &str) -> String {
@@ -141,6 +163,18 @@ pub async fn handle_memory_get(
     })
 }
 
+/// Filesystem path for an entry — mirrors `MemoryStore`'s private
+/// `entry_path` (sanitized name + scope dir + `.md`). Used for cheap
+/// existence checks and path reveal without slurping the entry.
+fn entry_fs_path(
+    memory_dir: &Path,
+    scope: MemoryScope,
+    name: &str,
+) -> Result<PathBuf, ProtocolError> {
+    let safe = snaca_memory::sanitize_name(name).map_err(memory_err)?;
+    Ok(memory_dir.join(scope.dir_name()).join(format!("{safe}.md")))
+}
+
 pub async fn handle_memory_write(
     sessions: &SessionManager,
     outbound: &Arc<OutboundWriter>,
@@ -150,7 +184,9 @@ pub async fn handle_memory_write(
     let store = MemoryStore::new(&dir);
     let scope = scope_to_store(params.scope);
 
-    let existed = matches!(store.read(scope, &params.name).await, Ok(_));
+    let existed = tokio::fs::try_exists(&entry_fs_path(&dir, scope, &params.name)?)
+        .await
+        .unwrap_or(false);
     store
         .write(scope, &params.name, &params.content)
         .await
@@ -190,7 +226,9 @@ pub async fn handle_memory_delete(
     let store = MemoryStore::new(&dir);
     let scope = scope_to_store(params.scope);
 
-    let existed = matches!(store.read(scope, &params.name).await, Ok(_));
+    let existed = tokio::fs::try_exists(&entry_fs_path(&dir, scope, &params.name)?)
+        .await
+        .unwrap_or(false);
     store
         .delete(scope, &params.name)
         .await
@@ -224,11 +262,7 @@ pub async fn handle_memory_reveal(
 ) -> Result<MemoryRevealResult, ProtocolError> {
     let dir = require_session_dir(sessions, &params.session_id).await?;
     let path = match (params.scope, params.name) {
-        (Some(scope), Some(name)) => {
-            let scope = scope_to_store(scope);
-            let safe = snaca_memory::sanitize_name(&name).map_err(|e| memory_err(e))?;
-            dir.join(scope.dir_name()).join(format!("{safe}.md"))
-        }
+        (Some(scope), Some(name)) => entry_fs_path(&dir, scope_to_store(scope), &name)?,
         _ => dir,
     };
     Ok(MemoryRevealResult {

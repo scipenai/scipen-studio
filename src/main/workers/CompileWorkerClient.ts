@@ -1,12 +1,10 @@
 /**
  * @file CompileWorkerClient - Compile Worker Client
- * @description Provides async interface for compile.worker communication, executes LaTeX/Typst compilation
- * @depends worker_threads, workerUtils
+ * @description Provides async interface for compile.worker communication, executes LaTeX compilation
+ * @depends worker_threads, workerUtils, BaseWorkerClient
  */
 
-import { EventEmitter } from 'events';
-import { Worker } from 'worker_threads';
-import { WorkerRestartManager, delay, getWorkerPath } from './workerUtils';
+import { BaseWorkerClient, type PendingRequest } from './BaseWorkerClient';
 
 // ====== Type Definitions ======
 
@@ -14,12 +12,6 @@ import { WorkerRestartManager, delay, getWorkerPath } from './workerUtils';
 interface CompileLatexPayload {
   content: string;
   options?: CompilationOptions;
-}
-
-/** Typst compilation request payload */
-interface CompileTypstPayload {
-  content: string;
-  options?: TypstCompilationOptions;
 }
 
 /** Cleanup request payload */
@@ -33,16 +25,8 @@ interface AbortPayload {
 /** Worker message - uses Discriminated Union for type safety */
 type WorkerMessage =
   | { id: string; type: 'compile'; payload: CompileLatexPayload }
-  | { id: string; type: 'compileTypst'; payload: CompileTypstPayload }
   | { id: string; type: 'cleanup'; payload: CleanupPayload }
   | { id: string; type: 'abort'; payload: AbortPayload };
-
-interface WorkerResponse {
-  id: string;
-  success: boolean;
-  data?: unknown;
-  error?: string;
-}
 
 interface ProgressMessage {
   id: string;
@@ -74,12 +58,6 @@ export interface CompilationOptions {
   projectPath?: string;
 }
 
-export interface TypstCompilationOptions {
-  engine?: 'typst' | 'tinymist';
-  mainFile?: string;
-  projectPath?: string;
-}
-
 export interface CompilationResult {
   success: boolean;
   pdfPath?: string;
@@ -99,29 +77,28 @@ const DEFAULT_COMPILE_TIMEOUT = 2 * 60 * 1000;
 /** Cleanup operation timeout (ms) - 30 seconds */
 const CLEANUP_TIMEOUT = 30 * 1000;
 
+/** Pending entry enriched with the compile-specific streaming callbacks. */
+interface CompilePendingRequest extends PendingRequest {
+  onProgress?: (progress: CompileProgress) => void;
+  onLog?: (log: CompileLog) => void;
+}
+
 // ====== Singleton Client ======
 
-class CompileWorkerClient extends EventEmitter {
+class CompileWorkerClient extends BaseWorkerClient {
   private static instance: CompileWorkerClient | null = null;
 
-  private worker: Worker | null = null;
-  private pendingRequests: Map<
-    string,
-    {
-      resolve: (value: unknown) => void;
-      reject: (error: Error) => void;
-      onProgress?: (progress: CompileProgress) => void;
-      onLog?: (log: CompileLog) => void;
-      timeout?: NodeJS.Timeout;
-    }
-  > = new Map();
-  private requestIdCounter = 0;
-  private isInitialized = false;
-  private restartManager = new WorkerRestartManager('CompileWorkerClient');
-  private isRestarting = false;
-
   private constructor() {
-    super();
+    super({
+      name: 'CompileWorkerClient',
+      workerKind: 'compile',
+      idPrefix: 'compile',
+      // Compile manages timeouts per request (abort-on-timeout), so the
+      // base default is only a backstop.
+      defaultTimeout: 0,
+      pingOnInit: false,
+      rejectPendingOnAbnormalExit: true,
+    });
   }
 
   /**
@@ -134,168 +111,46 @@ class CompileWorkerClient extends EventEmitter {
     return CompileWorkerClient.instance;
   }
 
-  /**
-   * Initialize Worker
-   */
-  public async initialize(): Promise<void> {
-    if (this.isInitialized && this.worker) {
-      return;
-    }
+  /** Route per-request progress/log streams; responses fall through. */
+  protected tryHandleMessage(message: unknown): boolean {
+    if (typeof message !== 'object' || message === null) return false;
+    const m = message as ProgressMessage | LogMessage;
+    if (!('type' in m) || (m.type !== 'progress' && m.type !== 'log')) return false;
 
-    return new Promise((resolve, reject) => {
-      try {
-        // Use unified path resolution utility
-        const workerPath = getWorkerPath('compile');
-        console.info('[CompileWorkerClient] Worker path:', workerPath);
+    const pending = this.pendingRequests.get(m.id) as CompilePendingRequest | undefined;
+    if (!pending) return true; // stream for an unknown/finished request — drop
 
-        this.worker = new Worker(workerPath);
-
-        this.worker.on('message', (message: WorkerResponse | ProgressMessage | LogMessage) => {
-          this.handleMessage(message);
-        });
-
-        this.worker.on('error', (error) => {
-          console.error('[CompileWorkerClient] Worker error:', error);
-          // Reject all pending requests
-          this.rejectAllPendingRequests(error);
-          this.emit('error', error);
-        });
-
-        this.worker.on('exit', (code) => {
-          console.info(`[CompileWorkerClient] Worker exited, code: ${code}`);
-          // If abnormal exit, reject all pending requests
-          if (code !== 0) {
-            this.rejectAllPendingRequests(new Error(`Worker exited with code ${code}`));
-            // Attempt auto-restart
-            this.attemptRestart();
-          }
-          this.isInitialized = false;
-          this.worker = null;
-        });
-
-        this.isInitialized = true;
-        // Worker successfully initialized, reset restart count
-        this.restartManager.reset();
-        console.info('[CompileWorkerClient] ✓ Worker initialization successful');
-        resolve();
-      } catch (error) {
-        console.error('[CompileWorkerClient] Initialization failed:', error);
-        reject(error);
-      }
-    });
-  }
-
-  /**
-   * Attempt to auto-restart Worker
-   */
-  private async attemptRestart(): Promise<void> {
-    if (this.isRestarting) {
-      return;
-    }
-
-    if (!this.restartManager.canRestart()) {
-      console.error(
-        '[CompileWorkerClient] Reached max restart attempts, no longer attempting restart'
-      );
-      this.emit('maxRestartsReached');
-      return;
-    }
-
-    this.isRestarting = true;
-    const waitTime = this.restartManager.recordRestart();
-
-    if (waitTime > 0) {
-      await delay(waitTime);
-    }
-
-    try {
-      console.info('[CompileWorkerClient] Attempting to restart Worker...');
-      await this.initialize();
-      console.info('[CompileWorkerClient] ✓ Worker restart successful');
-    } catch (error) {
-      console.error('[CompileWorkerClient] Worker restart failed:', error);
-    } finally {
-      this.isRestarting = false;
-    }
-  }
-
-  /**
-   * Reject all pending requests (called when Worker crashes)
-   */
-  private rejectAllPendingRequests(error: Error): void {
-    for (const [, pending] of this.pendingRequests) {
-      if (pending.timeout) {
-        clearTimeout(pending.timeout);
-      }
-      pending.reject(error);
-    }
-    this.pendingRequests.clear();
-    console.info('[CompileWorkerClient] Rejected all pending requests');
-  }
-
-  /**
-   * Handle Worker message
-   */
-  private handleMessage(message: WorkerResponse | ProgressMessage | LogMessage): void {
-    const pending = this.pendingRequests.get(message.id);
-    if (!pending) {
-      return;
-    }
-
-    // Progress message
-    if ('type' in message && message.type === 'progress') {
-      if (pending.onProgress) {
-        pending.onProgress({
-          progress: (message as ProgressMessage).progress,
-          message: (message as ProgressMessage).message,
-        });
-      }
-      this.emit(
-        'progress',
-        message.id,
-        (message as ProgressMessage).progress,
-        (message as ProgressMessage).message
-      );
-      return;
-    }
-
-    // Log message
-    if ('type' in message && message.type === 'log') {
-      if (pending.onLog) {
-        pending.onLog({
-          level: (message as LogMessage).level,
-          message: (message as LogMessage).message,
-        });
-      }
-      this.emit('log', message.id, (message as LogMessage).level, (message as LogMessage).message);
-      return;
-    }
-
-    // Completion response
-    if (pending.timeout) {
-      clearTimeout(pending.timeout);
-    }
-    this.pendingRequests.delete(message.id);
-
-    if ((message as WorkerResponse).success) {
-      pending.resolve((message as WorkerResponse).data);
+    if (m.type === 'progress') {
+      pending.onProgress?.({ progress: m.progress, message: m.message });
+      this.emit('progress', m.id, m.progress, m.message);
     } else {
-      pending.reject(new Error((message as WorkerResponse).error || 'Unknown error'));
+      pending.onLog?.({ level: m.level, message: m.message });
+      this.emit('log', m.id, m.level, m.message);
     }
+    return true;
+  }
+
+  /** Public initialize — LaTeXCompiler boots the worker explicitly. */
+  public override initialize(): Promise<void> {
+    return super.initialize();
   }
 
   /**
-   * Send request to Worker
+   * Send request to Worker (compile-flavoured: streaming callbacks +
+   * abort-on-timeout + caller-supplied request id).
    *
-   * Adds timeout mechanism, attempts to cancel task in Worker after timeout
+   * `requestId` lets the caller (LaTeXCompiler) use ITS task id on the wire
+   * so a later `abortTask(taskId)` hits the exact pending entry — the old
+   * prefix-matching fallback in the worker silently killed the wrong task.
    */
-  private async sendRequest<T>(
+  private async sendCompileRequest<T>(
     type: WorkerMessage['type'],
     payload: WorkerMessage['payload'],
     options: {
       timeout?: number;
       onProgress?: (progress: CompileProgress) => void;
       onLog?: (log: CompileLog) => void;
+      requestId?: string;
     } = {}
   ): Promise<T> {
     if (!this.worker || !this.isInitialized) {
@@ -305,7 +160,8 @@ class CompileWorkerClient extends EventEmitter {
     const { timeout = DEFAULT_COMPILE_TIMEOUT, onProgress, onLog } = options;
 
     return new Promise((resolve, reject) => {
-      const id = `compile-${++this.requestIdCounter}-${Date.now()}`;
+      const id =
+        options.requestId ?? `compile-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
       let timeoutHandle: NodeJS.Timeout | undefined;
       if (timeout > 0) {
@@ -326,13 +182,14 @@ class CompileWorkerClient extends EventEmitter {
         }, timeout);
       }
 
-      this.pendingRequests.set(id, {
+      const entry: CompilePendingRequest = {
         resolve: (value) => resolve(value as T),
         reject,
         onProgress,
         onLog,
         timeout: timeoutHandle,
-      });
+      };
+      this.pendingRequests.set(id, entry);
 
       const message = { id, type, payload } as WorkerMessage;
       this.worker!.postMessage(message);
@@ -364,36 +221,17 @@ class CompileWorkerClient extends EventEmitter {
     options: CompilationOptions = {},
     onProgress?: (progress: CompileProgress) => void,
     onLog?: (log: CompileLog) => void,
-    timeout?: number
+    timeout?: number,
+    requestId?: string
   ): Promise<CompilationResult> {
-    return this.sendRequest<CompilationResult>(
+    return this.sendCompileRequest<CompilationResult>(
       'compile',
       { content, options },
       {
         timeout,
         onProgress,
         onLog,
-      }
-    );
-  }
-
-  /**
-   * Compile Typst document
-   */
-  public async compileTypst(
-    content: string,
-    options: TypstCompilationOptions = {},
-    onProgress?: (progress: CompileProgress) => void,
-    onLog?: (log: CompileLog) => void,
-    timeout?: number
-  ): Promise<CompilationResult> {
-    return this.sendRequest<CompilationResult>(
-      'compileTypst',
-      { content, options },
-      {
-        timeout,
-        onProgress,
-        onLog,
+        requestId,
       }
     );
   }
@@ -402,23 +240,17 @@ class CompileWorkerClient extends EventEmitter {
    * Cleanup temporary files
    */
   public async cleanup(): Promise<void> {
-    return this.sendRequest<void>('cleanup', {}, { timeout: CLEANUP_TIMEOUT });
+    return this.sendCompileRequest<void>('cleanup', {}, { timeout: CLEANUP_TIMEOUT });
   }
 
   /**
    * Close Worker
    */
   public async close(): Promise<void> {
-    // Cleanup restart manager
-    this.restartManager.dispose();
-
-    if (this.worker) {
-      await this.worker.terminate();
-      this.worker = null;
-      this.isInitialized = false;
-      this.pendingRequests.clear();
-      console.info('[CompileWorkerClient] ✓ Worker closed');
-    }
+    // In-flight compiles are dropped, not rejected — matches the original
+    // semantics (close happens during app shutdown).
+    await this.closeWorker(null);
+    console.info('[CompileWorkerClient] ✓ Worker closed');
   }
 
   /**

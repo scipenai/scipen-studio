@@ -14,6 +14,7 @@
  *   losing context.
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Bot,
@@ -191,7 +192,7 @@ export function HistoryBrowserDialog(): ReactElement | null {
         ...s,
         labels: [],
         listLoading: false,
-        listError: e instanceof Error ? e.message : String(e),
+        listError: getErrorMessage(e),
       }));
     }
   }, []);
@@ -227,7 +228,7 @@ export function HistoryBrowserDialog(): ReactElement | null {
         if (cancelled) return;
         setLabelsState((s) => ({
           ...s,
-          detail: { files: [], error: e instanceof Error ? e.message : String(e) },
+          detail: { files: [], error: getErrorMessage(e) },
           detailLoading: false,
         }));
       }
@@ -257,7 +258,7 @@ export function HistoryBrowserDialog(): ReactElement | null {
       setSessionsState((s) => ({
         ...s,
         sessions: [],
-        sessionError: e instanceof Error ? e.message : String(e),
+        sessionError: getErrorMessage(e),
       }));
     }
   }, []);
@@ -375,7 +376,7 @@ export function HistoryBrowserDialog(): ReactElement | null {
         if (cancelled) return;
         setSessionsState((s) => ({
           ...s,
-          stepDetail: { files: [], causes, error: e instanceof Error ? e.message : String(e) },
+          stepDetail: { files: [], causes, error: getErrorMessage(e) },
           stepDetailLoading: false,
         }));
       }
@@ -405,7 +406,7 @@ export function HistoryBrowserDialog(): ReactElement | null {
       const { count } = await applySnapshotToOpenTabs(snapshot);
       setLabelsState((s) => ({ ...s, restore: { kind: 'done', count } }));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       setLabelsState((s) => ({
         ...s,
         restore: {
@@ -433,7 +434,7 @@ export function HistoryBrowserDialog(): ReactElement | null {
       const { count } = await applySnapshotToOpenTabs(snapshot);
       setSessionsState((s) => ({ ...s, restore: { kind: 'done', count } }));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = getErrorMessage(e);
       setSessionsState((s) => ({
         ...s,
         restore: {

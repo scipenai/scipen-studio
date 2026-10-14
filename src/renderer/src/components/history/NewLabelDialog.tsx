@@ -7,6 +7,7 @@
  * crossing all of them — atomic on the SQLite side.
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Loader2, Tag, X } from 'lucide-react';
 import {
@@ -125,7 +126,7 @@ export function NewLabelDialog(): ReactElement | null {
       setIsOpen(false);
     } catch (e) {
       setSubmitState('error');
-      setError(e instanceof Error ? e.message : String(e));
+      setError(getErrorMessage(e));
     }
   }, [name, description, submitState, t]);
 

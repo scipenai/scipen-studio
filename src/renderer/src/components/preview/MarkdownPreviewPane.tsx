@@ -3,6 +3,7 @@
  * @description Uses MarkdownRenderService to render sanitized HTML while preserving scroll sync and click-to-source.
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import type React from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Delayer } from '../../../../../shared/utils/async';
@@ -145,7 +146,7 @@ export const MarkdownPreviewPane: React.FC = memo(() => {
       .catch((err) => {
         if (currentRequestId !== requestIdRef.current) return;
         setRendered(null);
-        setError(err instanceof Error ? err.message : String(err));
+        setError(getErrorMessage(err));
       });
   }, [content, activeTabPath, projectPath, theme]);
 

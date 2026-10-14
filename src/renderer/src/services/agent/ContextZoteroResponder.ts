@@ -19,6 +19,7 @@
  *   sees "no results", which is the right behaviour during warm-up.
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { agentClient } from './AgentClientService';
 import { api } from '../../api';
 import { createLogger } from '../LogService';
@@ -45,18 +46,18 @@ export class ContextZoteroResponder {
         logger.error('handler threw — replying error', {
           requestId: req.requestId,
           kind: req.kind,
-          error: err instanceof Error ? err.message : String(err),
+          error: getErrorMessage(err),
         });
         agentClient
           .respondContextZotero({
             requestId: req.requestId,
             ok: false,
-            error: err instanceof Error ? err.message : String(err),
+            error: getErrorMessage(err),
           })
           .catch((respondErr) => {
             logger.warn('fallback respondContextZotero failed', {
               requestId: req.requestId,
-              error: respondErr instanceof Error ? respondErr.message : String(respondErr),
+              error: getErrorMessage(respondErr),
             });
           });
       });

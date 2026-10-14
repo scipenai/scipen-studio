@@ -265,7 +265,7 @@
     "latexNoEngine": "No LaTeX compiler detected. Install TeX Live/MiKTeX/Tectonic, or bundle BusyTeX WASM assets to enable LaTeX compilation.",
     "latexEngineMissing": "Selected LaTeX engine \"{{engine}}\" is unavailable. Please choose another engine.",
     "typstProbing": "Probing available engines...",
-    "typstNoEngine": "No Typst compiler detected. Install tinymist/typst CLI or run pnpm download:typst-wasm to enable the Typst engine.",
+    "typstNoEngine": "No Typst compiler detected. Install tinymist/typst CLI or run npm run download:typst-wasm to enable the Typst engine.",
     "typstEngineMissing": "Selected engine \"{{engine}}\" is unavailable. Please choose another engine.",
     "typstFontEndpoint": "Typst Font Supplement",
     "typstFontEndpointDesc": "The Typst engine ships with a full font set (Libertinus + NewCM + DejaVu + Noto CJK SC). To layer extra fonts (TC/JP/KR or custom families) set a manifest URL — the engine fetches it at init and Electron disk-caches the binaries. See scipen-wasm://typst-ts/examples/noto-cjk-sc.json for the manifest format.",
@@ -645,15 +645,9 @@
   },
   "mainLayout": {
     "editor": "Editor",
-    "pdfPreview": "PDF Preview",
-    "markdownPreview": "Markdown Preview",
-    "typstPreview": "Typst Preview",
-    "preview": "Preview",
-    "paperTab": "Paper",
     "logPanel": "Log Panel"
   },
   "zoteroPaper": {
-    "empty": "Ctrl+Click a citation to view its PDF",
     "notFound": "Citation '{{key}}' not found in Zotero",
     "noPdf": "No PDF attachment for '{{key}}'",
     "loadFailed": "Failed to load PDF for '{{key}}'",
@@ -661,7 +655,8 @@
     "viewPdf": "Raw PDF",
     "viewMarkdown": "Parsed MD",
     "mdUnavailable": "Not parsed yet — click \"Precise parse\" first",
-    "qualityPoor": "Local extraction looks poor (scanned pages or dense formulas) — AI may misread it"
+    "qualityPoor": "Local extraction looks poor (scanned pages or dense formulas) — AI may misread it",
+    "backToPreview": "Back to preview"
   },
   "zoteroCiteHover": {
     "loadingShot": "Loading preview…",
@@ -852,7 +847,11 @@
     "detailedLog": "Detailed log",
     "fullRawLog": "Full raw log",
     "copyLog": "Copy log",
-    "pdfPreviewTab": "PDF Preview"
+    "pdfPreviewTab": "PDF Preview",
+    "partialOutput": "Output stopped at the error ({{count}} errors)",
+    "viewLogs": "View logs",
+    "logs": "Logs",
+    "rawLogs": "Raw logs"
   },
   "markdownPreview": {
     "documentLabel": "Markdown Document"

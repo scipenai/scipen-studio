@@ -229,6 +229,14 @@ class ChatStreamStoreImpl {
   private listeners = new Set<Listener>();
   private subscribed = false;
 
+  /** Bumped only when thread-usage inputs change (a usage event or turn-
+   *  population churn) — gates the `getThreadUsageTotal` cache so per-token
+   *  subscriber re-renders don't re-walk every completed turn. */
+  private usageVersion = 0;
+  private usageCache: { version: number; total: ChatTurnUsage } | null = null;
+  /** True while an rAF-coalesced listener flush is pending. */
+  private notifyScheduled = false;
+
   /** Subscribe to deltas once (idempotent — first React mount kicks it off). */
   private ensureSubscribed(): void {
     if (this.subscribed) return;
@@ -285,6 +293,9 @@ class ChatStreamStoreImpl {
    * hide the column instead of showing a meaningless `$0`.
    */
   getThreadUsageTotal(): ChatTurnUsage {
+    if (this.usageCache && this.usageCache.version === this.usageVersion) {
+      return this.usageCache.total;
+    }
     let inputTokens = 0;
     let outputTokens = 0;
     let cachedInputTokens = 0;
@@ -300,7 +311,18 @@ class ChatStreamStoreImpl {
     };
     accumulate(this.currentTurn?.usage);
     for (const t of this.completedTurns.values()) accumulate(t.usage);
-    return { inputTokens, outputTokens, cachedInputTokens, costUsd };
+    const total = { inputTokens, outputTokens, cachedInputTokens, costUsd };
+    // Cached total is shared by reference across reads — callers must treat
+    // it as read-only (the sole consumer, AgentStatusSegment, does).
+    this.usageCache = { version: this.usageVersion, total };
+    return total;
+  }
+
+  /** Invalidate the usage-aggregate cache. Call at every site that changes
+   *  which turns contribute usage (thread switch/hydrate/reset/finalize)
+   *  or a turn's usage values. */
+  private invalidateUsage(): void {
+    this.usageVersion++;
   }
 
   /**
@@ -371,6 +393,7 @@ class ChatStreamStoreImpl {
       this.completedTurns.clear();
     }
 
+    this.invalidateUsage();
     this.fire();
   }
 
@@ -397,6 +420,7 @@ class ChatStreamStoreImpl {
         text: m.text,
         ts: parseRfc3339OrNow(m.ts),
       }));
+    this.invalidateUsage();
     this.fire();
     void this.hydrateTurnMetaFromCache(threadId);
   }
@@ -423,6 +447,7 @@ class ChatStreamStoreImpl {
       if (this.completedTurns.has(r.turnId)) continue;
       this.completedTurns.set(r.turnId, recordToCompletedTurn(r));
     }
+    this.invalidateUsage();
     this.fire();
   }
 
@@ -441,6 +466,7 @@ class ChatStreamStoreImpl {
       this.messages = [];
       this.currentTurn = null;
       this.completedTurns.clear();
+      this.invalidateUsage();
       this.fire();
     }
   }
@@ -540,6 +566,7 @@ class ChatStreamStoreImpl {
     this.currentTurn = null;
     this.completedTurns.clear();
     this.threadCache.clear();
+    this.invalidateUsage();
     this.fire();
   }
 
@@ -620,7 +647,7 @@ class ChatStreamStoreImpl {
       default:
         return;
     }
-    this.fire();
+    this.fireCoalesced();
   }
 
   private handleUsage(evt: any): void {
@@ -634,7 +661,8 @@ class ChatStreamStoreImpl {
       cachedInputTokens: u.cached_input_tokens ?? 0,
       costUsd: u.cost_usd,
     };
-    this.fire();
+    this.invalidateUsage();
+    this.fireCoalesced();
   }
 
   private handleError(evt: any): void {
@@ -679,6 +707,7 @@ class ChatStreamStoreImpl {
     if (this.currentTurn?.turnId === turnId) {
       this.currentTurn = null;
     }
+    this.invalidateUsage();
     // Fire-and-forget IDB persist — failure only costs us the rich meta
     // on next hydrate, never breaks chat.
     if (this.activeThreadId) {
@@ -1012,6 +1041,24 @@ class ChatStreamStoreImpl {
   private fire(): void {
     this.version++;
     for (const l of this.listeners) l();
+  }
+
+  /** Per-delta notification, coalesced to ONE listener pass per animation
+   *  frame: token bursts arriving within a frame collapse into a single
+   *  subscriber re-render instead of one per token. `version` is bumped
+   *  synchronously so snapshot reads stay fresh even before the flush;
+   *  only the listener notification waits for the frame. Terminal events
+   *  (finalize / errors) keep using `fire()` so the UI settles promptly. */
+  private fireCoalesced(): void {
+    this.version++;
+    if (this.notifyScheduled) return;
+    this.notifyScheduled = true;
+    const flush = (): void => {
+      this.notifyScheduled = false;
+      for (const l of this.listeners) l();
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
+    else setTimeout(flush, 16);
   }
 }
 

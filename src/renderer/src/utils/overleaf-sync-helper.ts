@@ -3,6 +3,7 @@
  * @description Extracted from useGlobalShortcuts and editorSetup to eliminate a DRY violation.
  */
 
+import { getErrorMessage } from './getErrorMessage';
 import { api } from '../api';
 import { resolveOverleafFolderId } from '../components/file-explorer/utils/overleaf-sync';
 import { t } from '../locales';
@@ -294,7 +295,7 @@ async function syncNewEntry(
       return { success: true, relativePath };
     }
   } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
+    const error = getErrorMessage(err);
     logger.warn(`Failed to sync to Overleaf: ${relativePath}`, err);
     return { success: false, relativePath, error };
   }

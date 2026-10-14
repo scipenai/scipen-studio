@@ -34,10 +34,6 @@ export const compileApi = {
   getTypstAvailability: () => ipcRenderer.invoke(IpcChannel.Typst_Available),
   getTypstCapabilities: () => ipcRenderer.invoke(IpcChannel.Typst_GetCapabilities),
   cancelCompile: (type?: 'latex' | 'typst') => ipcRenderer.invoke(IpcChannel.Compile_Cancel, type),
-
-  // BusyTeX WASM artifact persistence (pdf + .synctex.gz → temp paths)
-  writeWasmArtifacts: (pdfBuffer: Uint8Array, synctexBuffer: Uint8Array, baseName?: string) =>
-    ipcRenderer.invoke(IpcChannel.Compile_WriteWasmArtifacts, pdfBuffer, synctexBuffer, baseName),
 };
 
 // ====== App Info ======

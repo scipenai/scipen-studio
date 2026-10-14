@@ -11,6 +11,7 @@
  * Mounted once at app root. Idempotent — re-mounting doesn't re-subscribe.
  */
 
+import { getErrorMessage } from '../utils/getErrorMessage';
 import { useEffect } from 'react';
 import { agentClient } from '../services/agent/AgentClientService';
 import { agentEditProposalBridge } from '../services/agent/AgentEditProposalBridge';
@@ -45,7 +46,7 @@ export function useAgentBridge(): void {
       void handleFlushUnsaved(req).catch((err) => {
         logger.error('flush_unsaved handler threw — replying empty', {
           requestId: req.requestId,
-          error: err instanceof Error ? err.message : String(err),
+          error: getErrorMessage(err),
         });
         // Fire-and-forget the fallback respond. If even this fails (e.g. main
         // already torn down), there's nothing left to do — swallow rather
@@ -56,7 +57,7 @@ export function useAgentBridge(): void {
           .catch((respondErr) => {
             logger.warn('fallback respondContextFlush also failed', {
               requestId: req.requestId,
-              error: respondErr instanceof Error ? respondErr.message : String(respondErr),
+              error: getErrorMessage(respondErr),
             });
           });
       });
@@ -95,7 +96,7 @@ async function handleFlushUnsaved(req: { requestId: string; paths?: string[] }):
     } catch (err) {
       logger.warn('flush_unsaved: failed to write tab', {
         path: tab.path,
-        error: err instanceof Error ? err.message : String(err),
+        error: getErrorMessage(err),
       });
       // Keep going — partial flush is better than none.
     }

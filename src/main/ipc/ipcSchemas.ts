@@ -277,6 +277,10 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
         .max(128)
         .regex(/^[A-Za-z0-9_.-]+$/), // baseName (no path separators)
       safePathSchema, // outputDir (project directory, matches local compiler output)
+      z
+        .string()
+        .max(8_000_000)
+        .optional(), // TeX log text (persisted as {base}.log)
     ]),
   ],
 
@@ -595,8 +599,11 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
 
   // ==================== Memory / Skills viewer (P6-C) ====================
   // The renderer-facing IPC takes only a payload object; session_id is
-  // joined in main from the live AgentSessionState. Schemas here mirror
-  // those in agentHandlers.ts as a defense-in-depth check.
+  // joined in main from the live AgentSessionState.
+  // NOTE: these schemas are NOT currently enforced — agentHandlers.ts
+  // registers Agent_* channels with raw ipcMain.handle instead of
+  // registerTypedHandler. They are kept as the payload contract for the
+  // planned migration to typed handlers.
   [
     IpcChannel.Agent_MemoryList,
     z.tuple([
@@ -878,8 +885,6 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.OverleafProject_GetProjects, z.tuple([])],
 
   // ==================== Typst (P1 fix) ====================
-  [IpcChannel.Typst_Available, z.tuple([])],
-  [IpcChannel.Typst_GetCapabilities, z.tuple([])],
   [IpcChannel.Compile_GetStatus, z.tuple([])],
 
   // ==================== Zotero Integration ====================

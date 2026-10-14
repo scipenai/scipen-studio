@@ -9,7 +9,6 @@ import Store from 'electron-store';
 import type { AIConfigDTO, AIProviderDTO, SelectedModels } from '../../../shared/ipc/types';
 import { ConfigKeys } from '../../../shared/types/config-keys';
 import {
-  DEFAULT_COMPILER_AUTO_COMPILE,
   DEFAULT_COMPILER_ENGINE,
   DEFAULT_COMPILER_OUTPUT_FORMAT,
   DEFAULT_EDITOR_FONT_FAMILY,
@@ -82,7 +81,6 @@ class ConfigManagerImpl implements IConfigManager {
       [ConfigKeys.EditorWordWrap]: DEFAULT_EDITOR_WORD_WRAP,
       [ConfigKeys.EditorLineNumbers]: DEFAULT_EDITOR_LINE_NUMBERS,
       [ConfigKeys.CompilerEngine]: DEFAULT_COMPILER_ENGINE,
-      [ConfigKeys.CompilerAutoCompile]: DEFAULT_COMPILER_AUTO_COMPILE,
       [ConfigKeys.CompilerOutputFormat]: DEFAULT_COMPILER_OUTPUT_FORMAT,
       [ConfigKeys.TelemetryEnabled]: false,
       [ConfigKeys.AutoUpdate]: true,
