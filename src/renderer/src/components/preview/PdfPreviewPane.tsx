@@ -327,17 +327,16 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   const firstFailedError =
     compilationResult?.parsedErrors?.[0]?.message ?? compilationResult?.errors?.[0] ?? null;
 
-  // Overleaf semantics: a failed compile auto-opens the logs pane; a
-  // successful compile auto-closes it. Manual toggling (toolbar button /
-  // banner) always stays available — the PDF remains mounted underneath.
+  // Auto-close the logs pane on a successful compile (Overleaf parity), but
+  // do NOT auto-open it on failure: the partial/stale PDF must stay visible —
+  // the banner + toolbar error badge signal the failure, and the full-pane
+  // logs are one explicit click away. (Verified against user feedback:
+  // auto-covering the preview on every errored compile hides exactly the
+  // output the user needs to see.)
   useEffect(() => {
-    if (!compilationResult) return;
-    if (!compilationResult.success && (hasLogs || hasFallbackDiagnostics)) {
-      setShowLogPanel(true);
-    } else if (compilationResult.success) {
+    if (compilationResult?.success) {
       setShowLogPanel(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- hasLogs/hasFallback are derived from compilationResult
   }, [compilationResult]);
 
   useEffect(() => {
