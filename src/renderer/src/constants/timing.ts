@@ -22,7 +22,6 @@ export const DELAYS = {
   /** Auto-save delay */
   AUTO_SAVE: 1000,
   /** Auto-compile delay */
-  AUTO_COMPILE: 3000,
   /** AI completion trigger delay */
   AI_TRIGGER: 500,
   /** Retry delay */
