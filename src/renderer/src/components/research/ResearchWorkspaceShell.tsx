@@ -31,7 +31,7 @@ import {
   WorkspaceToolbar,
 } from '../layout/workspace';
 import { PANEL_DEFAULT_SIZE, WorkspaceResizeHandle } from './researchWorkspaceHelpers';
-import { PreviewPanel, usePreviewTitle } from './PreviewPanel';
+import { PreviewPanel } from './PreviewPanel';
 
 // Loading strategy notes:
 // - FileExplorer: static import (see top of file) — file drawer is a hot-path lightweight UI, ships in main chunk.
@@ -55,7 +55,6 @@ export const ResearchWorkspaceShell: React.FC = () => {
   const chatVisible = useChatVisible();
   const editorVisible = useEditorVisible();
   const previewVisible = usePreviewVisible();
-  const previewTitle = usePreviewTitle();
 
   // Dynamic loading (replaces lazy+Suspense, commits reliably). Hook is called unconditionally =
   // shell mount kicks off background warm; combined with the idle preload below, the module is
@@ -179,7 +178,7 @@ export const ResearchWorkspaceShell: React.FC = () => {
           </PanelErrorBoundary>
         );
       case 'preview':
-        return <PreviewPanel previewTitle={previewTitle} />;
+        return <PreviewPanel />;
     }
   };
 

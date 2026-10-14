@@ -649,7 +649,6 @@
     "markdownPreview": "Markdown 预览",
     "typstPreview": "Typst 预览",
     "preview": "预览",
-    "paperTab": "论文",
     "logPanel": "日志面板"
   },
   "zoteroPaper": {
@@ -661,7 +660,8 @@
     "viewPdf": "原始 PDF",
     "viewMarkdown": "解析 MD",
     "mdUnavailable": "尚未精解析,请先点「精解析」",
-    "qualityPoor": "本地抽取质量较差(可能含扫描页或密集公式),AI 读取可能不准"
+    "qualityPoor": "本地抽取质量较差(可能含扫描页或密集公式),AI 读取可能不准",
+    "backToPreview": "返回预览"
   },
   "zoteroCiteHover": {
     "loadingShot": "正在加载预览…",

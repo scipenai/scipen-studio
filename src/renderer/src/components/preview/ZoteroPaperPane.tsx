@@ -7,11 +7,12 @@
 
 import type React from 'react';
 import { useEffect, useState } from 'react';
-import { AlertTriangle, FileText, Loader2, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, FileText, Loader2, Sparkles } from 'lucide-react';
 import { api } from '../../api';
 import { useTranslation } from '../../locales';
 import type { TranslationKey } from '../../locales';
 import { useZoteroPdf, useZoteroPaperItemKey } from '../../services/core/hooks';
+import { getUIService } from '../../services/core/ServiceRegistry';
 import type { MinerUParseStatusDTO } from '../../../../../shared/types/zotero-mineru';
 import { MinerUSetupDialog } from '../onboarding/MinerUSetupDialog';
 import { PdfPreviewPane } from './PdfPreviewPane';
@@ -62,14 +63,34 @@ export const ZoteroPaperPane: React.FC = () => {
     };
   }, [itemKey]);
 
+  // Hands the pane back to the compile preview. The paper bytes stay in
+  // UIService, so Ctrl+Click on the same citation re-opens instantly.
+  const backToPreview = (): void => {
+    getUIService().setRightPanelTab('preview');
+  };
+
   if (!bytes || !itemKey) {
     return (
-      <div className="flex h-full flex-col items-center justify-center bg-[var(--color-bg-secondary)]">
-        <div className="px-6 text-center">
-          <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-[var(--color-bg-tertiary)]">
-            <FileText size={40} className="text-[var(--color-text-disabled)]" aria-hidden="true" />
+      <div className="flex h-full flex-col bg-[var(--color-bg-secondary)]">
+        <div
+          className="flex items-center border-b px-3 py-2"
+          style={{ borderBottomColor: 'var(--color-border-subtle)' }}
+        >
+          <BackToPreviewButton onClick={backToPreview} label={t('zoteroPaper.backToPreview')} />
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center">
+          <div className="px-6 text-center">
+            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-[var(--color-bg-tertiary)]">
+              <FileText
+                size={40}
+                className="text-[var(--color-text-disabled)]"
+                aria-hidden="true"
+              />
+            </div>
+            <p className="font-medium text-[var(--color-text-secondary)]">
+              {t('zoteroPaper.empty')}
+            </p>
           </div>
-          <p className="font-medium text-[var(--color-text-secondary)]">{t('zoteroPaper.empty')}</p>
         </div>
       </div>
     );
@@ -112,6 +133,8 @@ export const ZoteroPaperPane: React.FC = () => {
         className="flex items-center gap-2 border-b px-3 py-2"
         style={{ borderBottomColor: 'var(--color-border-subtle)' }}
       >
+        <BackToPreviewButton onClick={backToPreview} label={t('zoteroPaper.backToPreview')} />
+
         {/* PDF / MD toggle */}
         <div className="flex items-center gap-1 rounded-lg bg-[var(--color-bg-tertiary)] p-0.5">
           <SegBtn active={viewMode === 'pdf'} onClick={() => setViewMode('pdf')}>
@@ -190,6 +213,22 @@ export const ZoteroPaperPane: React.FC = () => {
     </div>
   );
 };
+
+const BackToPreviewButton: React.FC<{ onClick: () => void; label: string }> = ({
+  onClick,
+  label,
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-label={label}
+    title={label}
+    className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+  >
+    <ArrowLeft size={14} aria-hidden="true" />
+    <span className="hidden sm:inline">{label}</span>
+  </button>
+);
 
 const SegBtn: React.FC<{
   active: boolean;

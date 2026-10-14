@@ -649,7 +649,6 @@
     "markdownPreview": "Markdown Preview",
     "typstPreview": "Typst Preview",
     "preview": "Preview",
-    "paperTab": "Paper",
     "logPanel": "Log Panel"
   },
   "zoteroPaper": {
@@ -661,7 +660,8 @@
     "viewPdf": "Raw PDF",
     "viewMarkdown": "Parsed MD",
     "mdUnavailable": "Not parsed yet — click \"Precise parse\" first",
-    "qualityPoor": "Local extraction looks poor (scanned pages or dense formulas) — AI may misread it"
+    "qualityPoor": "Local extraction looks poor (scanned pages or dense formulas) — AI may misread it",
+    "backToPreview": "Back to preview"
   },
   "zoteroCiteHover": {
     "loadingShot": "Loading preview…",
