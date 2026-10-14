@@ -116,6 +116,23 @@ export function useCompilation({
         if (result.buildId) {
           uiService.setRemoteBuildId(result.buildId);
         }
+      } else if (result.pdfPath) {
+        // Failed compile that still produced a (partial) PDF — load it so the
+        // preview shows output up to the error point. Errors render as a
+        // banner + log panel over the preview (Overleaf convention), never as
+        // a full-screen replacement that hides the PDF.
+        try {
+          const pdfBuffer = await api.file.readBinary(result.pdfPath);
+          uiService.updateFilePdfPreview(filePath, {
+            pdfPath: result.pdfPath,
+            pdfData: pdfBuffer,
+            isStale: false,
+          });
+          uiService.setPdfPath(result.pdfPath);
+          uiService.setPdfData(pdfBuffer);
+        } catch {
+          // Preview keeps whatever it had; the failure banner still surfaces errors.
+        }
       }
 
       uiService.setCompilationResult({

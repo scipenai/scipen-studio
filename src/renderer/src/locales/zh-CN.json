@@ -852,7 +852,9 @@
     "detailedLog": "详细日志",
     "fullRawLog": "完整原始日志",
     "copyLog": "复制日志",
-    "pdfPreviewTab": "PDF 预览"
+    "pdfPreviewTab": "PDF 预览",
+    "partialOutput": "输出截止于出错点（{{count}} 个错误）",
+    "viewLogs": "查看日志"
   },
   "markdownPreview": {
     "documentLabel": "Markdown 文档"

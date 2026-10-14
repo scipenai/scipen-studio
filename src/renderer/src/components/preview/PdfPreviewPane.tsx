@@ -319,13 +319,22 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
       (compilationResult.parsedInfo?.length ?? 0) > 0);
   const hasFallbackDiagnostics =
     (compilationResult?.errors?.length ?? 0) > 0 || (compilationResult?.warnings?.length ?? 0) > 0;
+  // Failed compile while a (partial or stale) PDF is on screen: banner data.
+  const compileFailedWithPdf = !!compilationResult && !compilationResult.success && !!pdfDoc;
+  const failedErrorCount =
+    compilationResult?.parsedErrors?.length ?? compilationResult?.errors?.length ?? 0;
+  const firstFailedError =
+    compilationResult?.parsedErrors?.[0]?.message ?? compilationResult?.errors?.[0] ?? null;
 
   // Auto-show log panel on compilation failure to surface errors immediately
   useEffect(() => {
-    if (compilationResult && !compilationResult.success && hasLogs) {
+    // Only when there is NO PDF to show — with a (partial or stale) PDF the
+    // banner's "view logs" button opens the panel instead, so the preview is
+    // never covered automatically (Overleaf convention).
+    if (compilationResult && !compilationResult.success && hasLogs && !pdfDoc) {
       setShowLogPanel(true);
     }
-  }, [compilationResult, hasLogs]);
+  }, [compilationResult, hasLogs, pdfDoc]);
 
   useEffect(() => {
     if (compilationResult && !compilationResult.success) {
@@ -870,7 +879,10 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
     );
   }
 
-  if (compilationResult && !compilationResult.success) {
+  // A failed compile only takes over the pane when there is no PDF to show
+  // at all — with partial output (or a stale previous PDF) the preview stays
+  // up and errors ride in a banner + collapsible log panel instead.
+  if (compilationResult && !compilationResult.success && !pdfDoc) {
     const parsedErrors = compilationResult.parsedErrors ?? [];
     const parsedWarnings = compilationResult.parsedWarnings ?? [];
     const parsedInfo = compilationResult.parsedInfo ?? [];
@@ -1168,6 +1180,45 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
   if (pdfDoc && totalPages > 0) {
     return (
       <div className="h-full flex flex-col bg-[var(--color-bg-secondary)]">
+        {compileFailedWithPdf && (
+          <div
+            className="flex min-h-[38px] flex-wrap items-center gap-2 border-b px-4 py-1.5"
+            style={{
+              borderBottomColor: 'color-mix(in srgb, var(--color-error) 22%, transparent)',
+              background: 'var(--color-error-muted)',
+            }}
+          >
+            <AlertCircle
+              size={14}
+              className="shrink-0 text-[var(--color-error)]"
+              aria-hidden="true"
+            />
+            <span className="text-xs font-semibold text-[var(--color-error)]">
+              {t('pdfPreview.compileFailed')}
+            </span>
+            <span className="text-xs text-[var(--color-text-secondary)]">
+              {t('pdfPreview.partialOutput', { count: failedErrorCount })}
+            </span>
+            {firstFailedError && (
+              <span
+                className="min-w-0 flex-1 truncate text-xs text-[var(--color-text-secondary)]"
+                title={firstFailedError}
+              >
+                {firstFailedError}
+              </span>
+            )}
+            {(hasLogs || hasFallbackDiagnostics) && (
+              <button
+                type="button"
+                onClick={() => setShowLogPanel(true)}
+                className="shrink-0 cursor-pointer rounded-md border px-2 py-0.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+                style={{ borderColor: 'color-mix(in srgb, var(--color-error) 28%, transparent)' }}
+              >
+                {t('pdfPreview.viewLogs')}
+              </button>
+            )}
+          </div>
+        )}
         <div
           className="flex min-h-[54px] flex-wrap items-center justify-between gap-y-2 border-b px-4 py-2.5"
           style={{
@@ -1406,9 +1457,12 @@ export const PdfPreviewPane: React.FC<{ source?: 'compile' | 'zotero' }> = ({
           </div>
         </div>
 
-        {showLogPanel && hasLogs && (
+        {showLogPanel && (hasLogs || hasFallbackDiagnostics) && (
           <CompileLogPanel
-            errors={compilationResult?.parsedErrors}
+            errors={
+              compilationResult?.parsedErrors ??
+              compilationResult?.errors?.map((message) => ({ line: null, message }))
+            }
             warnings={compilationResult?.parsedWarnings}
             info={compilationResult?.parsedInfo}
             onClose={() => setShowLogPanel(false)}
