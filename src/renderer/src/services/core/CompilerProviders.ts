@@ -17,6 +17,42 @@ import type { CompilerOptions, CompilerProvider } from './LanguageFeatureRegistr
 
 const logger = createLogger('CompilerProviders');
 
+/**
+ * Parse TeX error entries out of a compile log: every line starting with
+ * `!` (or containing `Fatal error`) opens an error; a following `l.<n>`
+ * line carries the source line number. Deduplicated because BusyTeX's
+ * driver chain re-runs the engine and re-logs the same error each pass.
+ *
+ * Needed because BusyTeX's exit code reflects the last sub-step
+ * (xdvipdfmx) — a `--halt-on-error` xelatex pass that still wrote a
+ * partial `.xdv` converts fine and reports exit 0, so the log is the
+ * only truthful error signal on the "successful" path.
+ */
+export function parseTeXLogErrors(log: string): Array<{ line: number; message: string }> {
+  const lines = log.split('\n');
+  const seen = new Set<string>();
+  const errors: Array<{ line: number; message: string }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith('!') && !/fatal/i.test(lines[i])) continue;
+    const message = lines[i].trim();
+    if (seen.has(message)) continue;
+    // Hunt for the `l.<n>` source marker within the error's context block;
+    // stop early at the next error so we don't steal another error's line.
+    let lineNo = 0;
+    for (let j = i + 1; j <= Math.min(i + 8, lines.length - 1); j++) {
+      const m = lines[j].match(/^l\.(\d+)/);
+      if (m) {
+        lineNo = parseInt(m[1], 10);
+        break;
+      }
+      if (lines[j].startsWith('!')) break;
+    }
+    seen.add(message);
+    errors.push({ line: lineNo, message });
+  }
+  return errors;
+}
+
 // ====== LaTeX Compiler Provider ======
 
 export class LaTeXCompilerProvider implements CompilerProvider {
@@ -492,12 +528,17 @@ export class WASMCompilerProvider implements CompilerProvider {
       this.engine.setMainFile(mainFileName);
 
       const result = await this.engine.compile({ engineType });
+      const parsedErrors = parseTeXLogErrors(result.log ?? '');
 
       if (!result.success) {
         return {
           success: false,
           log: result.log,
-          errors: this.parseErrors(result.log),
+          errors:
+            parsedErrors.length > 0
+              ? parsedErrors.map((e) => e.message)
+              : this.parseErrors(result.log),
+          parsedErrors: parsedErrors.length > 0 ? parsedErrors : undefined,
           warnings: this.parseWarnings(result.log),
         };
       }
@@ -514,11 +555,32 @@ export class WASMCompilerProvider implements CompilerProvider {
         result.pdf!,
         result.synctex ?? new Uint8Array(),
         baseName,
-        outputDir
+        outputDir,
+        result.log
       );
       logger.info('WASM artifacts persisted', {
         writeMs: Math.round(performance.now() - writeT0),
       });
+
+      // Exit code 0 but the log still carries TeX errors (halt-on-error
+      // partial output): keep the artifacts (the partial PDF is on disk and
+      // referenced), but the compile MUST be reported as failed so the UI
+      // surfaces the errors instead of a clean "OK" over truncated output.
+      if (parsedErrors.length > 0) {
+        logger.warn('WASM compile: engine exit 0 but TeX log contains errors', {
+          count: parsedErrors.length,
+          first: parsedErrors[0].message,
+        });
+        return {
+          success: false,
+          pdfPath: artifacts.pdfPath,
+          synctexPath: result.synctex ? artifacts.synctexPath : undefined,
+          log: result.log,
+          errors: parsedErrors.map((e) => e.message),
+          parsedErrors,
+          warnings: this.parseWarnings(result.log),
+        };
+      }
 
       return {
         success: true,

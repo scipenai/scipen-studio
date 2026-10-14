@@ -120,7 +120,13 @@ export interface IPCCompileContract {
     };
   };
   [IpcChannel.Compile_WriteWasmArtifacts]: {
-    args: [pdfBuffer: Uint8Array, synctexBuffer: Uint8Array, baseName: string, outputDir: string];
+    args: [
+      pdfBuffer: Uint8Array,
+      synctexBuffer: Uint8Array,
+      baseName: string,
+      outputDir: string,
+      logText?: string,
+    ];
     result: CompileWasmArtifactsResult;
   };
   [IpcChannel.LaTeX_GetCapabilities]: {

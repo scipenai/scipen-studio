@@ -376,14 +376,16 @@ export const compile = {
     pdfBuffer: Uint8Array,
     synctexBuffer: Uint8Array,
     baseName: string,
-    outputDir: string
+    outputDir: string,
+    logText?: string
   ) =>
     invoke<{ pdfPath: string; synctexPath: string }>(
       IpcChannel.Compile_WriteWasmArtifacts,
       pdfBuffer,
       synctexBuffer,
       baseName,
-      outputDir
+      outputDir,
+      logText
     ),
 };
 
