@@ -42,7 +42,7 @@ export function parseTeXLogErrors(log: string): Array<{ line: number; message: s
     for (let j = i + 1; j <= Math.min(i + 8, lines.length - 1); j++) {
       const m = lines[j].match(/^l\.(\d+)/);
       if (m) {
-        lineNo = parseInt(m[1], 10);
+        lineNo = Number.parseInt(m[1], 10);
         break;
       }
       if (lines[j].startsWith('!')) break;
