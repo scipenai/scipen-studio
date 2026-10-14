@@ -88,6 +88,32 @@ export class LaTeXCompilerProvider implements CompilerProvider {
 
     const result = await api.compile.latex(content, compileOptions);
 
+    // Same truth-source as the WASM path: the exit code alone misses
+    // recoverable `!` errors logged during a nonstop-mode run that still
+    // exits 0 — the log is the authoritative error signal, so keep both
+    // engine families consistent (partial PDF stays available via pdfPath).
+    if (result.success) {
+      const logErrors = parseTeXLogErrors(result.log ?? '');
+      if (logErrors.length > 0) {
+        logger.warn('Local LaTeX compile: exit 0 but TeX log contains errors', {
+          count: logErrors.length,
+          first: logErrors[0].message,
+        });
+        return {
+          success: false,
+          pdfPath: result.pdfPath,
+          synctexPath: result.synctexPath,
+          log: result.log,
+          errors: logErrors.map((e) => e.message),
+          parsedErrors: logErrors,
+          warnings: result.warnings,
+          parsedWarnings: result.parsedWarnings as
+            | Array<{ line: number; message: string }>
+            | undefined,
+        };
+      }
+    }
+
     return {
       success: result.success,
       pdfPath: result.pdfPath,

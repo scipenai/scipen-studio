@@ -253,14 +253,28 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
     return null;
   }
 
-  const useVirtualization = filteredItems.length > VIRTUALIZATION_THRESHOLD;
+  // Embedded mode (no-PDF failure pane): the host is an auto-height scroll
+  // container, so h-full/Virtuoso percentage heights collapse — use a plain
+  // capped scroll list instead. Full mode virtualizes as before.
+  const useVirtualization = !embedded && filteredItems.length > VIRTUALIZATION_THRESHOLD;
+
+  // Stable Footer identity: an inline component here would remount the raw
+  // log (tens of KB of <pre>) on every unrelated re-render (entry expand,
+  // filter change), resetting its scroll position.
+  const virtuosoFooter = useMemo(() => {
+    const Footer = () =>
+      filter === 'all' && rawLog?.trim() ? (
+        <RawLogSection rawLog={rawLog} open={rawOpen} onToggle={() => setRawOpen((v) => !v)} />
+      ) : null;
+    return Footer;
+  }, [filter, rawLog, rawOpen]);
 
   return (
     <div
       className={clsx(
-        // Fills the pane Overleaf-style — the parent decides the footprint
-        // (full-size overlay of the preview viewer area).
-        'flex h-full min-h-0 flex-col',
+        // Full mode fills the pane Overleaf-style — the parent decides the
+        // footprint (full-size overlay of the preview viewer area).
+        embedded ? 'flex min-h-0 max-h-96 flex-col' : 'flex h-full min-h-0 flex-col',
         embedded
           ? 'bg-transparent border-0'
           : 'bg-[var(--color-bg-secondary)] border-t border-[var(--color-border)]'
@@ -330,7 +344,7 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className={clsx('overflow-hidden', embedded ? 'min-h-0 flex-1' : 'flex-1 min-h-0')}>
         {useVirtualization ? (
           <Virtuoso
             data={filteredItems}
@@ -338,19 +352,10 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
             className="h-full"
             style={{ height: '100%' }}
             increaseViewportBy={{ top: 100, bottom: 100 }}
-            components={{
-              Footer: () =>
-                filter === 'all' && rawLog?.trim() ? (
-                  <RawLogSection
-                    rawLog={rawLog}
-                    open={rawOpen}
-                    onToggle={() => setRawOpen((v) => !v)}
-                  />
-                ) : null,
-            }}
+            components={{ Footer: virtuosoFooter }}
           />
         ) : (
-          <div className="h-full overflow-y-auto">
+          <div className={embedded ? 'overflow-y-auto' : 'h-full overflow-y-auto'}>
             {filteredItems.length === 0 && !(filter === 'all' && rawLog?.trim()) ? (
               <div className="flex items-center justify-center h-20 text-[var(--color-text-muted)] text-sm">
                 {t('compileLog.noLogs')}{' '}

@@ -7,11 +7,11 @@
 
 import type React from 'react';
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ArrowLeft, FileText, Loader2, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Loader2, Sparkles } from 'lucide-react';
 import { api } from '../../api';
 import { useTranslation } from '../../locales';
 import type { TranslationKey } from '../../locales';
-import { useZoteroPdf, useZoteroPaperItemKey } from '../../services/core/hooks';
+import { useZoteroPaperItemKey } from '../../services/core/hooks';
 import { getUIService } from '../../services/core/ServiceRegistry';
 import type { MinerUParseStatusDTO } from '../../../../../shared/types/zotero-mineru';
 import { MinerUSetupDialog } from '../onboarding/MinerUSetupDialog';
@@ -22,7 +22,6 @@ type ViewMode = 'pdf' | 'md';
 
 export const ZoteroPaperPane: React.FC = () => {
   const { t } = useTranslation();
-  const bytes = useZoteroPdf();
   const itemKey = useZoteroPaperItemKey();
 
   const [viewMode, setViewMode] = useState<ViewMode>('pdf');
@@ -69,32 +68,11 @@ export const ZoteroPaperPane: React.FC = () => {
     getUIService().setRightPanelTab('preview');
   };
 
-  if (!bytes || !itemKey) {
-    return (
-      <div className="flex h-full flex-col bg-[var(--color-bg-secondary)]">
-        <div
-          className="flex items-center border-b px-3 py-2"
-          style={{ borderBottomColor: 'var(--color-border-subtle)' }}
-        >
-          <BackToPreviewButton onClick={backToPreview} label={t('zoteroPaper.backToPreview')} />
-        </div>
-        <div className="flex flex-1 flex-col items-center justify-center">
-          <div className="px-6 text-center">
-            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-[var(--color-bg-tertiary)]">
-              <FileText
-                size={40}
-                className="text-[var(--color-text-disabled)]"
-                aria-hidden="true"
-              />
-            </div>
-            <p className="font-medium text-[var(--color-text-secondary)]">
-              {t('zoteroPaper.empty')}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // No empty state: PreviewPanel routes to this pane only when a paper is
+  // loaded (it restores the compile preview whenever zoteroPdf is null), so
+  // mounting without data is not a reachable state. The guard only narrows
+  // the type for the API calls below.
+  if (!itemKey) return null;
 
   const busy =
     status !== null &&

@@ -9,28 +9,11 @@
 
 import type React from 'react';
 import { memo, useEffect } from 'react';
-import { usePreviewMode, useRightPanelTab } from '../../services/core/hooks';
-import { useTranslation } from '../../locales';
+import { useRightPanelTab } from '../../services/core/hooks';
 import { getUIService } from '../../services/core/ServiceRegistry';
 import { useLazyModule } from '../../hooks/useLazyModule';
 import { PanelErrorBoundary } from '../ErrorBoundary';
 import { PreviewLoadingFallback } from '../LoadingFallback';
-
-/** Preview title follows previewMode (pdf / markdown / typst). */
-export function usePreviewTitle(): string {
-  const { t } = useTranslation();
-  const previewMode = usePreviewMode();
-  switch (previewMode) {
-    case 'pdf':
-      return t('mainLayout.pdfPreview');
-    case 'markdown':
-      return t('mainLayout.markdownPreview');
-    case 'typst':
-      return t('mainLayout.typstPreview');
-    default:
-      return t('mainLayout.preview');
-  }
-}
 
 function PreviewPanelInner(): React.ReactElement {
   const rightPanelTab = useRightPanelTab();
