@@ -249,6 +249,18 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
     [expandedItems, getLevelColor, getLevelIcon, handleJumpToLine, toggleExpand]
   );
 
+  // Stable Footer identity: an inline component here would remount the raw
+  // log (tens of KB of <pre>) on every unrelated re-render (entry expand,
+  // filter change), resetting its scroll position. Must stay ABOVE the
+  // early return below — hooks may not be conditional.
+  const virtuosoFooter = useMemo(() => {
+    const Footer = () =>
+      filter === 'all' && rawLog?.trim() ? (
+        <RawLogSection rawLog={rawLog} open={rawOpen} onToggle={() => setRawOpen((v) => !v)} />
+      ) : null;
+    return Footer;
+  }, [filter, rawLog, rawOpen]);
+
   if (totalCount === 0 && !rawLog?.trim()) {
     return null;
   }
@@ -257,17 +269,6 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
   // container, so h-full/Virtuoso percentage heights collapse — use a plain
   // capped scroll list instead. Full mode virtualizes as before.
   const useVirtualization = !embedded && filteredItems.length > VIRTUALIZATION_THRESHOLD;
-
-  // Stable Footer identity: an inline component here would remount the raw
-  // log (tens of KB of <pre>) on every unrelated re-render (entry expand,
-  // filter change), resetting its scroll position.
-  const virtuosoFooter = useMemo(() => {
-    const Footer = () =>
-      filter === 'all' && rawLog?.trim() ? (
-        <RawLogSection rawLog={rawLog} open={rawOpen} onToggle={() => setRawOpen((v) => !v)} />
-      ) : null;
-    return Footer;
-  }, [filter, rawLog, rawOpen]);
 
   return (
     <div
