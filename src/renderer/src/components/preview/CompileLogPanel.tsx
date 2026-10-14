@@ -79,7 +79,10 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
 }) => {
   const [filter, setFilter] = useState<LogFilter>('all');
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
-  const [rawOpen, setRawOpen] = useState(false);
+  // Raw logs render expanded by default — Overleaf mounts them as an
+  // always-expanded entry at the bottom of the "all" tab
+  // (`alwaysExpandRawContent`), never behind a collapsed footer toggle.
+  const [rawOpen, setRawOpen] = useState(true);
   const { t } = useTranslation();
   const unknownLogFallback = t('compileLog.unknownLog');
   const normalizedErrors = useMemo(
@@ -328,56 +331,90 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
       )}
 
       <div className="flex-1 min-h-0 overflow-hidden">
-        {filteredItems.length === 0 ? (
-          <div className="flex items-center justify-center h-20 text-[var(--color-text-muted)] text-sm">
-            {t('compileLog.noLogs')}{' '}
-            {filter === 'errors'
-              ? t('compileLog.noErrors')
-              : filter === 'warnings'
-                ? t('compileLog.noWarnings')
-                : filter === 'info'
-                  ? t('compileLog.noInfo')
-                  : t('compileLog.logs')}
-          </div>
-        ) : useVirtualization ? (
+        {useVirtualization ? (
           <Virtuoso
             data={filteredItems}
             itemContent={renderLogItem}
             className="h-full"
             style={{ height: '100%' }}
             increaseViewportBy={{ top: 100, bottom: 100 }}
+            components={{
+              Footer: () =>
+                filter === 'all' && rawLog?.trim() ? (
+                  <RawLogSection
+                    rawLog={rawLog}
+                    open={rawOpen}
+                    onToggle={() => setRawOpen((v) => !v)}
+                  />
+                ) : null,
+            }}
           />
         ) : (
           <div className="h-full overflow-y-auto">
-            {filteredItems.map((entry, index) => renderLogItem(index, entry))}
+            {filteredItems.length === 0 && !(filter === 'all' && rawLog?.trim()) ? (
+              <div className="flex items-center justify-center h-20 text-[var(--color-text-muted)] text-sm">
+                {t('compileLog.noLogs')}{' '}
+                {filter === 'errors'
+                  ? t('compileLog.noErrors')
+                  : filter === 'warnings'
+                    ? t('compileLog.noWarnings')
+                    : filter === 'info'
+                      ? t('compileLog.noInfo')
+                      : t('compileLog.logs')}
+              </div>
+            ) : (
+              <>
+                {filteredItems.map((entry, index) => renderLogItem(index, entry))}
+                {filter === 'all' && rawLog?.trim() && (
+                  <RawLogSection
+                    rawLog={rawLog}
+                    open={rawOpen}
+                    onToggle={() => setRawOpen((v) => !v)}
+                  />
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
+    </div>
+  );
+};
 
-      {rawLog?.trim() && (
-        <div className="border-t border-[var(--color-border)]">
-          <button
-            type="button"
-            onClick={() => setRawOpen((v) => !v)}
-            aria-expanded={rawOpen}
-            className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
-          >
-            {rawOpen ? (
-              <ChevronDown size={14} aria-hidden="true" />
-            ) : (
-              <ChevronRight size={14} aria-hidden="true" />
-            )}
-            <span className="font-medium">{t('pdfPreview.rawLogs')}</span>
-            <span className="text-xs text-[var(--color-text-muted)]">
-              {rawLog.length.toLocaleString()} chars
-            </span>
-          </button>
-          {rawOpen && (
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all border-t border-[var(--color-border-subtle)] px-3 py-2 font-mono text-xs leading-5 text-[var(--color-text-muted)]">
-              {rawLog.trim()}
-            </pre>
-          )}
-        </div>
+/**
+ * The full raw compiler output, mounted as the last entry of the "all" list
+ * (Overleaf's raw-logs placement) and expanded by default — the diagnostics
+ * rows above are deduplicated summaries, so the raw log is the only place
+ * the complete compile output is visible.
+ */
+const RawLogSection: React.FC<{ rawLog: string; open: boolean; onToggle: () => void }> = ({
+  rawLog,
+  open,
+  onToggle,
+}) => {
+  const { t } = useTranslation();
+  return (
+    <div className="border-t border-[var(--color-border)]">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
+      >
+        {open ? (
+          <ChevronDown size={14} aria-hidden="true" />
+        ) : (
+          <ChevronRight size={14} aria-hidden="true" />
+        )}
+        <span className="font-medium">{t('pdfPreview.rawLogs')}</span>
+        <span className="text-xs text-[var(--color-text-muted)]">
+          {rawLog.length.toLocaleString()} chars
+        </span>
+      </button>
+      {open && (
+        <pre className="overflow-x-auto whitespace-pre-wrap break-all px-3 pb-3 pt-1 font-mono text-xs leading-5 text-[var(--color-text-muted)]">
+          {rawLog.trim()}
+        </pre>
       )}
     </div>
   );
