@@ -85,8 +85,6 @@ export {
 export {
   // Async hooks
   useDelayer,
-  useThrottler,
-  useIdleCallback,
   useDebounce,
   // Disposable hooks
   useDisposables,
@@ -94,10 +92,6 @@ export {
   useMutableDisposable,
   // Event hooks
   useEvent,
-  useEventValue,
-  useDebouncedEvent,
-  useEventBuffer,
-  useEmitter,
 } from '../hooks';
 
 // ============ File Utilities ============

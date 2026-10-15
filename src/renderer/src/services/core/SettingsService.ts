@@ -7,8 +7,6 @@
 import type { AIConfigDTO, AIProviderDTO, SelectedModels } from '../../../../../shared/ipc/types';
 import {
   DEFAULT_CHAT_FONT_SIZE,
-  DEFAULT_COMPILER_AUTO_COMPILE,
-  DEFAULT_COMPILER_COMPILE_ON_SAVE,
   DEFAULT_EDITOR_AUTO_COMPLETION,
   DEFAULT_EDITOR_FONT_FAMILY,
   DEFAULT_EDITOR_FONT_SIZE,
@@ -30,7 +28,7 @@ import {
 import { ConfigKeys, api } from '../../api';
 import { OPENAI_BASE_URL, OVERLEAF_SERVER_URL } from '../../constants/api';
 import { DEFAULT_LATEX_ENGINE, DEFAULT_TEXLIVE_ENDPOINT } from '../../constants/latex';
-import { DELAYS, TIMEOUTS } from '../../constants/timing';
+import { TIMEOUTS } from '../../constants/timing';
 import type { AppSettings } from '../../types';
 
 // ====== Default Settings ======
@@ -88,9 +86,6 @@ export const defaultSettings: AppSettings = {
   compiler: {
     engine: DEFAULT_LATEX_ENGINE,
     typstEngine: 'tinymist',
-    autoCompile: DEFAULT_COMPILER_AUTO_COMPILE,
-    compileOnSave: DEFAULT_COMPILER_COMPILE_ON_SAVE,
-    autoCompileDelay: DELAYS.AUTO_COMPILE,
     synctex: true,
     shellEscape: false,
     outputDirectory: './output',

@@ -205,4 +205,24 @@ describe('busytex-process entry', () => {
     expect(r1?.result).toMatchObject({ exitCode: 0 });
     expect(r2?.error?.message).toMatch(/engine busy/);
   });
+
+  it('persists the TeX log next to the output even when no PDF was produced', async () => {
+    // The WASM log used to live only in memory, so a partial or missing PDF
+    // could not be diagnosed after the fact. The fixture worker returns a log
+    // but no PDF — exactly the case where the log matters most.
+    await request('req-1', 'load');
+    const outputDir = nodePath.join(fixtureDir, 'out');
+    const res = (await request('req-2', 'compile', {
+      files: [{ path: 'main.tex', contents: 'x' }],
+      mainFile: 'main.tex',
+      driver: 'pdftex',
+      endpoint: '',
+      outputDir,
+      baseName: 'main',
+    })) as { result?: { pdfPath?: string; log: string } };
+
+    expect(res.result?.pdfPath).toBeUndefined();
+    const logPath = nodePath.join(outputDir, 'main.log');
+    expect(fs.readFileSync(logPath, 'utf8')).toBe(res.result?.log);
+  });
 });

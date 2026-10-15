@@ -5,6 +5,7 @@
  * @description handleCompile + handleCompileResult logic
  */
 
+import { getErrorMessage } from '../../../utils/getErrorMessage';
 import type { Monaco } from '@monaco-editor/react';
 import type * as monaco from 'monaco-editor';
 import { useCallback } from 'react';
@@ -115,6 +116,42 @@ export function useCompilation({
         if (result.buildId) {
           uiService.setRemoteBuildId(result.buildId);
         }
+      } else {
+        // Failed compile that still produced a (partial) PDF — load it so the
+        // preview shows output up to the error point. Errors render as a
+        // banner + log panel over the preview (Overleaf convention), never as
+        // a full-screen replacement that hides the PDF. Two payload shapes:
+        // disk-based (pdfPath — LaTeX engines) and in-memory (pdfBuffer —
+        // typst-ts still emits a PDF alongside error diagnostics).
+        try {
+          if (result.pdfPath) {
+            const pdfBuffer = await api.file.readBinary(result.pdfPath);
+            uiService.updateFilePdfPreview(filePath, {
+              pdfPath: result.pdfPath,
+              pdfData: pdfBuffer,
+              isStale: false,
+            });
+            uiService.setPdfPath(result.pdfPath);
+            uiService.setPdfData(pdfBuffer);
+          } else if (result.pdfBuffer) {
+            const buffer =
+              result.pdfBuffer instanceof ArrayBuffer
+                ? result.pdfBuffer
+                : (result.pdfBuffer.buffer.slice(
+                    result.pdfBuffer.byteOffset,
+                    result.pdfBuffer.byteOffset + result.pdfBuffer.byteLength
+                  ) as ArrayBuffer);
+            uiService.updateFilePdfPreview(filePath, {
+              pdfPath: result.pdfPath ?? null,
+              pdfData: buffer,
+              isStale: false,
+            });
+            uiService.setPdfPath(result.pdfPath ?? null);
+            uiService.setPdfData(buffer);
+          }
+        } catch {
+          // Preview keeps whatever it had; the failure banner still surfaces errors.
+        }
       }
 
       uiService.setCompilationResult({
@@ -161,7 +198,7 @@ export function useCompilation({
         uiService.addCompilationLog({
           type: 'error',
           message: t('editor.cancelFailed', {
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
           }),
         });
       }

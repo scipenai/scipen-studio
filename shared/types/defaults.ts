@@ -29,8 +29,6 @@ export const DEFAULT_GATEWAY_HOST_PORT = 6178;
 // 'auto' resolves at compile time to a locally-installed engine if present,
 // else the WASM engine. See resolveAutoLatexEngine in CompileService.
 export const DEFAULT_COMPILER_ENGINE = 'auto';
-export const DEFAULT_COMPILER_AUTO_COMPILE = false;
-export const DEFAULT_COMPILER_COMPILE_ON_SAVE = true;
 export const DEFAULT_COMPILER_OUTPUT_FORMAT = 'pdf';
 
 // ====== Aggregated Export ======
@@ -51,8 +49,6 @@ export const DEFAULTS = {
   },
   compiler: {
     engine: DEFAULT_COMPILER_ENGINE,
-    autoCompile: DEFAULT_COMPILER_AUTO_COMPILE,
-    compileOnSave: DEFAULT_COMPILER_COMPILE_ON_SAVE,
     outputFormat: DEFAULT_COMPILER_OUTPUT_FORMAT,
   },
 } as const;

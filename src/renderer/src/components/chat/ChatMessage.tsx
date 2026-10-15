@@ -23,6 +23,7 @@ import {
   SkipForward,
 } from 'lucide-react';
 import {
+  memo,
   useCallback,
   useEffect,
   useRef,
@@ -64,6 +65,12 @@ interface ChatMessageProps {
   /** When set on a finalized assistant message, surface the turn's
    *  thinking + tool-call history (collapsed by default). */
   completedTurn?: ChatTurn;
+  /** Memo-buster for the live-turn row only: the store mutates `turn` in
+   *  place, so React.memo can't detect text growth through the reference.
+   *  ChatSidebar passes the store version here so ONLY the in-flight row
+   *  re-renders per streamed frame; historical rows (stable references)
+   *  are skipped entirely. Unused inside the component body. */
+  streamVersion?: number;
 }
 
 function stableTextSegmentKey(text: string): string {
@@ -74,12 +81,24 @@ function stableTextSegmentKey(text: string): string {
   return `${text.length}-${hash.toString(36)}`;
 }
 
+/** Text/thinking segments are mutated in place while streaming (`last.text
+ *  += delta`), so their key is computed ONCE per event object and frozen —
+ *  rehashing the full text on every render (and letting the key drift as
+ *  the segment grows, remounting its DOM node per token) is exactly what
+ *  this cache avoids. WeakMap keeps the persisted IDB event objects clean. */
+const segmentKeyCache = new WeakMap<object, string>();
+
 function timelineEventBaseKey(ev: ChatTimelineEvent): string {
   switch (ev.kind) {
     case 'thinking':
-      return `th-${stableTextSegmentKey(ev.text)}`;
-    case 'text':
-      return `tx-${stableTextSegmentKey(ev.text)}`;
+    case 'text': {
+      let key = segmentKeyCache.get(ev);
+      if (key === undefined) {
+        key = `${ev.kind === 'thinking' ? 'th' : 'tx'}-${stableTextSegmentKey(ev.text)}`;
+        segmentKeyCache.set(ev, key);
+      }
+      return key;
+    }
     case 'proposal':
       return `pr-${ev.proposalId}`;
     case 'tool_ref':
@@ -107,7 +126,11 @@ function shouldSuppressPlanText(turn: ChatTurn | undefined): boolean {
   return turn.origin === 'composer' && turn.pending;
 }
 
-export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps): ReactElement {
+export const ChatMessage = memo(function ChatMessage({
+  message,
+  turn,
+  completedTurn,
+}: ChatMessageProps): ReactElement {
   const { t } = useTranslation();
   if (turn) {
     const suppressText = shouldSuppressPlanText(turn);
@@ -190,7 +213,7 @@ export function ChatMessage({ message, turn, completedTurn }: ChatMessageProps):
       {completedTurn?.usage && <UsageLine turn={completedTurn} />}
     </div>
   );
-}
+});
 
 /**
  * Inline icon button shown on hover over every user message. Clicking it

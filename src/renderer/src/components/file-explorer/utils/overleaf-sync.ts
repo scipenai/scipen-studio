@@ -4,6 +4,7 @@
  * Used by both command-driven and context-menu-driven file operations.
  */
 
+import { getErrorMessage } from '../../../utils/getErrorMessage';
 import type {
   OverleafLiveRenameEntityParams,
   OverleafLiveDeleteEntityParams,
@@ -51,7 +52,7 @@ export async function persistOverleafDocMap(
     await api.overleaf.updateDocIdMap(localRoot, docMap);
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     addLog?.('warning', `Failed to persist Overleaf docMap: ${message}`);
     return false;
   }
@@ -215,7 +216,7 @@ export async function syncOverleafEntityOp(
       error: result.error,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     addLog?.('warning', `Overleaf sync threw (${op}): ${message}`);
     return { success: false, error: message };
   }

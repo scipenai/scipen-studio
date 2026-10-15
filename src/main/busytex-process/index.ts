@@ -618,6 +618,8 @@ async function handleCompile(params: {
   const pdf = frame.pdf as Uint8Array | undefined;
   const synctex = frame.synctex as Uint8Array | undefined;
 
+  const log = (frame.log as string) ?? '';
+
   // Artifacts are written HERE, in this process — the PDF crosses no IPC
   // boundary; the renderer only ever sees paths.
   let pdfPath: string | undefined;
@@ -631,8 +633,26 @@ async function handleCompile(params: {
       fs.writeFileSync(synctexPath, Buffer.from(synctex));
     }
   }
+  writeCompileLog(params.outputDir, params.baseName, log);
 
-  return { exitCode, pdfPath, synctexPath, log: (frame.log as string) ?? '' };
+  return { exitCode, pdfPath, synctexPath, log };
+}
+
+/**
+ * Drop `{baseName}.log` next to the PDF, matching what a local TeX install
+ * leaves behind — otherwise the WASM log lives only in memory and partial or
+ * broken output cannot be diagnosed after the fact. Written on failure too:
+ * that is exactly when the log is needed. Best-effort: a log that cannot be
+ * written must never turn a successful compile into a failed one.
+ */
+function writeCompileLog(outputDir: string, baseName: string, log: string): void {
+  if (!log) return;
+  try {
+    fs.mkdirSync(outputDir, { recursive: true });
+    fs.writeFileSync(nodePath.join(outputDir, `${baseName}.log`), log, 'utf8');
+  } catch {
+    // Read-only project dir, AV lock, ... — the compile result stands.
+  }
 }
 
 // ====== Dispatch ======

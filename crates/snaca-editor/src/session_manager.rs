@@ -19,6 +19,7 @@ use snaca_llm::LlmClient;
 use snaca_state::{Database, NewMessage, NewThread};
 use crate::tools::editor_base_registry;
 use snaca_workspace::WorkspaceLayout;
+use sqlx::Row;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -122,7 +123,7 @@ impl SessionManager {
         })?;
         db.run_migrations()
             .await
-            .map_err(|e| ProtocolError::internal(format!("migrations failed: {e}")))?;
+            .map_err(internal_err("migrations"))?;
 
         let tenant = TenantId::new(STUDIO_TENANT_ID);
         let project = ProjectId::from_raw(&project_id);
@@ -131,7 +132,7 @@ impl SessionManager {
         let mut summaries_rows = db
             .list_thread_summaries(&tenant, &project)
             .await
-            .map_err(|e| ProtocolError::internal(format!("list_thread_summaries failed: {e}")))?;
+            .map_err(internal_err("list_thread_summaries"))?;
 
         let active_thread_id = if summaries_rows.is_empty() {
             let thread_id = Uuid::new_v4().to_string();
@@ -207,17 +208,14 @@ impl SessionManager {
         offset: Option<u32>,
     ) -> Result<(Vec<ThreadSummary>, u32), ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         let tenant = TenantId::new(STUDIO_TENANT_ID);
         let project = ProjectId::from_raw(&session.project_id);
         let rows = session
             .db
             .list_thread_summaries(&tenant, &project)
             .await
-            .map_err(|e| ProtocolError::internal(format!("list_thread_summaries failed: {e}")))?;
+            .map_err(internal_err("list_thread_summaries"))?;
         let total = rows.len() as u32;
         let off = offset.unwrap_or(0) as usize;
         let lim = limit.map(|l| l as usize).unwrap_or(rows.len());
@@ -231,10 +229,7 @@ impl SessionManager {
         title: Option<String>,
     ) -> Result<(String, String), ProtocolError> {
         let mut inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get_mut(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of_mut(&mut inner, session_id)?;
         if session.inflight.is_some() {
             return Err(ProtocolError::inflight_turn_busy());
         }
@@ -258,10 +253,7 @@ impl SessionManager {
         thread_id: &str,
     ) -> Result<ThreadSummary, ProtocolError> {
         let mut inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get_mut(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of_mut(&mut inner, session_id)?;
         if session.inflight.is_some() {
             return Err(ProtocolError::inflight_turn_busy());
         }
@@ -282,10 +274,7 @@ impl SessionManager {
         thread_id: &str,
     ) -> Result<String, ProtocolError> {
         let mut inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get_mut(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of_mut(&mut inner, session_id)?;
         if session.inflight.is_some() {
             return Err(ProtocolError::inflight_turn_busy());
         }
@@ -307,7 +296,7 @@ impl SessionManager {
             .db
             .list_thread_summaries(&tenant, &project)
             .await
-            .map_err(|e| ProtocolError::internal(format!("list_thread_summaries failed: {e}")))?;
+            .map_err(internal_err("list_thread_summaries"))?;
 
         if let Some(top) = survivors.first() {
             let next_active = top.thread.id.as_str().to_string();
@@ -331,16 +320,13 @@ impl SessionManager {
         title: String,
     ) -> Result<(), ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         let tid = ThreadId::new(thread_id);
         let exists = session
             .db
             .find_thread(&tid)
             .await
-            .map_err(|e| ProtocolError::internal(format!("find_thread failed: {e}")))?
+            .map_err(internal_err("find_thread"))?
             .is_some();
         if !exists {
             return Err(ProtocolError::thread_not_found(thread_id));
@@ -349,7 +335,7 @@ impl SessionManager {
             .db
             .set_thread_meta(&tid, &serde_json::json!({ "title": title }))
             .await
-            .map_err(|e| ProtocolError::internal(format!("set_thread_meta failed: {e}")))?;
+            .map_err(internal_err("set_thread_meta"))?;
         Ok(())
     }
 
@@ -361,10 +347,7 @@ impl SessionManager {
         session_id: &str,
     ) -> Result<(Option<Arc<Engine>>, String, PathBuf), ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         Ok((
             session.engine.clone(),
             session.project_id.clone(),
@@ -377,10 +360,7 @@ impl SessionManager {
     /// is writing under `WorkspaceLayout::memory_dir`.
     pub async fn memory_dir_for(&self, session_id: &str) -> Result<PathBuf, ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         Ok(session.memory_dir())
     }
 
@@ -391,10 +371,7 @@ impl SessionManager {
         session_id: &str,
     ) -> Result<(PathBuf, PathBuf, Option<PathBuf>), ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         Ok((
             session.project_skills_dir(),
             session.tenant_skills_dir(),
@@ -410,10 +387,7 @@ impl SessionManager {
         session_id: &str,
     ) -> Result<(Database, PathBuf, PathBuf, String), ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         Ok((
             session.db.clone(),
             session.metadata_root.clone(),
@@ -431,10 +405,7 @@ impl SessionManager {
         kind: TurnKind,
     ) -> Result<String, ProtocolError> {
         let mut inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get_mut(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of_mut(&mut inner, session_id)?;
         if session.inflight.is_some() {
             return Err(ProtocolError::inflight_turn_busy());
         }
@@ -443,7 +414,7 @@ impl SessionManager {
             .db
             .find_thread(&ThreadId::new(thread_id))
             .await
-            .map_err(|e| ProtocolError::internal(format!("find_thread failed: {e}")))?
+            .map_err(internal_err("find_thread"))?
             .is_some();
         if !exists {
             return Err(ProtocolError::thread_not_found(thread_id));
@@ -467,10 +438,7 @@ impl SessionManager {
         abort: AbortHandle,
     ) -> Result<(), ProtocolError> {
         let mut inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get_mut(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of_mut(&mut inner, session_id)?;
         match session.inflight.as_mut() {
             Some(t) if t.turn_id == turn_id => {
                 t.abort = abort;
@@ -508,10 +476,7 @@ impl SessionManager {
         turn_id: Option<String>,
     ) -> Result<(), ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         // Parse session_id as a uuid for the messages table column. SNACA
         // sessions are uuids (we generate them in `open`); we re-parse
         // instead of caching to keep `Session` allocation-free for now.
@@ -527,7 +492,7 @@ impl SessionManager {
                 content: msg.content,
             })
             .await
-            .map_err(|e| ProtocolError::internal(format!("append_message failed: {e}")))?;
+            .map_err(internal_err("append_message"))?;
         // 0.3.0 has no `messages.turn_id` column — stash it in message_meta.
         // Best-effort: the message row is already committed, and turn_id is an
         // auxiliary UI tag (re-associating thinking trace on reload). A meta
@@ -588,16 +553,13 @@ impl SessionManager {
         limit: Option<u32>,
     ) -> Result<(Vec<ThreadMessage>, u32), ProtocolError> {
         let inner = self.inner.lock().await;
-        let session = inner
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProtocolError::session_not_found(session_id))?;
+        let session = session_of(&inner, session_id)?;
         // Validate the thread belongs to this session's project.
         let row = session
             .db
             .find_thread(&ThreadId::new(thread_id))
             .await
-            .map_err(|e| ProtocolError::internal(format!("find_thread failed: {e}")))?;
+            .map_err(internal_err("find_thread"))?;
         if row.is_none() {
             return Err(ProtocolError::thread_not_found(thread_id));
         }
@@ -606,13 +568,22 @@ impl SessionManager {
             .db
             .recent_messages(&tid, limit.unwrap_or(u32::MAX))
             .await
-            .map_err(|e| ProtocolError::internal(format!("recent_messages failed: {e}")))?;
-        let turn_ids = load_turn_ids(&session.db, &tid).await;
+            .map_err(internal_err("recent_messages"))?;
+        let turn_ids = load_turn_ids(&session.db, &rows).await;
         let rendered: Vec<ThreadMessage> = rows
             .iter()
             .filter_map(|r| render_history_row(r, &turn_ids))
             .collect();
-        let total = rendered.len() as u32;
+        // `total` must reflect the thread's renderable history (the pool
+        // `messages` draws from), not the post-filter page length — the old
+        // `rendered.len()` collapsed it to <= limit, which broke the
+        // documented `>= messages.len()` contract for has-more checks.
+        let total = count_renderable_messages(&session.db, &tid)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!("count_renderable_messages failed: {e}");
+                rendered.len() as u32
+            });
         Ok((rendered, total))
     }
 
@@ -645,6 +616,32 @@ pub type SessionManagerArc = Arc<SessionManager>;
 
 // ---------------- private helpers ----------------
 
+/// Uniform `ProtocolError::internal("<op> failed: <e>")` mapping for the
+/// per-call DB / IO failures in this module — replaces the seventeen
+/// hand-written `map_err` closures that used to live at the call sites.
+fn internal_err<E: std::fmt::Display>(op: &'static str) -> impl Fn(E) -> ProtocolError {
+    move |e| ProtocolError::internal(format!("{op} failed: {e}"))
+}
+
+/// `inner.sessions.get(id)` → session or `session_not_found`.
+fn session_of<'a>(inner: &'a Inner, session_id: &str) -> Result<&'a Session, ProtocolError> {
+    inner
+        .sessions
+        .get(session_id)
+        .ok_or_else(|| ProtocolError::session_not_found(session_id))
+}
+
+/// Mutable variant of [`session_of`].
+fn session_of_mut<'a>(
+    inner: &'a mut Inner,
+    session_id: &str,
+) -> Result<&'a mut Session, ProtocolError> {
+    inner
+        .sessions
+        .get_mut(session_id)
+        .ok_or_else(|| ProtocolError::session_not_found(session_id))
+}
+
 fn row_to_summary(row: &snaca_state::ThreadSummaryRow) -> ThreadSummary {
     ThreadSummary {
         thread_id: row.thread.id.as_str().to_string(),
@@ -676,10 +673,10 @@ async fn insert_thread_titled(
         project_id: project.clone(),
     })
     .await
-    .map_err(|e| ProtocolError::internal(format!("insert_thread failed: {e}")))?;
+    .map_err(internal_err("insert_thread"))?;
     db.set_thread_meta(&tid, &serde_json::json!({ "title": title }))
         .await
-        .map_err(|e| ProtocolError::internal(format!("set_thread_meta failed: {e}")))?;
+        .map_err(internal_err("set_thread_meta"))?;
     Ok(())
 }
 
@@ -693,7 +690,7 @@ async fn delete_thread_cascade(db: &Database, id: &ThreadId) -> Result<bool, Pro
         .bind(id.as_str())
         .execute(db.pool())
         .await
-        .map_err(|e| ProtocolError::internal(format!("delete_thread failed: {e}")))?;
+        .map_err(internal_err("delete_thread"))?;
     Ok(res.rows_affected() > 0)
 }
 
@@ -706,25 +703,61 @@ fn title_from_meta(meta: &Option<serde_json::Value>) -> String {
         .unwrap_or_else(|| DEFAULT_THREAD_TITLE.to_string())
 }
 
-/// Batch-load `turn_id` (0.3.0 stores it in `message_meta`) for a thread →
-/// map keyed by message-id string. Best-effort: empty map on error.
+/// Batch-load `turn_id` (0.3.0 stores it in `message_meta`) for just the
+/// messages on the requested page — one `IN (...)` query, so a `limit: 20`
+/// hydrate no longer pulls meta for the thread's entire history. Keyed by
+/// message-id string. Best-effort: empty map on error.
 async fn load_turn_ids(
     db: &Database,
-    thread: &ThreadId,
-) -> std::collections::HashMap<String, String> {
-    db.get_message_meta_for_thread(thread)
-        .await
-        .map(|pairs| {
-            pairs
-                .into_iter()
-                .filter_map(|(id, data)| {
-                    data.get("turn_id")
-                        .and_then(|t| t.as_str())
-                        .map(|t| (id.to_string(), t.to_string()))
-                })
-                .collect()
+    rows: &[snaca_state::MessageRow],
+) -> HashMap<String, String> {
+    if rows.is_empty() {
+        return HashMap::new();
+    }
+    let placeholders = vec!["?"; rows.len()].join(", ");
+    let sql = format!(
+        "SELECT message_id, data FROM message_meta WHERE message_id IN ({placeholders})"
+    );
+    let mut query = sqlx::query(&sql);
+    for row in rows {
+        query = query.bind(row.id.to_string());
+    }
+    let Ok(meta_rows) = query.fetch_all(db.pool()).await else {
+        return HashMap::new();
+    };
+    meta_rows
+        .into_iter()
+        .filter_map(|r| {
+            let id: String = r.try_get("message_id").ok()?;
+            let data: String = r.try_get("data").ok()?;
+            let value: serde_json::Value = serde_json::from_str(&data).ok()?;
+            value
+                .get("turn_id")?
+                .as_str()
+                .map(|t| (id, t.to_string()))
         })
-        .unwrap_or_default()
+        .collect()
+}
+
+/// Count the messages `session.get_messages` can render for a thread
+/// (user/assistant rows carrying a non-empty text block) — the SQL mirror
+/// of `render_history_row`'s filter. Keeps the wire `total` truthful for
+/// has-more math instead of collapsing to the current page length.
+async fn count_renderable_messages(
+    db: &Database,
+    thread: &ThreadId,
+) -> Result<u32, sqlx::Error> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM messages WHERE thread_id = ? \
+         AND role IN ('user', 'assistant') \
+         AND EXISTS (SELECT 1 FROM json_each(messages.content) AS block \
+                     WHERE json_extract(block.value, '$.type') = 'text' \
+                     AND length(trim(json_extract(block.value, '$.text'))) > 0)",
+    )
+    .bind(thread.as_str())
+    .fetch_one(db.pool())
+    .await?;
+    Ok(count.clamp(0, u32::MAX as i64) as u32)
 }
 
 /// Fetch a thread's wire-shape summary by id; errors with `thread_not_found`
@@ -740,7 +773,7 @@ async fn lookup_thread_summary(
     let rows = db
         .list_thread_summaries(&tenant, &project)
         .await
-        .map_err(|e| ProtocolError::internal(format!("list_thread_summaries failed: {e}")))?;
+        .map_err(internal_err("list_thread_summaries"))?;
     rows.iter()
         .find(|r| r.thread.id.as_str() == thread_id)
         .map(row_to_summary)
@@ -775,6 +808,76 @@ fn render_history_row(
         ts: row.created_at.to_rfc3339(),
         turn_id: turn_ids.get(&row.id.to_string()).cloned(),
     })
+}
+
+/// Apply the host's wire-shape `EngineConfig` overrides onto the
+/// model-aware defaults. Extracted from `build_session_engine` so the
+/// field-by-field mapping has one home (and can be unit-tested);
+/// `memory_extractor` / `memory_extractor_model` deliberately do NOT
+/// land here — they feed the post-turn extractor wiring instead.
+fn apply_engine_overrides(
+    ec: &snaca_editor_protocol::types::config::EngineConfig,
+    cfg: &mut EngineConfig,
+) {
+    if let Some(v) = ec.max_iterations {
+        cfg.max_iterations = v as usize;
+    }
+    if let Some(v) = ec.loop_guard_max_repeats {
+        cfg.loop_guard_max_repeats = Some(v as usize);
+    }
+    if let Some(v) = ec.concurrent_tool_limit {
+        cfg.concurrent_tool_limit = v as usize;
+    }
+    if let Some(v) = ec.max_tokens {
+        cfg.max_tokens = Some(v);
+    }
+    if let Some(v) = ec.history_limit {
+        cfg.conversation_history_limit = v;
+    }
+    if let Some(v) = ec.compact_after_input_tokens {
+    cfg.compact_after_input_tokens = Some(v as u32);
+}
+if let Some(v) = ec.compact_keep_recent {
+    cfg.compact_keep_recent = v as usize;
+}
+if let Some(v) = ec.protect_first_n {
+    cfg.protect_first_n = v as usize;
+}
+if let Some(v) = ec.compact_max_retries {
+    cfg.compact_max_retries = v as u8;
+}
+if let Some(sp) = ec.system_prompt.as_ref() {
+    if !sp.is_empty() {
+        cfg.system_prompt = sp.clone();
+    }
+}
+if let Some(v) = ec.compact_summary_max_tokens {
+    if v > 0 {
+        cfg.compact_summary_max_tokens = v;
+    }
+}
+if let Some(v) = ec.history_max_bytes {
+    cfg.history_max_bytes = v as usize;
+}
+if let Some(v) = ec.turn_timeout_secs {
+    // 0 disables — same convention as snaca-server.
+    cfg.turn_timeout_secs = if v == 0 { None } else { Some(v) };
+}
+if let Some(v) = ec.collapse_tool_results_threshold {
+    cfg.collapse_tool_results_threshold = v as usize;
+}
+if let Some(b) = ec.stream_tool_execution {
+    cfg.stream_tool_execution = b;
+}
+if let Some(v) = ec.max_output_token_escalation_attempts {
+    cfg.max_output_token_escalation_attempts = v;
+}
+if let Some(v) = ec.max_output_token_ceiling {
+    if v > 0 {
+        cfg.max_output_token_ceiling = v;
+    }
+}
+
 }
 
 /// Build the per-session Engine. `metadata_root` owns SNACA's internal
@@ -815,59 +918,7 @@ fn build_session_engine(
 
     // Overlay SnacaConfig.engine overrides on the model-aware defaults.
     let mut engine_config = EngineConfig::default_for(snaca_config.llm.model.clone());
-    let ec = &snaca_config.engine;
-    if let Some(v) = ec.max_iterations { engine_config.max_iterations = v as usize; }
-    if let Some(v) = ec.loop_guard_max_repeats {
-        engine_config.loop_guard_max_repeats = Some(v as usize);
-    }
-    if let Some(v) = ec.concurrent_tool_limit {
-        engine_config.concurrent_tool_limit = v as usize;
-    }
-    if let Some(v) = ec.max_tokens { engine_config.max_tokens = Some(v); }
-    if let Some(v) = ec.history_limit { engine_config.conversation_history_limit = v; }
-    if let Some(v) = ec.compact_after_input_tokens {
-        engine_config.compact_after_input_tokens = Some(v as u32);
-    }
-    if let Some(v) = ec.compact_keep_recent {
-        engine_config.compact_keep_recent = v as usize;
-    }
-    if let Some(v) = ec.protect_first_n {
-        engine_config.protect_first_n = v as usize;
-    }
-    if let Some(v) = ec.compact_max_retries {
-        engine_config.compact_max_retries = v as u8;
-    }
-    if let Some(sp) = ec.system_prompt.as_ref() {
-        if !sp.is_empty() {
-            engine_config.system_prompt = sp.clone();
-        }
-    }
-    if let Some(v) = ec.compact_summary_max_tokens {
-        if v > 0 {
-            engine_config.compact_summary_max_tokens = v;
-        }
-    }
-    if let Some(v) = ec.history_max_bytes {
-        engine_config.history_max_bytes = v as usize;
-    }
-    if let Some(v) = ec.turn_timeout_secs {
-        // 0 disables — same convention as snaca-server.
-        engine_config.turn_timeout_secs = if v == 0 { None } else { Some(v) };
-    }
-    if let Some(v) = ec.collapse_tool_results_threshold {
-        engine_config.collapse_tool_results_threshold = v as usize;
-    }
-    if let Some(b) = ec.stream_tool_execution {
-        engine_config.stream_tool_execution = b;
-    }
-    if let Some(v) = ec.max_output_token_escalation_attempts {
-        engine_config.max_output_token_escalation_attempts = v;
-    }
-    if let Some(v) = ec.max_output_token_ceiling {
-        if v > 0 {
-            engine_config.max_output_token_ceiling = v;
-        }
-    }
+    apply_engine_overrides(&snaca_config.engine, &mut engine_config);
 
     let tools = editor_base_registry();
 
@@ -989,4 +1040,34 @@ fn build_session_engine(
     };
     engine = engine.with_memory_provider(provider);
     Some(Arc::new(engine))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn engine_overrides_apply_and_zero_conventions_hold() {
+        let wire = snaca_editor_protocol::types::config::EngineConfig {
+            max_iterations: Some(7),
+            turn_timeout_secs: Some(0), // 0 = disabled on the wire
+            system_prompt: Some(String::new()), // empty = ignored
+            ..Default::default()
+        };
+        let mut cfg = EngineConfig::default_for("gpt-test");
+        apply_engine_overrides(&wire, &mut cfg);
+        assert_eq!(cfg.max_iterations, 7);
+        assert_eq!(cfg.turn_timeout_secs, None, "wire 0 must disable the cap");
+        assert_ne!(
+            cfg.system_prompt.is_empty(),
+            true,
+            "empty wire prompt must not blank the default"
+        );
+
+        // Defaults must survive an empty overlay untouched.
+        let mut fresh = EngineConfig::default_for("gpt-test");
+        let before = fresh.max_iterations;
+        apply_engine_overrides(&Default::default(), &mut fresh);
+        assert_eq!(fresh.max_iterations, before);
+    }
 }

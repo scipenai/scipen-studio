@@ -1,13 +1,17 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../../../src/renderer/src/components/research/PreviewPanel';
 
 let rightPanelTab: 'preview' | 'paper' = 'preview';
+let zoteroPdf: { itemKey: string; pdfBytes: Uint8Array } | null = null;
 
 const uiServiceMock = {
   setRightPanelTab: vi.fn((tab: 'preview' | 'paper') => {
     rightPanelTab = tab;
   }),
+  get zoteroPdf() {
+    return zoteroPdf;
+  },
 };
 
 vi.mock('../../../src/renderer/src/services/core/hooks', () => ({
@@ -37,43 +41,38 @@ vi.mock('../../../src/renderer/src/components/LoadingFallback', () => ({
   PreviewLoadingFallback: () => <div data-testid="preview-loading" />,
 }));
 
-vi.mock('../../../src/renderer/src/locales', () => ({
-  useTranslation: () => ({
-    t: (key: string) => {
-      const values: Record<string, string> = {
-        'mainLayout.pdfPreview': 'PDF Preview',
-        'mainLayout.paperTab': 'Paper',
-      };
-      return values[key] ?? key;
-    },
-  }),
-}));
-
-describe('PreviewPanel', () => {
+describe('PreviewPanel (merged single-surface preview)', () => {
   beforeEach(() => {
     rightPanelTab = 'preview';
+    zoteroPdf = null;
     vi.clearAllMocks();
   });
 
-  it('renders preview and paper selectors as accessible tabs with selected state', () => {
-    const { unmount } = render(<PreviewPanel previewTitle="PDF Preview" />);
+  it('renders the compile preview by default with no visible tabs', () => {
+    render(<PreviewPanel />);
+    expect(screen.getByTestId('preview-controller')).toBeInTheDocument();
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+  });
 
-    expect(screen.getByRole('tablist', { name: 'PDF Preview' })).toBeInTheDocument();
+  it('hands the pane to the paper reader when the paper tab is active', () => {
+    rightPanelTab = 'paper';
+    render(<PreviewPanel />);
+    expect(screen.getByTestId('paper-pane')).toBeInTheDocument();
+  });
 
-    const preview = screen.getByRole('tab', { name: 'PDF Preview' });
-    expect(preview).toHaveAttribute('aria-selected', 'true');
-    expect(preview).toHaveClass('cursor-pointer');
-    expect(preview).toHaveClass('focus-visible:ring-2');
+  it('falls back to the compile preview when routed to paper with no paper loaded', () => {
+    rightPanelTab = 'paper';
+    zoteroPdf = null;
+    render(<PreviewPanel />);
+    expect(uiServiceMock.setRightPanelTab).toHaveBeenCalledWith('preview');
+  });
 
-    const paper = screen.getByRole('tab', { name: 'Paper' });
-    expect(paper).toHaveAttribute('aria-selected', 'false');
-    expect(paper).toHaveClass('cursor-pointer');
-
-    fireEvent.click(paper);
-    expect(uiServiceMock.setRightPanelTab).toHaveBeenCalledWith('paper');
-
-    unmount();
-    render(<PreviewPanel previewTitle="PDF Preview" />);
-    expect(screen.getByRole('tab', { name: 'Paper' })).toHaveAttribute('aria-selected', 'true');
+  it('keeps the paper pane when a paper is loaded', () => {
+    rightPanelTab = 'paper';
+    zoteroPdf = { itemKey: 'KEY1', pdfBytes: new Uint8Array(4) };
+    render(<PreviewPanel />);
+    expect(uiServiceMock.setRightPanelTab).not.toHaveBeenCalled();
+    expect(screen.getByTestId('paper-pane')).toBeInTheDocument();
   });
 });

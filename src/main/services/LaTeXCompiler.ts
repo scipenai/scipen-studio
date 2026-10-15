@@ -312,7 +312,10 @@ export class LaTeXCompiler extends EventEmitter implements ICompiler {
         this.onLog?.(log);
         this.emit('log', entry);
       },
-      timeout
+      timeout,
+      // Use the caller-visible task id on the wire so abortTask(taskId)
+      // cancels exactly this compilation (no prefix heuristics).
+      taskId
     );
 
     const duration = Date.now() - startTime;

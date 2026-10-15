@@ -16,7 +16,6 @@
 //! - [`jsonrpc`] — JSON-RPC 2.0 envelope (request / response / notification)
 //! - [`codec`] — newline-delimited framing helpers (encode / decode)
 //! - [`error`] — `ProtocolError` and `ErrorCode` (codes -32xxx)
-//! - [`id`] — type-wrapped UUIDs (`SessionId`, `TurnId`, …)
 //! - [`types`] — shared payload types ([`Range`], [`ChatContext`],
 //!   [`LineHunk`], capabilities, config)
 //! - [`messages`] — typed `Params` / `Result` for each method
@@ -30,14 +29,12 @@
 
 pub mod codec;
 pub mod error;
-pub mod id;
 pub mod jsonrpc;
 pub mod messages;
 pub mod routing;
 pub mod types;
 
 pub use error::{ErrorCode, ProtocolError};
-pub use id::{ProposalId, RequestId as ContextRequestId, SessionId, ThreadId, ToolCallId, TurnId};
 pub use jsonrpc::{
     JsonRpcError, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
     JsonRpcRequestId,

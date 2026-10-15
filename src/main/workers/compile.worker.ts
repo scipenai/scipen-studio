@@ -1,6 +1,7 @@
 /**
- * @file LaTeX/Typst Compile Worker
- * @description Executes LaTeX/Typst compilation in a separate thread to keep main process responsive.
+ * @file LaTeX Compile Worker
+ * @description Executes LaTeX compilation in a separate thread to keep main process responsive.
+ * Typst compilation lives in the main-process TypstCompiler service.
  */
 
 import { type ChildProcess, spawn } from 'child_process';
@@ -17,11 +18,6 @@ interface CompileLatexPayload {
   options?: CompilationOptions;
 }
 
-interface CompileTypstPayload {
-  content: string;
-  options?: TypstCompilationOptions;
-}
-
 type CleanupPayload = {};
 
 interface AbortPayload {
@@ -30,7 +26,6 @@ interface AbortPayload {
 
 type WorkerMessage =
   | { id: string; type: 'compile'; payload: CompileLatexPayload }
-  | { id: string; type: 'compileTypst'; payload: CompileTypstPayload }
   | { id: string; type: 'cleanup'; payload: CleanupPayload }
   | { id: string; type: 'abort'; payload: AbortPayload };
 
@@ -57,12 +52,6 @@ interface LogMessage {
 
 interface CompilationOptions {
   engine?: 'tectonic' | 'pdflatex' | 'xelatex' | 'lualatex';
-  mainFile?: string;
-  projectPath?: string;
-}
-
-interface TypstCompilationOptions {
-  engine?: 'typst' | 'tinymist';
   mainFile?: string;
   projectPath?: string;
 }
@@ -146,8 +135,13 @@ function isAborted(id: string): boolean {
 function abortTask(abortId: string): boolean {
   const entry = activeProcesses.get(abortId);
   if (!entry) {
+    // Prefix fallback for family ids — segment-aligned so 'compile-4' never
+    // matches 'compile-42-<ts>'. The old second condition
+    // (`abortId.startsWith(id.split('-')[0])`) matched literally every task,
+    // since all ids start with 'compile-', and could kill an unrelated
+    // compilation when the exact id had already finished.
     for (const [id, e] of activeProcesses) {
-      if (id.startsWith(abortId) || abortId.startsWith(id.split('-')[0])) {
+      if (id.startsWith(`${abortId}-`)) {
         e.aborted = true;
         try {
           e.process.kill('SIGTERM');
@@ -581,167 +575,6 @@ function runTraditionalCompiler(
   });
 }
 
-// ============ Typst Compilation ============
-
-async function compileTypst(
-  id: string,
-  content: string,
-  options: TypstCompilationOptions
-): Promise<CompilationResult> {
-  const { engine = 'tinymist', mainFile } = options;
-
-  sendProgress(id, 0, 'Preparing Typst...');
-  sendLog(id, 'info', `Typst engine: ${engine}`);
-
-  const workDir = mainFile ? path.dirname(mainFile) : path.join(tempDir, `typst-${Date.now()}`);
-  await ensureDir(workDir);
-
-  const typFile = mainFile || path.join(workDir, 'document.typ');
-  const originalContent = mainFile ? await readFileSafe(mainFile) : null;
-  const baseName = path.basename(typFile, '.typ');
-  const pdfFile = path.join(workDir, `${baseName}.pdf`);
-
-  try {
-    sendProgress(id, 10, 'Saving file...');
-    await writeFile(typFile, content);
-
-    sendProgress(id, 20, 'Compiling Typst...');
-    const result = await runTypstCompiler(id, typFile, pdfFile, engine);
-
-    if (!result.success && mainFile) {
-      await restoreOriginalContent(id, mainFile, originalContent, content);
-    }
-
-    if (result.success && (await pathExists(pdfFile))) {
-      let pdfBuffer: Uint8Array | undefined;
-      try {
-        const buffer = await fs.readFile(pdfFile);
-        pdfBuffer = new Uint8Array(buffer);
-      } catch {
-        // If read fails, still return path for upstream handling
-      }
-
-      return {
-        ...result,
-        pdfPath: pdfFile,
-        pdfBuffer,
-      };
-    }
-
-    return result;
-  } catch (error) {
-    if (mainFile) {
-      await restoreOriginalContent(id, mainFile, originalContent, content);
-    }
-    return {
-      success: false,
-      errors: [error instanceof Error ? error.message : 'Unknown Typst compilation error'],
-    };
-  }
-}
-
-function runTypstCompiler(
-  id: string,
-  typFile: string,
-  pdfFile: string,
-  engine: 'typst' | 'tinymist'
-): Promise<CompilationResult> {
-  return new Promise((resolve) => {
-    let command: string;
-    let args: string[];
-
-    if (engine === 'tinymist') {
-      command = 'tinymist';
-      args = ['compile', typFile, pdfFile];
-    } else {
-      command = 'typst';
-      args = ['compile', typFile, pdfFile];
-    }
-
-    sendLog(id, 'info', `Running: ${command} ${args.join(' ')}`);
-
-    const proc = spawn(command, args, { cwd: path.dirname(typFile), env: augmentedEnv });
-    registerProcess(id, proc);
-
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout.on('data', (data) => {
-      stdout += data.toString();
-      const lines = data
-        .toString()
-        .split('\n')
-        .filter((l: string) => l.trim());
-      for (const line of lines) {
-        sendLog(id, 'info', line);
-      }
-    });
-
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-      const lines = data
-        .toString()
-        .split('\n')
-        .filter((l: string) => l.trim());
-      for (const line of lines) {
-        if (line.toLowerCase().includes('error')) {
-          sendLog(id, 'error', line);
-        } else {
-          sendLog(id, 'warning', line);
-        }
-      }
-    });
-
-    proc.on('close', (code, signal) => {
-      const wasAborted = isAborted(id) || signal === 'SIGTERM';
-      unregisterProcess(id);
-
-      if (wasAborted) {
-        resolve({
-          success: false,
-          errors: ['Compilation cancelled'],
-          log: stdout + stderr,
-        });
-        return;
-      }
-
-      sendProgress(id, 90, 'Processing results...');
-      const log = stdout + stderr;
-
-      if (code === 0) {
-        resolve({
-          success: true,
-          log,
-          warnings: [],
-        });
-      } else {
-        resolve({
-          success: false,
-          errors: parseTypstErrors(log),
-          log,
-        });
-      }
-    });
-
-    proc.on('error', (error: NodeJS.ErrnoException) => {
-      unregisterProcess(id);
-      if (error.code === 'ENOENT') {
-        resolve({
-          success: false,
-          errors: [
-            `${engine} not found. Please install ${engine === 'tinymist' ? 'Tinymist' : 'Typst'}.`,
-          ],
-        });
-      } else {
-        resolve({
-          success: false,
-          errors: [error.message],
-        });
-      }
-    });
-  });
-}
-
 // ============ Log Parsing ============
 
 function parseErrors(log: string): string[] {
@@ -796,19 +629,6 @@ function parseWarnings(log: string): string[] {
   }
 
   return warnings;
-}
-
-function parseTypstErrors(log: string): string[] {
-  const errors: string[] = [];
-  const lines = log.split('\n');
-
-  for (const line of lines) {
-    if (line.toLowerCase().includes('error')) {
-      errors.push(line.trim());
-    }
-  }
-
-  return errors.length > 0 ? errors : ['Typst compilation failed'];
 }
 
 function humanizeError(error: string): string {
@@ -867,13 +687,6 @@ parentPort?.on('message', async (message: WorkerMessage) => {
     switch (type) {
       case 'compile': {
         const result = await compileLatex(id, payload.content, payload.options || {});
-        sendProgress(id, 100, result.success ? 'Success' : 'Failed');
-        sendResponse({ id, success: true, data: result });
-        break;
-      }
-
-      case 'compileTypst': {
-        const result = await compileTypst(id, payload.content, payload.options || {});
         sendProgress(id, 100, result.success ? 'Success' : 'Failed');
         sendResponse({ id, success: true, data: result });
         break;

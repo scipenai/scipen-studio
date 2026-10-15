@@ -166,28 +166,6 @@ export class FileCacheService {
     }
   }
 
-  /** Bulk invalidation for directory-level changes. */
-  invalidateDirectory(dirPath: string): void {
-    const normalizedDir = path.normalize(dirPath);
-    const toDelete: string[] = [];
-
-    for (const key of this.cache.keys()) {
-      if (key.startsWith(normalizedDir)) {
-        toDelete.push(key);
-      }
-    }
-
-    for (const key of toDelete) {
-      this.delete(key);
-    }
-
-    if (toDelete.length > 0) {
-      logger.info(
-        `[FileCacheService] Invalidated ${toDelete.length} files in directory: ${normalizedDir}`
-      );
-    }
-  }
-
   /** @sideeffect Resets memory usage and hit/miss stats */
   clear(): void {
     this.cache.clear();
@@ -231,14 +209,6 @@ export class FileCacheService {
 
     logger.info(`[FileCacheService] Warmed up ${cached} files`);
     return cached;
-  }
-
-  has(filePath: string): boolean {
-    return this.cache.has(path.normalize(filePath));
-  }
-
-  getCachedPaths(): string[] {
-    return Array.from(this.cache.keys());
   }
 
   // ====== Private Methods ======
@@ -297,16 +267,6 @@ export class FileCacheService {
 
     if (toDelete.length > 0) {
       logger.info(`[FileCacheService] Cleaned up ${toDelete.length} expired entries`);
-    }
-  }
-
-  evictOldest(count: number): void {
-    const toEvict = Math.min(count, this.accessOrder.length);
-    for (let i = 0; i < toEvict; i++) {
-      if (this.accessOrder.length > 0) {
-        const oldest = this.accessOrder[0];
-        this.delete(oldest);
-      }
     }
   }
 }

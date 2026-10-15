@@ -9,6 +9,7 @@
  *              renderer state after save (SecureStorage owns it).
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle2, ExternalLink, Eye, EyeOff, Loader2, ShieldAlert, X } from 'lucide-react';
 import type React from 'react';
@@ -72,7 +73,7 @@ export const ZoteroWebApiSetupDialog: React.FC<Props> = ({
         setError(res.error ?? t('zoteroWebApi.dialog.errorUnknown'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(getErrorMessage(err));
     } finally {
       setTesting(false);
     }
@@ -99,7 +100,7 @@ export const ZoteroWebApiSetupDialog: React.FC<Props> = ({
       onConfirmed();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }

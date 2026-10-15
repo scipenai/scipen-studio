@@ -38,7 +38,6 @@ export enum ConfigKeys {
 
   // ====== Compiler Configuration ======
   CompilerEngine = 'compiler.engine',
-  CompilerAutoCompile = 'compiler.autoCompile',
   CompilerOutputFormat = 'compiler.outputFormat',
 
   // ====== Overleaf Configuration ======

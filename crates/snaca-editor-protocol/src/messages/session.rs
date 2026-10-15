@@ -120,7 +120,10 @@ pub struct SessionGetMessagesParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionGetMessagesResult {
     pub messages: Vec<ThreadMessage>,
-    /// Total messages persisted for this thread (>= messages.len()).
+    /// Total renderable messages persisted for this thread — the exact
+    /// pool `messages` draws from (user/assistant rows with non-empty
+    /// text), so always `>= messages.len()`. Intended for has-more /
+    /// pagination math on the host side.
     pub total: u32,
 }
 

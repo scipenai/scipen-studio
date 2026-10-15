@@ -1,26 +1,14 @@
 /**
  * @file FileWorkerClient - File Worker Client
  * @description Wraps file.worker communication, provides Promise API for file tree scanning and watching
- * @depends worker_threads, workerUtils
+ * @depends worker_threads, workerUtils, BaseWorkerClient
  */
 
-import { EventEmitter } from 'events';
-import { Worker } from 'worker_threads';
-import { WorkerRestartManager, createWorkerLogger, delay, getWorkerPath } from './workerUtils';
+import { BaseWorkerClient } from './BaseWorkerClient';
 
 import type { FileNode, FileChangeEvent } from '../services/interfaces/IFileSystemService';
 
 export type { FileNode, FileChangeEvent };
-
-const logger = createWorkerLogger('FileWorkerClient');
-
-interface WorkerResponse {
-  id: string;
-  success: boolean;
-  data?: unknown;
-  error?: string;
-  isResponse?: boolean;
-}
 
 interface WorkerEvent {
   type: 'file-change' | 'watcher-error' | 'scan-progress';
@@ -28,25 +16,11 @@ interface WorkerEvent {
   isEvent?: boolean;
 }
 
-type PendingRequest = {
-  resolve: (value: unknown) => void;
-  reject: (error: Error) => void;
-  timeout?: NodeJS.Timeout;
-};
-
 // ====== FileWorkerClient ======
 
-export class FileWorkerClient extends EventEmitter {
-  private worker: Worker | null = null;
-  private pendingRequests: Map<string, PendingRequest> = new Map();
-  private requestId = 0;
-  private isInitialized = false;
-  private initPromise: Promise<void> | null = null;
-  private restartManager = new WorkerRestartManager('FileWorkerClient');
-  private isRestarting = false;
-
+export class FileWorkerClient extends BaseWorkerClient {
   // 2 minutes - large directory scans may need more time
-  private defaultTimeout = 2 * 60 * 1000;
+  private static readonly DEFAULT_TIMEOUT = 2 * 60 * 1000;
 
   // Cache watcher state for recovery after crash restart
   private watcherState: {
@@ -54,134 +28,31 @@ export class FileWorkerClient extends EventEmitter {
     ignorePatterns?: string[];
   } | null = null;
 
-  // ====== Initialization ======
-
-  private async initialize(): Promise<void> {
-    if (this.isInitialized) return;
-    if (this.initPromise) return this.initPromise;
-
-    this.initPromise = new Promise<void>((resolve, reject) => {
-      try {
-        const workerPath = getWorkerPath('file');
-        logger.debug('Worker path:', workerPath);
-
-        this.worker = new Worker(workerPath);
-
-        this.worker.on('message', (message: WorkerResponse | WorkerEvent) => {
-          if ('isResponse' in message && message.isResponse) {
-            this.handleResponse(message as WorkerResponse);
-          } else if ('isEvent' in message && message.isEvent) {
-            this.handleWorkerEvent(message as WorkerEvent);
-          }
-        });
-
-        this.worker.on('error', (error) => {
-          logger.error('Worker error:', error);
-          this.handleWorkerError(error);
-        });
-
-        this.worker.on('exit', (code) => {
-          if (code !== 0) {
-            logger.error(`Worker exited with code ${code}`);
-            this.attemptRestart();
-          }
-          this.isInitialized = false;
-          this.worker = null;
-          this.initPromise = null;
-        });
-
-        this.sendRequest('ping', {})
-          .then(() => {
-            this.isInitialized = true;
-            this.restartManager.reset();
-            logger.debug('Worker initialized successfully');
-            resolve();
-          })
-          .catch(reject);
-      } catch (error) {
-        reject(error);
-      }
+  constructor() {
+    super({
+      name: 'FileWorkerClient',
+      workerKind: 'file',
+      idPrefix: 'file',
+      defaultTimeout: FileWorkerClient.DEFAULT_TIMEOUT,
+      pingOnInit: true,
+      rejectPendingOnAbnormalExit: false,
     });
-
-    return this.initPromise;
   }
 
-  /** Auto-restart Worker and recover watcher state on success */
-  private async attemptRestart(): Promise<void> {
-    if (this.isRestarting) {
-      return;
-    }
+  /** Route worker-pushed events; responses fall through to the base. */
+  protected tryHandleMessage(message: unknown): boolean {
+    if (typeof message !== 'object' || message === null) return false;
+    const event = message as WorkerEvent;
+    if (!event.isEvent) return false;
 
-    if (!this.restartManager.canRestart()) {
-      logger.error('Max restart attempts reached');
-      this.emit('maxRestartsReached');
-      return;
-    }
-
-    this.isRestarting = true;
-    const waitTime = this.restartManager.recordRestart();
-
-    if (waitTime > 0) {
-      await delay(waitTime);
-    }
-
-    try {
-      logger.info('Attempting Worker restart...');
-      await this.initialize();
-      logger.info('✓ Worker restart successful');
-
-      if (this.watcherState) {
-        logger.info('Restoring watcher state:', this.watcherState.dirPath);
-        try {
-          await this.sendRequest('startWatching', {
-            dirPath: this.watcherState.dirPath,
-            ignorePatterns: this.watcherState.ignorePatterns,
-          });
-          logger.info('✓ Watcher restored');
-          this.emit('watcherRestored', this.watcherState.dirPath);
-        } catch (watchError) {
-          logger.error('Watcher restore failed:', watchError);
-          this.watcherState = null;
-          this.emit('watcherRestoreFailed', watchError);
-        }
-      }
-    } catch (error) {
-      logger.error('Worker restart failed:', error);
-    } finally {
-      this.isRestarting = false;
-    }
-  }
-
-  // ====== Message Handling ======
-
-  private handleResponse(response: WorkerResponse): void {
-    const pending = this.pendingRequests.get(response.id);
-    if (!pending) {
-      logger.warn(`Received response for unknown request: ${response.id}`);
-      return;
-    }
-
-    this.pendingRequests.delete(response.id);
-
-    if (pending.timeout) {
-      clearTimeout(pending.timeout);
-    }
-
-    if (response.success) {
-      pending.resolve(response.data);
-    } else {
-      pending.reject(new Error(response.error || 'Unknown error'));
-    }
-  }
-
-  private handleWorkerEvent(event: WorkerEvent): void {
     switch (event.type) {
-      case 'file-change':
+      case 'file-change': {
         const events = event.data as FileChangeEvent[];
         for (const e of events) {
           this.emit('file-changed', e);
         }
         break;
+      }
 
       case 'watcher-error':
         this.emit('watcher-error', event.data);
@@ -191,46 +62,25 @@ export class FileWorkerClient extends EventEmitter {
         this.emit('scan-progress', event.data);
         break;
     }
+    return true;
   }
 
-  private handleWorkerError(error: Error): void {
-    for (const [, pending] of this.pendingRequests) {
-      if (pending.timeout) {
-        clearTimeout(pending.timeout);
-      }
-      pending.reject(error);
+  /** Re-arm the directory watcher after a crash restart. */
+  protected override async onRestarted(): Promise<void> {
+    if (!this.watcherState) return;
+    this.log.info('Restoring watcher state:', this.watcherState.dirPath);
+    try {
+      await this.sendRequest('startWatching', {
+        dirPath: this.watcherState.dirPath,
+        ignorePatterns: this.watcherState.ignorePatterns,
+      });
+      this.log.info('✓ Watcher restored');
+      this.emit('watcherRestored', this.watcherState.dirPath);
+    } catch (watchError) {
+      this.log.error('Watcher restore failed:', watchError);
+      this.watcherState = null;
+      this.emit('watcherRestoreFailed', watchError);
     }
-    this.pendingRequests.clear();
-
-    this.emit('error', error);
-  }
-
-  private sendRequest<T>(type: string, payload: unknown, timeout?: number): Promise<T> {
-    return new Promise((resolve, reject) => {
-      if (!this.worker) {
-        reject(new Error('Worker not initialized'));
-        return;
-      }
-
-      const id = `file-${++this.requestId}`;
-      const timeoutMs = timeout ?? this.defaultTimeout;
-
-      const pending: PendingRequest = {
-        resolve: (value) => resolve(value as T),
-        reject,
-      };
-
-      if (timeoutMs > 0) {
-        pending.timeout = setTimeout(() => {
-          this.pendingRequests.delete(id);
-          reject(new Error(`Request ${type} timed out after ${timeoutMs}ms`));
-        }, timeoutMs);
-      }
-
-      this.pendingRequests.set(id, pending);
-
-      this.worker.postMessage({ id, type, payload });
-    });
   }
 
   // ====== Public API ======
@@ -326,25 +176,9 @@ export class FileWorkerClient extends EventEmitter {
   }
 
   async close(): Promise<void> {
-    this.restartManager.dispose();
     await this.stopWatching();
     this.watcherState = null;
-
-    if (this.worker) {
-      for (const [, pending] of this.pendingRequests) {
-        if (pending.timeout) {
-          clearTimeout(pending.timeout);
-        }
-        pending.reject(new Error('Worker is closing'));
-      }
-      this.pendingRequests.clear();
-
-      await this.worker.terminate();
-      this.worker = null;
-      this.isInitialized = false;
-      this.initPromise = null;
-      logger.debug('Worker closed');
-    }
+    await this.closeWorker('Worker is closing');
   }
 
   getWatcherState(): { dirPath: string; ignorePatterns?: string[] } | null {

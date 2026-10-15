@@ -452,7 +452,7 @@ async function loadManifest(): Promise<TypstManifest> {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(
-      `Typst manifest fetch failed (HTTP ${response.status}) at ${url}. Run "pnpm download:typst-wasm" to (re)generate the WASM assets.`
+      `Typst manifest fetch failed (HTTP ${response.status}) at ${url}. Run "npm run download:typst-wasm" to (re)generate the WASM assets.`
     );
   }
   const data = (await response.json()) as Partial<TypstManifest>;

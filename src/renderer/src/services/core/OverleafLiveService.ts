@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { Emitter, type Event } from '../../../../../shared/utils';
 import type {
   OverleafLiveConnectionStateDTO,
@@ -289,7 +290,7 @@ export class OverleafLiveService {
       .catch((error: unknown) => {
         this._onDidError.fire({
           scope: 'submit',
-          message: error instanceof Error ? error.message : String(error),
+          message: getErrorMessage(error),
         });
         throw error; // Re-throw so saveViaLive's `await this.pending` can observe it
       });

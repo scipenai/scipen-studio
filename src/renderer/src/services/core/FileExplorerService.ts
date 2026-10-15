@@ -4,6 +4,7 @@
  * @depends IPC (api.file), shared/utils (Event)
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { Disposable, Emitter, Event } from '../../../../../shared/utils';
 import { api } from '../../api';
 import { t } from '../../locales';
@@ -269,7 +270,7 @@ class FileExplorerService extends Disposable {
       await api.file.trash(node.path);
       return { success: true };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = getErrorMessage(error);
 
       const usePermanentDelete = await api.dialog.confirm(
         `Failed to move to trash: ${errorMessage}\n\nPermanently delete? (Cannot be recovered)`,

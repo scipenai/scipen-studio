@@ -7,6 +7,7 @@
  * `api.config.set` and lets the caller enable the service on success.
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { ConfigKeys } from '@shared/types/config-keys';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Loader2, ShieldAlert, X } from 'lucide-react';
@@ -77,7 +78,7 @@ export const SelectionSetupDialog: React.FC<Props> = ({
       // Prefix with a localized error label — the raw `err.message` is
       // typically an English IPC string and would surface in a zh-CN
       // dialog mid-flow. Matches the pattern used in SelectionTab.
-      const detail = err instanceof Error ? err.message : String(err);
+      const detail = getErrorMessage(err);
       setError(`${t('common.error')}: ${detail}`);
     } finally {
       setSaving(false);

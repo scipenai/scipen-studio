@@ -1,7 +1,7 @@
 /**
  * @file Main Process Entry - Electron Main Process
  * @description Application startup, window management, service initialization and IPC registration
- * @depends ServiceRegistry, IPC Handlers, Security, CompilerRegistry, LSPRegistry
+ * @depends ServiceRegistry, IPC Handlers, Security, CompilerRegistry
  */
 
 import path from 'node:path';
@@ -49,7 +49,6 @@ import { ZOTERO_CACHE_ROOT } from './services/zotero/ZoteroFullTextService';
 
 // ====== Registry Initialization (Lazy-Load) ======
 import { initializeCompilerRegistry } from './services/compiler/setup';
-import { initializeLSPRegistry } from './services/lsp/setup';
 
 // ====== IPC Handlers ======
 import {
@@ -518,7 +517,6 @@ app.whenReady().then(async () => {
 
   // Lazy-load: Only registers metadata here; actual services instantiated on first use
   initializeCompilerRegistry();
-  initializeLSPRegistry();
 
   // IPC handlers MUST be registered before createWindow so all channels are
   // ready by the time the renderer loads.

@@ -1,9 +1,10 @@
 /**
  * @file CompilerProviders.ts - Compiler Provider Implementation
  * @description Provides Provider implementations for LaTeX, Typst, Overleaf, and WASM compilers
- * @depends IPC (api.compiler), CompilerRegistry, BusyTexEngine
+ * @depends IPC (api.compile — incl. the BusyTeX engine process), CompilerRegistry
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { api } from '../../api';
 import { DEFAULT_TEXLIVE_ENDPOINT } from '../../constants/latex';
 import { t } from '../../locales';
@@ -14,6 +15,42 @@ import type { CompileResult, LatexEngine, TypstEngine } from './CompileService';
 import type { CompilerOptions, CompilerProvider } from './LanguageFeatureRegistry';
 
 const logger = createLogger('CompilerProviders');
+
+/**
+ * Parse TeX error entries out of a compile log: every line starting with
+ * `!` (or containing `Fatal error`) opens an error; a following `l.<n>`
+ * line carries the source line number. Deduplicated because BusyTeX's
+ * driver chain re-runs the engine and re-logs the same error each pass.
+ *
+ * Needed because BusyTeX's exit code reflects the last sub-step
+ * (xdvipdfmx) — a `--halt-on-error` xelatex pass that still wrote a
+ * partial `.xdv` converts fine and reports exit 0, so the log is the
+ * only truthful error signal on the "successful" path.
+ */
+export function parseTeXLogErrors(log: string): Array<{ line: number; message: string }> {
+  const lines = log.split('\n');
+  const seen = new Set<string>();
+  const errors: Array<{ line: number; message: string }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith('!') && !/fatal/i.test(lines[i])) continue;
+    const message = lines[i].trim();
+    if (seen.has(message)) continue;
+    // Hunt for the `l.<n>` source marker within the error's context block;
+    // stop early at the next error so we don't steal another error's line.
+    let lineNo = 0;
+    for (let j = i + 1; j <= Math.min(i + 8, lines.length - 1); j++) {
+      const m = lines[j].match(/^l\.(\d+)/);
+      if (m) {
+        lineNo = Number.parseInt(m[1], 10);
+        break;
+      }
+      if (lines[j].startsWith('!')) break;
+    }
+    seen.add(message);
+    errors.push({ line: lineNo, message });
+  }
+  return errors;
+}
 
 // ====== LaTeX Compiler Provider ======
 
@@ -49,6 +86,32 @@ export class LaTeXCompilerProvider implements CompilerProvider {
     }
 
     const result = await api.compile.latex(content, compileOptions);
+
+    // Same truth-source as the WASM path: the exit code alone misses
+    // recoverable `!` errors logged during a nonstop-mode run that still
+    // exits 0 — the log is the authoritative error signal, so keep both
+    // engine families consistent (partial PDF stays available via pdfPath).
+    if (result.success) {
+      const logErrors = parseTeXLogErrors(result.log ?? '');
+      if (logErrors.length > 0) {
+        logger.warn('Local LaTeX compile: exit 0 but TeX log contains errors', {
+          count: logErrors.length,
+          first: logErrors[0].message,
+        });
+        return {
+          success: false,
+          pdfPath: result.pdfPath,
+          synctexPath: result.synctexPath,
+          log: result.log,
+          errors: logErrors.map((e) => e.message),
+          parsedErrors: logErrors,
+          warnings: result.warnings,
+          parsedWarnings: result.parsedWarnings as
+            | Array<{ line: number; message: string }>
+            | undefined,
+        };
+      }
+    }
 
     return {
       success: result.success,
@@ -324,7 +387,7 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
         parsedInfo: [],
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       logger.error('Typst WASM compile failed', { error: message });
       return {
         success: false,
@@ -529,11 +592,44 @@ export class WASMCompilerProvider implements CompilerProvider {
         return { success: false, cancelled: true, errors: [], log: '' };
       }
 
+      // The TeX log is the authoritative error signal (see parseTeXLogErrors):
+      // the engine's exit code only mirrors the last driver step.
+      const parsedErrors = parseTeXLogErrors(result.log ?? '');
+
       if (!result.success) {
+        // Error priority: real TeX errors from the log, then whatever the
+        // engine process reported (timeouts, crashes), then the legacy scan.
+        // The handler's generic "Compilation failed" must not mask the first.
         return {
           success: false,
           log: result.log,
-          errors: result.errors.length > 0 ? result.errors : this.parseErrors(result.log),
+          errors:
+            parsedErrors.length > 0
+              ? parsedErrors.map((e) => e.message)
+              : result.errors.length > 0
+                ? result.errors
+                : this.parseErrors(result.log),
+          parsedErrors: parsedErrors.length > 0 ? parsedErrors : undefined,
+          warnings: this.parseWarnings(result.log),
+        };
+      }
+
+      // Exit code 0 but the log still carries TeX errors (halt-on-error
+      // partial output): the engine process has already written the partial
+      // PDF to disk, so keep pointing at it — but report failure so the UI
+      // surfaces the errors instead of a clean "OK" over truncated output.
+      if (parsedErrors.length > 0) {
+        logger.warn('WASM compile: engine exit 0 but TeX log contains errors', {
+          count: parsedErrors.length,
+          first: parsedErrors[0].message,
+        });
+        return {
+          success: false,
+          pdfPath: result.pdfPath,
+          synctexPath: result.synctexPath,
+          log: result.log,
+          errors: parsedErrors.map((e) => e.message),
+          parsedErrors,
           warnings: this.parseWarnings(result.log),
         };
       }
@@ -546,7 +642,9 @@ export class WASMCompilerProvider implements CompilerProvider {
         warnings: this.parseWarnings(result.log),
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      // Cancellation arrives as `result.cancelled` above (the engine process
+      // maps teardown to a neutral result), so anything thrown here is real.
+      const message = getErrorMessage(error);
       logger.error('WASM compilation failed', { error: message });
       return {
         success: false,

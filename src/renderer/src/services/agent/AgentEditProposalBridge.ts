@@ -16,6 +16,7 @@
  *     for a follow-up that exposes SNACA hunk ids on the review object.
  */
 
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { agentClient } from './AgentClientService';
 import { chatStreamStore } from './ChatStreamStore';
 import { getDiffReviewService } from '../core/DiffReviewService';
@@ -95,7 +96,7 @@ class AgentEditProposalBridgeImpl {
       this.dispatchResolution(proposalId).catch((err) => {
         logger.error('dispatchResolution threw', {
           proposalId,
-          error: err instanceof Error ? err.message : String(err),
+          error: getErrorMessage(err),
         });
       });
     });

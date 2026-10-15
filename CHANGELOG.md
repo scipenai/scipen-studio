@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-10-14
+
+A code-review hardening release: five review streams landed as twenty commits — dead-code removal, correctness and performance fixes, structural convergence, and an Overleaf-style compile error UX.
+
+### Fixed
+
+- **Compile errors no longer masquerade as success** — BusyTeX's exit code mirrors the last driver step (xdvipdfmx), so a `--halt-on-error` xelatex pass that still wrote a partial `.xdv` reported a green "Compile OK" over truncated output. Both WASM and local LaTeX compiles now parse the TeX log for `!` errors (with source line numbers, deduplicated across rerun passes) and report failure. The partial PDF stays on disk and in the preview — errors ride in a banner + collapsible logs panel, never as a full-screen replacement hiding the PDF (Overleaf convention).
+- **Full compile log one click away** — the logs pane is now a full-size overlay of the preview area with filter tabs and the complete raw log (previously a 256px strip with the raw log hidden behind a collapsed toggle; the WASM log also never reached disk — now persisted as `{base}.log` next to the PDF).
+- **`session.get_messages` total semantics** — the wire `total` was the post-filter page length (always ≤ limit), breaking the documented `>= messages.len()` contract for host-side has-more logic. It now counts the thread's renderable messages in SQL.
+- **Context injection dropped host fields** — `recent_edits`, `diagnostics`, `visible_range`, mention inline content / ranges, and URL content were silently discarded before reaching the model; XML attribute escaping was inconsistent (paths with `& < >` produced malformed XML).
+- **Compile abort could kill the wrong task** — the worker's abort prefix heuristic matched every task because all ids share the `compile-` prefix. Now segment-aligned, and the caller's task id rides the wire as the request id for exact matching.
+- **Memory viewer IO** — `memory.list` read whole files for 200-char previews (now a 2 KiB head); existence checks use `try_exists`.
+- **Listener/timer leaks** — editor remounts accumulated a settings listener each; LSP request timeouts kept 30s of dead timers per request.
+
+### Changed
+
+- **Streaming chat performance** — store notifications coalesce to one per animation frame; historical message rows skip re-render during streaming (memo + stable timeline keys); usage totals are cached per usage-version. Long conversations no longer re-render the entire transcript per token.
+- **PDF preview memory** — the visible-page set was grow-only; it is now rebuilt from per-page intersection state, so deep browsing no longer keeps every visited page's canvas alive.
+- **Paper reader merged into the preview pane** — the persistent [预览|论文] tab strip is gone. Ctrl+Click on a `\cite` hands the pane to the paper reader (with its own back button); a finished compile flips back automatically.
+- **Paper-tab merge, dead settings removed** — `autoCompile` / `compileOnSave` never had consumers; removed along with orphaned i18n keys.
+
+### Removed
+
+- **~2,900 lines of dead code** — LSPRegistry, the logParser worker stack, the duplicate WASM Typst compile path, EchoSuppressor, `utils/http`, protocol `id.rs`, unused hooks/exports, and unused deps (`minimatch`, `postcss`; crate-level `chrono`/`uuid`).
+
+### Internal
+
+- **Structural convergence** — LSPManager is slot-based (1132 → 851 lines, adding a server is one constructor entry); three worker clients share a `BaseWorkerClient`; Rust gained `spawn_engine_turn`, a unit-tested `apply_engine_overrides`, a serde-derived engine-override log, and shared error-mapping helpers.
+- **react-hooks lint rules enabled** — the previous config carried `react/exhaustive-deps`, which is not a real oxlint rule and was silently ignored; `rules-of-hooks` (error) and `exhaustive-deps` (warn) now actually run.
+
 ## [0.5.1] — 2026-08-17
 
 ### Added

@@ -608,8 +608,11 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
 
   // ==================== Memory / Skills viewer (P6-C) ====================
   // The renderer-facing IPC takes only a payload object; session_id is
-  // joined in main from the live AgentSessionState. Schemas here mirror
-  // those in agentHandlers.ts as a defense-in-depth check.
+  // joined in main from the live AgentSessionState.
+  // NOTE: these schemas are NOT currently enforced — agentHandlers.ts
+  // registers Agent_* channels with raw ipcMain.handle instead of
+  // registerTypedHandler. They are kept as the payload contract for the
+  // planned migration to typed handlers.
   [
     IpcChannel.Agent_MemoryList,
     z.tuple([
@@ -891,8 +894,6 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.OverleafProject_GetProjects, z.tuple([])],
 
   // ==================== Typst (P1 fix) ====================
-  [IpcChannel.Typst_Available, z.tuple([])],
-  [IpcChannel.Typst_GetCapabilities, z.tuple([])],
   [IpcChannel.Compile_GetStatus, z.tuple([])],
   // Endpoint latency probe: an http(s) URL, length-capped. The handler
   // re-validates the scheme before fetching (same guard as the texlive proxy).

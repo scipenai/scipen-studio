@@ -15,7 +15,6 @@ import {
   type LSPPosition,
   type LSPRange,
   type LSPSymbol,
-  type LSPTextEdit,
 } from './BaseLSPService';
 import type { LSPServerCapabilities } from './lsp/interfaces';
 
@@ -231,51 +230,6 @@ export class TinymistService extends BaseLSPService {
     } catch (error) {
       console.error('[Tinymist] Export PDF error:', error);
       return { success: false, error: String(error) };
-    }
-  }
-
-  /**
-   * Retrieves HTML preview for a document.
-   * @returns Success result or error message when LSP is unavailable
-   */
-  async getPreview(filePath: string): Promise<{ success: boolean; html?: string; error?: string }> {
-    if (!this.isInitialized()) return { success: false, error: 'LSP not initialized' };
-
-    try {
-      const result = (await this.sendRequest('tinymist/preview', {
-        textDocument: { uri: this.pathToUri(filePath) },
-      })) as { html?: string } | null;
-
-      if (result?.html) {
-        return { success: true, html: result.html };
-      }
-      return { success: false, error: 'Preview failed' };
-    } catch (error) {
-      console.error('[Tinymist] Preview error:', error);
-      return { success: false, error: String(error) };
-    }
-  }
-
-  /**
-   * Formats document via LSP formatting request.
-   * @returns Array of text edits, or empty list when not initialized
-   */
-  override async formatDocument(filePath: string): Promise<LSPTextEdit[]> {
-    if (!this.isInitialized()) return [];
-
-    try {
-      const result = (await this.sendRequest('textDocument/formatting', {
-        textDocument: { uri: this.pathToUri(filePath) },
-        options: {
-          tabSize: 2,
-          insertSpaces: true,
-        },
-      })) as LSPTextEdit[] | null;
-
-      return result || [];
-    } catch (error) {
-      console.error('[Tinymist] Format error:', error);
-      return [];
     }
   }
 

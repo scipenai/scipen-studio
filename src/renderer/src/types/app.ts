@@ -194,9 +194,6 @@ export interface AppSettings {
   compiler: {
     engine: LaTeXEngine;
     typstEngine: TypstEngine;
-    autoCompile: boolean;
-    compileOnSave: boolean;
-    autoCompileDelay: number;
     synctex: boolean;
     shellEscape: boolean;
     outputDirectory: string;

@@ -236,10 +236,6 @@ export const Commands = {
 
 export type CommandId = (typeof Commands)[keyof typeof Commands];
 
-// ====== React Hooks ======
-
-import { useCallback, useEffect } from 'react';
-
 // Lazy import to avoid circular dependency
 let CommandService: CommandServiceImpl | null = null;
 
@@ -254,22 +250,4 @@ export function getCommandService(): CommandServiceImpl {
 /** @internal Called by ServiceRegistry */
 export function _setCommandServiceInstance(instance: CommandServiceImpl): void {
   CommandService = instance;
-}
-
-export function useCommand(
-  idOrMetadata: string | CommandMetadata,
-  handler: CommandHandler,
-  deps: React.DependencyList = []
-): void {
-  useEffect(() => {
-    const disposable = getCommandService().registerCommand(idOrMetadata, handler);
-    return () => disposable.dispose();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-}
-
-export function useCommandExecutor() {
-  return useCallback(<T = unknown>(id: string, ...args: unknown[]): Promise<T> => {
-    return getCommandService().executeCommand<T>(id, ...args);
-  }, []);
 }
