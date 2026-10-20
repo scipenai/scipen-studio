@@ -508,6 +508,26 @@ export function setProjectPath(projectPath: string | null): void {
   PathSecurityService.setProjectPath(projectPath);
 }
 
+/**
+ * True when `candidate` is the active project directory or lies inside it.
+ * Unlike the project-context checks above — which let any non-sensitive
+ * absolute path through with a warning — this is a hard containment test,
+ * for callers that hand a whole directory tree to another process. Compares
+ * case-insensitively on Windows, where a renderer path and the stored
+ * project path can differ only in drive-letter or folder casing.
+ */
+export function isWithinCurrentProject(candidate: string): boolean {
+  const project = PathSecurityService.getProjectPath();
+  if (!project) return false;
+  const fold = (p: string) => {
+    const resolved = path.resolve(p);
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  };
+  const target = fold(candidate);
+  const root = fold(project);
+  return target === root || target.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
+}
+
 export function authorizePathTemporarily(filePath: string): void {
   PathSecurityService.authorizePathTemporarily(filePath);
 }

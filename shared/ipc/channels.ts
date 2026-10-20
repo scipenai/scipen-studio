@@ -42,8 +42,6 @@ export enum IpcChannel {
   Folder_Create = 'create-folder',
   Clipboard_GetFiles = 'get-clipboard-files',
   File_BatchRead = 'batch-read-files',
-  /** Binary read — results are base64 (figures etc. staged to the engine). */
-  File_BatchReadBinary = 'batch-read-files-binary',
   File_BatchStat = 'batch-stat-files',
   File_BatchExists = 'batch-path-exists',
   File_BatchWrite = 'batch-write-files',

@@ -497,15 +497,6 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
  * Map the public Studio engine name to the BusyTeX driver. The engine itself
  * is a combined build — the driver is a per-compile parameter.
  */
-/** Extensions staged from the project directory for compilation. */
-const TEX_FILE_EXTENSIONS = /\.(tex|bib|sty|cls|bst|def|cfg|fd|bbl|aux|clo|ldf|ltx|dtx|ins)$/i;
-
-/** Graphics files staged as BINARY (base64 over the wire) so xdvipdfmx
- *  embeds the real images instead of failing on missing files. */
-const GRAPHICS_FILE_EXTENSIONS = /\.(png|jpe?g|gif|bmp|pdf)$/i;
-const MAX_BINARY_FILE_BYTES = 20 * 1024 * 1024;
-const MAX_STAGED_BINARY_TOTAL_BYTES = 128 * 1024 * 1024;
-
 const BUSYTEX_DRIVER_MAP: Record<string, string> = {
   'wasm-pdftex': 'pdftex_bibtex8',
   'wasm-xetex': 'xetex_bibtex8_dvipdfmx',
@@ -517,12 +508,12 @@ const BUSYTEX_DRIVER_MAP: Record<string, string> = {
  * UtilityProcess (see `src/main/busytex-process/`).
  *
  * Responsibilities split at the process boundary:
- *   - THIS side (renderer): stages the file set — the current buffer comes
- *     from Monaco, siblings are batch-read from disk — and maps the result.
- *   - THE ENGINE side (utility): runs the pipeline and writes the PDF and
- *     `.synctex.gz` straight into the project directory, so the artifact
- *     never crosses an IPC boundary and the Emscripten heap never grows in
- *     the renderer.
+ *   - THIS side (renderer): sends the editor buffer (it may hold unsaved
+ *     changes) plus absolute paths, and maps the result.
+ *   - THE ENGINE side (utility): stages sources and figures from disk, runs
+ *     the pipeline, and writes the PDF and `.synctex.gz` straight into the
+ *     project directory — neither the project's files nor the artifact cross
+ *     an IPC boundary, and the Emscripten heap never grows in the renderer.
  *
  * Phases: staging is emitted here; pass/package phases are parsed from the
  * engine's stdout prints in the main process and arrive via
@@ -556,19 +547,11 @@ export class WASMCompilerProvider implements CompilerProvider {
     };
 
     try {
-      // Stage the file set: the current file from the editor buffer (it may
-      // hold unsaved changes), siblings verbatim from disk.
+      // The engine process stages sources and figures from disk next to
+      // itself; only this buffer (which may hold unsaved changes) is sent.
       emitPhase('staging', 'Staging project files');
-      const stageT0 = performance.now();
-      const files = await this.stageFiles(filePath, content, options);
-      logger.info('WASM stage done', {
-        stageMs: Math.round(performance.now() - stageT0),
-        files: files.length,
-      });
-
       const mainFileAbs = options.mainFile || filePath;
-      const mainFile = this.toStagedName(mainFileAbs, options.projectPath);
-      const baseName = stripExtension(basename(mainFile)) || 'main';
+      const baseName = stripExtension(basename(mainFileAbs)) || 'main';
 
       const settings = getSettingsService().getSettings().compiler;
       // Fall back to the default endpoint when the setting is blank. A fresh
@@ -578,8 +561,9 @@ export class WASMCompilerProvider implements CompilerProvider {
       const endpoint = settings.texliveEndpoint?.trim() || DEFAULT_TEXLIVE_ENDPOINT;
 
       const result = await api.compile.busyTeXCompile({
-        files,
-        mainFile,
+        projectRoot: options.projectPath || undefined,
+        mainFileAbs,
+        overlay: { absPath: filePath, contents: content },
         driver,
         endpoint,
         outputDir: dirname(mainFileAbs),
@@ -672,86 +656,6 @@ export class WASMCompilerProvider implements CompilerProvider {
     // Fire-and-forget: the engine process is torn down; a compile in flight
     // rejects and surfaces as a neutral "cancelled" result.
     void api.compile.busyTeXCancel();
-  }
-
-  /**
-   * Build the staged file set. Current file uses the (possibly unsaved)
-   * editor content; siblings are batch-read from disk. Paths are staged
-   * names (project-relative) so BusyTeX reconstructs the source tree.
-   */
-  private async stageFiles(
-    filePath: string,
-    content: string,
-    options: CompilerOptions
-  ): Promise<Array<{ path: string; contents: string; encoding?: 'utf8' | 'base64' }>> {
-    const files: Array<{ path: string; contents: string; encoding?: 'utf8' | 'base64' }> = [];
-    const currentRelativePath = this.toStagedName(filePath, options.projectPath);
-    files.push({ path: currentRelativePath, contents: content });
-
-    const projectPath = options.projectPath;
-    if (!projectPath) return files;
-
-    const scanResult = await api.file.scanFilePaths(projectPath);
-    if (!scanResult.success || !scanResult.paths) return files;
-
-    const texFiles = scanResult.paths.filter((p) => TEX_FILE_EXTENSIONS.test(p));
-    if (texFiles.length === 0) return files;
-
-    const batchResult = await api.file.batchRead(texFiles);
-    for (const [absolutePath, fileContent] of Object.entries(batchResult)) {
-      const relativePath = this.toStagedName(absolutePath, projectPath);
-      if (relativePath === currentRelativePath) continue;
-      files.push({ path: relativePath, contents: fileContent });
-    }
-
-    // Figures and other graphics: staged as base64 so the engine embeds the
-    // real bytes. Capped per file and in total — a mis-scanned huge PDF must
-    // not blow up the IPC payload.
-    const graphicsFiles = scanResult.paths.filter((p) => GRAPHICS_FILE_EXTENSIONS.test(p));
-    if (graphicsFiles.length > 0) {
-      let stagedBinaryBytes = 0;
-      let stagedBinaryCount = 0;
-      for (const [absolutePath, base64] of Object.entries(
-        await api.file.batchReadBinary(graphicsFiles)
-      )) {
-        const decodedBytes = (base64.length * 3) / 4;
-        if (decodedBytes > MAX_BINARY_FILE_BYTES) {
-          logger.warn('Skipping oversized graphic', { absolutePath, decodedBytes });
-          continue;
-        }
-        if (stagedBinaryBytes + decodedBytes > MAX_STAGED_BINARY_TOTAL_BYTES) {
-          logger.warn('Staged binary budget exhausted — remaining graphics skipped', {
-            stagedBinaryBytes,
-          });
-          break;
-        }
-        stagedBinaryBytes += decodedBytes;
-        stagedBinaryCount += 1;
-        files.push({
-          path: this.toStagedName(absolutePath, projectPath),
-          contents: base64,
-          encoding: 'base64',
-        });
-      }
-      if (stagedBinaryBytes > 0) {
-        logger.info('Staged binary graphics', { count: stagedBinaryCount, stagedBinaryBytes });
-      }
-    }
-
-    return files;
-  }
-
-  /** Project-relative staged name; paths outside the project fall back to
-   *  their basename (same convention the engine's VFS expects). */
-  private toStagedName(filePath: string, projectPath?: string): string {
-    const normalizedFilePath = filePath.replace(/\\/g, '/');
-    const normalizedProjectPath = projectPath?.replace(/\\/g, '/').replace(/\/$/, '');
-
-    if (normalizedProjectPath && normalizedFilePath.startsWith(`${normalizedProjectPath}/`)) {
-      return normalizedFilePath.slice(normalizedProjectPath.length + 1);
-    }
-
-    return normalizedFilePath.split('/').pop() || 'main.tex';
   }
 
   private parseErrors(log: string): string[] {

@@ -89,8 +89,9 @@ async function flush(times = 10): Promise<void> {
 
 function compileRequest(contents = 'x'): BusyTexCompileRequest {
   return {
-    files: [{ path: 'main.tex', contents }],
-    mainFile: 'main.tex',
+    projectRoot: '/tmp/proj',
+    mainFileAbs: '/tmp/proj/main.tex',
+    overlay: { absPath: '/tmp/proj/main.tex', contents },
     driver: 'pdftex_bibtex8',
     endpoint: '',
     outputDir: '/tmp/out',
@@ -181,10 +182,10 @@ describe('BusyTexProcessClient', () => {
     // fabricate a phase and corrupt the progress UI.
     expect(phases.length).toBe(phasesBefore);
 
-    // The client's own record carries the staged payload size — the number the
-    // engine-side total has to be read against to attribute transport cost.
+    // The client's own record carries what crossed IPC — now only the editor
+    // buffer — read against the engine-side total to attribute transport cost.
     const roundTrip = loggedInfo.find((e) => e.msg === 'BusyTeX compile round-trip');
-    expect(roundTrip?.meta).toMatchObject({ stagedFiles: 1, payloadBytes: 5, exitCode: 0 });
+    expect(roundTrip?.meta).toMatchObject({ payloadBytes: 5, exitCode: 0 });
   });
 
   it('sends at most one load when two compiles race at startup', async () => {

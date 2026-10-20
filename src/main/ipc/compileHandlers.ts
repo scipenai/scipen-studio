@@ -19,7 +19,11 @@ import type {
 } from '../../../shared/ipc/compile-contract';
 import type { LaTeXCompiler } from '../services/LaTeXCompiler';
 import { createLogger } from '../services/LoggerService';
-import { type PathAccessMode, checkPathSecurity } from '../services/PathSecurityService';
+import {
+  type PathAccessMode,
+  checkPathSecurity,
+  isWithinCurrentProject,
+} from '../services/PathSecurityService';
 import type { TypstCompiler } from '../services/TypstCompiler';
 import {
   probeTexliveEndpoint,
@@ -513,13 +517,30 @@ export function registerCompileHandlers(): void {
       },
 
       [IpcChannel.Compile_BusyTeX_Compile]: async (request: BusyTeXCompileRequestDTO) => {
+        // The engine process walks projectRoot itself, so it must be the
+        // active project (or inside it) — the generic project-context check
+        // lets outside paths through with only a warning. A root that fails
+        // degrades to staging the buffer alone; the output dir must then
+        // also stay inside the project it compiles.
+        const projectRoot =
+          request.projectRoot && isWithinCurrentProject(request.projectRoot)
+            ? request.projectRoot
+            : undefined;
+        if (request.projectRoot && !projectRoot) {
+          logger.warn(
+            'BusyTeX compile: projectRoot outside the active project, staging buffer only'
+          );
+        }
+        if (projectRoot && !isWithinCurrentProject(request.outputDir)) {
+          return { success: false, log: '', errors: ['Output directory is outside the project'] };
+        }
         const client = getBusyTexProcessClient();
         // Phases parsed from engine prints flow to the renderer over the
         // existing Compile_Progress channel; scoped so a compile that starts
         // mid-flight cannot leak another compile's prints into it.
         const disposePhase = client.onPhase((phase) => broadcastCompileProgress(phase));
         try {
-          const result = await client.compile(request);
+          const result = await client.compile({ ...request, projectRoot });
           return {
             success: result.exitCode === 0,
             exitCode: result.exitCode,

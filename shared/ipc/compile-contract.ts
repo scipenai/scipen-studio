@@ -130,14 +130,15 @@ export interface TexliveClearMissesResult {
  */
 export interface BusyTeXCompileRequestDTO {
   /**
-   * Staged files handed to the engine's virtual FS. `encoding` defaults to
-   * utf8 (TeX sources); `base64` carries BINARY files (figures) — the child
-   * decodes to bytes before writing them into the VFS, so xdvipdfmx embeds
-   * real JPEGs/PNGs instead of failing on missing files.
+   * Project root the engine process stages sources and figures from. Absent
+   * when the file is opened outside any project — only the buffer is staged.
+   * Main rejects roots outside the active project.
    */
-  files: Array<{ path: string; contents: string; encoding?: 'utf8' | 'base64' }>;
-  /** Staged name of the main file (project-relative). */
-  mainFile: string;
+  projectRoot?: string;
+  /** Absolute path of the main file; the engine derives its staged name. */
+  mainFileAbs: string;
+  /** The editor buffer being compiled, which may hold unsaved changes. */
+  overlay: { absPath: string; contents: string };
   /** BusyTeX driver, e.g. `xetex_bibtex8_dvipdfmx`. */
   driver: string;
   /** TeX Live remote endpoint for on-demand packages (may be empty). */

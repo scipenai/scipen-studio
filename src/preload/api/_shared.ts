@@ -48,7 +48,6 @@ export const ALLOWED_INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   IpcChannel.Folder_Create,
   IpcChannel.Clipboard_GetFiles,
   IpcChannel.File_BatchRead,
-  IpcChannel.File_BatchReadBinary,
   IpcChannel.File_BatchStat,
   IpcChannel.File_BatchExists,
   IpcChannel.File_BatchWrite,

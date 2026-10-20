@@ -193,16 +193,35 @@ describe('busytex-process entry', () => {
     return fs.readdirSync(dir).filter((f) => new RegExp(`^[0-9a-f]{64}\\${suffix}$`).test(f));
   }
 
+  /**
+   * Compile request in the current wire shape. Without `projectRoot` the
+   * engine stages only the buffer, under the main file's base name — which
+   * is how the fixture worker's probe branches are selected.
+   */
+  function compileParams(main = 'main.tex', overrides: Record<string, unknown> = {}) {
+    const abs = nodePath.join(fixtureDir, 'proj', main);
+    return {
+      mainFileAbs: abs,
+      overlay: { absPath: abs, contents: 'x' },
+      driver: 'pdftex',
+      endpoint: '',
+      outputDir: fixtureDir,
+      baseName: 'main',
+      ...overrides,
+    };
+  }
+
   async function compileProbe(id: string, probe: 'probe-fetch' | 'probe-xhr'): Promise<void> {
     await request(`${id}-load`, 'load');
-    await request(id, 'compile', {
-      files: [{ path: 'main.tex', contents: 'x' }],
-      mainFile: probe,
-      driver: 'pdftex_bibtex8',
-      endpoint: 'https://example.invalid',
-      outputDir: nodePath.join(fixtureDir, 'out'),
-      baseName: 'main',
-    });
+    await request(
+      id,
+      'compile',
+      compileParams(probe, {
+        driver: 'pdftex_bibtex8',
+        endpoint: 'https://example.invalid',
+        outputDir: nodePath.join(fixtureDir, 'out'),
+      })
+    );
   }
 
   it('does not cache a 200 whose body could not be read back (fetch path)', async () => {
@@ -282,14 +301,9 @@ describe('busytex-process entry', () => {
     // The fake worker fetches scipen-wasm://busytex/hello.txt during the
     // compile frame and returns the body in `log` — proving the fetch shim
     // resolved the scheme, produced ok/status, and handed over the bytes.
-    const res = (await request('req-2', 'compile', {
-      files: [{ path: 'main.tex', contents: 'x' }],
-      mainFile: 'main.tex',
-      driver: 'pdftex',
-      endpoint: '',
-      outputDir: fixtureDir,
-      baseName: 'main',
-    })) as { result?: { exitCode: number; log: string } };
+    const res = (await request('req-2', 'compile', compileParams())) as {
+      result?: { exitCode: number; log: string };
+    };
     expect(res.error).toBeUndefined();
     expect(res.result?.exitCode).toBe(0);
     // Body bytes flow through, and the wasm response carries the MIME type
@@ -304,28 +318,19 @@ describe('busytex-process entry', () => {
     expect(res.result).toEqual({ loaded: true });
   });
 
-  it('delivers base64-encoded files to the worker as real bytes', async () => {
-    // Gap 1: figures travel base64 over IPC; handleCompile must decode them
-    // before the VFS write — the worker sees a Uint8Array of decoded bytes.
+  it('stages figures from the project directory as real bytes', async () => {
+    // The engine reads the project itself; a figure must reach the worker as
+    // binary (no base64 hop), with the editor buffer standing in for main.tex.
+    const projectRoot = nodePath.join(fixtureDir, 'proj');
+    fs.mkdirSync(nodePath.join(projectRoot, 'images'), { recursive: true });
+    fs.writeFileSync(nodePath.join(projectRoot, 'images', 'pic.jpg'), Buffer.from('ABC图片')); // allow-cjk: multi-byte payload
     await request('req-1', 'load');
-    const res = (await request('req-2', 'compile', {
-      files: [
-        { path: 'main.tex', contents: 'x' },
-        {
-          path: 'images/pic.jpg',
-          contents: Buffer.from('ABC图片').toString('base64'),
-          encoding: 'base64',
-        },
-      ],
-      mainFile: 'main.tex',
-      driver: 'pdftex',
-      endpoint: '',
-      outputDir: fixtureDir,
-      baseName: 'main',
-    })) as { result?: { exitCode: number; log: string } };
+    const res = (await request('req-2', 'compile', compileParams('main.tex', { projectRoot }))) as {
+      result?: { exitCode: number; log: string };
+    };
     expect(res.error).toBeUndefined();
-    // 'ABC图片' = 3 + 6 utf8 bytes = 9 bytes, delivered as binary.
-    expect(res.result?.log).toBe(FIXTURE_TEXT + '|application/wasm|bin9');
+    // 3 ASCII bytes + 2 CJK characters × 3 UTF-8 bytes = 9 bytes, delivered as binary.
+    expect(res.result?.log).toBe(`${FIXTURE_TEXT}|application/wasm|bin9`);
   });
 
   it('refuses a second concurrent call instead of clobbering the first', async () => {
@@ -333,17 +338,10 @@ describe('busytex-process entry', () => {
     // concurrent request used to overwrite the first's pendingFrame — the
     // first caller hung to its timeout and print attribution crossed.
     await request('req-1', 'load');
-    const compileParams = {
-      files: [{ path: 'main.tex', contents: 'x' }],
-      mainFile: 'main.tex',
-      driver: 'pdftex',
-      endpoint: '',
-      outputDir: fixtureDir,
-      baseName: 'main',
-    };
+    const params = compileParams();
     // Dispatch both back-to-back without awaiting the first.
-    port.dispatch({ id: 'c1', type: 'request', method: 'compile', params: compileParams });
-    port.dispatch({ id: 'c2', type: 'request', method: 'compile', params: compileParams });
+    port.dispatch({ id: 'c1', type: 'request', method: 'compile', params });
+    port.dispatch({ id: 'c2', type: 'request', method: 'compile', params });
     await flush();
 
     const r1 = port.sent.find((m) => m.type === 'response' && m.id === 'c1') as Msg;
@@ -358,14 +356,9 @@ describe('busytex-process entry', () => {
     // but no PDF — exactly the case where the log matters most.
     await request('req-1', 'load');
     const outputDir = nodePath.join(fixtureDir, 'out');
-    const res = (await request('req-2', 'compile', {
-      files: [{ path: 'main.tex', contents: 'x' }],
-      mainFile: 'main.tex',
-      driver: 'pdftex',
-      endpoint: '',
-      outputDir,
-      baseName: 'main',
-    })) as { result?: { pdfPath?: string; log: string } };
+    const res = (await request('req-2', 'compile', compileParams('main.tex', { outputDir }))) as {
+      result?: { pdfPath?: string; log: string };
+    };
 
     expect(res.result?.pdfPath).toBeUndefined();
     const logPath = nodePath.join(outputDir, 'main.log');

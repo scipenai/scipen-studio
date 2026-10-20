@@ -110,6 +110,29 @@ describe('WASMCompilerProvider', () => {
     expect(result.parsedErrors).toBeUndefined();
   });
 
+  it('sends absolute paths and the editor buffer, never a staged file list', async () => {
+    // The engine process stages the project from disk itself; only the
+    // (possibly unsaved) buffer crosses IPC.
+    busyTeXCompile.mockResolvedValue({ success: true, exitCode: 0, log: '', errors: [] });
+
+    await new WASMCompilerProvider().compile('/proj/chapters/intro.tex', 'unsaved text', {
+      engine: 'wasm-xetex',
+      projectPath: '/proj',
+      mainFile: '/proj/main.tex',
+    });
+
+    const request = busyTeXCompile.mock.calls[0][0];
+    expect(request).toMatchObject({
+      projectRoot: '/proj',
+      mainFileAbs: '/proj/main.tex',
+      overlay: { absPath: '/proj/chapters/intro.tex', contents: 'unsaved text' },
+      driver: 'xetex_bibtex8_dvipdfmx',
+      outputDir: '/proj',
+      baseName: 'main',
+    });
+    expect(request).not.toHaveProperty('files');
+  });
+
   it('maps an engine teardown to a neutral cancelled result', async () => {
     busyTeXCompile.mockResolvedValue({ success: false, cancelled: true, log: '', errors: [] });
 

@@ -40,9 +40,11 @@ const IDLE_RELEASE_MS = 10 * 60_000;
 // ====== Wire types ======
 
 export interface BusyTexCompileRequest {
-  /** Full staged file set (current buffer + siblings + figures), project-relative. */
-  files: Array<{ path: string; contents: string; encoding?: 'utf8' | 'base64' }>;
-  mainFile: string;
+  /** Already checked by main to lie inside the active project; the engine stages from it. */
+  projectRoot?: string;
+  mainFileAbs: string;
+  /** The editor buffer — the only file content that crosses IPC. */
+  overlay: { absPath: string; contents: string };
   driver: string;
   endpoint: string;
   outputDir: string;
@@ -366,13 +368,11 @@ class BusyTexProcessClientImpl {
 
   /** Run one compile. Artifacts are written by the child; paths come back. */
   async compile(request: BusyTexCompileRequest): Promise<BusyTexCompileResult> {
-    // Staged payload size: every byte here is structured-cloned across the
-    // process boundary, and base64 figures make this by far the largest
-    // message the app sends. Logged alongside the engine's own `stats` event
-    // so the gap between this round-trip and the engine-side total is
-    // attributable to transport rather than guessed at.
-    let payloadBytes = 0;
-    for (const file of request.files) payloadBytes += file.contents.length;
+    // Only the editor buffer crosses the process boundary now — the engine
+    // stages everything else from disk. Logged alongside the engine's own
+    // `stats` event so the gap between this round-trip and the engine-side
+    // total stays attributable to transport.
+    const payloadBytes = request.overlay.contents.length;
 
     try {
       // A compile without a loaded engine fails on the child side ("engine
@@ -386,7 +386,6 @@ class BusyTexProcessClientImpl {
       );
       logger.info('BusyTeX compile round-trip', {
         roundTripMs: Date.now() - t0,
-        stagedFiles: request.files.length,
         payloadBytes,
         exitCode: result.exitCode,
       });

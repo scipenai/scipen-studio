@@ -167,11 +167,6 @@ export interface IPCFileContract {
     args: [filePaths: string[]];
     result: BatchReadResult[];
   };
-  /** Binary read for engine staging; contents arrive base64-encoded. */
-  [IpcChannel.File_BatchReadBinary]: {
-    args: [filePaths: string[]];
-    result: Array<{ path: string; success: boolean; base64?: string; error?: string }>;
-  };
   [IpcChannel.File_BatchStat]: {
     args: [filePaths: string[]];
     result: BatchStatResult[];

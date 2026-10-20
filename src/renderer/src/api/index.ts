@@ -254,23 +254,6 @@ export const file = {
 
     return record;
   },
-  batchReadBinary: async (paths: string[]) => {
-    const record: Record<string, string> = {};
-
-    for (const chunk of chunkArray(paths, IPC_BATCH_LIMIT)) {
-      const results = await invoke<
-        Array<{ path: string; success: boolean; base64?: string; error?: string }>
-      >(IpcChannel.File_BatchReadBinary, chunk);
-
-      for (const result of results) {
-        if (result.success && result.base64 !== undefined) {
-          record[result.path] = result.base64;
-        }
-      }
-    }
-
-    return record;
-  },
   batchStat: async (paths: string[]) => {
     const record: Record<string, { size: number; mtime: number }> = {};
 

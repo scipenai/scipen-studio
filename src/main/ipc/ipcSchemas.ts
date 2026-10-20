@@ -164,7 +164,6 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
 
   // Batch file operations
   [IpcChannel.File_BatchRead, z.tuple([z.array(safePathSchema).max(100)])],
-  [IpcChannel.File_BatchReadBinary, z.tuple([z.array(safePathSchema).max(200)])],
   [IpcChannel.File_BatchStat, z.tuple([z.array(safePathSchema).max(100)])],
   [IpcChannel.File_BatchExists, z.tuple([z.array(safePathSchema).max(100)])],
   [
@@ -908,29 +907,17 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
     z.tuple([
       z
         .object({
-          files: z
-            .array(
-              z.object({
-                path: z.string().min(1).max(2048),
-                contents: z.string().max(50 * 1024 * 1024),
-                // 'base64' carries binary staged files (figures); the engine
-                // process decodes to bytes before writing into its VFS.
-                encoding: z.enum(['utf8', 'base64']).optional(),
-              })
-            )
-            .min(1)
-            .max(2000),
-          // A STAGED NAME (project-relative, e.g. "paper/main.tex") — not a
-          // filesystem path, so no absolute-path requirement here. The engine
-          // process resolves it inside its virtual FS. Guarded against
-          // traversal and null bytes anyway: the strings flow into path joins
-          // on the child side.
-          mainFile: z
-            .string()
-            .min(1)
-            .max(1024)
-            .refine((v) => !v.includes('\0'), 'Null bytes not allowed')
-            .refine((v) => !v.split(/[\\/]/).includes('..'), 'Path traversal not allowed'),
+          // The engine process stages sources and figures from disk itself;
+          // only the editor buffer crosses IPC. The handler additionally
+          // requires projectRoot to lie inside the active project.
+          projectRoot: safePathSchema.optional(),
+          mainFileAbs: safePathSchema,
+          overlay: z
+            .object({
+              absPath: safePathSchema,
+              contents: z.string().max(50 * 1024 * 1024),
+            })
+            .strict(),
           driver: z.string().min(1).max(64),
           endpoint: z.string().max(2048),
           outputDir: safePathSchema,

@@ -42,6 +42,7 @@ import { resetStats } from './engineStats';
 import { COMPILE_TIMEOUT_MS, LOAD_TIMEOUT_MS, WASM_ASSETS_DIR } from './env';
 import { emitEvent, onParentClose, onParentMessage, sendToParent } from './hostChannel';
 import { FINAL_FOR_ALL_PASSES, type PassTrace, installPassPolicy } from './passPolicy';
+import { ProjectStager, type StageStats } from './projectStager';
 import { installNetworkShims } from './remoteFetch';
 import { installWorkerBridge, setPrintListener, workerCall } from './workerBridge';
 
@@ -181,9 +182,13 @@ function manifestList(kind: 'preload' | 'catalog'): string[] {
 /** Catalog captured at load time; every compile passes it to the resolver. */
 let catalogList: string[] = [];
 
+/** Sources and figures are staged from disk here, next to the engine. */
+const stager = new ProjectStager();
+
 async function handleCompile(params: {
-  files: Array<{ path: string; contents: string; encoding?: 'utf8' | 'base64' }>;
-  mainFile: string;
+  projectRoot?: string;
+  mainFileAbs: string;
+  overlay: { absPath: string; contents: string };
   driver: string;
   endpoint: string;
   outputDir: string;
@@ -199,7 +204,7 @@ async function handleCompile(params: {
   }
   const totalT0 = performance.now();
   resetStats();
-  let decodeMs = 0;
+  let stageStats: StageStats | undefined;
   let workerMs = 0;
   let writeMs = 0;
   let pdfBytes = 0;
@@ -209,22 +214,20 @@ async function handleCompile(params: {
   // blew the 600 s cap is precisely the case where the fetch counts explain
   // why, and losing them on the error path would defeat the instrumentation.
   try {
-    // base64 entries are BINARY staged files (figures): decode to bytes here so
-    // the pipeline's FS.writeFile receives real bytes — emscripten accepts
-    // Uint8Array/Buffer natively, and xdvipdfmx embeds them untouched. Text
-    // entries stay strings.
-    const decodeT0 = performance.now();
-    const stagedFiles = params.files.map((f) => ({
-      path: f.path,
-      contents: f.encoding === 'base64' ? Buffer.from(f.contents, 'base64') : f.contents,
-    }));
-    decodeMs = performance.now() - decodeT0;
+    const staged = stager.stage({
+      projectRoot: params.projectRoot,
+      mainFileAbs: params.mainFileAbs,
+      overlay: params.overlay,
+      outputDir: params.outputDir,
+      baseName: params.baseName,
+    });
+    stageStats = staged.stats;
 
     const workerT0 = performance.now();
     const frame = await workerCall(
       {
-        files: stagedFiles,
-        main_tex_path: params.mainFile,
+        files: staged.files,
+        main_tex_path: staged.mainFile,
         bibtex: null,
         makeindex: null,
         rerun: null,
@@ -268,11 +271,10 @@ async function handleCompile(params: {
     const trace = takePassTrace();
     reportStats('compile', {
       totalMs: Math.round(performance.now() - totalT0),
-      decodeMs: Math.round(decodeMs),
       workerMs: Math.round(workerMs),
       writeMs: Math.round(writeMs),
-      stagedFiles: params.files.length,
       pdfBytes,
+      stage: stageStats,
       // Absent when the upstream schedule ran (policy not installed).
       passes: trace?.passes,
       texPasses: trace?.texPasses,
