@@ -21,7 +21,12 @@ import type { LaTeXCompiler } from '../services/LaTeXCompiler';
 import { createLogger } from '../services/LoggerService';
 import { type PathAccessMode, checkPathSecurity } from '../services/PathSecurityService';
 import type { TypstCompiler } from '../services/TypstCompiler';
-import { probeTexliveEndpoint, resolveWasmRoot } from '../services/WasmAssetProtocol';
+import {
+  probeTexliveEndpoint,
+  resolveTexliveCacheDir,
+  resolveWasmRoot,
+} from '../services/WasmAssetProtocol';
+import { TexliveRemoteCache } from '../services/TexliveRemoteCache';
 import { BUSYTEX_STOPPED_MESSAGE, getBusyTexProcessClient } from '../services/BusyTexProcessClient';
 import { CompilerRegistry } from '../services/compiler/CompilerRegistry';
 import type {
@@ -34,6 +39,19 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 const logger = createLogger('CompileHandlers');
+
+/**
+ * Cache handle for the maintenance channels (usage / clear misses).
+ *
+ * Deliberately NOT `getTexliveRemoteCache()`: that returns null under
+ * `SCIPEN_TEXLIVE_REMOTE_CACHE=0`, yet the engine process caches
+ * unconditionally (it never reads that variable), so going through the
+ * singleton would report "0 entries" while the directory is full and in
+ * active use. Maintenance operates on the directory itself.
+ */
+function maintenanceCache(): TexliveRemoteCache {
+  return new TexliveRemoteCache({ cacheDir: resolveTexliveCacheDir() });
+}
 
 function unavailableLatexCapabilities() {
   const unavailable = { available: false, version: null as string | null };
@@ -449,6 +467,44 @@ export function registerCompileHandlers(): void {
         // Probe runs in main so it exercises the same `net.fetch` route the
         // BusyTeX worker's package fetches take (see WasmAssetProtocol).
         return probeTexliveEndpoint(endpoint);
+      },
+
+      [IpcChannel.Compile_GetTexliveCacheUsage]: async () => {
+        try {
+          const usage = maintenanceCache().usage();
+          return { ok: true, ...usage };
+        } catch (error) {
+          // Total result: the settings pane renders whatever comes back.
+          return {
+            ok: false,
+            binCount: 0,
+            binBytes: 0,
+            missCount: 0,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+
+      [IpcChannel.Compile_ClearTexliveMisses]: async () => {
+        // Refuse while a compile is in flight. Pulling the probe results out
+        // from under a running compile makes it re-fetch hundreds of URLs
+        // serially and blow the 600 s cap — the user would see an
+        // inexplicable timeout. Declining is also less surprising than
+        // killing the engine: this action is about cache hygiene, not about
+        // cancelling work.
+        const client = getBusyTexProcessClient();
+        if (client.isBusy) {
+          return { ok: false, removed: 0, busy: true };
+        }
+        try {
+          return { ok: true, ...maintenanceCache().clearMisses() };
+        } catch (error) {
+          return {
+            ok: false,
+            removed: 0,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
       },
 
       [IpcChannel.Compile_BusyTeX_Prepare]: async () => {

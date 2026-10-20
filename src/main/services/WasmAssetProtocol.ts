@@ -55,15 +55,33 @@ const TEXLIVE_REMOTE_HOST = 'texlive-remote';
  *
  * Opt-out: `SCIPEN_TEXLIVE_REMOTE_CACHE=0` restores the pure-streaming
  * proxy. Size cap override: `SCIPEN_TEXLIVE_CACHE_MAX_BYTES`.
+ *
+ * SCOPE WARNING: both env vars only affect THIS proxy path. A BusyTeX
+ * compile passes the endpoint straight through to the engine process, which
+ * fetches direct https URLs with its own curl + its own synchronous copy of
+ * this cache layout (`busytex-process/index.ts`), and that copy honours
+ * neither variable. So the opt-out does not disable caching for compiles,
+ * and the size cap never runs on that path — `evictIfNeeded` is reachable
+ * only from {@link TexliveRemoteCache.put}, which only this proxy calls.
  */
 let texliveCache: TexliveRemoteCache | null = null;
+
+/**
+ * Single source of truth for the cache directory. Shared with the engine
+ * process (injected as `TEXLIVE_CACHE_DIR` by `BusyTexProcessClient`) and the
+ * settings-facing maintenance handlers, so the path exists once rather than
+ * being re-derived at each call site.
+ */
+export function resolveTexliveCacheDir(): string {
+  return path.join(app.getPath('userData'), 'scipen-studio', 'texlive-remote-cache');
+}
 
 export function getTexliveRemoteCache(): TexliveRemoteCache | null {
   if (process.env.SCIPEN_TEXLIVE_REMOTE_CACHE === '0') return null;
   if (!texliveCache) {
     const maxBytes = Number.parseInt(process.env.SCIPEN_TEXLIVE_CACHE_MAX_BYTES ?? '', 10);
     texliveCache = new TexliveRemoteCache({
-      cacheDir: path.join(app.getPath('userData'), 'scipen-studio', 'texlive-remote-cache'),
+      cacheDir: resolveTexliveCacheDir(),
       maxBytes: Number.isFinite(maxBytes) && maxBytes > 0 ? maxBytes : undefined,
     });
   }
@@ -233,8 +251,10 @@ async function handleTexliveRemote(url: URL): Promise<Response> {
 
   // Disk-cache fast path. Keyed by the full remote URL, so a different
   // endpoint configured in Settings gets a different key space. 404 misses
-  // are cached too (with a TTL inside the cache) — kpathsea probes produce
-  // many miss requests and re-paying them per launch is pure latency.
+  // are cached too, and like the 200s they never expire — kpathsea probes
+  // produce hundreds of miss requests per compile and re-paying them is pure
+  // latency. Settings → Compiler offers an explicit "clear 404 records"
+  // action for the rare mirror that later gains a file.
   const cache = getTexliveRemoteCache();
   if (cache) {
     const entry = await cache.get(remoteUrl);

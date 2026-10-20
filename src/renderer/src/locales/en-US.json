@@ -283,7 +283,17 @@
     "autoResolved": "Will use: {{engine}}",
     "texliveEndpointTest": "Test",
     "texliveEndpointOk": "Reachable · {{ms}} ms",
-    "texliveEndpointFailed": "Unreachable: {{error}}"
+    "texliveEndpointFailed": "Unreachable: {{error}}",
+    "texliveCache": "TexLive Fetch Cache",
+    "texliveCacheDesc": "Packages downloaded on demand during WASM compilation, plus a record of which files the server does not have. Those records are what keep later compiles fast — clear them only if the server has since gained a file you need.",
+    "texliveCacheUsage": "{{packages}} packages · {{size}} · {{misses}} not-found records",
+    "texliveCacheUnknown": "Cache size unavailable",
+    "texliveCacheClear": "Clear not-found records",
+    "texliveCacheClearConfirmTitle": "Clear not-found records?",
+    "texliveCacheClearConfirmMessage": "Downloaded packages are kept. The next compile will re-check every missing file against the server, which can take several minutes on a slow link.",
+    "texliveCacheCleared": "Cleared {{count}} records",
+    "texliveCacheClearBusy": "A compile is running — stop it first",
+    "texliveCacheClearFailed": "Could not clear: {{error}}"
   },
   "aiConfig": {},
   "modelPicker": {},

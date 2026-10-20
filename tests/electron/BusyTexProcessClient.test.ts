@@ -64,6 +64,18 @@ vi.mock('electron', () => ({
   },
 }));
 
+/** Captured `logger.info` calls — the IO instrumentation's only output. */
+const loggedInfo = vi.hoisted(() => [] as Array<{ msg: string; meta?: unknown }>);
+
+vi.mock('../../src/main/services/LoggerService', () => ({
+  createLogger: () => ({
+    info: (msg: string, meta?: unknown) => loggedInfo.push({ msg, meta }),
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  }),
+}));
+
 import {
   BUSYTEX_STOPPED_MESSAGE,
   getBusyTexProcessClient,
@@ -134,6 +146,45 @@ describe('BusyTexProcessClient', () => {
     respondOk({ exitCode: 0, pdfPath: '/tmp/out/main.pdf', log: '' });
     const result = await compilePromise;
     expect(result.exitCode).toBe(0);
+  });
+
+  it('logs engine IO stats without disturbing the phase stream', async () => {
+    const phases: Array<{ stage: string }> = [];
+    client.onPhase((p) => phases.push(p));
+
+    const loadPromise = client.ensureLoaded();
+    await flush();
+    respondOk({ loaded: true });
+    await loadPromise;
+
+    loggedInfo.length = 0;
+    const phasesBefore = phases.length;
+
+    const compilePromise = client.compile(compileRequest('hello'));
+    await flush();
+
+    // The engine reports its IO accounting as a dedicated event, not a print.
+    childState.emit?.({
+      type: 'event',
+      event: 'stats',
+      data: { phase: 'compile', totalMs: 1200, curlMs: 900, fetched404: 42, cacheHits: 7 },
+    });
+
+    respondOk({ exitCode: 0, pdfPath: '/tmp/out/main.pdf', log: '' });
+    await compilePromise;
+
+    // Numbers survive the hop intact — this is the whole point of the channel.
+    const io = loggedInfo.find((e) => e.msg === 'BusyTeX engine io');
+    expect(io?.meta).toMatchObject({ phase: 'compile', curlMs: 900, fetched404: 42 });
+
+    // And a stats frame must not be mistaken for a print line, which would
+    // fabricate a phase and corrupt the progress UI.
+    expect(phases.length).toBe(phasesBefore);
+
+    // The client's own record carries the staged payload size — the number the
+    // engine-side total has to be read against to attribute transport cost.
+    const roundTrip = loggedInfo.find((e) => e.msg === 'BusyTeX compile round-trip');
+    expect(roundTrip?.meta).toMatchObject({ stagedFiles: 1, payloadBytes: 5, exitCode: 0 });
   });
 
   it('sends at most one load when two compiles race at startup', async () => {

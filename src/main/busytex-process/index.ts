@@ -65,6 +65,51 @@ const LOAD_TIMEOUT_MS = 300_000;
 /** Hard ceiling for one compile (matches the previous renderer-side limit). */
 const COMPILE_TIMEOUT_MS = 600_000;
 
+// ====== IO instrumentation ======
+
+/**
+ * Per-call IO accounting. Exists because the synchronous kpathsea path spawns
+ * ONE curl process per cache miss: wall-clock is driven by miss COUNT, not by
+ * byte volume, and on Windows every spawn additionally pays CreateProcess plus
+ * AV scanning. None of that is observable from outside the process, which left
+ * "the compile is slow" unattributable. Reset per load/compile and reported
+ * when that call settles.
+ */
+interface EngineStats {
+  /** Local asset reads (wasm, data packages) — no network involved. */
+  diskReads: number;
+  diskBytes: number;
+  /** Remote lookups served from the on-disk TeX Live cache (cheap path). */
+  cacheHits: number;
+  /** Cache misses that went to the network, by outcome. */
+  fetched200: number;
+  /** kpse probing for a file that does not exist — the dominant miss kind. */
+  fetched404: number;
+  fetchErrors: number;
+  /** Cumulative wall-clock inside curl (process spawn + transfer). */
+  curlMs: number;
+  /** Cumulative wall-clock in cache lookups (stat + read). */
+  cacheMs: number;
+  fetchedBytes: number;
+}
+
+function newEngineStats(): EngineStats {
+  return {
+    diskReads: 0,
+    diskBytes: 0,
+    cacheHits: 0,
+    fetched200: 0,
+    fetched404: 0,
+    fetchErrors: 0,
+    curlMs: 0,
+    cacheMs: 0,
+    fetchedBytes: 0,
+  };
+}
+
+/** Single window; compiles are serialized by the worker's one pending slot. */
+let stats = newEngineStats();
+
 if (!WASM_ASSETS_DIR) {
   process.stderr.write('[busytex-process] WASM_ASSETS_DIR not set — cannot start\n');
   process.exit(1);
@@ -132,19 +177,35 @@ for (const name of [
   };
 }
 
-/** Synchronous cache lookup mirroring TexliveRemoteCache's on-disk layout. */
+/**
+ * Counted wrapper around {@link lookupCacheEntry}. Lookups are themselves an
+ * IO cost worth measuring: each one is a `stat` plus (on a hit) a full read,
+ * and on Windows every one of those is an AV-scanned file operation.
+ */
 function cacheLookup(url: string): { status: 200 | 404; body: Buffer } | null {
+  const t0 = performance.now();
+  try {
+    const hit = lookupCacheEntry(url);
+    if (hit) stats.cacheHits += 1;
+    return hit;
+  } finally {
+    stats.cacheMs += performance.now() - t0;
+  }
+}
+
+/** Synchronous cache lookup mirroring TexliveRemoteCache's on-disk layout. */
+function lookupCacheEntry(url: string): { status: 200 | 404; body: Buffer } | null {
   if (!TEXLIVE_CACHE_DIR) return null;
   const key = crypto.createHash('sha256').update(url).digest('hex');
   const missPath = nodePath.join(TEXLIVE_CACHE_DIR, `${key}.miss`);
   const contentPath = nodePath.join(TEXLIVE_CACHE_DIR, `${key}.bin`);
   try {
+    // Misses never expire, exactly like the 200s next to them: the endpoint
+    // serves an immutable TeX Live snapshot (`texlive2026.…`), and a snapshot
+    // that lacks a file today will not grow one tomorrow. A different mirror
+    // or release is a different URL, hence a different key, so switching is
+    // already isolated. Kept in lockstep with TexliveRemoteCache.get().
     if (fs.existsSync(missPath)) {
-      // Same 7-day TTL as TexliveRemoteCache.MISS_TTL_MS.
-      if (Date.now() - fs.statSync(missPath).mtimeMs > 7 * 24 * 60 * 60 * 1000) {
-        fs.unlinkSync(missPath);
-        return null;
-      }
       return { status: 404, body: Buffer.alloc(0) };
     }
     if (!fs.existsSync(contentPath)) return null;
@@ -201,8 +262,11 @@ class XMLHttpRequestShim {
     try {
       const disk = resolveAssetPath(this.url);
       if (disk) {
+        const body = fs.readFileSync(disk);
+        stats.diskReads += 1;
+        stats.diskBytes += body.byteLength;
         this.status = 200;
-        this.finish(fs.readFileSync(disk));
+        this.finish(body);
         return;
       }
 
@@ -228,6 +292,7 @@ class XMLHttpRequestShim {
           TEXLIVE_CACHE_DIR || WASM_ASSETS_DIR,
           `.fetch-${process.pid}-${crypto.randomBytes(4).toString('hex')}`
         );
+        const curlT0 = performance.now();
         const res = childProcess.spawnSync(
           'curl',
           [
@@ -244,23 +309,52 @@ class XMLHttpRequestShim {
           ],
           { encoding: 'utf8' }
         );
+        stats.curlMs += performance.now() - curlT0;
         if (res.status !== 0) {
+          stats.fetchErrors += 1;
           this.status = 0;
           this.onerror?.(new Error(res.stderr || 'curl failed'));
           return;
         }
         this.status = Number(res.stdout) || 0;
-        const body =
-          this.status > 0 && this.status !== 404 && fs.existsSync(tmp)
-            ? fs.readFileSync(tmp)
-            : Buffer.alloc(0);
+        // "curl reported 200" is NOT enough to cache: the body lands in a temp
+        // file inside the cache dir, and if that file cannot be read back
+        // (disk full, AV quarantine, a concurrent cache cleanup) the old code
+        // silently substituted an empty Buffer and stored it as a 200. A `.bin`
+        // has no TTL, no length check and no eviction, so that empty entry
+        // became a PERMANENT poison pill served to every later compile.
+        // Rule: no bytes read back => not a 200.
+        let body = Buffer.alloc(0);
+        let readOk = false;
+        if (this.status > 0 && this.status !== 404) {
+          try {
+            body = fs.readFileSync(tmp);
+            readOk = true;
+          } catch {
+            readOk = false;
+          }
+        }
         try {
           fs.unlinkSync(tmp);
         } catch {
           /* best effort */
         }
-        if (this.status === 200) cacheStore(this.url, body, false);
-        else if (this.status === 404) cacheStore(this.url, Buffer.alloc(0), true);
+        if (this.status === 200 && !readOk) {
+          stats.fetchErrors += 1;
+          this.status = 0;
+          this.onerror?.(new Error('curl reported 200 but the response body was lost'));
+          return;
+        }
+        if (this.status === 200) {
+          stats.fetched200 += 1;
+          stats.fetchedBytes += body.byteLength;
+          cacheStore(this.url, body, false);
+        } else if (this.status === 404) {
+          stats.fetched404 += 1;
+          cacheStore(this.url, Buffer.alloc(0), true);
+        } else {
+          stats.fetchErrors += 1;
+        }
         this.finish(body);
         return;
       }
@@ -316,18 +410,25 @@ function curlFetch(
       TEXLIVE_CACHE_DIR || WASM_ASSETS_DIR,
       `.fetch-${process.pid}-${crypto.randomBytes(4).toString('hex')}`
     );
+    const curlT0 = performance.now();
     childProcess.execFile(
       'curl',
       ['-s', '-o', tmp, '-w', '%{http_code}', '-X', method, '--max-time', String(timeoutS), url],
       { encoding: 'utf8', timeout: (timeoutS + 5) * 1000 },
       (err, stdout) => {
+        stats.curlMs += performance.now() - curlT0;
         const rawStatus = err ? 0 : Number(stdout) || 0;
+        // Same poison-pill guard as the synchronous shim above: a 200 whose
+        // body cannot be read back must NOT be cached, or the empty buffer
+        // becomes a permanent `.bin`. Degrade to 502 so the caller retries.
         let body = Buffer.alloc(0);
-        if (rawStatus === 200 && fs.existsSync(tmp)) {
+        let readOk = false;
+        if (rawStatus === 200) {
           try {
             body = fs.readFileSync(tmp);
+            readOk = true;
           } catch {
-            body = Buffer.alloc(0);
+            readOk = false;
           }
         }
         try {
@@ -335,8 +436,21 @@ function curlFetch(
         } catch {
           /* best effort */
         }
-        if (rawStatus === 200) cacheStore(url, body, false);
-        else if (rawStatus === 404) cacheStore(url, Buffer.alloc(0), true);
+        if (rawStatus === 200 && !readOk) {
+          stats.fetchErrors += 1;
+          resolve({ status: 502, body: Buffer.alloc(0) });
+          return;
+        }
+        if (rawStatus === 200) {
+          stats.fetched200 += 1;
+          stats.fetchedBytes += body.byteLength;
+          cacheStore(url, body, false);
+        } else if (rawStatus === 404) {
+          stats.fetched404 += 1;
+          cacheStore(url, Buffer.alloc(0), true);
+        } else {
+          stats.fetchErrors += 1;
+        }
         resolve({ status: rawStatus >= 100 ? rawStatus : 502, body });
       }
     );
@@ -363,9 +477,13 @@ async function fetchShim(url: URL | string, init?: { method?: string }): Promise
   const urlStr = String(url);
   const disk = resolveAssetPath(urlStr);
   if (disk) {
+    // This is the ~120 MB wasm + data-package path, so it dominates `load`.
+    const body = fs.readFileSync(disk);
+    stats.diskReads += 1;
+    stats.diskBytes += body.byteLength;
     // Content-Type matters: WebAssembly.compileStreaming rejects any
     // response whose MIME type is not application/wasm.
-    return new Response(fs.readFileSync(disk), {
+    return new Response(body, {
       status: 200,
       headers: { 'Content-Type': contentTypeFor(disk) },
     });
@@ -444,6 +562,16 @@ function sendToParent(msg: Record<string, unknown>): void {
 /** Unsolicited event stream (prints, phases) — not tied to a request id. */
 function emitEvent(event: string, data: Record<string, unknown>): void {
   sendToParent({ type: 'event', event, data });
+}
+
+/**
+ * Report the IO accounting for one call and open a fresh window. Emitted as an
+ * event rather than folded into the response so the wire result types stay
+ * unchanged — this is diagnostic data, not part of the compile contract.
+ */
+function reportStats(phase: 'load' | 'compile', timings: Record<string, number | boolean>): void {
+  emitEvent('stats', { phase, ...timings, ...stats });
+  stats = newEngineStats();
 }
 
 function onWorkerFrame(frame: Record<string, unknown>): void {
@@ -525,6 +653,11 @@ function handleLoad(): Promise<{ loaded: true }> {
   // of re-running importScripts and crashing on redeclared classes.
   if (loadInFlight) return loadInFlight;
 
+  // Measured from before importScripts so the window covers the whole load,
+  // including the ~120 MB of wasm + data packages read off disk.
+  const loadT0 = performance.now();
+  stats = newEngineStats();
+
   loadInFlight = (async () => {
     printListener = (line) => emitEvent('print', { line });
 
@@ -550,8 +683,12 @@ function handleLoad(): Promise<{ loaded: true }> {
       LOAD_TIMEOUT_MS
     );
     pipelineReady = true;
+    reportStats('load', { totalMs: Math.round(performance.now() - loadT0), ok: true });
     return { loaded: true } as const;
   })().catch((err: unknown) => {
+    // A failed load is exactly when the numbers matter most (a timeout is
+    // usually starved fetches, not a broken engine) — report before exiting.
+    reportStats('load', { totalMs: Math.round(performance.now() - loadT0), ok: false });
     // importScripts already ran — this process can never load again.
     // Self-terminate once the error response has a moment to flush over the
     // message port (mirrors `release`'s 50 ms grace); the client's exit
@@ -588,54 +725,82 @@ async function handleCompile(params: {
   if (!pipelineReady) {
     throw new Error('engine not loaded — call load first');
   }
-  // base64 entries are BINARY staged files (figures): decode to bytes here so
-  // the pipeline's FS.writeFile receives real bytes — emscripten accepts
-  // Uint8Array/Buffer natively, and xdvipdfmx embeds them untouched. Text
-  // entries stay strings.
-  const stagedFiles = params.files.map((f) => ({
-    path: f.path,
-    contents: f.encoding === 'base64' ? Buffer.from(f.contents, 'base64') : f.contents,
-  }));
-  const frame = await workerCall(
-    {
-      files: stagedFiles,
-      main_tex_path: params.mainFile,
-      bibtex: null,
-      makeindex: null,
-      rerun: null,
-      verbose: 'silent',
-      driver: params.driver,
-      // The package resolver maps missing files to remote data packages via
-      // this catalog — an empty list makes every non-preloaded package
-      // (ctex, …) fail with "file not found".
-      data_packages_js: catalogList,
-      remote_endpoint: params.endpoint,
-    },
-    COMPILE_TIMEOUT_MS
-  );
+  const totalT0 = performance.now();
+  stats = newEngineStats();
+  let decodeMs = 0;
+  let workerMs = 0;
+  let writeMs = 0;
+  let pdfBytes = 0;
 
-  const exitCode = (frame.exit_code as number | undefined) ?? -1;
-  const pdf = frame.pdf as Uint8Array | undefined;
-  const synctex = frame.synctex as Uint8Array | undefined;
+  // `finally` so a failed or timed-out compile still reports: a compile that
+  // blew the 600 s cap is precisely the case where the fetch counts explain
+  // why, and losing them on the error path would defeat the instrumentation.
+  try {
+    // base64 entries are BINARY staged files (figures): decode to bytes here so
+    // the pipeline's FS.writeFile receives real bytes — emscripten accepts
+    // Uint8Array/Buffer natively, and xdvipdfmx embeds them untouched. Text
+    // entries stay strings.
+    const decodeT0 = performance.now();
+    const stagedFiles = params.files.map((f) => ({
+      path: f.path,
+      contents: f.encoding === 'base64' ? Buffer.from(f.contents, 'base64') : f.contents,
+    }));
+    decodeMs = performance.now() - decodeT0;
 
-  const log = (frame.log as string) ?? '';
+    const workerT0 = performance.now();
+    const frame = await workerCall(
+      {
+        files: stagedFiles,
+        main_tex_path: params.mainFile,
+        bibtex: null,
+        makeindex: null,
+        rerun: null,
+        verbose: 'silent',
+        driver: params.driver,
+        // The package resolver maps missing files to remote data packages via
+        // this catalog — an empty list makes every non-preloaded package
+        // (ctex, …) fail with "file not found".
+        data_packages_js: catalogList,
+        remote_endpoint: params.endpoint,
+      },
+      COMPILE_TIMEOUT_MS
+    );
+    workerMs = performance.now() - workerT0;
 
-  // Artifacts are written HERE, in this process — the PDF crosses no IPC
-  // boundary; the renderer only ever sees paths.
-  let pdfPath: string | undefined;
-  let synctexPath: string | undefined;
-  if (exitCode === 0 && pdf && pdf.byteLength > 0) {
-    fs.mkdirSync(params.outputDir, { recursive: true });
-    pdfPath = nodePath.join(params.outputDir, `${params.baseName}.pdf`);
-    fs.writeFileSync(pdfPath, Buffer.from(pdf));
-    if (synctex && synctex.byteLength > 0) {
-      synctexPath = nodePath.join(params.outputDir, `${params.baseName}.synctex.gz`);
-      fs.writeFileSync(synctexPath, Buffer.from(synctex));
+    const exitCode = (frame.exit_code as number | undefined) ?? -1;
+    const pdf = frame.pdf as Uint8Array | undefined;
+    const synctex = frame.synctex as Uint8Array | undefined;
+    const log = (frame.log as string) ?? '';
+
+    // Artifacts are written HERE, in this process — the PDF crosses no IPC
+    // boundary; the renderer only ever sees paths.
+    let pdfPath: string | undefined;
+    let synctexPath: string | undefined;
+    const writeT0 = performance.now();
+    if (exitCode === 0 && pdf && pdf.byteLength > 0) {
+      fs.mkdirSync(params.outputDir, { recursive: true });
+      pdfPath = nodePath.join(params.outputDir, `${params.baseName}.pdf`);
+      fs.writeFileSync(pdfPath, Buffer.from(pdf));
+      pdfBytes = pdf.byteLength;
+      if (synctex && synctex.byteLength > 0) {
+        synctexPath = nodePath.join(params.outputDir, `${params.baseName}.synctex.gz`);
+        fs.writeFileSync(synctexPath, Buffer.from(synctex));
+      }
     }
-  }
-  writeCompileLog(params.outputDir, params.baseName, log);
+    writeCompileLog(params.outputDir, params.baseName, log);
+    writeMs = performance.now() - writeT0;
 
-  return { exitCode, pdfPath, synctexPath, log };
+    return { exitCode, pdfPath, synctexPath, log };
+  } finally {
+    reportStats('compile', {
+      totalMs: Math.round(performance.now() - totalT0),
+      decodeMs: Math.round(decodeMs),
+      workerMs: Math.round(workerMs),
+      writeMs: Math.round(writeMs),
+      stagedFiles: params.files.length,
+      pdfBytes,
+    });
+  }
 }
 
 /**

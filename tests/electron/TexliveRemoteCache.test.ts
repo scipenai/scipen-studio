@@ -10,11 +10,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import {
-  TexliveRemoteCache,
-  DEFAULT_MAX_BYTES,
-  MISS_TTL_MS,
-} from '@main/services/TexliveRemoteCache';
+import { TexliveRemoteCache, DEFAULT_MAX_BYTES } from '@main/services/TexliveRemoteCache';
+
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 describe('TexliveRemoteCache', () => {
   let cacheDir: string;
@@ -63,19 +61,22 @@ describe('TexliveRemoteCache', () => {
     expect(cache.stats.missHits).toBe(1);
   });
 
-  it('expires 404 misses after MISS_TTL_MS so late-added files are re-consulted', async () => {
+  it('serves 404 misses regardless of age — they never expire', async () => {
+    // Inverted from an earlier "expires after 7 days" test, kept as the
+    // anchor for that decision: the endpoint is an immutable snapshot, so a
+    // miss stays true, and expiring them cost a multi-minute re-probe storm
+    // (hundreds of serial curl round-trips) on a fixed weekly cadence.
     const cache = makeCache();
     const url = 'https://mirror.example/tex/latex/late.sty';
     await cache.putMiss(url);
 
-    // Backdate the marker past the TTL.
-    const past = new Date(Date.now() - MISS_TTL_MS - 1000);
+    const past = new Date(Date.now() - SEVEN_DAYS_MS - 1000);
     const marker = fs.readdirSync(cacheDir).find((f) => f.endsWith('.miss'))!;
     fs.utimesSync(path.join(cacheDir, marker), past, past);
 
-    expect(await cache.get(url)).toBeNull();
-    // The expired marker is cleaned up.
-    expect(fs.readdirSync(cacheDir).some((f) => f.endsWith('.miss'))).toBe(false);
+    expect((await cache.get(url))!.status).toBe(404);
+    // And the marker survives — nothing re-probes it.
+    expect(fs.readdirSync(cacheDir).some((f) => f.endsWith('.miss'))).toBe(true);
   });
 
   it('keeps different URLs in separate key spaces', async () => {
@@ -136,6 +137,81 @@ describe('TexliveRemoteCache', () => {
 
   it('exports the documented defaults', () => {
     expect(DEFAULT_MAX_BYTES).toBe(1024 * 1024 * 1024);
-    expect(MISS_TTL_MS).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it('a failed LRU touch does not discard an otherwise valid hit', async () => {
+    const cache = makeCache();
+    const url = 'https://m.example/touch-fails';
+    await cache.put(url, Buffer.from('payload'));
+
+    const original = fs.utimesSync;
+    (fs as { utimesSync: unknown }).utimesSync = () => {
+      throw new Error('EPERM');
+    };
+    try {
+      // The touch is decorative bookkeeping; it must not veto the payload.
+      expect((await cache.get(url))!.body!.toString()).toBe('payload');
+    } finally {
+      (fs as { utimesSync: unknown }).utimesSync = original;
+    }
+  });
+
+  it('keeps .miss markers out of LRU eviction', async () => {
+    // Misses are zero-byte, so evicting them reclaims nothing — and their
+    // mtime is never refreshed, which used to sort them first and wipe the
+    // entire miss set for no gain.
+    const cache = makeCache(250);
+    for (let i = 0; i < 20; i += 1) await cache.putMiss(`https://m.example/missing-${i}`);
+    await cache.put('https://m.example/one', Buffer.alloc(100, 1));
+    await new Promise((r) => setTimeout(r, 20));
+    await cache.put('https://m.example/two', Buffer.alloc(100, 2));
+    await new Promise((r) => setTimeout(r, 20));
+    await cache.put('https://m.example/three', Buffer.alloc(100, 3));
+
+    expect(fs.readdirSync(cacheDir).filter((f) => f.endsWith('.miss'))).toHaveLength(20);
+    // Eviction still converges on the .bin entries despite the miss majority.
+    expect(await cache.get('https://m.example/one')).toBeNull();
+    expect((await cache.get('https://m.example/three'))!.status).toBe(200);
+  }, 15000);
+
+  it('reports usage with counts and bytes separated', async () => {
+    const cache = makeCache();
+    await cache.put('https://m.example/pkg', Buffer.alloc(120, 7));
+    await cache.putMiss('https://m.example/nope');
+
+    const usage = cache.usage();
+    expect(usage).toEqual({ binCount: 1, binBytes: 120, missCount: 1 });
+  });
+
+  it('clearMisses drops only the markers, never payloads or in-flight files', async () => {
+    const cache = makeCache();
+    await cache.put('https://m.example/keep', Buffer.from('payload'));
+    await cache.putMiss('https://m.example/drop-a');
+    await cache.putMiss('https://m.example/drop-b');
+
+    // Transfer files live in this same directory. Deleting a live `.fetch-*`
+    // makes the engine read back an empty body and cache it as a permanent
+    // 200, so bulk operations must match entry names strictly.
+    const key = 'a'.repeat(64);
+    const staleTmp = path.join(cacheDir, `${key}.bin.1234.abcd.tmp`);
+    const inFlight = path.join(cacheDir, '.fetch-1234-abcd');
+    const foreign = path.join(cacheDir, 'README.txt');
+    fs.writeFileSync(staleTmp, 'partial');
+    fs.writeFileSync(inFlight, 'downloading');
+    fs.writeFileSync(foreign, 'notes');
+
+    expect(cache.clearMisses()).toEqual({ removed: 2 });
+
+    expect(fs.existsSync(staleTmp)).toBe(true);
+    expect(fs.existsSync(inFlight)).toBe(true);
+    expect(fs.existsSync(foreign)).toBe(true);
+    expect((await cache.get('https://m.example/keep'))!.body!.toString()).toBe('payload');
+    expect(fs.readdirSync(cacheDir).some((f) => f.endsWith('.miss'))).toBe(false);
+  });
+
+  it('clearMisses and usage degrade quietly when the directory is absent', () => {
+    const cache = new TexliveRemoteCache({ cacheDir: path.join(cacheDir, 'not-created-yet') });
+    expect(cache.usage()).toEqual({ binCount: 0, binBytes: 0, missCount: 0 });
+    expect(cache.clearMisses()).toEqual({ removed: 0 });
   });
 });

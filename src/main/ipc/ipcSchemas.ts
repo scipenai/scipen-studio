@@ -898,6 +898,10 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   // Endpoint latency probe: an http(s) URL, length-capped. The handler
   // re-validates the scheme before fetching (same guard as the texlive proxy).
   [IpcChannel.Compile_TestTexliveEndpoint, z.tuple([z.string().min(1).max(2048)])],
+  // Cache maintenance: no arguments — the directory is resolved in main so a
+  // renderer can never point these at an arbitrary path.
+  [IpcChannel.Compile_GetTexliveCacheUsage, z.tuple([])],
+  [IpcChannel.Compile_ClearTexliveMisses, z.tuple([])],
   [IpcChannel.Compile_BusyTeX_Prepare, z.tuple([])],
   [
     IpcChannel.Compile_BusyTeX_Compile,

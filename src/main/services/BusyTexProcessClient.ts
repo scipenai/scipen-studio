@@ -23,7 +23,7 @@ import { Emitter, type Event } from '../../../shared/utils';
 import { createLogger } from './LoggerService';
 import { parseBusyTexPrintLine, createBusyTexPhaseState } from './compilePhaseParser';
 import type { CompileProgressPayload } from '../../../shared/ipc/compile-contract';
-import { resolveWasmRoot } from './WasmAssetProtocol';
+import { resolveTexliveCacheDir, resolveWasmRoot } from './WasmAssetProtocol';
 
 const logger = createLogger('BusyTexProcessClient');
 
@@ -119,6 +119,16 @@ class BusyTexProcessClientImpl {
     return this.process !== null;
   }
 
+  /**
+   * True while a request is in flight (load or compile). Distinct from
+   * {@link isRunning}: an idle-but-alive engine is safe to maintain around,
+   * an in-flight compile is not — clearing cached probe results underneath
+   * one makes it re-fetch hundreds of URLs and blow the 600 s request cap.
+   */
+  get isBusy(): boolean {
+    return this.pendingRequests.size > 0;
+  }
+
   /** @sideeffect Spawns the UtilityProcess and wires listeners */
   private async ensureProcess(): Promise<UtilityProcess> {
     if (this.process) return this.process;
@@ -146,11 +156,7 @@ class BusyTexProcessClientImpl {
         env: {
           ...process.env,
           WASM_ASSETS_DIR: resolveWasmRoot() + '/busytex',
-          TEXLIVE_CACHE_DIR: path.join(
-            app.getPath('userData'),
-            'scipen-studio',
-            'texlive-remote-cache'
-          ),
+          TEXLIVE_CACHE_DIR: resolveTexliveCacheDir(),
         },
       });
 
@@ -224,6 +230,14 @@ class BusyTexProcessClientImpl {
       } else {
         pending.resolve(message.result);
       }
+      return;
+    }
+    if (message.type === 'event' && message.event === 'stats') {
+      // Structured IO accounting from the engine process. Logged rather than
+      // forwarded to the renderer: it is diagnostic data, and it only means
+      // something read next to the round-trip timings logged below — the gap
+      // between the two is what the staged payload costs to cross the wire.
+      logger.info('BusyTeX engine io', message.data as Record<string, unknown>);
       return;
     }
     if (message.type === 'event' && message.event === 'print') {
@@ -337,9 +351,11 @@ class BusyTexProcessClientImpl {
     // to) starts a fresh loadPromise and — if the process died — a fresh
     // process, which is the only safe way to retry.
     this.loadPromise = (async () => {
+      const t0 = Date.now();
       try {
         await this.request('load', undefined, this.LOAD_TIMEOUT);
         this.loaded = true;
+        logger.info('BusyTeX engine loaded', { roundTripMs: Date.now() - t0 });
         this.armIdleRelease();
       } finally {
         this.loadPromise = null;
@@ -350,15 +366,30 @@ class BusyTexProcessClientImpl {
 
   /** Run one compile. Artifacts are written by the child; paths come back. */
   async compile(request: BusyTexCompileRequest): Promise<BusyTexCompileResult> {
+    // Staged payload size: every byte here is structured-cloned across the
+    // process boundary, and base64 figures make this by far the largest
+    // message the app sends. Logged alongside the engine's own `stats` event
+    // so the gap between this round-trip and the engine-side total is
+    // attributable to transport rather than guessed at.
+    let payloadBytes = 0;
+    for (const file of request.files) payloadBytes += file.contents.length;
+
     try {
       // A compile without a loaded engine fails on the child side ("engine
       // not loaded") — e.g. a user who never warmed via Prepare. Load first.
       await this.ensureLoaded();
+      const t0 = Date.now();
       const result = await this.request<BusyTexCompileResult>(
         'compile',
         request,
         this.COMPILE_TIMEOUT
       );
+      logger.info('BusyTeX compile round-trip', {
+        roundTripMs: Date.now() - t0,
+        stagedFiles: request.files.length,
+        payloadBytes,
+        exitCode: result.exitCode,
+      });
       this.armIdleRelease();
       return result;
     } catch (err) {

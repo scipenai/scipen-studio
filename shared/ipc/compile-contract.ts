@@ -99,6 +99,31 @@ export interface TexliveEndpointProbeResult {
 }
 
 /**
+ * Census of the on-disk TeX Live fetch cache, for the compiler settings pane.
+ *
+ * `missCount` is reported separately from bytes on purpose: 404 markers are
+ * zero-byte files, so a byte total alone would render as "546 entries, 0 B"
+ * and read like a bug.
+ */
+export interface TexliveCacheUsageResult {
+  ok: boolean;
+  binCount: number;
+  binBytes: number;
+  missCount: number;
+  error?: string;
+}
+
+/** Outcome of dropping the cached 404 probe results. */
+export interface TexliveClearMissesResult {
+  ok: boolean;
+  /** Markers actually unlinked by this call (not how many existed). */
+  removed: number;
+  /** True when a compile was in flight and nothing was touched. */
+  busy?: boolean;
+  error?: string;
+}
+
+/**
  * Staged compile request for the BusyTeX engine process. The renderer does
  * the staging (it owns the unsaved editor buffer); the engine process does
  * everything else, including writing the artifacts to disk.
@@ -188,6 +213,14 @@ export interface IPCCompileContract {
   [IpcChannel.Compile_TestTexliveEndpoint]: {
     args: [endpoint: string];
     result: TexliveEndpointProbeResult;
+  };
+  [IpcChannel.Compile_GetTexliveCacheUsage]: {
+    args: [];
+    result: TexliveCacheUsageResult;
+  };
+  [IpcChannel.Compile_ClearTexliveMisses]: {
+    args: [];
+    result: TexliveClearMissesResult;
   };
   [IpcChannel.Compile_BusyTeX_Prepare]: {
     args: [];

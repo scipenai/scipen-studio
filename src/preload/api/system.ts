@@ -31,6 +31,11 @@ export const compileApi = {
   testTexliveEndpoint: (endpoint: string) =>
     ipcRenderer.invoke(IpcChannel.Compile_TestTexliveEndpoint, endpoint),
 
+  /** Census of the on-disk TeX Live fetch cache (settings pane). */
+  getTexliveCacheUsage: () => ipcRenderer.invoke(IpcChannel.Compile_GetTexliveCacheUsage),
+  /** Drop cached 404 probe results, keeping downloaded packages. */
+  clearTexliveMisses: () => ipcRenderer.invoke(IpcChannel.Compile_ClearTexliveMisses),
+
   // BusyTeX engine process (runs in an Electron UtilityProcess).
   busyTeXPrepare: () => ipcRenderer.invoke(IpcChannel.Compile_BusyTeX_Prepare),
   busyTeXCompile: (request: unknown) =>

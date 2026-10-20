@@ -10,6 +10,8 @@ import type {
   BusyTeXCompileRequestDTO,
   BusyTeXCompileResultDTO,
   CompileProgressPayload,
+  TexliveCacheUsageResult,
+  TexliveClearMissesResult,
   TexliveEndpointProbeResult,
 } from '../../../../shared/ipc/compile-contract';
 import {
@@ -422,6 +424,20 @@ export const compile = {
    */
   testTexliveEndpoint: (endpoint: string) =>
     invoke<TexliveEndpointProbeResult>(IpcChannel.Compile_TestTexliveEndpoint, endpoint),
+  /**
+   * Census of the on-disk TeX Live fetch cache. Like the probe above, the
+   * result is total (never throws) so the settings pane can render it
+   * directly. Intentionally NOT registered in `invokeResultSchemas` — a
+   * result-shape mismatch there throws `IpcResultValidationError` in the
+   * renderer, which would defeat the never-throws contract.
+   */
+  getTexliveCacheUsage: () =>
+    invoke<TexliveCacheUsageResult>(IpcChannel.Compile_GetTexliveCacheUsage),
+  /**
+   * Drop the cached 404 probe results, keeping downloaded packages. Returns
+   * `busy: true` untouched when a compile is in flight.
+   */
+  clearTexliveMisses: () => invoke<TexliveClearMissesResult>(IpcChannel.Compile_ClearTexliveMisses),
   /** Warm the BusyTeX engine process (load wasm + data packages). */
   busyTeXPrepare: () => invoke<{ ok: boolean }>(IpcChannel.Compile_BusyTeX_Prepare),
   /** Run one compile in the engine process; artifacts land on disk. */

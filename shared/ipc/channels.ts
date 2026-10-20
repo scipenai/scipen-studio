@@ -80,6 +80,8 @@ export enum IpcChannel {
    * renderer-side probe would measure a different path and hit the CSP.
    */
   Compile_TestTexliveEndpoint = 'compile:test-texlive-endpoint',
+  Compile_GetTexliveCacheUsage = 'compile:get-texlive-cache-usage',
+  Compile_ClearTexliveMisses = 'compile:clear-texlive-misses',
   /**
    * BusyTeX engine process control. The engine runs in an Electron
    * UtilityProcess (see `src/main/busytex-process/`); the renderer provider

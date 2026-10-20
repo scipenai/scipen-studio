@@ -7,6 +7,7 @@ import { Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
 import type {
   LaTeXCapabilities,
+  TexliveCacheUsageResult,
   TexliveEndpointProbeResult,
   TypstCapabilities,
 } from '../../../../../shared/ipc/compile-contract';
@@ -21,6 +22,7 @@ import {
 } from '../../services/core/latexEngineResolver';
 import { useProjectPath, useSettings } from '../../services/core/hooks';
 import type { LaTeXEngine, TypstEngine } from '../../types';
+import { formatFileSize } from '../../utils';
 import {
   SectionTitle,
   SettingCard,
@@ -105,6 +107,67 @@ export const CompilerTab: FC = () => {
       setEndpointTesting(false);
     }
   }, [texliveEndpointDraft]);
+
+  /**
+   * TeX Live fetch-cache census. Shown because clearing is otherwise a blind
+   * action — and because this is currently the only way to see how large the
+   * cache has grown (nothing evicts on the compile path).
+   */
+  const [cacheUsage, setCacheUsage] = useState<TexliveCacheUsageResult | null>(null);
+  const [cacheClearing, setCacheClearing] = useState(false);
+  const [cacheMessage, setCacheMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const refreshCacheUsage = useCallback(async () => {
+    try {
+      setCacheUsage(await api.compile.getTexliveCacheUsage());
+    } catch (error) {
+      logger.warn('Failed to read TeX Live cache usage', { error: String(error) });
+      setCacheUsage(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshCacheUsage();
+  }, [refreshCacheUsage]);
+
+  const handleClearTexliveMisses = useCallback(async () => {
+    const confirmed = await api.dialog.confirm(
+      t('compiler.texliveCacheClearConfirmMessage'),
+      t('compiler.texliveCacheClearConfirmTitle')
+    );
+    if (!confirmed) return;
+
+    setCacheClearing(true);
+    setCacheMessage(null);
+    try {
+      const result = await api.compile.clearTexliveMisses();
+      if (result.busy) {
+        setCacheMessage({ ok: false, text: t('compiler.texliveCacheClearBusy') });
+        return;
+      }
+      if (!result.ok) {
+        setCacheMessage({
+          ok: false,
+          text: t('compiler.texliveCacheClearFailed', { error: result.error ?? '' }),
+        });
+        return;
+      }
+      setCacheMessage({
+        ok: true,
+        text: t('compiler.texliveCacheCleared', { count: String(result.removed) }),
+      });
+      await refreshCacheUsage();
+    } catch (error) {
+      setCacheMessage({
+        ok: false,
+        text: t('compiler.texliveCacheClearFailed', {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      });
+    } finally {
+      setCacheClearing(false);
+    }
+  }, [refreshCacheUsage, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -334,6 +397,43 @@ export const CompilerTab: FC = () => {
                 : t('compiler.texliveEndpointFailed', {
                     error: endpointResult.error ?? '',
                   })}
+            </span>
+          )}
+        </div>
+      </SettingItem>
+
+      <SettingItem label={t('compiler.texliveCache')} description={t('compiler.texliveCacheDesc')}>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            {/* Counts AND bytes: the 404 markers are zero-byte files, so a
+                byte total on its own would read "546 entries, 0 B". */}
+            <span className="text-xs text-[var(--color-text-muted)]">
+              {cacheUsage?.ok
+                ? t('compiler.texliveCacheUsage', {
+                    packages: String(cacheUsage.binCount),
+                    size: formatFileSize(cacheUsage.binBytes),
+                    misses: String(cacheUsage.missCount),
+                  })
+                : t('compiler.texliveCacheUnknown')}
+            </span>
+            <button
+              type="button"
+              onClick={handleClearTexliveMisses}
+              disabled={cacheClearing || !cacheUsage?.ok || cacheUsage.missCount === 0}
+              className={secondaryButtonClass}
+            >
+              {cacheClearing ? (
+                <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+              ) : null}
+              {t('compiler.texliveCacheClear')}
+            </button>
+          </div>
+          {cacheMessage && (
+            <span
+              className="text-xs"
+              style={{ color: cacheMessage.ok ? 'var(--color-success)' : 'var(--color-error)' }}
+            >
+              {cacheMessage.text}
             </span>
           )}
         </div>

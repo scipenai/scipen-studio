@@ -283,7 +283,17 @@
     "autoResolved": "将使用：{{engine}}",
     "texliveEndpointTest": "测速",
     "texliveEndpointOk": "可用 · 延迟 {{ms}} ms",
-    "texliveEndpointFailed": "不可用:{{error}}"
+    "texliveEndpointFailed": "不可用:{{error}}",
+    "texliveCache": "TexLive 拉取缓存",
+    "texliveCacheDesc": "WASM 编译时按需下载的宏包,以及「服务器上没有哪些文件」的记录。后者正是后续编译变快的原因 —— 只有当服务器后来补上了你需要的文件时才需要清除。",
+    "texliveCacheUsage": "{{packages}} 个宏包 · {{size}} · {{misses}} 条缺失记录",
+    "texliveCacheUnknown": "无法读取缓存占用",
+    "texliveCacheClear": "清除缺失记录",
+    "texliveCacheClearConfirmTitle": "清除缺失记录?",
+    "texliveCacheClearConfirmMessage": "已下载的宏包会保留。下次编译需要重新向服务器确认每个缺失文件,网络较慢时可能耗时数分钟。",
+    "texliveCacheCleared": "已清除 {{count}} 条记录",
+    "texliveCacheClearBusy": "正在编译 —— 请先停止编译",
+    "texliveCacheClearFailed": "清除失败:{{error}}"
   },
   "modelPicker": {},
   "aiConfig": {},

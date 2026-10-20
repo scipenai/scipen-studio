@@ -14,12 +14,20 @@
  *   - Cache key is the FULL remote URL (endpoint base + format + name).
  *     Users pointing Settings → Compiler at a different mirror automatically
  *     get a different key space; two mirrors never cross-contaminate.
- *   - 200s are cached without TTL: the default endpoint serves an immutable
- *     TeX Live snapshot, and a URL with different content would be a
- *     different endpoint (different key). 404 misses ARE cached (kpathsea
- *     probes produce many miss requests; re-paying those RTTs on every
- *     launch is part of the cold-start cost) but expire after MISS_TTL_MS
- *     so a mirror that later gains the file is re-consulted.
+ *   - Neither 200s nor 404 misses have a TTL, for the same reason: the
+ *     endpoint serves an immutable TeX Live snapshot, and a URL with
+ *     different content would be a different endpoint (different key).
+ *     Immutability is symmetric — a snapshot that lacks a file today will
+ *     not grow one tomorrow — so expiring misses only bought a periodic
+ *     re-probe storm. kpathsea produces hundreds of miss requests per
+ *     compile (546 on a real CJK project), each costing a curl process and
+ *     a network RTT, so a miss that expires is a multi-minute regression.
+ *     Switching mirrors is already isolated by the key space; the stale
+ *     mirror's misses stay on disk forever by design. A mirror that later
+ *     gains a file, or a CDN that wrongly answered 404, is recovered by
+ *     Settings → Compiler → clear the 404 records.
+ *   - On-disk format is unchanged by the TTL removal, so downgrading to an
+ *     older build merely restores expiry. No schema version needed.
  *   - 5xx / network errors are never cached — `handleTexliveRemote`
  *     deliberately returns 502 so BusyTeX does not record a permanent miss.
  *   - Every cache error is swallowed into a "no cache" outcome: the compile
@@ -29,9 +37,6 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-
-/** Cached 404s expire after this long so late-added files are re-consulted. */
-export const MISS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Default cache ceiling. Fandol CJK fonts alone are ~50 MB; 1 GB leaves
  *  headroom for several projects without creeping unbounded. */
@@ -62,6 +67,27 @@ export interface TexliveCacheStats {
 export interface TexliveRemoteCacheOptions {
   cacheDir: string;
   maxBytes?: number;
+}
+
+/**
+ * Strict entry-name matchers. Everything written here is `<sha256>.bin` or
+ * `<sha256>.miss`; anything else in the directory is either an in-flight
+ * transfer (`<dest>.<pid>.<hex>.tmp` from put/putMiss, `.fetch-<pid>-<hex>`
+ * written by the engine process's curl) or a foreign file. Bulk operations
+ * MUST match against these rather than a suffix test — deleting a live
+ * `.fetch-*` makes the engine read back an empty body and cache it as a
+ * permanent 200 (see busytex-process/index.ts).
+ */
+const ENTRY_BIN_RE = /^[0-9a-f]{64}\.bin$/;
+const ENTRY_MISS_RE = /^[0-9a-f]{64}\.miss$/;
+
+/** Directory census used by the settings UI. */
+export interface TexliveCacheUsage {
+  /** Cached 200 payloads (packages, fonts). */
+  binCount: number;
+  binBytes: number;
+  /** Cached 404 probe results — zero-byte markers, so no byte count. */
+  missCount: number;
 }
 
 export class TexliveRemoteCache {
@@ -103,10 +129,6 @@ export class TexliveRemoteCache {
     try {
       const missPath = this.missPath(url);
       if (fs.existsSync(missPath)) {
-        if (Date.now() - fs.statSync(missPath).mtimeMs > MISS_TTL_MS) {
-          fs.unlinkSync(missPath);
-          return null;
-        }
         this.stats.missHits += 1;
         return { status: 404, body: null };
       }
@@ -117,8 +139,16 @@ export class TexliveRemoteCache {
       this.stats.hits += 1;
       this.stats.bytesServed += body.byteLength;
       // Refresh mtime so LRU eviction sees this entry as recently used.
-      const now = new Date();
-      fs.utimesSync(contentPath, now, now);
+      // Guarded separately: the touch is decorative bookkeeping and must not
+      // be able to veto a body we already read. Without its own catch, an
+      // ENOENT here (entry cleared concurrently) would drop a valid payload
+      // on the floor and send the caller to the network.
+      try {
+        const now = new Date();
+        fs.utimesSync(contentPath, now, now);
+      } catch {
+        // LRU touch failed; the hit still stands.
+      }
       return { status: 200, body };
     } catch {
       return null;
@@ -158,6 +188,63 @@ export class TexliveRemoteCache {
   }
 
   /**
+   * Census of the cache directory. Read-only; every error degrades to zeros
+   * so the settings UI always has something to render.
+   */
+  usage(): TexliveCacheUsage {
+    const result: TexliveCacheUsage = { binCount: 0, binBytes: 0, missCount: 0 };
+    try {
+      for (const name of fs.readdirSync(this.cacheDir)) {
+        if (ENTRY_MISS_RE.test(name)) {
+          result.missCount += 1;
+          continue;
+        }
+        if (!ENTRY_BIN_RE.test(name)) continue;
+        try {
+          result.binBytes += fs.statSync(path.join(this.cacheDir, name)).size;
+          result.binCount += 1;
+        } catch {
+          // Vanished between readdir and stat — skip it.
+        }
+      }
+    } catch {
+      // No directory yet (fresh install) — zeros are the honest answer.
+    }
+    return result;
+  }
+
+  /**
+   * Drop every cached 404 probe result, keeping the 200 payloads.
+   *
+   * This is the recovery path for the two cases immutability does not cover:
+   * a mirror that has since gained the file, and a CDN that wrongly answered
+   * 404. Deleting the `.bin` payloads too would force a multi-tens-of-MB
+   * re-download for no benefit, so they are left alone.
+   *
+   * @returns how many markers were actually unlinked — not how many existed.
+   *   Two windows can run this concurrently; the count is this call's work.
+   */
+  clearMisses(): { removed: number } {
+    let removed = 0;
+    try {
+      for (const name of fs.readdirSync(this.cacheDir)) {
+        if (!ENTRY_MISS_RE.test(name)) continue;
+        // Per-file guard: one EPERM (Windows, file held open) must not strip
+        // the remaining hundreds.
+        try {
+          fs.unlinkSync(path.join(this.cacheDir, name));
+          removed += 1;
+        } catch {
+          // Already gone or locked — skip.
+        }
+      }
+    } catch {
+      // No directory — nothing to clear.
+    }
+    return { removed };
+  }
+
+  /**
    * LRU eviction: when the directory exceeds maxBytes, delete
    * least-recently-mtime'd entries until back under the cap. Runs inline on
    * put — puts are rare (once per unique URL per machine) so the readdir
@@ -169,9 +256,21 @@ export class TexliveRemoteCache {
       const entries: Array<{ file: string; size: number; mtime: number }> = [];
       let total = 0;
       for (const name of names) {
-        if (!name.endsWith('.bin') && !name.endsWith('.miss')) continue;
+        // `.miss` markers are deliberately NOT eviction candidates. They are
+        // zero-byte, so deleting them reclaims nothing, and their mtime is
+        // never refreshed (only `.bin` is touched on hit) — which used to
+        // sort them first and wipe the whole miss set for no gain, buying a
+        // few hundred re-probes on the next compile.
+        if (!ENTRY_BIN_RE.test(name)) continue;
         const full = path.join(this.cacheDir, name);
-        const stat = fs.statSync(full);
+        // Per-entry guard: a file deleted between readdir and stat must not
+        // abort the whole eviction pass.
+        let stat: fs.Stats;
+        try {
+          stat = fs.statSync(full);
+        } catch {
+          continue;
+        }
         entries.push({ file: full, size: stat.size, mtime: stat.mtimeMs });
         total += stat.size;
       }

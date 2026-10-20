@@ -18,6 +18,52 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as nodePath from 'node:path';
 
+/**
+ * Controls the stubbed curl. Null = delegate to the real binary, so every
+ * pre-existing test keeps its original behaviour.
+ */
+const curlStub = vi.hoisted(
+  () =>
+    ({ impl: null }) as {
+      impl: null | { exitCode: number; httpCode: string; writeBody: boolean };
+    }
+);
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  const nodeFs = await import('node:fs');
+  /** Honour `-o <path>` only when the scenario says the transfer succeeded. */
+  const writeBodyIfAsked = (args: readonly string[]): void => {
+    if (!curlStub.impl?.writeBody) return;
+    const i = args.indexOf('-o');
+    if (i >= 0) nodeFs.writeFileSync(args[i + 1], 'body-bytes');
+  };
+  return {
+    ...actual,
+    spawnSync: (cmd: string, args: readonly string[], opts?: unknown) => {
+      if (cmd !== 'curl' || !curlStub.impl) {
+        return (actual.spawnSync as (...a: unknown[]) => unknown)(cmd, args, opts);
+      }
+      writeBodyIfAsked(args);
+      return { status: curlStub.impl.exitCode, stdout: curlStub.impl.httpCode, stderr: '' };
+    },
+    execFile: (
+      cmd: string,
+      args: readonly string[],
+      opts: unknown,
+      cb: (e: unknown, out: string) => void
+    ) => {
+      if (cmd !== 'curl' || !curlStub.impl) {
+        return (actual.execFile as (...a: unknown[]) => unknown)(cmd, args, opts, cb);
+      }
+      writeBodyIfAsked(args);
+      const { exitCode, httpCode } = curlStub.impl;
+      queueMicrotask(() => cb(exitCode === 0 ? null : new Error('curl failed'), httpCode));
+      return undefined;
+    },
+  };
+});
+
 type Msg = Record<string, unknown>;
 
 const port = {
@@ -83,6 +129,23 @@ describe('busytex-process entry', () => {
         '    return;',
         '  }',
         '  if (data.files !== undefined) {',
+        // Remote-fetch probes: exercise the two http paths (async fetch shim
+        // and the synchronous XHR shim kpathsea uses) against the stubbed curl.
+        '    if (data.main_tex_path === "probe-fetch") {',
+        '      const rr = await fetch("https://example.invalid/missing.sty");',
+        '      postMessage({ exit_code: 0, log: "fetch=" + rr.status });',
+        '      return;',
+        '    }',
+        '    if (data.main_tex_path === "probe-xhr") {',
+        '      const xhr = new XMLHttpRequest();',
+        '      let outcome = "none";',
+        '      xhr.onload = () => { outcome = "load=" + xhr.status; };',
+        '      xhr.onerror = () => { outcome = "error"; };',
+        '      xhr.open("GET", "https://example.invalid/missing.sty");',
+        '      xhr.send();',
+        '      postMessage({ exit_code: 0, log: "xhr=" + outcome });',
+        '      return;',
+        '    }',
         '    const r = await fetch("scipen-wasm://busytex/hello.txt");',
         '    const w = await fetch("scipen-wasm://busytex/blank.wasm");',
         '    const bin = (data.files || []).filter((f) => typeof f.contents !== "string");',
@@ -118,8 +181,91 @@ describe('busytex-process entry', () => {
     delete (process as { parentPort?: unknown }).parentPort;
     delete process.env.WASM_ASSETS_DIR;
     delete process.env.TEXLIVE_CACHE_DIR;
+    curlStub.impl = null;
     fs.rmSync(fixtureDir, { recursive: true, force: true });
     vi.restoreAllMocks();
+  });
+
+  /** Files the cache layer considers real entries (vs in-flight transfers). */
+  function cacheEntries(suffix: '.bin' | '.miss'): string[] {
+    const dir = nodePath.join(fixtureDir, 'cache');
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir).filter((f) => new RegExp(`^[0-9a-f]{64}\\${suffix}$`).test(f));
+  }
+
+  async function compileProbe(id: string, probe: 'probe-fetch' | 'probe-xhr'): Promise<void> {
+    await request(`${id}-load`, 'load');
+    await request(id, 'compile', {
+      files: [{ path: 'main.tex', contents: 'x' }],
+      mainFile: probe,
+      driver: 'pdftex_bibtex8',
+      endpoint: 'https://example.invalid',
+      outputDir: nodePath.join(fixtureDir, 'out'),
+      baseName: 'main',
+    });
+  }
+
+  it('does not cache a 200 whose body could not be read back (fetch path)', async () => {
+    // curl claims success but the transfer file is missing — disk full, AV
+    // quarantine, or a concurrent cache cleanup. Storing the empty buffer as
+    // a 200 would create a permanent poison entry: `.bin` has no TTL, no
+    // length check and no eviction on this path.
+    curlStub.impl = { exitCode: 0, httpCode: '200', writeBody: false };
+    await compileProbe('poison-fetch', 'probe-fetch');
+
+    expect(cacheEntries('.bin')).toHaveLength(0);
+    expect(cacheEntries('.miss')).toHaveLength(0);
+  });
+
+  it('does not cache a 200 whose body could not be read back (sync XHR path)', async () => {
+    curlStub.impl = { exitCode: 0, httpCode: '200', writeBody: false };
+    await compileProbe('poison-xhr', 'probe-xhr');
+
+    expect(cacheEntries('.bin')).toHaveLength(0);
+    // The request must surface as a failure, not a silent empty success.
+    const frame = port.sent.find((m) => m.type === 'response' && m.id === 'poison-xhr') as
+      | { result?: { log?: string } }
+      | undefined;
+    expect(frame?.result?.log).toContain('error');
+  });
+
+  it('still caches a 200 when the body is actually there', async () => {
+    curlStub.impl = { exitCode: 0, httpCode: '200', writeBody: true };
+    await compileProbe('good-fetch', 'probe-fetch');
+
+    expect(cacheEntries('.bin')).toHaveLength(1);
+  });
+
+  it('records a 404 probe as a miss marker', async () => {
+    curlStub.impl = { exitCode: 0, httpCode: '404', writeBody: false };
+    await compileProbe('miss-fetch', 'probe-fetch');
+
+    expect(cacheEntries('.miss')).toHaveLength(1);
+    expect(cacheEntries('.bin')).toHaveLength(0);
+  });
+
+  it('serves a stale miss marker without re-probing — misses never expire', async () => {
+    // Written by the main-process cache layout, read by the engine's own
+    // synchronous copy: the two implementations must stay in lockstep.
+    const url = 'https://example.invalid/missing.sty';
+    const crypto = await import('node:crypto');
+    const key = crypto.createHash('sha256').update(url).digest('hex');
+    const dir = nodePath.join(fixtureDir, 'cache');
+    fs.mkdirSync(dir, { recursive: true });
+    const marker = nodePath.join(dir, `${key}.miss`);
+    fs.writeFileSync(marker, '');
+    const past = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    fs.utimesSync(marker, past, past);
+
+    // Any curl call here would be a bug — the marker must answer on its own.
+    curlStub.impl = { exitCode: 1, httpCode: '0', writeBody: false };
+    await compileProbe('stale-miss', 'probe-fetch');
+
+    const frame = port.sent.find((m) => m.type === 'response' && m.id === 'stale-miss') as
+      | { result?: { log?: string } }
+      | undefined;
+    expect(frame?.result?.log).toBe('fetch=404');
+    expect(fs.existsSync(marker)).toBe(true);
   });
 
   it('announces ready and completes the load handshake', async () => {
