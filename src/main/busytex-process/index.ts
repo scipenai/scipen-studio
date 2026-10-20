@@ -14,19 +14,26 @@
  *   event    { type: 'event', event: 'print', data: { line } }
  *
  * Methods:
- *   load    — importScripts busytex_worker.js and run the init handshake
- *             (fetches + instantiates ~120 MB of wasm and data packages)
- *   compile — stage files, run the pipeline, write {outputDir}/{baseName}.pdf
- *             and .synctex.gz, return { exitCode, pdfPath, synctexPath, log }
- *   release — flush and exit(0) (used by the idle-memory release)
+ *   load            — importScripts busytex_worker.js and run the init
+ *                     handshake (instantiates the wasm and the preloaded data
+ *                     packages, plus those `projectRoot` needed last time)
+ *   compile         — stage the project from disk, run the pipeline with the
+ *                     last clean run's artifacts (compileFlow.ts), write
+ *                     {outputDir}/{baseName}.pdf / .synctex.gz / .log, return
+ *                     { exitCode, pdfPath, synctexPath, log }
+ *   clearBuildCache — drop the incremental artifacts, memory and disk
+ *   release         — flush and exit(0) (used by the idle-memory release)
  *
  * Environment (injected by BusyTexProcessClient — utility processes cannot
  * call app.getPath()):
- *   WASM_ASSETS_DIR   on-disk dir holding busytex.js/.wasm, texlive-*.js/.data,
- *                     busytex_worker.js, busytex_pipeline.js, manifest.json
- *   TEXLIVE_CACHE_DIR disk cache shared with the main process (same sha256-URL
- *                     keying as the previous in-main proxy, so entries written
- *                     by either side are hits for both)
+ *   WASM_ASSETS_DIR         on-disk dir holding busytex.js/.wasm,
+ *                           texlive-*.js/.data, busytex_worker.js,
+ *                           busytex_pipeline.js, manifest.json
+ *   TEXLIVE_CACHE_DIR       disk cache shared with the main process (same
+ *                           sha256-URL keying, so entries written by either
+ *                           side are hits for both)
+ *   BUSYTEX_BUILD_CACHE_DIR incremental build artifacts and the per-project
+ *                           prewarm package list (buildArtifactCache.ts)
  *
  * The browser-worker-under-Node shims (fs path translation, synchronous XHR
  * for kpathsea's on-demand package fetches, importScripts, CommonJS globals)
@@ -116,7 +123,7 @@ function takePassTrace(): PassTrace | undefined {
  * the init frame then triggers fetching/instantiating busytex.wasm and the
  * preloaded TeX Live data packages (~120 MB, once per process lifetime).
  */
-function handleLoad(): Promise<{ loaded: true }> {
+function handleLoad(params: { projectRoot?: string } = {}): Promise<{ loaded: true }> {
   if (pipelineReady) return Promise.resolve({ loaded: true });
   // Cached attempt — INCLUDING a rejection. `importScripts` declares
   // top-level classes as an irreversible side effect, so there is exactly
@@ -155,11 +162,19 @@ function handleLoad(): Promise<{ loaded: true }> {
     // maps missing files (ctexart.cls, …) to remote data packages through
     // it — without it, every non-preloaded package fails "file not found".
     catalogList = manifestList('catalog');
+    // Mount what this project needed last time in the same instantiation:
+    // otherwise its first compile re-instantiates the module to add them
+    // (~2.7 s for the 324 MB texlive-extra). Only catalog members are
+    // accepted, and order matches upstream's enabled.concat(new).
+    const warm = params.projectRoot
+      ? buildCache.warmPackages(params.projectRoot).filter((p) => catalogList.includes(p))
+      : [];
+    const preloadPackages = [...manifestList('preload'), ...warm];
     await workerCall(
       {
         busytex_js: 'scipen-wasm://busytex/busytex.js',
         busytex_wasm: 'scipen-wasm://busytex/busytex.wasm',
-        preload_data_packages_js: manifestList('preload'),
+        preload_data_packages_js: preloadPackages,
         data_packages_js: catalogList,
         texmf_local: [],
         preload: true,
@@ -167,7 +182,11 @@ function handleLoad(): Promise<{ loaded: true }> {
       LOAD_TIMEOUT_MS
     );
     pipelineReady = true;
-    reportStats('load', { totalMs: Math.round(performance.now() - loadT0), ok: true });
+    reportStats('load', {
+      totalMs: Math.round(performance.now() - loadT0),
+      ok: true,
+      dataPackages: preloadPackages,
+    });
     return { loaded: true } as const;
   })().catch((err: unknown) => {
     // A failed load is exactly when the numbers matter most (a timeout is
@@ -348,7 +367,7 @@ function writeCompileLog(outputDir: string, baseName: string, log: string): void
 // ====== Dispatch ======
 
 const METHODS = {
-  load: () => handleLoad(),
+  load: (params: never) => handleLoad(params),
   compile: (params: never) => handleCompile(params),
   // Clears the in-memory copy too: deleting only the directory would leave a
   // running engine serving the artifacts it already holds.

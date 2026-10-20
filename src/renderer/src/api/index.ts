@@ -428,8 +428,12 @@ export const compile = {
    * `busy: true` untouched while a compile is in flight.
    */
   clearBuildCache: () => invoke<BuildCacheClearResult>(IpcChannel.Compile_ClearBuildCache),
-  /** Warm the BusyTeX engine process (load wasm + data packages). */
-  busyTeXPrepare: () => invoke<{ ok: boolean }>(IpcChannel.Compile_BusyTeX_Prepare),
+  /**
+   * Warm the BusyTeX engine process (load wasm + data packages). With a
+   * project, also the extra data packages it needed last time.
+   */
+  busyTeXPrepare: (projectRoot?: string) =>
+    invoke<{ ok: boolean }>(IpcChannel.Compile_BusyTeX_Prepare, projectRoot),
   /** Run one compile in the engine process; artifacts land on disk. */
   busyTeXCompile: (request: BusyTeXCompileRequestDTO) =>
     invoke<BusyTeXCompileResultDTO>(IpcChannel.Compile_BusyTeX_Compile, request),

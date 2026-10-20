@@ -53,8 +53,11 @@ export interface CompilerProvider {
    * real compile (share the in-flight load, never build a second engine),
    * and never throws — a failed prewarm must leave the normal compile path
    * to report the error properly.
+   *
+   * `projectPath` lets an engine warm what that project needed last time
+   * (BusyTeX: its extra TeX Live data packages) instead of only the basics.
    */
-  prewarm?(): Promise<void>;
+  prewarm?(ctx?: { projectPath?: string }): Promise<void>;
 }
 
 interface ProviderEntry<T> {

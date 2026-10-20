@@ -264,7 +264,7 @@ export class CompileService implements IDisposable {
 
       const run = (): void => {
         this._prewarmIdleHandle = null;
-        void this._runPrewarm();
+        void this._runPrewarm(projectPath);
       };
 
       // No `timeout` option: if the app never goes idle, skipping the
@@ -274,7 +274,7 @@ export class CompileService implements IDisposable {
     }, PREWARM_DELAY_MS);
   }
 
-  private async _runPrewarm(): Promise<void> {
+  private async _runPrewarm(projectPath: string): Promise<void> {
     if (this.isCompiling) return;
     const settings = getSettingsService().getSettings().compiler;
     const engine: CompileEngine | null =
@@ -291,7 +291,7 @@ export class CompileService implements IDisposable {
     const provider = this._compilerRegistry.getCompilerForFile(probeFile, { engine });
     if (!provider?.prewarm) return;
     logger.info('Prewarming WASM engine', { engine, provider: provider.id });
-    await provider.prewarm();
+    await provider.prewarm({ projectPath });
   }
 
   private _registerBuiltinProviders(): void {

@@ -39,7 +39,8 @@ export const compileApi = {
   clearBuildCache: () => ipcRenderer.invoke(IpcChannel.Compile_ClearBuildCache),
 
   // BusyTeX engine process (runs in an Electron UtilityProcess).
-  busyTeXPrepare: () => ipcRenderer.invoke(IpcChannel.Compile_BusyTeX_Prepare),
+  busyTeXPrepare: (projectRoot?: string) =>
+    ipcRenderer.invoke(IpcChannel.Compile_BusyTeX_Prepare, projectRoot),
   busyTeXCompile: (request: unknown) =>
     ipcRenderer.invoke(IpcChannel.Compile_BusyTeX_Compile, request),
   busyTeXCancel: () => ipcRenderer.invoke(IpcChannel.Compile_BusyTeX_Cancel),

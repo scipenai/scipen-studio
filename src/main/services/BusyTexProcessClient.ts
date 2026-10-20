@@ -338,7 +338,12 @@ class BusyTexProcessClientImpl {
    *  crashes the child with "Identifier ... already been declared". */
   private loadPromise: Promise<void> | null = null;
 
-  async ensureLoaded(): Promise<void> {
+  /**
+   * @param projectRoot Optional — lets the engine mount the data packages
+   *   that project needed last time in the same instantiation (only honoured
+   *   by the load that actually starts the engine).
+   */
+  async ensureLoaded(projectRoot?: string): Promise<void> {
     if (this.loaded) return;
     if (this.loadPromise) return this.loadPromise;
 
@@ -361,7 +366,7 @@ class BusyTexProcessClientImpl {
     this.loadPromise = (async () => {
       const t0 = Date.now();
       try {
-        await this.request('load', undefined, this.LOAD_TIMEOUT);
+        await this.request('load', { projectRoot }, this.LOAD_TIMEOUT);
         this.loaded = true;
         logger.info('BusyTeX engine loaded', { roundTripMs: Date.now() - t0 });
         this.armIdleRelease();
@@ -383,7 +388,7 @@ class BusyTexProcessClientImpl {
     try {
       // A compile without a loaded engine fails on the child side ("engine
       // not loaded") — e.g. a user who never warmed via Prepare. Load first.
-      await this.ensureLoaded();
+      await this.ensureLoaded(request.projectRoot);
       const t0 = Date.now();
       const result = await this.request<BusyTexCompileResult>(
         'compile',

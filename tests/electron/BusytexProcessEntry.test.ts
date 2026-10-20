@@ -17,6 +17,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as nodePath from 'node:path';
+import { normaliseRoot } from '../../src/main/busytex-process/buildArtifactCache';
 
 /**
  * Controls the stubbed curl. Null = delegate to the real binary, so every
@@ -160,6 +161,7 @@ describe('busytex-process entry', () => {
 
     process.env.WASM_ASSETS_DIR = fixtureDir;
     process.env.TEXLIVE_CACHE_DIR = nodePath.join(fixtureDir, 'cache');
+    process.env.BUSYTEX_BUILD_CACHE_DIR = nodePath.join(fixtureDir, 'build-cache');
     Object.defineProperty(process, 'parentPort', {
       value: {
         on: (ev: string, cb: (e: { data: Msg }) => void) => {
@@ -178,9 +180,11 @@ describe('busytex-process entry', () => {
   });
 
   afterEach(() => {
-    delete (process as { parentPort?: unknown }).parentPort;
-    delete process.env.WASM_ASSETS_DIR;
-    delete process.env.TEXLIVE_CACHE_DIR;
+    // Remove, not blank: process.env coerces `undefined` to the string "undefined".
+    Reflect.deleteProperty(process, 'parentPort');
+    for (const key of ['WASM_ASSETS_DIR', 'TEXLIVE_CACHE_DIR', 'BUSYTEX_BUILD_CACHE_DIR']) {
+      Reflect.deleteProperty(process.env, key);
+    }
     curlStub.impl = null;
     fs.rmSync(fixtureDir, { recursive: true, force: true });
     vi.restoreAllMocks();
@@ -348,6 +352,33 @@ describe('busytex-process entry', () => {
     const r2 = port.sent.find((m) => m.type === 'response' && m.id === 'c2') as Msg;
     expect(r1?.result).toMatchObject({ exitCode: 0 });
     expect(r2?.error?.message).toMatch(/engine busy/);
+  });
+
+  it('mounts the catalog packages a project used last time at load', async () => {
+    // Recorded by an earlier compile of this project; only catalog members
+    // are honoured, so a stray entry cannot make the engine fetch anything.
+    const projectRoot = nodePath.join(fixtureDir, 'proj');
+    const buildCache = nodePath.join(fixtureDir, 'build-cache');
+    fs.mkdirSync(buildCache, { recursive: true });
+    fs.writeFileSync(
+      nodePath.join(buildCache, 'warm-packages.json'),
+      JSON.stringify({
+        [normaliseRoot(projectRoot)]: [
+          'scipen-wasm://busytex/pkg-catalog.js',
+          'scipen-wasm://busytex/not-in-manifest.js',
+        ],
+      })
+    );
+
+    await request('req-1', 'load', { projectRoot });
+    const stats = port.sent.find(
+      (m) => m.type === 'event' && m.event === 'stats' && (m.data as Msg).phase === 'load'
+    )?.data as { dataPackages?: string[] };
+
+    expect(stats.dataPackages).toEqual([
+      'scipen-wasm://busytex/pkg-preload.js',
+      'scipen-wasm://busytex/pkg-catalog.js',
+    ]);
   });
 
   it('answers clearBuildCache so a running engine drops its in-memory copy', async () => {

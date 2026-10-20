@@ -902,7 +902,7 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.Compile_GetTexliveCacheUsage, z.tuple([])],
   [IpcChannel.Compile_ClearTexliveMisses, z.tuple([])],
   [IpcChannel.Compile_ClearBuildCache, z.tuple([])],
-  [IpcChannel.Compile_BusyTeX_Prepare, z.tuple([])],
+  [IpcChannel.Compile_BusyTeX_Prepare, z.tuple([safePathSchema.optional()])],
   [
     IpcChannel.Compile_BusyTeX_Compile,
     z.tuple([

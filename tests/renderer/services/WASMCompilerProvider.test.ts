@@ -14,9 +14,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const busyTeXCompile = vi.hoisted(() => vi.fn());
+const busyTeXPrepare = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../src/renderer/src/api', () => ({
-  api: { compile: { busyTeXCompile } },
+  api: { compile: { busyTeXCompile, busyTeXPrepare } },
 }));
 
 vi.mock('../../../src/renderer/src/services/core/ServiceRegistry', () => ({
@@ -139,5 +140,18 @@ describe('WASMCompilerProvider', () => {
     const result = await compile();
 
     expect(result).toMatchObject({ success: false, cancelled: true, errors: [] });
+  });
+});
+
+describe('WASMCompilerProvider.prewarm', () => {
+  it('passes the project so the engine can mount the packages it used last time', async () => {
+    busyTeXPrepare.mockResolvedValue({ ok: true });
+    await new WASMCompilerProvider().prewarm({ projectPath: '/proj' });
+    expect(busyTeXPrepare).toHaveBeenCalledWith('/proj');
+  });
+
+  it('never throws — a failed prewarm leaves the real compile to report', async () => {
+    busyTeXPrepare.mockRejectedValue(new Error('engine missing'));
+    await expect(new WASMCompilerProvider().prewarm()).resolves.toBeUndefined();
   });
 });

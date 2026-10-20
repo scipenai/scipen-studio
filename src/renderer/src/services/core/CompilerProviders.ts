@@ -643,9 +643,15 @@ export class WASMCompilerProvider implements CompilerProvider {
   }
 
   /** Warm the engine process (loads wasm + data packages off the hot path). */
-  async prewarm(): Promise<void> {
+  /**
+   * Warm the engine process off the hot path. With a project, the engine
+   * also mounts the TeX Live data packages that project used last time — for
+   * CJK documents that is the ~324 MB package otherwise loaded by the first
+   * compile.
+   */
+  async prewarm(ctx?: { projectPath?: string }): Promise<void> {
     try {
-      await api.compile.busyTeXPrepare();
+      await api.compile.busyTeXPrepare(ctx?.projectPath);
     } catch {
       // Intentionally silent — a failed prewarm must stay invisible and let
       // the real compile surface the problem.

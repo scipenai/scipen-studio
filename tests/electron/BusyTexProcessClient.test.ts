@@ -349,6 +349,37 @@ describe('BusyTexProcessClient', () => {
   });
 });
 
+describe('BusyTexProcessClient — warm data packages', () => {
+  let client: ReturnType<typeof getBusyTexProcessClient>;
+
+  beforeEach(() => {
+    childState.autoReady = true;
+    client = getBusyTexProcessClient();
+  });
+
+  afterEach(() => {
+    client.kill();
+  });
+
+  it('passes the project root with the load, so the engine can mount its packages', async () => {
+    const loading = client.ensureLoaded('/tmp/proj');
+    await flush();
+    expect(lastSent()).toMatchObject({ method: 'load', params: { projectRoot: '/tmp/proj' } });
+    respondOk({ loaded: true });
+    await loading;
+  });
+
+  it("uses the compile request's project root when a compile starts the engine", async () => {
+    const compiling = client.compile(compileRequest());
+    await flush();
+    expect(lastSent()).toMatchObject({ method: 'load', params: { projectRoot: '/tmp/proj' } });
+    respondOk({ loaded: true });
+    await flush();
+    respondOk({ exitCode: 0, log: '' });
+    await compiling;
+  });
+});
+
 describe('BusyTexProcessClient — clearBuildCache', () => {
   let client: ReturnType<typeof getBusyTexProcessClient>;
 

@@ -525,8 +525,11 @@ export function registerCompileHandlers(): void {
         }
       },
 
-      [IpcChannel.Compile_BusyTeX_Prepare]: async () => {
-        await getBusyTexProcessClient().ensureLoaded();
+      [IpcChannel.Compile_BusyTeX_Prepare]: async (projectRoot) => {
+        // Only the active project may steer what the engine preloads; any
+        // other root falls back to the basic packages.
+        const root = projectRoot && isWithinCurrentProject(projectRoot) ? projectRoot : undefined;
+        await getBusyTexProcessClient().ensureLoaded(root);
         return { ok: true };
       },
 

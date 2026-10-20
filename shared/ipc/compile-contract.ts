@@ -238,7 +238,8 @@ export interface IPCCompileContract {
     result: TexliveClearMissesResult;
   };
   [IpcChannel.Compile_BusyTeX_Prepare]: {
-    args: [];
+    /** With a project, the engine also mounts the data packages it used last time. */
+    args: [projectRoot?: string];
     result: { ok: boolean };
   };
   [IpcChannel.Compile_BusyTeX_Compile]: {
