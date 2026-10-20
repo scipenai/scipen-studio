@@ -204,7 +204,7 @@ describe('BusyTexProcessClient', () => {
     // (respondOk targets the last message, which is wrong with two pending).
     for (const msg of childState.sent) {
       const result =
-        msg.method === 'load' ? { loaded: true } : { exitCode: 0, pdfPath: `/x.pdf`, log: '' };
+        msg.method === 'load' ? { loaded: true } : { exitCode: 0, pdfPath: '/x.pdf', log: '' };
       childState.emit?.({ type: 'response', id: String(msg.id), result });
       await flush();
     }

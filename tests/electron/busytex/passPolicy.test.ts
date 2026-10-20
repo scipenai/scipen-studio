@@ -10,6 +10,8 @@ import {
   type CommandResult,
   type PassDeps,
   type PassPlan,
+  type PassSeamContext,
+  type PassTrace,
   firstErrorSignature,
   installPassPolicy,
   schedulePasses,
@@ -173,6 +175,28 @@ describe('schedulePasses — post-processors', () => {
     expect(h.printed).toContain('$ # bibtex found no citation commands, skipping extra passes');
   });
 
+  it('records the files the post-processors rewrote, once each', () => {
+    let idx = '\\indexentry{a}{1}';
+    const h = harness({
+      fingerprints: ['0', '1', '1'],
+      files: { 'main.bbl': '\\begin{thebibliography}', 'main.idx': () => idx, 'main.ind': 'x' },
+    });
+    h.deps.runTex = (cmd) => {
+      h.ran.push(cmd);
+      idx = `\\indexentry{a}{${h.ran.length}}`;
+      return { exit_code: 0, raw_exit_code: 0, log: '' };
+    };
+    const { trace } = schedulePasses(plan({ bibtex: true }), h.deps);
+
+    expect(commandNames(h.ran).filter((c) => c === 'makeindex')).toHaveLength(2);
+    expect(trace.regenerated).toEqual(['main.bbl', 'main.ind']);
+  });
+
+  it('records nothing when no post-processor ran', () => {
+    const h = harness({ fingerprints: ['A', 'A'] });
+    expect(schedulePasses(plan(), h.deps).trace.regenerated).toEqual([]);
+  });
+
   it('reruns bibtex only when the citation lines in the aux change', () => {
     let aux = '\\citation{a}\n\\bibdata{refs}';
     const h = harness({
@@ -296,9 +320,10 @@ describe('installPassPolicy', () => {
     );
   });
 
-  it('binds the seam: injected artifacts stay in the fingerprint, sources do not', () => {
+  /** Install the policy on a fake class and run one seam call against a stub FS. */
+  function runSeam(overrides: Partial<PassSeamContext> = {}) {
     class FakePipeline {
-      scipen_last_trace?: unknown;
+      scipen_last_trace?: PassTrace;
     }
     const seen: Array<ReadonlySet<string>> = [];
     installPassPolicy(FakePipeline, {
@@ -308,19 +333,13 @@ describe('installPassPolicy', () => {
         return 'same';
       },
     });
-
     const instance = new FakePipeline() as FakePipeline & {
-      scipen_run_passes: (ctx: unknown) => { exit_code: number; last_log: string };
+      scipen_run_passes: (ctx: PassSeamContext) => { exit_code: number; last_log: string };
     };
     const result = instance.scipen_run_passes({
       run: () => ({ exit_code: 0, raw_exit_code: 0, log: 'done' }),
-      FS: { analyzePath: () => ({ exists: false }), readFile: () => '' },
-      files: [
-        { path: 'main.tex', contents: '...' },
-        { path: './images/a.png', contents: new Uint8Array() },
-        { path: 'main.aux', contents: '\\relax', injected: true },
-        { path: 'chapters', contents: null },
-      ],
+      FS: { analyzePath: () => ({ exists: false }), readFile: () => '', cwd: () => '/project' },
+      files: [],
       project_dir: '/project',
       initial: XETEX,
       nonfinal: XETEX,
@@ -338,10 +357,44 @@ describe('installPassPolicy', () => {
       max_tex_passes: 3,
       error_messages_all: [],
       print: () => undefined,
+      ...overrides,
+    });
+    return { result, sources: seen[0], trace: instance.scipen_last_trace };
+  }
+
+  it('binds the seam: injected artifacts stay in the fingerprint, sources do not', () => {
+    const { result, sources, trace } = runSeam({
+      files: [
+        { path: 'main.tex', contents: '...' },
+        { path: './images/a.png', contents: new Uint8Array() },
+        { path: 'main.aux', contents: '\\relax', injected: true },
+        { path: 'chapters', contents: null },
+      ],
     });
 
     expect(result).toEqual({ exit_code: 0, last_log: 'done' });
-    expect([...seen[0]].sort()).toEqual(['images/a.png', 'main.tex']);
-    expect((instance.scipen_last_trace as { texPasses: number }).texPasses).toBe(1);
+    expect([...sources].sort()).toEqual(['images/a.png', 'main.tex']);
+    expect(trace?.texPasses).toBe(1);
+  });
+
+  it('treats a staged tool output as a product and reports it project-relative', () => {
+    // Main file in a subdir: upstream chdirs there and names tool outputs
+    // relative to it, while staged paths are relative to the project.
+    const { sources, trace } = runSeam({
+      FS: {
+        // No .idx: only bibtex runs.
+        analyzePath: (path) => ({ exists: !path.endsWith('.idx') }),
+        readFile: () => '\\begin{thebibliography}',
+        cwd: () => '/project/src',
+      },
+      files: [
+        { path: 'src/main.tex', contents: '...' },
+        { path: 'src/main.bbl', contents: 'stale, from a local latexmk build' },
+      ],
+      bibtex: true,
+    });
+
+    expect([...sources]).toEqual(['src/main.tex']);
+    expect(trace?.regenerated).toEqual(['src/main.bbl']);
   });
 });

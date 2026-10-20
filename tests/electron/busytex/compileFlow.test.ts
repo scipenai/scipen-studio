@@ -33,10 +33,16 @@ const trace = (overrides: Partial<PassTrace> = {}): PassTrace => ({
   converged: true,
   halted: false,
   firstError: null,
+  regenerated: [],
   ...overrides,
 });
 
 const clean = (): Outcome => ({ frame: { exit_code: 0, log: 'ok' }, trace: trace() });
+/** A clean run in which bibtex rewrote main.bbl. */
+const bibtexRan = (): Outcome => ({
+  frame: { exit_code: 0, log: 'ok' },
+  trace: trace({ regenerated: ['main.bbl'] }),
+});
 const halted = (firstError: string | null = '! Boom.\nl.3 x'): Outcome => ({
   frame: { exit_code: 0, log: 'halted' },
   trace: trace({ halted: true, firstError }),
@@ -54,6 +60,7 @@ function harness(outcomes: Outcome[], options: { staged?: string[]; timeoutMs?: 
   let clock = 0;
   let pending: PassTrace | undefined;
   const collected: Array<{ path: string; bytes: Uint8Array }> = [];
+  const sourcesSeen: Array<ReadonlySet<string>> = [];
   const staged: StageResult = {
     files: (options.staged ?? ['main.tex']).map((path) => ({ path, contents: 'src' })),
     mainFile: 'main.tex',
@@ -75,7 +82,10 @@ function harness(outcomes: Outcome[], options: { staged?: string[]; timeoutMs?: 
       pending = undefined;
       return t;
     },
-    collectArtifacts: async () => collected,
+    collectArtifacts: async (sources) => {
+      sourcesSeen.push(sources);
+      return collected;
+    },
     enabledPackages: async () => ['texlive-extra.js'],
     cache,
     assetVersion: 'v1',
@@ -95,7 +105,7 @@ function harness(outcomes: Outcome[], options: { staged?: string[]; timeoutMs?: 
     assetVersion: 'v1',
     endpoint: '',
   });
-  return { deps, cache, calls, collected, key, packagesRecorded };
+  return { deps, cache, calls, collected, key, packagesRecorded, sourcesSeen };
 }
 
 const paths = (files: FlowFile[]) => files.map((f) => `${f.path}${f.injected ? '*' : ''}`).sort();
@@ -115,15 +125,39 @@ describe('runCompileFlow — injection and storage', () => {
     expect(paths(h.calls[1].files)).toEqual(['main.aux*', 'main.tex']);
   });
 
-  it('never lets an artifact replace a staged file, whatever its casing', async () => {
-    const h = harness([clean()], { staged: ['main.tex', 'Main.bbl'] });
+  it('lets a carried tool output take over a stale staged copy, whatever its casing', async () => {
+    // A local latexmk build left Main.bbl on disk; bibtex rewrites it after
+    // pass 1 anyway, so the carried copy is the better first-pass input.
+    const h = harness([bibtexRan()], { staged: ['main.tex', 'Main.bbl'] });
     h.cache.put(h.key, [
       { path: 'main.bbl', bytes: bytes('carried') },
       { path: 'main.toc', bytes: bytes('toc') },
     ]);
 
+    const result = await runCompileFlow(params, h.deps);
+    expect(paths(h.calls[0].files)).toEqual(['main.bbl*', 'main.tex', 'main.toc*']);
+    expect(h.calls).toHaveLength(1);
+    expect(result.retriedCold).toBe(false);
+  });
+
+  it('reruns cold when no tool rewrote the staged file a carried copy replaced', async () => {
+    // e.g. the document now \input's main.bbl by hand: the disk copy is the
+    // real input, and the warm result typeset the carried one instead.
+    const h = harness([clean(), clean()], { staged: ['main.tex', 'main.bbl'] });
+    h.cache.put(h.key, [{ path: 'main.bbl', bytes: bytes('carried') }]);
+
+    const result = await runCompileFlow(params, h.deps);
+    expect(h.calls).toHaveLength(2);
+    expect(paths(h.calls[1].files)).toEqual(['main.bbl', 'main.tex']);
+    expect(result.retriedCold).toBe(true);
+    expect(h.sourcesSeen[0]).toEqual(new Set(['main.bbl', 'main.tex']));
+  });
+
+  it('stores a staged file a tool rewrote as an artifact, not as a source', async () => {
+    const h = harness([bibtexRan()], { staged: ['main.tex', 'main.bbl'] });
+
     await runCompileFlow(params, h.deps);
-    expect(paths(h.calls[0].files)).toEqual(['Main.bbl', 'main.tex', 'main.toc*']);
+    expect(h.sourcesSeen[0]).toEqual(new Set(['main.tex']));
   });
 
   it('does not store artifacts from a halted run (truncated aux)', async () => {

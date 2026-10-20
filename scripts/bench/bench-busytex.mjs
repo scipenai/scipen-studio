@@ -4,7 +4,10 @@
  *
  *   baseline — pristine upstream `busytex_pipeline.js` (extracted from the
  *              cached texlyre tarball into .bench-tmp/variant-baseline/)
- *   patched  — `public/wasm/busytex/` as shipped after our rerun-skip patch
+ *   patched  — `public/wasm/busytex/` as shipped (seam patches applied), with
+ *              worker-shim.mjs installing the pass policy from
+ *              src/main/busytex-process/passPolicy.ts — the same schedule the
+ *              app runs. The baseline has no seam, so it keeps upstream's.
  *
  * Scenario 1 (offline, pass-schedule fix):
  *   docA (plain article, no toc/refs) on pdftex + xetex drivers, and

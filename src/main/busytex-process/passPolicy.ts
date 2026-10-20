@@ -98,6 +98,12 @@ export interface PassTrace {
   halted: boolean;
   /** First `!` line plus its `l.<n>` context, from the halted pass. */
   firstError: string | null;
+  /**
+   * Files a post-processor rewrote (bibtex's .bbl, makeindex's .ind): products
+   * of this compile even when a copy was staged from disk. Project-relative
+   * once bound at the seam.
+   */
+  regenerated: string[];
 }
 
 export interface PassOutcome {
@@ -130,6 +136,7 @@ export function schedulePasses(plan: PassPlan, deps: PassDeps): PassOutcome {
     converged: false,
     halted: false,
     firstError: null,
+    regenerated: [],
   };
   const sameCommand = plan.initial === plan.final || plan.finalForAllPasses;
   let exitCode = 0;
@@ -166,6 +173,13 @@ export function schedulePasses(plan: PassPlan, deps: PassDeps): PassOutcome {
     return record(cmd, t0, deps.runTool(cmd)) === 0;
   };
 
+  /** A post-processor run; its output now belongs to this compile. */
+  const regenerate = (cmd: string[], output: string): boolean => {
+    if (!tool(cmd)) return false;
+    if (!trace.regenerated.includes(output)) trace.regenerated.push(output);
+    return true;
+  };
+
   let bibtexActive = plan.bibtex;
   let citations = '';
   let makeindexActive = false;
@@ -174,7 +188,7 @@ export function schedulePasses(plan: PassPlan, deps: PassDeps): PassOutcome {
   const postProcessFirst = (): boolean => {
     if (bibtexActive) {
       citations = citationSignature(deps.readText(plan.auxPath));
-      if (!tool(plan.bibtexCmd)) return false;
+      if (!regenerate(plan.bibtexCmd, plan.bblPath)) return false;
       if (deps.readText(plan.bblPath).trim() === '') {
         deps.print('$ # bibtex found no citation commands, skipping extra passes');
         bibtexActive = false;
@@ -184,7 +198,7 @@ export function schedulePasses(plan: PassPlan, deps: PassDeps): PassOutcome {
     indexInput = deps.exists(plan.idxPath) ? deps.readText(plan.idxPath) : '';
     makeindexActive = makeindexEnabled && indexInput.trim() !== '';
     if (makeindexActive) {
-      if (!tool(plan.makeindexCmd)) return false;
+      if (!regenerate(plan.makeindexCmd, plan.indPath)) return false;
       if (deps.readText(plan.indPath).trim() === '') {
         deps.print('$ # makeindex produced no index entries, skipping extra passes');
         makeindexActive = false;
@@ -206,14 +220,14 @@ export function schedulePasses(plan: PassPlan, deps: PassDeps): PassOutcome {
       const next = citationSignature(deps.readText(plan.auxPath));
       if (next !== citations) {
         citations = next;
-        if (!tool(plan.bibtexCmd)) return false;
+        if (!regenerate(plan.bibtexCmd, plan.bblPath)) return false;
       }
     }
     if (makeindexActive) {
       const next = deps.readText(plan.idxPath);
       if (next !== indexInput) {
         indexInput = next;
-        if (!tool(plan.makeindexCmd)) return false;
+        if (!regenerate(plan.makeindexCmd, plan.indPath)) return false;
       }
     }
     return true;
@@ -284,6 +298,8 @@ export interface PassSeamContext {
 export interface SeamFs {
   analyzePath(path: string): { exists: boolean };
   readFile(path: string, opts: { encoding: 'utf8' }): string;
+  /** The main file's dir: upstream chdirs there, and tool paths are relative to it. */
+  cwd(): string;
 }
 
 export interface PassPolicyOptions {
@@ -294,6 +310,12 @@ export interface PassPolicyOptions {
 
 function stagedName(path: string): string {
   return path.replace(/\\/g, '/').replace(/^\.?\/+/, '');
+}
+
+/** Project-relative form of a path upstream gives relative to the main file's dir. */
+function projectRelative(cwd: string, projectDir: string, path: string): string {
+  const dir = cwd.startsWith(projectDir) ? stagedName(cwd.slice(projectDir.length)) : '';
+  return dir ? `${dir}/${path}` : path;
 }
 
 /**
@@ -312,9 +334,16 @@ export function installPassPolicy(pipelineClass: unknown, options: PassPolicyOpt
   ): { exit_code: number; last_log: string } {
     // Injected artifacts are products of the previous compile, not sources:
     // they must stay inside the fingerprint, or a rewritten .aux would never
-    // count as a change.
+    // count as a change. Tool outputs staged from disk are no sources either:
+    // bibtex rewrites a stale main.bbl left by a local latexmk build after
+    // pass 1, and that change must buy the pass that reads the new one.
+    const toProject = (path: string) => projectRelative(ctx.FS.cwd(), ctx.project_dir, path);
+    const toolOutputs = new Set([toProject(ctx.bbl_path), toProject(ctx.ind_path)]);
     const sources = new Set(
-      ctx.files.filter((f) => !f.injected && f.contents != null).map((f) => stagedName(f.path))
+      ctx.files
+        .filter((f) => !f.injected && f.contents != null)
+        .map((f) => stagedName(f.path))
+        .filter((path) => !toolOutputs.has(path))
     );
     const deps: PassDeps = {
       runTex: (cmd) => ctx.run(cmd, ctx.error_messages_all),
@@ -346,6 +375,7 @@ export function installPassPolicy(pipelineClass: unknown, options: PassPolicyOpt
       },
       deps
     );
+    outcome.trace.regenerated = outcome.trace.regenerated.map(toProject);
     this.scipen_last_trace = outcome.trace;
     return { exit_code: outcome.exitCode, last_log: outcome.lastLog };
   };

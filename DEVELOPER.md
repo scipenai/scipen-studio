@@ -791,7 +791,7 @@ compile flows through:
 | Step | Module | What it decides |
 |------|--------|-----------------|
 | Staging | `projectStager.ts` | Reads the project from disk next to the engine; only the editor buffer crosses IPC. TeX sources as UTF-8 strings, figures as bytes; no `.aux`, no own output PDF; links skipped. |
-| Incremental | `compileFlow.ts` + `buildArtifactCache.ts` | Injects the last **clean** run's artifacts into the fresh virtual FS; stores artifacts only from clean runs; retries cold once when injected artifacts may have caused a failure. |
+| Incremental | `compileFlow.ts` + `buildArtifactCache.ts` | Injects the last **clean** run's artifacts into the fresh virtual FS; stores artifacts only from clean runs; retries cold once when injected artifacts may have caused a failure. A file a post-processor rewrites (bibtex's `.bbl`) is a product even when a stale copy sits on disk next to a local latexmk build: the carried copy replaces it, and if bibtex then does not run the compile is repeated cold. |
 | Pass schedule | `passPolicy.ts` + `buildArtifacts.ts` | Repeats a TeX pass only while the artifact fingerprint changes; stops on a non-zero raw exit; re-runs bibtex/makeindex only when their inputs moved. |
 
 Everything else — package resolution, data-package (re)loading, the
