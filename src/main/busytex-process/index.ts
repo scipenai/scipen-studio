@@ -34,81 +34,14 @@
  * they were validated by the benchmark suite and the template verifier.
  */
 
-import * as childProcess from 'node:child_process';
-import * as crypto from 'node:crypto';
 import fs from 'node:fs';
 import * as nodePath from 'node:path';
-import vm from 'node:vm';
-import type { MessagePortMain } from 'electron';
-
-// ====== Environment ======
-
-// Type declaration: Electron UtilityProcess parentPort (same as lsp-process).
-declare const process: NodeJS.Process & {
-  parentPort: {
-    postMessage(message: unknown): void;
-    on(
-      event: 'message',
-      listener: (messageEvent: { data: unknown; ports: MessagePortMain[] }) => void
-    ): void;
-    on(event: 'close', listener: () => void): void;
-  };
-};
-
-const WASM_ASSETS_DIR = process.env.WASM_ASSETS_DIR ?? '';
-const TEXLIVE_CACHE_DIR = process.env.TEXLIVE_CACHE_DIR ?? '';
-const SCHEME = 'scipen-wasm://busytex/';
-/** Ceiling for one synchronous remote fetch; kpse probes must not hang. */
-const SYNC_FETCH_TIMEOUT_S = 60;
-/** Hard ceiling for the whole init handshake (wasm + data packages). */
-const LOAD_TIMEOUT_MS = 300_000;
-/** Hard ceiling for one compile (matches the previous renderer-side limit). */
-const COMPILE_TIMEOUT_MS = 600_000;
-
-// ====== IO instrumentation ======
-
-/**
- * Per-call IO accounting. Exists because the synchronous kpathsea path spawns
- * ONE curl process per cache miss: wall-clock is driven by miss COUNT, not by
- * byte volume, and on Windows every spawn additionally pays CreateProcess plus
- * AV scanning. None of that is observable from outside the process, which left
- * "the compile is slow" unattributable. Reset per load/compile and reported
- * when that call settles.
- */
-interface EngineStats {
-  /** Local asset reads (wasm, data packages) — no network involved. */
-  diskReads: number;
-  diskBytes: number;
-  /** Remote lookups served from the on-disk TeX Live cache (cheap path). */
-  cacheHits: number;
-  /** Cache misses that went to the network, by outcome. */
-  fetched200: number;
-  /** kpse probing for a file that does not exist — the dominant miss kind. */
-  fetched404: number;
-  fetchErrors: number;
-  /** Cumulative wall-clock inside curl (process spawn + transfer). */
-  curlMs: number;
-  /** Cumulative wall-clock in cache lookups (stat + read). */
-  cacheMs: number;
-  fetchedBytes: number;
-}
-
-function newEngineStats(): EngineStats {
-  return {
-    diskReads: 0,
-    diskBytes: 0,
-    cacheHits: 0,
-    fetched200: 0,
-    fetched404: 0,
-    fetchErrors: 0,
-    curlMs: 0,
-    cacheMs: 0,
-    fetchedBytes: 0,
-  };
-}
-
-/** Single window; compiles are serialized by the worker's one pending slot. */
-let stats = newEngineStats();
+import { browserGlobals, installFsPathTranslation, installWorkerGlobals } from './browserShims';
+import { resetStats } from './engineStats';
+import { COMPILE_TIMEOUT_MS, LOAD_TIMEOUT_MS, WASM_ASSETS_DIR } from './env';
+import { emitEvent, onParentClose, onParentMessage, sendToParent } from './hostChannel';
+import { installNetworkShims } from './remoteFetch';
+import { installWorkerBridge, setPrintListener, workerCall } from './workerBridge';
 
 if (!WASM_ASSETS_DIR) {
   process.stderr.write('[busytex-process] WASM_ASSETS_DIR not set — cannot start\n');
@@ -117,419 +50,10 @@ if (!WASM_ASSETS_DIR) {
 
 // ====== Browser shims (worker target → plain Node) ======
 
-/** The browser globals this process installs for the vendored worker code. */
-const browserGlobals = globalThis as unknown as {
-  self: unknown;
-  postMessage: (msg: Record<string, unknown>) => void;
-  require: NodeRequire;
-  __dirname: string;
-  __filename: string;
-  XMLHttpRequest: unknown;
-  fetch: typeof fetch;
-  importScripts: (...srcs: string[]) => void;
-  onmessage?: (ev: { data: unknown }) => void;
-};
-
-browserGlobals.self = globalThis;
-
-function resolveAssetPath(url: string): string | null {
-  if (url.startsWith(SCHEME)) {
-    return nodePath.join(WASM_ASSETS_DIR, url.slice(SCHEME.length).split('?')[0]);
-  }
-  if (!/^[a-z]+:\/\//i.test(url)) {
-    // Relative name (e.g. importScripts('busytex_worker.js')).
-    return nodePath.join(WASM_ASSETS_DIR, url);
-  }
-  return null;
-}
-
-/**
- * The emscripten glue's Node branch reads data packages with plain
- * fs.readFileSync(urlString). Translate scheme URLs to on-disk paths — the
- * same job the app's `scipen-wasm://` protocol handler does for the browser
- * worker's fetch/XHR.
- */
-function toDiskPath(p: unknown): unknown {
-  if (typeof p === 'string' && p.startsWith(SCHEME)) {
-    return nodePath.join(WASM_ASSETS_DIR, p.slice(SCHEME.length).split('?')[0]);
-  }
-  return p;
-}
-
-const fsPatched = fs as unknown as Record<string, unknown>;
-for (const name of [
-  'readFileSync',
-  'existsSync',
-  'statSync',
-  'lstatSync',
-  'openSync',
-  'realpathSync',
-  'accessSync',
-  'readFile',
-  'stat',
-  'open',
-  'access',
-]) {
-  const original = fsPatched[name];
-  if (typeof original !== 'function') continue;
-  fsPatched[name] = function patched(this: unknown, p: unknown, ...rest: unknown[]) {
-    return (original as (...a: unknown[]) => unknown).call(this, toDiskPath(p), ...rest);
-  };
-}
-
-/**
- * Counted wrapper around {@link lookupCacheEntry}. Lookups are themselves an
- * IO cost worth measuring: each one is a `stat` plus (on a hit) a full read,
- * and on Windows every one of those is an AV-scanned file operation.
- */
-function cacheLookup(url: string): { status: 200 | 404; body: Buffer } | null {
-  const t0 = performance.now();
-  try {
-    const hit = lookupCacheEntry(url);
-    if (hit) stats.cacheHits += 1;
-    return hit;
-  } finally {
-    stats.cacheMs += performance.now() - t0;
-  }
-}
-
-/** Synchronous cache lookup mirroring TexliveRemoteCache's on-disk layout. */
-function lookupCacheEntry(url: string): { status: 200 | 404; body: Buffer } | null {
-  if (!TEXLIVE_CACHE_DIR) return null;
-  const key = crypto.createHash('sha256').update(url).digest('hex');
-  const missPath = nodePath.join(TEXLIVE_CACHE_DIR, `${key}.miss`);
-  const contentPath = nodePath.join(TEXLIVE_CACHE_DIR, `${key}.bin`);
-  try {
-    // Misses never expire, exactly like the 200s next to them: the endpoint
-    // serves an immutable TeX Live snapshot (`texlive2026.…`), and a snapshot
-    // that lacks a file today will not grow one tomorrow. A different mirror
-    // or release is a different URL, hence a different key, so switching is
-    // already isolated. Kept in lockstep with TexliveRemoteCache.get().
-    if (fs.existsSync(missPath)) {
-      return { status: 404, body: Buffer.alloc(0) };
-    }
-    if (!fs.existsSync(contentPath)) return null;
-    return { status: 200, body: fs.readFileSync(contentPath) };
-  } catch {
-    return null;
-  }
-}
-
-/** Synchronous cache store (atomic rename — safe alongside the main process). */
-function cacheStore(url: string, body: Buffer, isMiss: boolean): void {
-  if (!TEXLIVE_CACHE_DIR) return;
-  try {
-    fs.mkdirSync(TEXLIVE_CACHE_DIR, { recursive: true });
-    const key = crypto.createHash('sha256').update(url).digest('hex');
-    const dest = nodePath.join(TEXLIVE_CACHE_DIR, isMiss ? `${key}.miss` : `${key}.bin`);
-    const tmp = `${dest}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
-    fs.writeFileSync(tmp, body);
-    fs.renameSync(tmp, dest);
-  } catch {
-    // Cache writes must never break a compile.
-  }
-}
-
-class XMLHttpRequestShim {
-  status = 0;
-  response: ArrayBuffer | string = '';
-  responseText = '';
-  responseType = '';
-  timeout = 0;
-  onload: (() => void) | null = null;
-  onerror: ((err: unknown) => void) | null = null;
-  private method = 'GET';
-  private url = '';
-
-  open(method: string, url: string): void {
-    this.method = method.toUpperCase();
-    this.url = url;
-  }
-
-  setRequestHeader(): void {
-    /* kpse sends no meaningful headers */
-  }
-
-  overrideMimeType(): void {
-    /* binary-safe by construction */
-  }
-
-  getResponseHeader(): string | null {
-    return null;
-  }
-
-  send(): void {
-    try {
-      const disk = resolveAssetPath(this.url);
-      if (disk) {
-        const body = fs.readFileSync(disk);
-        stats.diskReads += 1;
-        stats.diskBytes += body.byteLength;
-        this.status = 200;
-        this.finish(body);
-        return;
-      }
-
-      // Remote fetch (kpathsea on-demand packages). Cache first — hits cost
-      // zero network and are shared with the main process. On miss, curl is
-      // the only synchronous HTTP primitive usable inside a wasm call across
-      // all three platforms; it also honours HTTPS_PROXY env vars.
-      if (/^https?:\/\//i.test(this.url)) {
-        const hit = cacheLookup(this.url);
-        if (hit) {
-          this.status = hit.status;
-          this.finish(hit.body);
-          return;
-        }
-        // curl does not create parent directories — a missing cache dir would
-        // fail every remote fetch with a confusing curl exit code.
-        try {
-          fs.mkdirSync(TEXLIVE_CACHE_DIR || WASM_ASSETS_DIR, { recursive: true });
-        } catch {
-          /* best effort */
-        }
-        const tmp = nodePath.join(
-          TEXLIVE_CACHE_DIR || WASM_ASSETS_DIR,
-          `.fetch-${process.pid}-${crypto.randomBytes(4).toString('hex')}`
-        );
-        const curlT0 = performance.now();
-        const res = childProcess.spawnSync(
-          'curl',
-          [
-            '-s',
-            '-o',
-            tmp,
-            '-w',
-            '%{http_code}',
-            '-X',
-            this.method,
-            '--max-time',
-            String(this.timeout > 0 ? Math.ceil(this.timeout / 1000) : SYNC_FETCH_TIMEOUT_S),
-            this.url,
-          ],
-          { encoding: 'utf8' }
-        );
-        stats.curlMs += performance.now() - curlT0;
-        if (res.status !== 0) {
-          stats.fetchErrors += 1;
-          this.status = 0;
-          this.onerror?.(new Error(res.stderr || 'curl failed'));
-          return;
-        }
-        this.status = Number(res.stdout) || 0;
-        // "curl reported 200" is NOT enough to cache: the body lands in a temp
-        // file inside the cache dir, and if that file cannot be read back
-        // (disk full, AV quarantine, a concurrent cache cleanup) the old code
-        // silently substituted an empty Buffer and stored it as a 200. A `.bin`
-        // has no TTL, no length check and no eviction, so that empty entry
-        // became a PERMANENT poison pill served to every later compile.
-        // Rule: no bytes read back => not a 200.
-        let body = Buffer.alloc(0);
-        let readOk = false;
-        if (this.status > 0 && this.status !== 404) {
-          try {
-            body = fs.readFileSync(tmp);
-            readOk = true;
-          } catch {
-            readOk = false;
-          }
-        }
-        try {
-          fs.unlinkSync(tmp);
-        } catch {
-          /* best effort */
-        }
-        if (this.status === 200 && !readOk) {
-          stats.fetchErrors += 1;
-          this.status = 0;
-          this.onerror?.(new Error('curl reported 200 but the response body was lost'));
-          return;
-        }
-        if (this.status === 200) {
-          stats.fetched200 += 1;
-          stats.fetchedBytes += body.byteLength;
-          cacheStore(this.url, body, false);
-        } else if (this.status === 404) {
-          stats.fetched404 += 1;
-          cacheStore(this.url, Buffer.alloc(0), true);
-        } else {
-          stats.fetchErrors += 1;
-        }
-        this.finish(body);
-        return;
-      }
-
-      this.status = 0;
-      this.onerror?.(new Error(`Unsupported URL: ${this.url}`));
-    } catch (err) {
-      this.status = 0;
-      this.onerror?.(err);
-    }
-  }
-
-  private finish(body: Buffer): void {
-    if (this.responseType === 'arraybuffer') {
-      this.response = body.buffer.slice(
-        body.byteOffset,
-        body.byteOffset + body.byteLength
-      ) as ArrayBuffer;
-      this.responseText = '';
-    } else {
-      this.response = body.toString('utf8');
-      this.responseText = body.toString('utf8');
-    }
-    this.onload?.();
-  }
-}
-
-browserGlobals.XMLHttpRequest = XMLHttpRequestShim;
-
-/**
- * Async curl with the shared disk cache — the fetch shim's remote path.
- * The pipeline fetches data packages over the network at runtime too (not
- * just kpse's sync XHR), so fetch needs the same cache/curl treatment as
- * XMLHttpRequest, just in async form.
- */
-function curlFetch(
-  method: string,
-  url: string,
-  timeoutS: number
-): Promise<{ status: number; body: Buffer }> {
-  return new Promise((resolve) => {
-    const hit = cacheLookup(url);
-    if (hit) {
-      resolve({ status: hit.status, body: hit.body });
-      return;
-    }
-    try {
-      fs.mkdirSync(TEXLIVE_CACHE_DIR || WASM_ASSETS_DIR, { recursive: true });
-    } catch {
-      /* best effort */
-    }
-    const tmp = nodePath.join(
-      TEXLIVE_CACHE_DIR || WASM_ASSETS_DIR,
-      `.fetch-${process.pid}-${crypto.randomBytes(4).toString('hex')}`
-    );
-    const curlT0 = performance.now();
-    childProcess.execFile(
-      'curl',
-      ['-s', '-o', tmp, '-w', '%{http_code}', '-X', method, '--max-time', String(timeoutS), url],
-      { encoding: 'utf8', timeout: (timeoutS + 5) * 1000 },
-      (err, stdout) => {
-        stats.curlMs += performance.now() - curlT0;
-        const rawStatus = err ? 0 : Number(stdout) || 0;
-        // Same poison-pill guard as the synchronous shim above: a 200 whose
-        // body cannot be read back must NOT be cached, or the empty buffer
-        // becomes a permanent `.bin`. Degrade to 502 so the caller retries.
-        let body = Buffer.alloc(0);
-        let readOk = false;
-        if (rawStatus === 200) {
-          try {
-            body = fs.readFileSync(tmp);
-            readOk = true;
-          } catch {
-            readOk = false;
-          }
-        }
-        try {
-          fs.unlinkSync(tmp);
-        } catch {
-          /* best effort */
-        }
-        if (rawStatus === 200 && !readOk) {
-          stats.fetchErrors += 1;
-          resolve({ status: 502, body: Buffer.alloc(0) });
-          return;
-        }
-        if (rawStatus === 200) {
-          stats.fetched200 += 1;
-          stats.fetchedBytes += body.byteLength;
-          cacheStore(url, body, false);
-        } else if (rawStatus === 404) {
-          stats.fetched404 += 1;
-          cacheStore(url, Buffer.alloc(0), true);
-        } else {
-          stats.fetchErrors += 1;
-        }
-        resolve({ status: rawStatus >= 100 ? rawStatus : 502, body });
-      }
-    );
-  });
-}
-
-/**
- * fetch shim — the pipeline loads busytex.wasm and every data package with
- * `fetch()` (busytex_pipeline.js lines 42/58/284), and an unshimmed fetch
- * here is catastrophic in the worst possible way: Node's fetch rejects on
- * the scipen-wasm:// scheme, the pipeline's init chain swallows the
- * rejection without ever posting `initialized` or an exception, and the
- * load handshake hangs until timeout. Mirrors the bench-validated shim:
- * scheme/relative URLs read from disk; http(s) goes through curl with the
- * shared TeX Live cache.
- */
-function contentTypeFor(file: string): string {
-  if (file.endsWith('.wasm')) return 'application/wasm';
-  if (file.endsWith('.json')) return 'application/json';
-  return 'application/octet-stream';
-}
-
-async function fetchShim(url: URL | string, init?: { method?: string }): Promise<Response> {
-  const urlStr = String(url);
-  const disk = resolveAssetPath(urlStr);
-  if (disk) {
-    // This is the ~120 MB wasm + data-package path, so it dominates `load`.
-    const body = fs.readFileSync(disk);
-    stats.diskReads += 1;
-    stats.diskBytes += body.byteLength;
-    // Content-Type matters: WebAssembly.compileStreaming rejects any
-    // response whose MIME type is not application/wasm.
-    return new Response(body, {
-      status: 200,
-      headers: { 'Content-Type': contentTypeFor(disk) },
-    });
-  }
-  if (/^https?:\/\//i.test(urlStr)) {
-    const { status, body } = await curlFetch(
-      (init?.method ?? 'GET').toUpperCase(),
-      urlStr,
-      SYNC_FETCH_TIMEOUT_S
-    );
-    return new Response(body, { status });
-  }
-  throw new TypeError(`fetch: unsupported url ${urlStr}`);
-}
-
-browserGlobals.fetch = fetchShim as unknown as typeof fetch;
-
-// Safety net: the pipeline's init chain stores floating promises with no
-// catch (e.g. on_initialized_promise.then(on_initialized)), so a rejected
-// internal step NEVER reaches the worker's try/catch — it used to hang the
-// load handshake silently until timeout. Route unhandled rejections into
-// the pending call as a terminal exception frame instead.
-process.on('unhandledRejection', (reason) => {
-  const message = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
-  console.error('[busytex-process] unhandled rejection:', message);
-  if (pendingFrame) {
-    const settle = pendingFrame;
-    pendingFrame = null;
-    settle({ exception: message });
-  }
-});
-
-browserGlobals.importScripts = (...srcs: string[]): void => {
-  for (const src of srcs) {
-    const file = resolveAssetPath(src);
-    if (!file) throw new Error(`importScripts: unsupported url ${src}`);
-    vm.runInThisContext(fs.readFileSync(file, 'utf8'), { filename: file });
-  }
-};
-
-// The emscripten glue detects Node and takes its CommonJS branch; give it the
-// globals it expects, with relative lookups anchored inside the assets dir.
-// In the bundled CJS output `require` exists in module scope.
-browserGlobals.require = require;
-browserGlobals.__dirname = WASM_ASSETS_DIR;
-browserGlobals.__filename = nodePath.join(WASM_ASSETS_DIR, 'busytex.js');
+installWorkerGlobals();
+installFsPathTranslation();
+installNetworkShims();
+installWorkerBridge();
 
 // ====== Engine host ======
 
@@ -547,94 +71,12 @@ let pipelineReady = false;
 let loadInFlight: Promise<{ loaded: true }> | null = null;
 
 /**
- * Route a frame emitted by the worker. `print` frames stream out as events;
- * the first terminal frame (initialized / exception / compile result) settles
- * the pending call.
- */
-let printListener: ((line: string) => void) | null = null;
-let pendingFrame: ((frame: Record<string, unknown>) => void) | null = null;
-
-/** Post a message to the main process (the utility's only outbound channel). */
-function sendToParent(msg: Record<string, unknown>): void {
-  process.parentPort?.postMessage(msg);
-}
-
-/** Unsolicited event stream (prints, phases) — not tied to a request id. */
-function emitEvent(event: string, data: Record<string, unknown>): void {
-  sendToParent({ type: 'event', event, data });
-}
-
-/**
  * Report the IO accounting for one call and open a fresh window. Emitted as an
  * event rather than folded into the response so the wire result types stay
  * unchanged — this is diagnostic data, not part of the compile contract.
  */
 function reportStats(phase: 'load' | 'compile', timings: Record<string, number | boolean>): void {
-  emitEvent('stats', { phase, ...timings, ...stats });
-  stats = newEngineStats();
-}
-
-function onWorkerFrame(frame: Record<string, unknown>): void {
-  if (frame.print !== undefined) {
-    printListener?.(String(frame.print));
-    return;
-  }
-  if (
-    frame.exception !== undefined ||
-    frame.initialized !== undefined ||
-    frame.exit_code !== undefined ||
-    frame.pdf !== undefined
-  ) {
-    const settle = pendingFrame;
-    pendingFrame = null;
-    settle?.(frame);
-  }
-}
-
-// The worker script posts every frame through `postMessage`; route them into
-// the host (prints → events, terminal frames → pending call).
-browserGlobals.postMessage = (msg: Record<string, unknown>): void => {
-  onWorkerFrame(msg);
-};
-
-/** The worker script installs `onmessage` at import time; drive it here. */
-function workerPost(frame: Record<string, unknown>): void {
-  void Promise.resolve(browserGlobals.onmessage?.({ data: frame })).catch((err: unknown) => {
-    // Surface async exceptions from the worker's handler as a terminal frame
-    // so a pending call cannot hang past the failure.
-    pendingFrame?.({ exception: err instanceof Error ? err.stack : String(err) });
-    pendingFrame = null;
-  });
-}
-
-/** Send a frame into the worker and wait for its terminal reply. */
-function workerCall(
-  frame: Record<string, unknown>,
-  timeoutMs: number
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    // The worker script has a single pending-call slot: a second concurrent
-    // call would clobber pendingFrame — the first caller would hang to its
-    // timeout and print/phase attribution would cross between the two. The
-    // renderer serializes compiles, but the wire defends itself regardless.
-    if (pendingFrame) {
-      reject(new Error('engine busy — another call is in flight'));
-      return;
-    }
-    const timer = setTimeout(() => {
-      pendingFrame = null;
-      reject(new Error(`engine call timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-    pendingFrame = (settled) => {
-      clearTimeout(timer);
-      if (settled.exception) {
-        reject(new Error(String(settled.exception)));
-        return;
-      }
-      resolve(settled);
-    };
-    workerPost(frame);
-  });
+  emitEvent('stats', { phase, ...timings, ...resetStats() });
 }
 
 // ====== Request handlers ======
@@ -656,10 +98,10 @@ function handleLoad(): Promise<{ loaded: true }> {
   // Measured from before importScripts so the window covers the whole load,
   // including the ~120 MB of wasm + data packages read off disk.
   const loadT0 = performance.now();
-  stats = newEngineStats();
+  resetStats();
 
   loadInFlight = (async () => {
-    printListener = (line) => emitEvent('print', { line });
+    setPrintListener((line) => emitEvent('print', { line }));
 
     // busytex_worker.js assigns `onmessage` at import time; workerPost
     // drives it. Runs exactly once per process lifetime — see loadInFlight.
@@ -726,7 +168,7 @@ async function handleCompile(params: {
     throw new Error('engine not loaded — call load first');
   }
   const totalT0 = performance.now();
-  stats = newEngineStats();
+  resetStats();
   let decodeMs = 0;
   let workerMs = 0;
   let writeMs = 0;
@@ -835,8 +277,7 @@ const METHODS = {
   },
 } as const;
 
-process.parentPort?.on('message', (event: { data: Record<string, unknown> }) => {
-  const msg = event.data;
+onParentMessage((msg) => {
   if (msg?.type !== 'request') return;
   const id = String(msg.id);
   const method = String(msg.method) as keyof typeof METHODS;
@@ -856,7 +297,7 @@ process.parentPort?.on('message', (event: { data: Record<string, unknown> }) => 
     );
 });
 
-process.parentPort?.on('close', () => process.exit(0));
+onParentClose(() => process.exit(0));
 
 // Announce readiness so the client can treat spawn success as a real signal.
 sendToParent({ type: 'event', event: 'ready', data: null });
