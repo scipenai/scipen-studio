@@ -783,6 +783,56 @@ allocates without releasing fully. The provider in
 every `RECYCLE_THRESHOLD = 50` compiles (close + lazy re-init on next call) —
 incremental cache is sacrificed at the cycle boundary but RSS stays bounded.
 
+### BusyTeX compile pipeline (pass schedule, incremental builds)
+
+The BusyTeX engine runs in a UtilityProcess (`src/main/busytex-process/`). One
+compile flows through:
+
+| Step | Module | What it decides |
+|------|--------|-----------------|
+| Staging | `projectStager.ts` | Reads the project from disk next to the engine; only the editor buffer crosses IPC. TeX sources as UTF-8 strings, figures as bytes; no `.aux`, no own output PDF; links skipped. |
+| Incremental | `compileFlow.ts` + `buildArtifactCache.ts` | Injects the last **clean** run's artifacts into the fresh virtual FS; stores artifacts only from clean runs; retries cold once when injected artifacts may have caused a failure. |
+| Pass schedule | `passPolicy.ts` + `buildArtifacts.ts` | Repeats a TeX pass only while the artifact fingerprint changes; stops on a non-zero raw exit; re-runs bibtex/makeindex only when their inputs moved. |
+
+Everything else — package resolution, data-package (re)loading, the
+per-driver command table, log assembly — stays upstream's, so tarball bumps
+keep bringing upstream fixes.
+
+**The seam.** `busytex_pipeline.js` is vendored from TeXlyre/texlyre-busytex
+(AGPL-3.0) and patched at prebuild by `scripts/patch-busytex-pipeline.js`:
+`pass-seam` hands the schedule to `this.scipen_run_passes` (installed by the
+engine host; upstream's schedule stays as the fallback branch) and
+`raw-exit-code` exposes the real process status, which upstream's "effective"
+code hides in batchmode. All patches are **fail-closed**: a search block that
+no longer matches fails `prebuild` instead of silently shipping the slow,
+error-masking schedule. Our policy code lives in `src/` under the project's
+own license; only the small seam touches the vendored file.
+
+**Caches** (under `{userData}/scipen-studio/`):
+
+| Directory | Holds | Cleared by |
+|-----------|-------|------------|
+| `texlive-remote-cache/` | TeX Live files fetched on demand + not-found markers | Settings → Compiler → *Clear not-found records* |
+| `busytex-build-cache/entries/` | Last clean run's artifacts per (project, main file, driver, asset version, endpoint); LRU-capped | Settings → Compiler → *Clear build cache* |
+| `busytex-build-cache/warm-packages.json` | Data packages each project needed, mounted at prewarm | Overwritten on the next clean compile |
+
+**Observability.** Every compile emits a `BusyTeX engine io` stats line in
+`main.log`: `passes` (per-pass command, ms, raw/effective exit), `texPasses`,
+`converged`, `halted`, `artifactsInjected`, `retriedCold`, `artifactsStored`,
+and `stage` (files, disk reads, cache hits). Load stats list the mounted data
+packages.
+
+**Bumping the BusyTeX tarball:**
+
+1. `npm run download:busytex -- --force` — fails if a patch no longer applies;
+   update its search block (the seam wraps upstream `compile()`'s pass section).
+2. `node scripts/verify-templates.mjs --engine {pdftex,xetex,lualatex}`.
+3. Re-check `FINAL_FOR_ALL_PASSES` in `passPolicy.ts`: compile the templates
+   with it on and off and compare PDFs (timestamps and `/ID` neutralised) for
+   pdftex and luahbtex.
+4. Bump `SCHEMA_VERSION` in `buildArtifactCache.ts` only if the artifact
+   definition changes; the asset version is already part of every cache key.
+
 ### Refreshing bundled artifacts
 
 ```bash

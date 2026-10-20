@@ -9,14 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Incremental WASM LaTeX compiles.** After a clean compile the engine keeps the files TeX writes for itself (`.aux`, `.toc`, `.out`, list files …) and feeds them into the next compile, so editing and recompiling usually takes **one** typesetting pass instead of three or four. Measured on a 200-page CJK book: 25.4 s → about 5 s per edit-and-compile; it stays warm across engine idle-release and app restarts. If carried files might be the reason a compile fails, it is retried once without them automatically. _Settings → Compiler → Clear build cache_ is the manual escape hatch.
 - **Clear TeX Live not-found records** — a new row under _Settings → Compiler_ showing how much the WASM fetch cache holds (packages, size, not-found records) with a button to drop just the not-found records. Downloaded packages are kept. Use it in the rare case where the package server has since gained a file you need. Declines while a compile is running rather than pulling the cache out from under it.
 
 ### Changed
 
+- **WASM LaTeX runs only the passes TeX actually needs.** The engine used to decide "run again?" by searching the log for phrases, and one of them (`rerunfilecheck`) is a package that hyperref always loads — every hyperref document ran the maximum four passes. A pass is now repeated only while TeX's own output files keep changing (the latexmk criterion). pdfLaTeX and LuaLaTeX also no longer need a separate closing pass. Output is byte-identical.
+- **The engine reads the project from disk itself.** Only the editor buffer crosses process boundaries now, instead of every source and figure (around 80 MB for a figure-heavy book) being shipped through the renderer on each compile. This also removes the 2,000-file limit that made figure-heavy projects fail to compile.
+- **Projects that need extra TeX Live packages warm them in the background.** For CJK documents the first compile after opening a project no longer waits ~2.5 s for the 324 MB extra package to load.
 - **Cached "file not found" results no longer expire.** kpathsea probes hundreds of paths per compile (546 on a real CJK project), each miss costing a curl process and a network round trip. Those results were kept for 7 days, so every week the whole set expired at once and the next compile paid several minutes of re-probing. They now persist like the downloaded packages next to them — the package server is a versioned, immutable snapshot, so a file missing today will not appear tomorrow, and pointing at a different server already uses a separate cache key.
 
 ### Fixed
 
+- **A compile stopped by an error no longer typesets the broken document again.** The engine treated a pass halted by `--halt-on-error` as a success and kept going; it now stops at the first failed pass and still shows the partial PDF.
+- **A stale `.aux` left by a local latexmk run is no longer fed to the engine**, and the compile's own output PDF is no longer staged as if it were a figure.
+- **Compile progress restarts its pass count for every compile** instead of continuing from the previous one ("pass 5" on the second compile).
 - **A truncated download can no longer poison the cache.** When the transfer reported success but its body could not be read back (disk full, antivirus quarantine), an empty file was stored as a valid package and served to every later compile, causing unexplained failures that no restart could clear. Such responses are now treated as transfer failures and never cached.
 - **A failed cache bookkeeping write no longer discards a valid cache hit**, which could send a compile to the network for a file it already had on disk.
 
