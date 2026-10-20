@@ -114,6 +114,16 @@ export interface TexliveCacheUsageResult {
 }
 
 /** Outcome of dropping the cached 404 probe results. */
+/** Outcome of dropping the incremental BusyTeX build artifacts. */
+export interface BuildCacheClearResult {
+  ok: boolean;
+  /** Artifact sets dropped (one per project + main file + driver). */
+  removed: number;
+  /** True when a compile was in flight and nothing was touched. */
+  busy?: boolean;
+  error?: string;
+}
+
 export interface TexliveClearMissesResult {
   ok: boolean;
   /** Markers actually unlinked by this call (not how many existed). */
@@ -218,6 +228,10 @@ export interface IPCCompileContract {
   [IpcChannel.Compile_GetTexliveCacheUsage]: {
     args: [];
     result: TexliveCacheUsageResult;
+  };
+  [IpcChannel.Compile_ClearBuildCache]: {
+    args: [];
+    result: BuildCacheClearResult;
   };
   [IpcChannel.Compile_ClearTexliveMisses]: {
     args: [];

@@ -350,6 +350,15 @@ describe('busytex-process entry', () => {
     expect(r2?.error?.message).toMatch(/engine busy/);
   });
 
+  it('answers clearBuildCache so a running engine drops its in-memory copy', async () => {
+    await request('req-1', 'load');
+    await request('req-2', 'compile', compileParams());
+    const res = await request('req-3', 'clearBuildCache');
+
+    expect(res.error).toBeUndefined();
+    expect(res.result).toEqual({ removed: expect.any(Number) });
+  });
+
   it('persists the TeX log next to the output even when no PDF was produced', async () => {
     // The WASM log used to live only in memory, so a partial or missing PDF
     // could not be diagnosed after the fact. The fixture worker returns a log

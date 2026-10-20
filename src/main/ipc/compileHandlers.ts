@@ -511,6 +511,20 @@ export function registerCompileHandlers(): void {
         }
       },
 
+      [IpcChannel.Compile_ClearBuildCache]: async () => {
+        // The client routes to the engine when it is running (so its
+        // in-memory copy goes too) and refuses while a compile is in flight.
+        try {
+          return await getBusyTexProcessClient().clearBuildCache();
+        } catch (error) {
+          return {
+            ok: false,
+            removed: 0,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+
       [IpcChannel.Compile_BusyTeX_Prepare]: async () => {
         await getBusyTexProcessClient().ensureLoaded();
         return { ok: true };

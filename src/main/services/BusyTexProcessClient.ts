@@ -23,7 +23,12 @@ import { Emitter, type Event } from '../../../shared/utils';
 import { createLogger } from './LoggerService';
 import { parseBusyTexPrintLine, createBusyTexPhaseState } from './compilePhaseParser';
 import type { CompileProgressPayload } from '../../../shared/ipc/compile-contract';
-import { resolveTexliveCacheDir, resolveWasmRoot } from './WasmAssetProtocol';
+import { BuildArtifactCache } from '../busytex-process/buildArtifactCache';
+import {
+  resolveBusytexBuildCacheDir,
+  resolveTexliveCacheDir,
+  resolveWasmRoot,
+} from './WasmAssetProtocol';
 
 const logger = createLogger('BusyTexProcessClient');
 
@@ -159,6 +164,7 @@ class BusyTexProcessClientImpl {
           ...process.env,
           WASM_ASSETS_DIR: resolveWasmRoot() + '/busytex',
           TEXLIVE_CACHE_DIR: resolveTexliveCacheDir(),
+          BUSYTEX_BUILD_CACHE_DIR: resolveBusytexBuildCacheDir(),
         },
       });
 
@@ -401,6 +407,22 @@ class BusyTexProcessClientImpl {
 
   private readonly COMPILE_TIMEOUT = 600_000;
   private readonly LOAD_TIMEOUT = 300_000;
+
+  /**
+   * Drop the incremental build artifacts. A running engine clears its own
+   * in-memory copy along with the directory — deleting the files alone would
+   * leave it serving what it already holds. Refused while a compile is in
+   * flight: the next compile simply starts cold, so there is no reason to
+   * pull state out from under a running one.
+   */
+  async clearBuildCache(): Promise<{ ok: boolean; removed: number; busy?: boolean }> {
+    if (this.isBusy) return { ok: false, removed: 0, busy: true };
+    if (this.process) {
+      const { removed } = await this.request<{ removed: number }>('clearBuildCache');
+      return { ok: true, removed };
+    }
+    return { ok: true, ...new BuildArtifactCache(resolveBusytexBuildCacheDir()).clear() };
+  }
 
   /**
    * Tear the process down. Used by the idle-memory release and the renderer's

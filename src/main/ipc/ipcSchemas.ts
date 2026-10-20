@@ -901,6 +901,7 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   // renderer can never point these at an arbitrary path.
   [IpcChannel.Compile_GetTexliveCacheUsage, z.tuple([])],
   [IpcChannel.Compile_ClearTexliveMisses, z.tuple([])],
+  [IpcChannel.Compile_ClearBuildCache, z.tuple([])],
   [IpcChannel.Compile_BusyTeX_Prepare, z.tuple([])],
   [
     IpcChannel.Compile_BusyTeX_Compile,

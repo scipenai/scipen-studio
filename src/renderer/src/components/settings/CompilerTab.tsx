@@ -169,6 +169,53 @@ export const CompilerTab: FC = () => {
     }
   }, [refreshCacheUsage, t]);
 
+  /**
+   * Incremental build cache: the escape hatch for the rare document whose
+   * carried artifacts confuse TeX in a way the automatic cold retry does not
+   * catch. Clearing only costs one cold compile per project.
+   */
+  const [buildCacheClearing, setBuildCacheClearing] = useState(false);
+  const [buildCacheMessage, setBuildCacheMessage] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
+
+  const handleClearBuildCache = useCallback(async () => {
+    const confirmed = await api.dialog.confirm(
+      t('compiler.buildCacheClearConfirmMessage'),
+      t('compiler.buildCacheClearConfirmTitle')
+    );
+    if (!confirmed) return;
+
+    setBuildCacheClearing(true);
+    setBuildCacheMessage(null);
+    try {
+      const result = await api.compile.clearBuildCache();
+      if (result.busy) {
+        setBuildCacheMessage({ ok: false, text: t('compiler.buildCacheClearBusy') });
+      } else if (!result.ok) {
+        setBuildCacheMessage({
+          ok: false,
+          text: t('compiler.buildCacheClearFailed', { error: result.error ?? '' }),
+        });
+      } else {
+        setBuildCacheMessage({
+          ok: true,
+          text: t('compiler.buildCacheCleared', { count: String(result.removed) }),
+        });
+      }
+    } catch (error) {
+      setBuildCacheMessage({
+        ok: false,
+        text: t('compiler.buildCacheClearFailed', {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      });
+    } finally {
+      setBuildCacheClearing(false);
+    }
+  }, [t]);
+
   useEffect(() => {
     let cancelled = false;
     // Fresh probe on panel open — also refreshes the shared cache the `auto`
@@ -434,6 +481,34 @@ export const CompilerTab: FC = () => {
               style={{ color: cacheMessage.ok ? 'var(--color-success)' : 'var(--color-error)' }}
             >
               {cacheMessage.text}
+            </span>
+          )}
+        </div>
+      </SettingItem>
+
+      <SettingItem label={t('compiler.buildCache')} description={t('compiler.buildCacheDesc')}>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleClearBuildCache}
+              disabled={buildCacheClearing}
+              className={secondaryButtonClass}
+            >
+              {buildCacheClearing ? (
+                <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+              ) : null}
+              {t('compiler.buildCacheClear')}
+            </button>
+          </div>
+          {buildCacheMessage && (
+            <span
+              className="text-xs"
+              style={{
+                color: buildCacheMessage.ok ? 'var(--color-success)' : 'var(--color-error)',
+              }}
+            >
+              {buildCacheMessage.text}
             </span>
           )}
         </div>

@@ -349,6 +349,53 @@ describe('BusyTexProcessClient', () => {
   });
 });
 
+describe('BusyTexProcessClient — clearBuildCache', () => {
+  let client: ReturnType<typeof getBusyTexProcessClient>;
+
+  beforeEach(() => {
+    childState.autoReady = true;
+    client = getBusyTexProcessClient();
+  });
+
+  afterEach(() => {
+    client.kill();
+  });
+
+  it('clears the directory itself when no engine process is running', async () => {
+    // userData is mocked to /tmp/userdata; the cache dir may not exist — fine.
+    const sentBefore = childState.sent.length;
+    await expect(client.clearBuildCache()).resolves.toMatchObject({ ok: true });
+    expect(childState.sent).toHaveLength(sentBefore);
+  });
+
+  it('asks a running engine to clear, so its in-memory copy goes too', async () => {
+    const loading = client.ensureLoaded();
+    await flush();
+    respondOk({ loaded: true });
+    await loading;
+
+    const clearing = client.clearBuildCache();
+    await flush();
+    expect(lastSent().method).toBe('clearBuildCache');
+    respondOk({ removed: 3 });
+    await expect(clearing).resolves.toEqual({ ok: true, removed: 3 });
+  });
+
+  it('refuses while a compile is in flight', async () => {
+    const loading = client.ensureLoaded();
+    await flush();
+    respondOk({ loaded: true });
+    await loading;
+
+    const compiling = client.compile(compileRequest());
+    await flush();
+    await expect(client.clearBuildCache()).resolves.toEqual({ ok: false, removed: 0, busy: true });
+
+    respondOk({ exitCode: 0, log: '' });
+    await compiling;
+  });
+});
+
 describe('BusyTexProcessClient — idle release', () => {
   // Real timers with a short window: the fake clock's state interacts with
   // module re-evaluation in ways that made advanceTimersByTime unreliable

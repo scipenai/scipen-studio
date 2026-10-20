@@ -112,4 +112,15 @@ describe('compilePhaseParser', () => {
     parseBusyTexPrintLine('$ busytex pdflatex main.tex', a);
     expect(parseBusyTexPrintLine('$ busytex pdflatex main.tex', b)?.passIndex).toBe(1);
   });
+
+  it('restarts pass numbering at every new compilation', () => {
+    // The state outlives one compile (it lives with the engine process); the
+    // second compile used to report "pass 5", and a cold retry would
+    // continue the previous attempt's count.
+    const state = createBusyTexPhaseState();
+    for (let i = 0; i < 4; i++) parseBusyTexPrintLine('$ busytex xelatex main.tex', state);
+
+    parseBusyTexPrintLine('New compilation started: [main.tex]', state);
+    expect(parseBusyTexPrintLine('$ busytex xelatex main.tex', state)?.passIndex).toBe(1);
+  });
 });

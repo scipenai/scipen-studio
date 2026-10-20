@@ -293,7 +293,15 @@
     "texliveCacheClearConfirmMessage": "已下载的宏包会保留。下次编译需要重新向服务器确认每个缺失文件,网络较慢时可能耗时数分钟。",
     "texliveCacheCleared": "已清除 {{count}} 条记录",
     "texliveCacheClearBusy": "正在编译 —— 请先停止编译",
-    "texliveCacheClearFailed": "清除失败:{{error}}"
+    "texliveCacheClearFailed": "清除失败:{{error}}",
+    "buildCache": "增量编译缓存",
+    "buildCacheDesc": "WASM 编译成功后,引擎会保留 TeX 自己生成的中间文件(目录、交叉引用、书签),下次编译通常只需排版一遍。如果某个文档的目录或引用一直显示旧内容,可以清空它。",
+    "buildCacheClear": "清空编译缓存",
+    "buildCacheClearConfirmTitle": "清空编译缓存?",
+    "buildCacheClearConfirmMessage": "每个项目下次编译都会从头开始,需要多排几遍。你的文档和 PDF 不受影响。",
+    "buildCacheCleared": "已清空 {{count}} 个文档的编译缓存",
+    "buildCacheClearBusy": "正在编译 —— 请先停止编译",
+    "buildCacheClearFailed": "清除失败:{{error}}"
   },
   "modelPicker": {},
   "aiConfig": {},

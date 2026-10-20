@@ -37,12 +37,20 @@
 import fs from 'node:fs';
 import * as nodePath from 'node:path';
 import { browserGlobals, installFsPathTranslation, installWorkerGlobals } from './browserShims';
-import { fingerprintArtifacts } from './buildArtifacts';
+import { BuildArtifactCache } from './buildArtifactCache';
+import { type ArtifactFs, fingerprintArtifacts, listArtifacts } from './buildArtifacts';
+import {
+  type CompileFlowDeps,
+  type CompileFlowParams,
+  type CompileFlowResult,
+  type CompileFrame,
+  runCompileFlow,
+} from './compileFlow';
 import { resetStats } from './engineStats';
-import { COMPILE_TIMEOUT_MS, LOAD_TIMEOUT_MS, WASM_ASSETS_DIR } from './env';
+import { BUILD_CACHE_DIR, COMPILE_TIMEOUT_MS, LOAD_TIMEOUT_MS, WASM_ASSETS_DIR } from './env';
 import { emitEvent, onParentClose, onParentMessage, sendToParent } from './hostChannel';
 import { FINAL_FOR_ALL_PASSES, type PassTrace, installPassPolicy } from './passPolicy';
-import { ProjectStager, type StageStats } from './projectStager';
+import { ProjectStager } from './projectStager';
 import { installNetworkShims } from './remoteFetch';
 import { installWorkerBridge, setPrintListener, workerCall } from './workerBridge';
 
@@ -82,8 +90,11 @@ function reportStats(phase: 'load' | 'compile', timings: Record<string, unknown>
   emitEvent('stats', { phase, ...timings, ...resetStats() });
 }
 
+/** The parts of the upstream pipeline instance (`self.pipeline`) the host reads. */
 interface PipelineInstance {
   scipen_last_trace?: PassTrace;
+  project_dir?: string;
+  Module?: Promise<{ FS?: ArtifactFs; data_packages_js?: unknown[] } | null> | null;
 }
 
 function pipelineInstance(): PipelineInstance | undefined {
@@ -182,18 +193,23 @@ function manifestList(kind: 'preload' | 'catalog'): string[] {
 /** Catalog captured at load time; every compile passes it to the resolver. */
 let catalogList: string[] = [];
 
+function manifestVersion(): string {
+  try {
+    const manifest = JSON.parse(
+      fs.readFileSync(nodePath.join(WASM_ASSETS_DIR, 'manifest.json'), 'utf8')
+    ) as { version?: string };
+    return manifest.version ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 /** Sources and figures are staged from disk here, next to the engine. */
 const stager = new ProjectStager();
+/** Last clean run's artifacts per (project, main file, driver), for incremental compiles. */
+const buildCache = new BuildArtifactCache(BUILD_CACHE_DIR);
 
-async function handleCompile(params: {
-  projectRoot?: string;
-  mainFileAbs: string;
-  overlay: { absPath: string; contents: string };
-  driver: string;
-  endpoint: string;
-  outputDir: string;
-  baseName: string;
-}): Promise<{
+async function handleCompile(params: CompileFlowParams): Promise<{
   exitCode: number;
   pdfPath?: string;
   synctexPath?: string;
@@ -204,7 +220,7 @@ async function handleCompile(params: {
   }
   const totalT0 = performance.now();
   resetStats();
-  let stageStats: StageStats | undefined;
+  let flow: CompileFlowResult | undefined;
   let workerMs = 0;
   let writeMs = 0;
   let pdfBytes = 0;
@@ -214,53 +230,27 @@ async function handleCompile(params: {
   // blew the 600 s cap is precisely the case where the fetch counts explain
   // why, and losing them on the error path would defeat the instrumentation.
   try {
-    const staged = stager.stage({
-      projectRoot: params.projectRoot,
-      mainFileAbs: params.mainFileAbs,
-      overlay: params.overlay,
-      outputDir: params.outputDir,
-      baseName: params.baseName,
-    });
-    stageStats = staged.stats;
-
     const workerT0 = performance.now();
-    const frame = await workerCall(
-      {
-        files: staged.files,
-        main_tex_path: staged.mainFile,
-        bibtex: null,
-        makeindex: null,
-        rerun: null,
-        verbose: 'silent',
-        driver: params.driver,
-        // The package resolver maps missing files to remote data packages via
-        // this catalog — an empty list makes every non-preloaded package
-        // (ctex, …) fail with "file not found".
-        data_packages_js: catalogList,
-        remote_endpoint: params.endpoint,
-      },
-      COMPILE_TIMEOUT_MS
-    );
+    flow = await runCompileFlow(params, compileFlowDeps(params));
     workerMs = performance.now() - workerT0;
 
-    const exitCode = (frame.exit_code as number | undefined) ?? -1;
-    const pdf = frame.pdf as Uint8Array | undefined;
-    const synctex = frame.synctex as Uint8Array | undefined;
-    const log = (frame.log as string) ?? '';
+    const { frame } = flow;
+    const exitCode = frame.exit_code ?? -1;
+    const log = frame.log ?? '';
 
     // Artifacts are written HERE, in this process — the PDF crosses no IPC
     // boundary; the renderer only ever sees paths.
     let pdfPath: string | undefined;
     let synctexPath: string | undefined;
     const writeT0 = performance.now();
-    if (exitCode === 0 && pdf && pdf.byteLength > 0) {
+    if (exitCode === 0 && frame.pdf && frame.pdf.byteLength > 0) {
       fs.mkdirSync(params.outputDir, { recursive: true });
       pdfPath = nodePath.join(params.outputDir, `${params.baseName}.pdf`);
-      fs.writeFileSync(pdfPath, Buffer.from(pdf));
-      pdfBytes = pdf.byteLength;
-      if (synctex && synctex.byteLength > 0) {
+      fs.writeFileSync(pdfPath, Buffer.from(frame.pdf));
+      pdfBytes = frame.pdf.byteLength;
+      if (frame.synctex && frame.synctex.byteLength > 0) {
         synctexPath = nodePath.join(params.outputDir, `${params.baseName}.synctex.gz`);
-        fs.writeFileSync(synctexPath, Buffer.from(synctex));
+        fs.writeFileSync(synctexPath, Buffer.from(frame.synctex));
       }
     }
     writeCompileLog(params.outputDir, params.baseName, log);
@@ -268,13 +258,16 @@ async function handleCompile(params: {
 
     return { exitCode, pdfPath, synctexPath, log };
   } finally {
-    const trace = takePassTrace();
+    const trace = flow?.trace;
     reportStats('compile', {
       totalMs: Math.round(performance.now() - totalT0),
       workerMs: Math.round(workerMs),
       writeMs: Math.round(writeMs),
       pdfBytes,
-      stage: stageStats,
+      stage: flow?.stage,
+      artifactsInjected: flow?.artifactsInjected,
+      retriedCold: flow?.retriedCold,
+      artifactsStored: flow?.stored,
       // Absent when the upstream schedule ran (policy not installed).
       passes: trace?.passes,
       texPasses: trace?.texPasses,
@@ -282,6 +275,57 @@ async function handleCompile(params: {
       halted: trace?.halted,
     });
   }
+}
+
+/** Bind the compile flow to this engine host's worker, pipeline and caches. */
+function compileFlowDeps(params: CompileFlowParams): CompileFlowDeps {
+  return {
+    stage: (request) => stager.stage(request),
+    run: async (files, mainFile, timeoutMs) =>
+      (await workerCall(
+        {
+          files,
+          main_tex_path: mainFile,
+          bibtex: null,
+          makeindex: null,
+          rerun: null,
+          verbose: 'silent',
+          driver: params.driver,
+          // The package resolver maps missing files to remote data packages via
+          // this catalog — an empty list makes every non-preloaded package
+          // (ctex, …) fail with "file not found".
+          data_packages_js: catalogList,
+          remote_endpoint: params.endpoint,
+        },
+        timeoutMs
+      )) as CompileFrame,
+    takeTrace: takePassTrace,
+    collectArtifacts: async (sources) => {
+      // The project dir stays mounted until the next compile remounts it, so
+      // the run that just finished can still be read back here.
+      try {
+        const instance = pipelineInstance();
+        const module = await instance?.Module;
+        if (!module?.FS || !instance?.project_dir) return [];
+        return listArtifacts(module.FS, instance.project_dir, sources);
+      } catch {
+        return [];
+      }
+    },
+    enabledPackages: async () => {
+      try {
+        const module = await pipelineInstance()?.Module;
+        return (module?.data_packages_js ?? []).filter((p) => typeof p === 'string');
+      } catch {
+        return [];
+      }
+    },
+    cache: buildCache,
+    assetVersion: manifestVersion(),
+    timeoutMs: COMPILE_TIMEOUT_MS,
+    caseInsensitive: process.platform === 'win32',
+    now: () => performance.now(),
+  };
 }
 
 /**
@@ -306,6 +350,9 @@ function writeCompileLog(outputDir: string, baseName: string, log: string): void
 const METHODS = {
   load: () => handleLoad(),
   compile: (params: never) => handleCompile(params),
+  // Clears the in-memory copy too: deleting only the directory would leave a
+  // running engine serving the artifacts it already holds.
+  clearBuildCache: () => Promise.resolve(buildCache.clear()),
   health: () => Promise.resolve({ alive: true, pipelineReady }),
   // Idle-memory release: the response never arrives (the process exits
   // first) — the client treats the 3s timeout as the expected outcome.

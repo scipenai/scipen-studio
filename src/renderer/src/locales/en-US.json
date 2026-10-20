@@ -293,7 +293,15 @@
     "texliveCacheClearConfirmMessage": "Downloaded packages are kept. The next compile will re-check every missing file against the server, which can take several minutes on a slow link.",
     "texliveCacheCleared": "Cleared {{count}} records",
     "texliveCacheClearBusy": "A compile is running — stop it first",
-    "texliveCacheClearFailed": "Could not clear: {{error}}"
+    "texliveCacheClearFailed": "Could not clear: {{error}}",
+    "buildCache": "Incremental Build Cache",
+    "buildCacheDesc": "After a successful WASM compile, the engine keeps the files TeX writes for itself (table of contents, cross-references, bookmarks), so the next compile usually needs a single pass. Clear it if a document keeps showing a stale table of contents or references.",
+    "buildCacheClear": "Clear build cache",
+    "buildCacheClearConfirmTitle": "Clear the build cache?",
+    "buildCacheClearConfirmMessage": "The next compile of each project starts from scratch and takes a few extra passes. Your documents and PDFs are not touched.",
+    "buildCacheCleared": "Cleared build cache for {{count}} documents",
+    "buildCacheClearBusy": "A compile is running — stop it first",
+    "buildCacheClearFailed": "Could not clear: {{error}}"
   },
   "aiConfig": {},
   "modelPicker": {},

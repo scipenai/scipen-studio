@@ -80,6 +80,7 @@ export enum IpcChannel {
   Compile_TestTexliveEndpoint = 'compile:test-texlive-endpoint',
   Compile_GetTexliveCacheUsage = 'compile:get-texlive-cache-usage',
   Compile_ClearTexliveMisses = 'compile:clear-texlive-misses',
+  Compile_ClearBuildCache = 'compile:clear-build-cache',
   /**
    * BusyTeX engine process control. The engine runs in an Electron
    * UtilityProcess (see `src/main/busytex-process/`); the renderer provider

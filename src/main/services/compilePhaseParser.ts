@@ -77,8 +77,12 @@ export function parseBusyTexPrintLine(
     };
   }
 
-  // "New compilation started: [main.tex]" — top-of-compile marker.
+  // "New compilation started: [main.tex]" — top-of-compile marker. The parser
+  // state lives as long as the engine process, so pass numbering restarts
+  // here; otherwise a second compile reported "pass 5", and a cold retry
+  // after a failed incremental attempt would continue the count.
   if (trimmed.startsWith('New compilation started:')) {
+    state.passIndex = 0;
     return {
       engine: 'latex',
       stage: 'staging',

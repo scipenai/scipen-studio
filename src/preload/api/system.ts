@@ -35,6 +35,8 @@ export const compileApi = {
   getTexliveCacheUsage: () => ipcRenderer.invoke(IpcChannel.Compile_GetTexliveCacheUsage),
   /** Drop cached 404 probe results, keeping downloaded packages. */
   clearTexliveMisses: () => ipcRenderer.invoke(IpcChannel.Compile_ClearTexliveMisses),
+  /** Drop the incremental build artifacts; the next compile starts cold. */
+  clearBuildCache: () => ipcRenderer.invoke(IpcChannel.Compile_ClearBuildCache),
 
   // BusyTeX engine process (runs in an Electron UtilityProcess).
   busyTeXPrepare: () => ipcRenderer.invoke(IpcChannel.Compile_BusyTeX_Prepare),

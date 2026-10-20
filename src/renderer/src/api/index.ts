@@ -10,6 +10,7 @@ import type {
   BusyTeXCompileRequestDTO,
   BusyTeXCompileResultDTO,
   CompileProgressPayload,
+  BuildCacheClearResult,
   TexliveCacheUsageResult,
   TexliveClearMissesResult,
   TexliveEndpointProbeResult,
@@ -421,6 +422,12 @@ export const compile = {
    * `busy: true` untouched when a compile is in flight.
    */
   clearTexliveMisses: () => invoke<TexliveClearMissesResult>(IpcChannel.Compile_ClearTexliveMisses),
+  /**
+   * Drop the incremental build artifacts (the next compile of every project
+   * starts cold). Total result like the cache calls above; returns
+   * `busy: true` untouched while a compile is in flight.
+   */
+  clearBuildCache: () => invoke<BuildCacheClearResult>(IpcChannel.Compile_ClearBuildCache),
   /** Warm the BusyTeX engine process (load wasm + data packages). */
   busyTeXPrepare: () => invoke<{ ok: boolean }>(IpcChannel.Compile_BusyTeX_Prepare),
   /** Run one compile in the engine process; artifacts land on disk. */

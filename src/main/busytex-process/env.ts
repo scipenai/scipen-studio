@@ -11,6 +11,8 @@ import * as nodePath from 'node:path';
 
 export const WASM_ASSETS_DIR = process.env.WASM_ASSETS_DIR ?? '';
 export const TEXLIVE_CACHE_DIR = process.env.TEXLIVE_CACHE_DIR ?? '';
+/** Incremental build artifacts; empty keeps them in memory only. */
+export const BUILD_CACHE_DIR = process.env.BUSYTEX_BUILD_CACHE_DIR ?? '';
 export const SCHEME = 'scipen-wasm://busytex/';
 /** Ceiling for one synchronous remote fetch; kpse probes must not hang. */
 export const SYNC_FETCH_TIMEOUT_S = 60;

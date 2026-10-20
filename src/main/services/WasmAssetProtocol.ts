@@ -76,6 +76,16 @@ export function resolveTexliveCacheDir(): string {
   return path.join(app.getPath('userData'), 'scipen-studio', 'texlive-remote-cache');
 }
 
+/**
+ * Incremental BusyTeX build artifacts (aux / toc / out … of the last clean
+ * compile per project and main file). Injected into the engine process as
+ * `BUSYTEX_BUILD_CACHE_DIR`; main reads it only to clear the cache while no
+ * engine process is running.
+ */
+export function resolveBusytexBuildCacheDir(): string {
+  return path.join(app.getPath('userData'), 'scipen-studio', 'busytex-build-cache');
+}
+
 export function getTexliveRemoteCache(): TexliveRemoteCache | null {
   if (process.env.SCIPEN_TEXLIVE_REMOTE_CACHE === '0') return null;
   if (!texliveCache) {
