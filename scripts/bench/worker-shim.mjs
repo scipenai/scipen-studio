@@ -31,6 +31,13 @@ import fs from 'node:fs'; // default export = mutable CJS object, shared with re
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import vm from 'node:vm';
+// The shipped pass schedule (Node strips the types on import), so benches
+// and the template verifier measure what the app actually runs.
+import { fingerprintArtifacts } from '../../src/main/busytex-process/buildArtifacts.ts';
+import {
+  FINAL_FOR_ALL_PASSES,
+  installPassPolicy,
+} from '../../src/main/busytex-process/passPolicy.ts';
 
 const VARIANT_DIR = workerData.variantDir;
 const ASSET_SCHEME = 'scipen-wasm://busytex/';
@@ -298,6 +305,16 @@ const WORKER_FILE = workerData.workerFile
 vm.runInThisContext(fs.readFileSync(WORKER_FILE, 'utf8'), {
   filename: WORKER_FILE,
 });
+
+// Same hook the engine host installs. A pipeline without the pass-seam patch
+// (e.g. a pristine baseline variant) never calls it, so installing is safe
+// everywhere; `upstreamSchedule` keeps upstream's schedule for A/B runs.
+if (!workerData.upstreamSchedule) {
+  installPassPolicy(globalThis.BusytexPipeline, {
+    finalForAllPasses: workerData.finalForAllPasses ?? FINAL_FOR_ALL_PASSES,
+    fingerprint: fingerprintArtifacts,
+  });
+}
 
 parentPort.on('message', (data) => {
   // busytex_worker.js's onmessage is async and may reject; surface it.

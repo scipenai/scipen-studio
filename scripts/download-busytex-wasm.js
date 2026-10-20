@@ -100,9 +100,9 @@ const wantedTarPaths = [
     // run so a toggle is picked up even without re-downloading the tarball.
     writeManifest(DEST_DIR, minimal);
     // The pipeline is a vendored upstream asset — re-assert our local
-    // rerun-skip patch here too, or a fresh clone's first prebuild would
-    // ship the unpatched 3-pass schedule until the next re-download.
-    applyPipelinePatch(DEST_DIR);
+    // patches here too, or a fresh clone's first prebuild would ship the
+    // unpatched engine until the next re-download.
+    assertPipelinePatched();
     // Font bake is network-bound (downloads ~8MB of fonts on first run) and
     // re-runs are no-ops; failures are fail-open (the engine compiles fine
     // without it — documents using system-font names just won't).
@@ -130,7 +130,7 @@ const wantedTarPaths = [
     }
     extractSelective(TARBALL_CACHE_PATH, DEST_DIR, wantedTarPaths);
     writeManifest(DEST_DIR, minimal);
-    applyPipelinePatch(DEST_DIR);
+    assertPipelinePatched();
     // Font bake is network-bound (downloads ~8MB of fonts on first run) and
     // re-runs are no-ops; failures are fail-open (the engine compiles fine
     // without it — documents using system-font names just won't).
@@ -260,6 +260,19 @@ function resolveTarBinary() {
 
 function formatMB(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/**
+ * Pipeline patches are load-bearing (see patch-busytex-pipeline.js): without
+ * them the engine crashes in the UtilityProcess or silently falls back to the
+ * slow, error-masking pass schedule. A tarball bump that breaks one must stop
+ * the build here rather than ship.
+ */
+function assertPipelinePatched() {
+  if (!applyPipelinePatch(DEST_DIR)) {
+    console.error('✗ busytex_pipeline.js patches failed — refusing to ship an unpatched engine.');
+    process.exit(1);
+  }
 }
 
 /**

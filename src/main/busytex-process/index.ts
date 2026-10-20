@@ -37,9 +37,11 @@
 import fs from 'node:fs';
 import * as nodePath from 'node:path';
 import { browserGlobals, installFsPathTranslation, installWorkerGlobals } from './browserShims';
+import { fingerprintArtifacts } from './buildArtifacts';
 import { resetStats } from './engineStats';
 import { COMPILE_TIMEOUT_MS, LOAD_TIMEOUT_MS, WASM_ASSETS_DIR } from './env';
 import { emitEvent, onParentClose, onParentMessage, sendToParent } from './hostChannel';
+import { FINAL_FOR_ALL_PASSES, type PassTrace, installPassPolicy } from './passPolicy';
 import { installNetworkShims } from './remoteFetch';
 import { installWorkerBridge, setPrintListener, workerCall } from './workerBridge';
 
@@ -75,8 +77,24 @@ let loadInFlight: Promise<{ loaded: true }> | null = null;
  * event rather than folded into the response so the wire result types stay
  * unchanged — this is diagnostic data, not part of the compile contract.
  */
-function reportStats(phase: 'load' | 'compile', timings: Record<string, number | boolean>): void {
+function reportStats(phase: 'load' | 'compile', timings: Record<string, unknown>): void {
   emitEvent('stats', { phase, ...timings, ...resetStats() });
+}
+
+interface PipelineInstance {
+  scipen_last_trace?: PassTrace;
+}
+
+function pipelineInstance(): PipelineInstance | undefined {
+  return (globalThis as { pipeline?: PipelineInstance }).pipeline;
+}
+
+/** Take the pass trace the policy left behind, so it is reported exactly once. */
+function takePassTrace(): PassTrace | undefined {
+  const instance = pipelineInstance();
+  const trace = instance?.scipen_last_trace;
+  if (instance) instance.scipen_last_trace = undefined;
+  return trace;
 }
 
 // ====== Request handlers ======
@@ -106,6 +124,18 @@ function handleLoad(): Promise<{ loaded: true }> {
     // busytex_worker.js assigns `onmessage` at import time; workerPost
     // drives it. Runs exactly once per process lifetime — see loadInFlight.
     browserGlobals.importScripts('busytex_worker.js');
+
+    // Before the init frame: the pass schedule is ours (see passPolicy.ts).
+    // Without the class (a fixture worker) the seam keeps upstream's schedule.
+    const policyInstalled = installPassPolicy(
+      (globalThis as { BusytexPipeline?: unknown }).BusytexPipeline,
+      { finalForAllPasses: FINAL_FOR_ALL_PASSES, fingerprint: fingerprintArtifacts }
+    );
+    if (!policyInstalled) {
+      process.stderr.write(
+        '[busytex-process] BusytexPipeline not found; upstream pass schedule in use\n'
+      );
+    }
 
     // The init frame makes the pipeline fetch + instantiate busytex.wasm
     // and mount the preloaded TeX Live data packages (~120 MB, once per
@@ -173,6 +203,7 @@ async function handleCompile(params: {
   let workerMs = 0;
   let writeMs = 0;
   let pdfBytes = 0;
+  takePassTrace();
 
   // `finally` so a failed or timed-out compile still reports: a compile that
   // blew the 600 s cap is precisely the case where the fetch counts explain
@@ -234,6 +265,7 @@ async function handleCompile(params: {
 
     return { exitCode, pdfPath, synctexPath, log };
   } finally {
+    const trace = takePassTrace();
     reportStats('compile', {
       totalMs: Math.round(performance.now() - totalT0),
       decodeMs: Math.round(decodeMs),
@@ -241,6 +273,11 @@ async function handleCompile(params: {
       writeMs: Math.round(writeMs),
       stagedFiles: params.files.length,
       pdfBytes,
+      // Absent when the upstream schedule ran (policy not installed).
+      passes: trace?.passes,
+      texPasses: trace?.texPasses,
+      converged: trace?.converged,
+      halted: trace?.halted,
     });
   }
 }
