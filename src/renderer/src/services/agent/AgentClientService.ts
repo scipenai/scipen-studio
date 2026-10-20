@@ -104,6 +104,49 @@ export interface AgentClientStartProjectResult {
   threads: ThreadSummary[];
 }
 
+// ============ Sidecar state mirror ============
+
+/**
+ * Renderer-local mirror of main's `SidecarFailureReason`.
+ * @see src/main/services/agent/interfaces/ISnacaSidecarService.ts
+ */
+export type AgentSidecarFailureReason = 'binary-missing' | 'crash';
+
+/**
+ * Renderer-local mirror of main's `SidecarState`. Duplicated rather than
+ * imported because the renderer tsconfig excludes `src/main`; keep both in
+ * sync when the state machine gains a variant.
+ */
+export type AgentSidecarState =
+  | { kind: 'stopped' }
+  | { kind: 'starting'; pid?: number }
+  | { kind: 'running'; pid: number; startedAt: number }
+  | { kind: 'crashed'; lastError: string; retryAt: number; attempt: number }
+  | {
+      kind: 'failed';
+      reason: AgentSidecarFailureReason;
+      /** Human-readable cause; for `crash` this includes the stderr tail. */
+      lastError: string;
+      attempts: number;
+      failedAt: number;
+    }
+  | { kind: 'stopping' };
+
+/**
+ * Shallow equality over the flat state variants. Lets the cache keep its
+ * previous reference when a transition re-delivers an equivalent value —
+ * the initial fetch and the first push routinely carry the same state, and
+ * main re-fires `stopped` on some shutdown paths.
+ */
+function isSameSidecarState(a: AgentSidecarState | null, b: AgentSidecarState): boolean {
+  if (a === null || a.kind !== b.kind) return false;
+  const prev = a as Record<string, unknown>;
+  const next = b as Record<string, unknown>;
+  const keys = Object.keys(next);
+  if (Object.keys(prev).length !== keys.length) return false;
+  return keys.every((k) => prev[k] === next[k]);
+}
+
 // ============ Implementation ============
 
 class AgentClientServiceImpl {
@@ -125,6 +168,84 @@ class AgentClientServiceImpl {
 
   getSessionState() {
     return this.api.getSessionState();
+  }
+
+  // ---- sidecar state mirror (useSyncExternalStore backing store) ----
+
+  /**
+   * Last known sidecar state, held as a single reference that is replaced
+   * only on a real transition. `useSyncExternalStore` compares snapshots by
+   * identity, so handing back a fresh object per read would re-render until
+   * React bails with "Maximum update depth exceeded".
+   */
+  private sidecarState: AgentSidecarState | null = null;
+  private readonly sidecarListeners = new Set<() => void>();
+  private sidecarUnsubscribe: (() => void) | null = null;
+  /**
+   * Bumped on every push. The initial fetch remembers the epoch it started
+   * at and discards its result if a push landed meanwhile — otherwise a slow
+   * `getSidecarState()` round-trip could clobber a newer state.
+   */
+  private sidecarEpoch = 0;
+
+  /**
+   * Subscribe to sidecar transitions. The bridge listener is attached with
+   * the first subscriber and detached with the last, so N consumers share
+   * one IPC listener. The cache survives a detach and is refreshed on the
+   * next attach, so a re-mounting consumer shows the last known state
+   * instead of flashing `null`.
+   */
+  subscribeSidecarState(onChange: () => void): () => void {
+    this.sidecarListeners.add(onChange);
+    if (this.sidecarListeners.size === 1) this.attachSidecarState();
+    return () => {
+      this.sidecarListeners.delete(onChange);
+      if (this.sidecarListeners.size === 0) this.detachSidecarState();
+    };
+  }
+
+  /** Cached snapshot; `null` until the first fetch or push resolves. */
+  getSidecarStateSync(): AgentSidecarState | null {
+    return this.sidecarState;
+  }
+
+  /**
+   * Never throws: this runs inside `useSyncExternalStore`'s subscribe, where
+   * an exception would tear down the consuming tree. A missing preload
+   * bridge degrades to a permanently `null` snapshot instead.
+   */
+  private attachSidecarState(): void {
+    try {
+      this.sidecarUnsubscribe = this.api.onSidecarStateChange((s: AgentSidecarState) => {
+        this.sidecarEpoch++;
+        this.setSidecarState(s);
+      });
+    } catch {
+      this.sidecarUnsubscribe = null;
+    }
+
+    const startedAtEpoch = this.sidecarEpoch;
+    void (async () => {
+      try {
+        const state: AgentSidecarState = await this.api.getSidecarState();
+        // A push already delivered a newer state — drop this stale read.
+        if (this.sidecarEpoch !== startedAtEpoch) return;
+        this.setSidecarState(state);
+      } catch {
+        // Bridge not ready or main threw: keep the cache and wait for a push.
+      }
+    })();
+  }
+
+  private detachSidecarState(): void {
+    this.sidecarUnsubscribe?.();
+    this.sidecarUnsubscribe = null;
+  }
+
+  private setSidecarState(next: AgentSidecarState): void {
+    if (!next || isSameSidecarState(this.sidecarState, next)) return;
+    this.sidecarState = next;
+    for (const notify of this.sidecarListeners) notify();
   }
 
   // ---- lifecycle ----
