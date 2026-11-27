@@ -801,12 +801,35 @@ keep bringing upstream fixes.
 **The seam.** `busytex_pipeline.js` is vendored from TeXlyre/texlyre-busytex
 (AGPL-3.0) and patched at prebuild by `scripts/patch-busytex-pipeline.js`:
 `pass-seam` hands the schedule to `this.scipen_run_passes` (installed by the
-engine host; upstream's schedule stays as the fallback branch) and
-`raw-exit-code` exposes the real process status, which upstream's "effective"
-code hides in batchmode. All patches are **fail-closed**: a search block that
-no longer matches fails `prebuild` instead of silently shipping the slow,
-error-masking schedule. Our policy code lives in `src/` under the project's
-own license; only the small seam touches the vendored file.
+engine host; upstream's schedule stays as the fallback branch) while
+`raw-exit-code` and `log-raw-exit-code` expose the real process status on both
+pass returns and structured per-command log entries (which upstream's
+"effective" code hides in batchmode). All patches are **fail-closed**: a search
+block that no longer matches fails `prebuild` instead of silently shipping the
+slow, error-masking schedule. Our policy code lives in `src/` under the
+project's own license; only the small seam touches the vendored file.
+
+**Offline CJK package & endpoint isolation.** Full WASM downloads run
+`scripts/build-busytex-cjk.js` (fail-closed unless `--minimal` or `--skip-cjk`)
+to pack 44 TeX Live 2026 CJK files (`ctex`, `xeCJK`, `zhnumber`, 6 Fandol OTF
+fonts) and a dedicated `/texmf/texmf-dist/ls-R` into `texlive-cjk.{js,data}`
+without colliding with `/texlive/texmf-dist/ls-R` and without emitting
+`// \ProvidesPackage` headers (which would otherwise make BusyTeX's resolver
+skip `texlive-extra.js`). At runtime (`src/main/busytex-process/index.ts` +
+`cjkPackages.ts`):
+- `handleLoad` initializes `BusytexPipeline` with `baseCatalogList` (excluding
+  `texlive-cjk.js`), keeping non-CJK resolver fallbacks isolated.
+- `handleCompile` holds `compileInFlight` and mounts the full `catalogList`
+  (`texlive-extra.js` + `texlive-cjk.js`) via `ensureCjkCatalogMounted()` when
+  `needsCjkPackage(files)` detects `ctex` / `xeCJK` / `zhnumber`, marking the
+  process unhealthy and exiting on mount failure/timeout so the client respawns
+  cleanly.
+- `syncRemoteEndpoint()` clears `KPSE_REMOTE` in-memory state
+  (`kpse_remote_clear()`) and `/tmp/texlive_remote` entries whenever
+  `params.endpoint` changes so stale 404 misses do not leak across mirrors.
+- `remoteFetch.ts` checks the shared `TEXLIVE_CACHE_DIR` first, then
+  short-circuits snapshot-verified misses strictly on
+  `https://texlive2026.texlyre.org` (`isGuaranteedRemoteMiss`).
 
 **Caches** (under `{userData}/scipen-studio/`):
 
@@ -824,9 +847,13 @@ packages.
 
 **Bumping the BusyTeX tarball:**
 
-1. `npm run download:busytex -- --force` — fails if a patch no longer applies;
-   update its search block (the seam wraps upstream `compile()`'s pass section).
-2. `node scripts/verify-templates.mjs --engine {pdftex,xetex,lualatex}`.
+1. `npm run download:busytex -- --force` — fails if a patch or CJK build no
+   longer applies; update its search block (the seam wraps upstream
+   `compile()`'s pass section).
+2. `npm run build:workers && npm run verify:busytex` — verifies all bundled
+   templates on `pdftex` and `xetex` (`raw_exit_code === 0`, `bibtex8`, zero
+   undefined citations in the final TeX log) and runs `scripts/verify-busytex-electron.cjs`
+   in real headless Electron `utilityProcess.fork`.
 3. Re-check `FINAL_FOR_ALL_PASSES` in `passPolicy.ts`: compile the templates
    with it on and off and compare PDFs (timestamps and `/ID` neutralised) for
    pdftex and luahbtex.
@@ -837,8 +864,10 @@ packages.
 
 ```bash
 # LaTeX WASM (BusyTeX)
-npm run download:busytex                # full set
+npm run download:busytex                # full set (incl. font bake + texlive-cjk)
 npm run download:busytex:minimal        # minimal data packages, smaller install
+npm run build:busytex-cjk               # rebuild standalone texlive-cjk.{js,data}
+npm run verify:busytex                  # verify offline templates + Electron CJK contracts
 
 # Typst WASM
 npm run download:typst-wasm:cjk         # bundles Noto CJK SC by default (used by prebuild)

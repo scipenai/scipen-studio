@@ -1,7 +1,7 @@
 # SciPen Studio User Guide
 
-> **Version:** 0.5.0
-> **Last updated:** 2026-07-16
+> **Version:** 0.5.2+
+> **Last updated:** 2026-11-28
 
 **English** · [简体中文](USER_GUIDE.zh-CN.md)
 
@@ -44,7 +44,7 @@ The welcome screen offers three entry points:
 - **Cloud project** — after connecting to Overleaf, browse and download a remote project to disk.
 - **Recent projects** — recently opened projects are listed at the bottom of the welcome screen for one-click reopen.
 
-> The current release ships no LaTeX / Typst project templates. To start a new document, create an empty folder yourself and open it via *Open local project*.
+> **New from template** on the welcome screen includes four built-in starter projects (`article`, `ieee`, `thesis`, and `beamer`) — pick a template and a target folder to scaffold a working, offline-ready project immediately.
 
 ### First compile
 
@@ -84,7 +84,7 @@ LSP binaries ship with the installer — **no manual setup needed**.
 
 | Engine | Notes | Local install required |
 |--------|-------|------------------------|
-| **WASM BusyTeX** (default) | Bundled WebAssembly engine — pick `pdftex` / `xetex` / `lualatex` from the status-bar engine dropdown. `xetex` / `lualatex` handle CJK via the shipped `scipencjk` preamble (auto-injected when the source contains CJK, no `\usepackage{ctex}` needed). | No |
+| **WASM BusyTeX** (default) | Bundled WebAssembly engine — pick `pdftex` / `xetex` / `lualatex` from the status-bar engine dropdown. `xetex` handles CJK offline out of the box using bundled `ctex`, `xeCJK`, `zhnumber`, and Fandol OpenType fonts (`texlive-cjk`); when Chinese text is detected, the editor offers a one-click CodeLens to insert standard portable `\usepackage[fontset=fandol]{ctex}`. | No |
 | **Tectonic** | Fetches packages on demand, good for larger projects | Yes |
 | **TeX Live** (pdfLaTeX / XeLaTeX / LuaLaTeX) | Full distribution | Yes |
 
