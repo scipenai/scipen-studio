@@ -9,13 +9,36 @@ import type { Event } from '@shared/utils/event';
 import type { IDisposable } from '@shared/utils/lifecycle';
 
 /**
+ * Why a sidecar landed in the terminal `failed` state. Surfaced so the UI
+ * can give an actionable message instead of a raw error string.
+ */
+export type SidecarFailureReason =
+  /** The snaca-editor binary does not exist / is not executable (ENOENT). */
+  | 'binary-missing'
+  /** Repeated unexpected exits; the restart backoff budget is exhausted. */
+  | 'crash';
+
+/**
  * State of the snaca-editor child process. Emitted on every transition.
+ *
+ * `failed` is the terminal give-up state (distinct from `stopped`, which is
+ * "not running because nobody asked it to"): the restart backoff budget is
+ * exhausted or the binary cannot spawn at all. Recovery is always possible
+ * via `restart()` / the next `start()`.
  */
 export type SidecarState =
   | { kind: 'stopped' }
   | { kind: 'starting'; pid?: number }
   | { kind: 'running'; pid: number; startedAt: number }
   | { kind: 'crashed'; lastError: string; retryAt: number; attempt: number }
+  | {
+      kind: 'failed';
+      reason: SidecarFailureReason;
+      /** Human-readable cause; for `crash` this includes the stderr tail. */
+      lastError: string;
+      attempts: number;
+      failedAt: number;
+    }
   | { kind: 'stopping' };
 
 export interface SidecarOptions {

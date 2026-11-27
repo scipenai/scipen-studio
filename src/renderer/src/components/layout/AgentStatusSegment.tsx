@@ -15,8 +15,10 @@ import { Loader2, Square } from 'lucide-react';
 import type React from 'react';
 import { useSyncExternalStore } from 'react';
 import { useTranslation } from '../../locales';
+import { useAgentSidecarState } from '../../hooks/useAgentSidecarState';
 import { agentClient } from '../../services/agent/AgentClientService';
 import { chatStreamStore } from '../../services/agent/ChatStreamStore';
+import { getUIService } from '../../services/core/ServiceRegistry';
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -64,6 +66,37 @@ export const AgentStatusSegment: React.FC = () => {
 
   const hasUsage = usage.inputTokens > 0 || usage.outputTokens > 0;
 
+  // Sidecar health dot — the turn-activity label above only knows about the
+  // protocol layer; a dead/crashed process is invisible there. The dot is a
+  // click-through to the chat panel where the failure banner (with cause and
+  // a restart button) lives. Absent while healthy.
+  const sidecarState = useAgentSidecarState();
+  const health =
+    sidecarState?.kind === 'failed'
+      ? {
+          color: 'var(--color-error)',
+          pulsing: false,
+          tooltip: t('agentStatus.sidecarFailed', {
+            reason:
+              sidecarState.reason === 'binary-missing'
+                ? t('chat.agentBinaryMissing')
+                : t('chat.agentFailed'),
+          }),
+        }
+      : sidecarState?.kind === 'crashed'
+        ? {
+            color: 'var(--color-warning)',
+            pulsing: true,
+            tooltip: t('agentStatus.sidecarCrashed', { attempt: sidecarState.attempt }),
+          }
+        : sidecarState?.kind === 'stopped'
+          ? {
+              color: 'var(--color-text-muted)',
+              pulsing: false,
+              tooltip: t('agentStatus.sidecarStopped'),
+            }
+          : null;
+
   return (
     <div
       className="flex items-center gap-3 px-3 h-full flex-shrink-0 text-[11px] font-medium"
@@ -84,6 +117,22 @@ export const AgentStatusSegment: React.FC = () => {
         )}
         <span>{statusLabel}</span>
       </span>
+
+      {/* Sidecar health (only rendered while unhealthy). */}
+      {health && (
+        <button
+          type="button"
+          onClick={() => getUIService().setSidebarTab('im')}
+          className="flex cursor-pointer items-center rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
+          title={health.tooltip}
+          aria-label={health.tooltip}
+        >
+          <span
+            className={`inline-block h-2 w-2 rounded-full ${health.pulsing ? 'animate-pulse' : ''}`}
+            style={{ background: health.color }}
+          />
+        </button>
+      )}
 
       {/* Token / cost: hidden until at least one turn has reported usage. */}
       {hasUsage && (

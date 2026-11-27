@@ -3,12 +3,16 @@
  * @description Configures compiler settings for local projects
  */
 
-import { useEffect, useMemo, useState, type FC } from 'react';
+import { Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
 import type {
   LaTeXCapabilities,
+  TexliveCacheUsageResult,
+  TexliveEndpointProbeResult,
   TypstCapabilities,
 } from '../../../../../shared/ipc/compile-contract';
 import { api } from '../../api';
+import { DEFAULT_TEXLIVE_ENDPOINT } from '../../constants/latex';
 import { useTranslation } from '../../locales';
 import { createLogger } from '../../services/LogService';
 import { getSettingsService } from '../../services/core/ServiceRegistry';
@@ -18,11 +22,13 @@ import {
 } from '../../services/core/latexEngineResolver';
 import { useProjectPath, useSettings } from '../../services/core/hooks';
 import type { LaTeXEngine, TypstEngine } from '../../types';
+import { formatFileSize } from '../../utils';
 import {
   SectionTitle,
   SettingCard,
   SettingItem,
   inputMonoClassName,
+  secondaryButtonClass,
   selectClassName,
 } from './SettingsUI';
 
@@ -55,6 +61,160 @@ export const CompilerTab: FC = () => {
   useEffect(() => {
     setFontEndpointDraft(settings.compiler.typstFontEndpoint);
   }, [settings.compiler.typstFontEndpoint]);
+
+  /** Same draft/commit-on-blur rationale as the font endpoint above. */
+  const [texliveEndpointDraft, setTexliveEndpointDraft] = useState(
+    settings.compiler.texliveEndpoint
+  );
+  useEffect(() => {
+    setTexliveEndpointDraft(settings.compiler.texliveEndpoint);
+  }, [settings.compiler.texliveEndpoint]);
+
+  const [endpointTesting, setEndpointTesting] = useState(false);
+  const [endpointResult, setEndpointResult] = useState<TexliveEndpointProbeResult | null>(null);
+  /**
+   * URL the displayed result belongs to. The input is editable while a probe
+   * is in flight, so without this a slow reply would be shown against a URL
+   * the user has already changed.
+   */
+  const testedEndpointRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (
+      testedEndpointRef.current !== null &&
+      texliveEndpointDraft.trim() !== testedEndpointRef.current
+    ) {
+      setEndpointResult(null);
+    }
+  }, [texliveEndpointDraft]);
+
+  const handleTestTexliveEndpoint = useCallback(async () => {
+    const target = texliveEndpointDraft.trim();
+    if (!target) return;
+    setEndpointTesting(true);
+    setEndpointResult(null);
+    try {
+      const result = await api.compile.testTexliveEndpoint(target);
+      testedEndpointRef.current = target;
+      setEndpointResult(result);
+    } catch (error) {
+      testedEndpointRef.current = target;
+      setEndpointResult({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setEndpointTesting(false);
+    }
+  }, [texliveEndpointDraft]);
+
+  /**
+   * TeX Live fetch-cache census. Shown because clearing is otherwise a blind
+   * action — and because this is currently the only way to see how large the
+   * cache has grown (nothing evicts on the compile path).
+   */
+  const [cacheUsage, setCacheUsage] = useState<TexliveCacheUsageResult | null>(null);
+  const [cacheClearing, setCacheClearing] = useState(false);
+  const [cacheMessage, setCacheMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const refreshCacheUsage = useCallback(async () => {
+    try {
+      setCacheUsage(await api.compile.getTexliveCacheUsage());
+    } catch (error) {
+      logger.warn('Failed to read TeX Live cache usage', { error: String(error) });
+      setCacheUsage(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshCacheUsage();
+  }, [refreshCacheUsage]);
+
+  const handleClearTexliveMisses = useCallback(async () => {
+    const confirmed = await api.dialog.confirm(
+      t('compiler.texliveCacheClearConfirmMessage'),
+      t('compiler.texliveCacheClearConfirmTitle')
+    );
+    if (!confirmed) return;
+
+    setCacheClearing(true);
+    setCacheMessage(null);
+    try {
+      const result = await api.compile.clearTexliveMisses();
+      if (result.busy) {
+        setCacheMessage({ ok: false, text: t('compiler.texliveCacheClearBusy') });
+        return;
+      }
+      if (!result.ok) {
+        setCacheMessage({
+          ok: false,
+          text: t('compiler.texliveCacheClearFailed', { error: result.error ?? '' }),
+        });
+        return;
+      }
+      setCacheMessage({
+        ok: true,
+        text: t('compiler.texliveCacheCleared', { count: String(result.removed) }),
+      });
+      await refreshCacheUsage();
+    } catch (error) {
+      setCacheMessage({
+        ok: false,
+        text: t('compiler.texliveCacheClearFailed', {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      });
+    } finally {
+      setCacheClearing(false);
+    }
+  }, [refreshCacheUsage, t]);
+
+  /**
+   * Incremental build cache: the escape hatch for the rare document whose
+   * carried artifacts confuse TeX in a way the automatic cold retry does not
+   * catch. Clearing only costs one cold compile per project.
+   */
+  const [buildCacheClearing, setBuildCacheClearing] = useState(false);
+  const [buildCacheMessage, setBuildCacheMessage] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
+
+  const handleClearBuildCache = useCallback(async () => {
+    const confirmed = await api.dialog.confirm(
+      t('compiler.buildCacheClearConfirmMessage'),
+      t('compiler.buildCacheClearConfirmTitle')
+    );
+    if (!confirmed) return;
+
+    setBuildCacheClearing(true);
+    setBuildCacheMessage(null);
+    try {
+      const result = await api.compile.clearBuildCache();
+      if (result.busy) {
+        setBuildCacheMessage({ ok: false, text: t('compiler.buildCacheClearBusy') });
+      } else if (!result.ok) {
+        setBuildCacheMessage({
+          ok: false,
+          text: t('compiler.buildCacheClearFailed', { error: result.error ?? '' }),
+        });
+      } else {
+        setBuildCacheMessage({
+          ok: true,
+          text: t('compiler.buildCacheCleared', { count: String(result.removed) }),
+        });
+      }
+    } catch (error) {
+      setBuildCacheMessage({
+        ok: false,
+        text: t('compiler.buildCacheClearFailed', {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      });
+    } finally {
+      setBuildCacheClearing(false);
+    }
+  }, [t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -244,15 +404,114 @@ export const CompilerTab: FC = () => {
         label={t('compiler.texliveEndpoint')}
         description={t('compiler.texliveEndpointDesc')}
       >
-        <input
-          type="text"
-          value={settings.compiler.texliveEndpoint}
-          onChange={(e) =>
-            settingsService.updateCompiler({ texliveEndpoint: e.target.value.trim() })
-          }
-          placeholder="https://texlive2026.texlyre.org"
-          className={inputMonoClassName}
-        />
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={texliveEndpointDraft}
+              onChange={(e) => setTexliveEndpointDraft(e.target.value)}
+              onBlur={(e) => {
+                const next = e.target.value.trim();
+                if (next !== settings.compiler.texliveEndpoint) {
+                  settingsService.updateCompiler({ texliveEndpoint: next });
+                }
+                setTexliveEndpointDraft(next);
+              }}
+              placeholder={DEFAULT_TEXLIVE_ENDPOINT}
+              className={inputMonoClassName}
+            />
+            <button
+              type="button"
+              onClick={handleTestTexliveEndpoint}
+              disabled={endpointTesting || !texliveEndpointDraft.trim()}
+              className={secondaryButtonClass}
+            >
+              {endpointTesting ? (
+                <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+              ) : null}
+              {t('compiler.texliveEndpointTest')}
+            </button>
+          </div>
+          {endpointResult && (
+            <span
+              className="text-xs"
+              style={{
+                color: endpointResult.ok ? 'var(--color-success)' : 'var(--color-error)',
+              }}
+            >
+              {endpointResult.ok
+                ? t('compiler.texliveEndpointOk', { ms: String(endpointResult.latencyMs ?? 0) })
+                : t('compiler.texliveEndpointFailed', {
+                    error: endpointResult.error ?? '',
+                  })}
+            </span>
+          )}
+        </div>
+      </SettingItem>
+
+      <SettingItem label={t('compiler.texliveCache')} description={t('compiler.texliveCacheDesc')}>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            {/* Counts AND bytes: the 404 markers are zero-byte files, so a
+                byte total on its own would read "546 entries, 0 B". */}
+            <span className="text-xs text-[var(--color-text-muted)]">
+              {cacheUsage?.ok
+                ? t('compiler.texliveCacheUsage', {
+                    packages: String(cacheUsage.binCount),
+                    size: formatFileSize(cacheUsage.binBytes),
+                    misses: String(cacheUsage.missCount),
+                  })
+                : t('compiler.texliveCacheUnknown')}
+            </span>
+            <button
+              type="button"
+              onClick={handleClearTexliveMisses}
+              disabled={cacheClearing || !cacheUsage?.ok || cacheUsage.missCount === 0}
+              className={secondaryButtonClass}
+            >
+              {cacheClearing ? (
+                <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+              ) : null}
+              {t('compiler.texliveCacheClear')}
+            </button>
+          </div>
+          {cacheMessage && (
+            <span
+              className="text-xs"
+              style={{ color: cacheMessage.ok ? 'var(--color-success)' : 'var(--color-error)' }}
+            >
+              {cacheMessage.text}
+            </span>
+          )}
+        </div>
+      </SettingItem>
+
+      <SettingItem label={t('compiler.buildCache')} description={t('compiler.buildCacheDesc')}>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleClearBuildCache}
+              disabled={buildCacheClearing}
+              className={secondaryButtonClass}
+            >
+              {buildCacheClearing ? (
+                <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+              ) : null}
+              {t('compiler.buildCacheClear')}
+            </button>
+          </div>
+          {buildCacheMessage && (
+            <span
+              className="text-xs"
+              style={{
+                color: buildCacheMessage.ok ? 'var(--color-success)' : 'var(--color-error)',
+              }}
+            >
+              {buildCacheMessage.text}
+            </span>
+          )}
+        </div>
       </SettingItem>
 
       <SettingItem label={t('compiler.typstEngine')} description={t('compiler.typstEngineDesc')}>

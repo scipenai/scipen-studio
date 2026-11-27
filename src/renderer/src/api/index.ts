@@ -6,6 +6,15 @@
 
 import { IpcChannel } from '../../../../shared/ipc/channels';
 import type { UpdateStatus } from '../../../../shared/ipc/app-contract';
+import type {
+  BusyTeXCompileRequestDTO,
+  BusyTeXCompileResultDTO,
+  CompileProgressPayload,
+  BuildCacheClearResult,
+  TexliveCacheUsageResult,
+  TexliveClearMissesResult,
+  TexliveEndpointProbeResult,
+} from '../../../../shared/ipc/compile-contract';
 import {
   eventSchemas,
   invokeResultSchemas,
@@ -26,6 +35,10 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 }
 import { type ConfigKey, ConfigKeys } from '../../../../shared/types/config-keys';
 import type { FileNode } from '../types';
+import type {
+  ProjectCreateFromTemplateResult,
+  ProjectTemplateDTO,
+} from '../../../../shared/ipc/file-contract';
 
 export { ConfigKeys, type ConfigKey };
 
@@ -307,6 +320,20 @@ export const project = {
     invoke<Array<{ path: string; name: string; lastOpened: number; isRemote?: boolean }>>(
       IpcChannel.Project_GetRecent
     ),
+  /** Starter templates bundled with the app. Empty list = none available. */
+  listTemplates: () => invoke<ProjectTemplateDTO[]>(IpcChannel.Project_ListTemplates),
+  /**
+   * Scaffold a project from a bundled template. Main prompts for the parent
+   * directory, so the result may be `{ ok: false, cancelled: true }` — that
+   * is a normal outcome, not an error.
+   */
+  createFromTemplate: (templateId: string, projectName: string, dialogTitle?: string) =>
+    invoke<ProjectCreateFromTemplateResult>(
+      IpcChannel.Project_CreateFromTemplate,
+      templateId,
+      projectName,
+      dialogTitle
+    ),
 };
 
 export const collaborationOwner = {
@@ -362,31 +389,57 @@ export const compile = {
     ),
   cancel: (type?: 'latex' | 'typst') =>
     invoke<{ success: boolean; cancelled: number }>(IpcChannel.Compile_Cancel, type),
+  /**
+   * Live CLI compile progress (main → renderer push over `Compile_Progress`).
+   * The payload is Zod-validated centrally in `onEvent` (`eventSchemas`); this
+   * wrapper only forwards. WASM compile phases do NOT travel over IPC — the
+   * engine runs in this process — they arrive via `CompilerOptions.onPhase`.
+   */
+  onProgress: (callback: (progress: CompileProgressPayload) => void): (() => void) =>
+    onEvent<CompileProgressPayload>(IpcChannel.Compile_Progress, callback),
   getStatus: () =>
     invoke<{
       latex: { isCompiling: boolean; queueLength: number; currentTaskId: string | null };
       typst: { isCompiling: boolean };
     }>(IpcChannel.Compile_GetStatus),
   /**
-   * Persist a BusyTeX WASM compile result to the project directory on disk so
-   * the on-disk PDF matches the local compiler's output path and the renderer
-   * can read the sibling `.synctex.gz` for in-process sync. Returns the paths.
+   * Measure latency to a TeX Live remote endpoint. Runs in main so it takes
+   * the same `net.fetch` route the WASM engine's package fetches use; the
+   * result is total (never throws) so the settings UI can render it directly.
    */
-  writeWasmArtifacts: (
-    pdfBuffer: Uint8Array,
-    synctexBuffer: Uint8Array,
-    baseName: string,
-    outputDir: string,
-    logText?: string
-  ) =>
-    invoke<{ pdfPath: string; synctexPath: string }>(
-      IpcChannel.Compile_WriteWasmArtifacts,
-      pdfBuffer,
-      synctexBuffer,
-      baseName,
-      outputDir,
-      logText
-    ),
+  testTexliveEndpoint: (endpoint: string) =>
+    invoke<TexliveEndpointProbeResult>(IpcChannel.Compile_TestTexliveEndpoint, endpoint),
+  /**
+   * Census of the on-disk TeX Live fetch cache. Like the probe above, the
+   * result is total (never throws) so the settings pane can render it
+   * directly. Intentionally NOT registered in `invokeResultSchemas` — a
+   * result-shape mismatch there throws `IpcResultValidationError` in the
+   * renderer, which would defeat the never-throws contract.
+   */
+  getTexliveCacheUsage: () =>
+    invoke<TexliveCacheUsageResult>(IpcChannel.Compile_GetTexliveCacheUsage),
+  /**
+   * Drop the cached 404 probe results, keeping downloaded packages. Returns
+   * `busy: true` untouched when a compile is in flight.
+   */
+  clearTexliveMisses: () => invoke<TexliveClearMissesResult>(IpcChannel.Compile_ClearTexliveMisses),
+  /**
+   * Drop the incremental build artifacts (the next compile of every project
+   * starts cold). Total result like the cache calls above; returns
+   * `busy: true` untouched while a compile is in flight.
+   */
+  clearBuildCache: () => invoke<BuildCacheClearResult>(IpcChannel.Compile_ClearBuildCache),
+  /**
+   * Warm the BusyTeX engine process (load wasm + data packages). With a
+   * project, also the extra data packages it needed last time.
+   */
+  busyTeXPrepare: (projectRoot?: string) =>
+    invoke<{ ok: boolean }>(IpcChannel.Compile_BusyTeX_Prepare, projectRoot),
+  /** Run one compile in the engine process; artifacts land on disk. */
+  busyTeXCompile: (request: BusyTeXCompileRequestDTO) =>
+    invoke<BusyTeXCompileResultDTO>(IpcChannel.Compile_BusyTeX_Compile, request),
+  /** Tear the engine process down (stop button / idle release). */
+  busyTeXCancel: () => invoke<{ ok: boolean }>(IpcChannel.Compile_BusyTeX_Cancel),
 };
 
 // ==================== AI API ====================

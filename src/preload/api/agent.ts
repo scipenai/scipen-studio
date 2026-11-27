@@ -177,6 +177,10 @@ export const agentApi = {
   getSidecarState: (): Promise<SidecarState> =>
     ipcRenderer.invoke(IpcChannel.Agent_GetSidecarState),
 
+  /** Restart the snaca-editor process (reset backoff → stop → spawn). */
+  restartSidecar: (): Promise<{ restarted: boolean; state: SidecarState }> =>
+    ipcRenderer.invoke(IpcChannel.Agent_Restart),
+
   getSessionState: (): Promise<AgentSessionState> =>
     ipcRenderer.invoke(IpcChannel.Agent_GetSessionState),
 

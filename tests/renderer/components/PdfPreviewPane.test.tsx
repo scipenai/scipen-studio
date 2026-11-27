@@ -98,6 +98,9 @@ vi.mock('../../../src/renderer/src/services/core/hooks', () => ({
   useCompilationResult: () => mockState.compilationResult,
   useActiveTabPath: () => 'D:/paper/main.tex',
   useIsCompiling: () => false,
+  // null = idle; the compiling overlay/phase label is out of scope for these
+  // failure-view and toolbar assertions.
+  useCompilePhase: () => null,
   usePdfData: () => mockState.pdfData,
   usePdfHighlight: () => null,
   useZoteroPdf: () => null,

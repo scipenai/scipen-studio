@@ -26,8 +26,9 @@
 
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { net, protocol } from 'electron';
+import { app, net, protocol } from 'electron';
 import { createLogger } from './LoggerService';
+import { TexliveRemoteCache } from './TexliveRemoteCache';
 
 const logger = createLogger('WasmAssetProtocol');
 
@@ -43,6 +44,59 @@ export const WASM_ASSET_PROTOCOL = 'scipen-wasm';
  * {@link handleTexliveRemote}.
  */
 const TEXLIVE_REMOTE_HOST = 'texlive-remote';
+
+/**
+ * Disk cache for proxied TeX Live fetches. Without it every fetched file
+ * (CJK styles, Fandol fonts, tfm/vf probes) lives only in the BusyTeX
+ * worker's in-memory WASM FS, so an app relaunch or a user cancel
+ * (which terminates the worker) re-downloads the whole set over
+ * synchronous XHR — often minutes on a slow link. With it, only the
+ * first compile after install pays the network.
+ *
+ * Opt-out: `SCIPEN_TEXLIVE_REMOTE_CACHE=0` restores the pure-streaming
+ * proxy. Size cap override: `SCIPEN_TEXLIVE_CACHE_MAX_BYTES`.
+ *
+ * SCOPE WARNING: both env vars only affect THIS proxy path. A BusyTeX
+ * compile passes the endpoint straight through to the engine process, which
+ * fetches direct https URLs with its own curl + its own synchronous copy of
+ * this cache layout (`busytex-process/index.ts`), and that copy honours
+ * neither variable. So the opt-out does not disable caching for compiles,
+ * and the size cap never runs on that path — `evictIfNeeded` is reachable
+ * only from {@link TexliveRemoteCache.put}, which only this proxy calls.
+ */
+let texliveCache: TexliveRemoteCache | null = null;
+
+/**
+ * Single source of truth for the cache directory. Shared with the engine
+ * process (injected as `TEXLIVE_CACHE_DIR` by `BusyTexProcessClient`) and the
+ * settings-facing maintenance handlers, so the path exists once rather than
+ * being re-derived at each call site.
+ */
+export function resolveTexliveCacheDir(): string {
+  return path.join(app.getPath('userData'), 'scipen-studio', 'texlive-remote-cache');
+}
+
+/**
+ * Incremental BusyTeX build artifacts (aux / toc / out … of the last clean
+ * compile per project and main file). Injected into the engine process as
+ * `BUSYTEX_BUILD_CACHE_DIR`; main reads it only to clear the cache while no
+ * engine process is running.
+ */
+export function resolveBusytexBuildCacheDir(): string {
+  return path.join(app.getPath('userData'), 'scipen-studio', 'busytex-build-cache');
+}
+
+export function getTexliveRemoteCache(): TexliveRemoteCache | null {
+  if (process.env.SCIPEN_TEXLIVE_REMOTE_CACHE === '0') return null;
+  if (!texliveCache) {
+    const maxBytes = Number.parseInt(process.env.SCIPEN_TEXLIVE_CACHE_MAX_BYTES ?? '', 10);
+    texliveCache = new TexliveRemoteCache({
+      cacheDir: resolveTexliveCacheDir(),
+      maxBytes: Number.isFinite(maxBytes) && maxBytes > 0 ? maxBytes : undefined,
+    });
+  }
+  return texliveCache;
+}
 
 let isRegistered = false;
 
@@ -205,8 +259,51 @@ async function handleTexliveRemote(url: URL): Promise<Response> {
   // the reconstructed URL matches what the worker asked for.
   const remoteUrl = `${endpointBase.replace(/\/+$/, '')}/${segments.join('/')}`;
 
+  // Disk-cache fast path. Keyed by the full remote URL, so a different
+  // endpoint configured in Settings gets a different key space. 404 misses
+  // are cached too, and like the 200s they never expire — kpathsea probes
+  // produce hundreds of miss requests per compile and re-paying them is pure
+  // latency. Settings → Compiler offers an explicit "clear 404 records"
+  // action for the rare mirror that later gains a file.
+  const cache = getTexliveRemoteCache();
+  if (cache) {
+    const entry = await cache.get(remoteUrl);
+    if (entry) {
+      logger.debug('[WasmAssetProtocol] texlive-remote cache hit', {
+        status: entry.status,
+        url: remoteUrl,
+      });
+      return new Response(entry.body, {
+        status: entry.status,
+        headers: texliveRemoteHeaders(entry.status),
+      });
+    }
+  }
+
   try {
     const response = await net.fetch(remoteUrl);
+
+    // 200 — buffer, store, serve. Buffering is required to persist the body;
+    // largest realistic payloads are CJK fonts (tens of MB), fine in memory.
+    if (response.status === 200 && cache) {
+      const body = Buffer.from(await response.arrayBuffer());
+      await cache.put(remoteUrl, body);
+      logger.debug('[WasmAssetProtocol] texlive-remote stored', {
+        bytes: body.byteLength,
+        url: remoteUrl,
+      });
+      return new Response(body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: texliveRemoteHeaders(response.status),
+      });
+    }
+
+    // 404 — record the miss so future compiles skip the network round trip.
+    if (response.status === 404 && cache) {
+      await cache.putMiss(remoteUrl);
+    }
+
     const headers = new Headers(response.headers);
     headers.set('Access-Control-Allow-Origin', '*');
     return new Response(response.body, {
@@ -220,6 +317,64 @@ async function handleTexliveRemote(url: URL): Promise<Response> {
     });
     // 502 (not 404) so BusyTeX doesn't cache this as a permanent "miss".
     return new Response('Bad Gateway', { status: 502 });
+  }
+}
+
+/**
+ * Headers for cache-served responses. CORS is mandatory — the worker is
+ * cross-origin to `scipen-wasm://` — and kpathsea consumes raw bytes, so a
+ * neutral content type is sufficient (the streaming path forwards whatever
+ * the endpoint sent; that variety is not worth persisting).
+ */
+function texliveRemoteHeaders(status: number): Headers {
+  const headers = new Headers();
+  headers.set('Access-Control-Allow-Origin', '*');
+  headers.set('Content-Type', status === 200 ? 'application/octet-stream' : 'text/plain');
+  return headers;
+}
+
+/**
+ * Measure round-trip latency against a TeX Live remote endpoint.
+ *
+ * Lives beside {@link handleTexliveRemote} on purpose: it must exercise the
+ * same `net.fetch` path the real package fetches use, or the number would be
+ * meaningless (a renderer-side probe would take a different route entirely,
+ * and the CSP blocks it anyway).
+ *
+ * Never throws — the result is a discriminated value so the settings UI can
+ * render "reachable / unreachable" without a try/catch.
+ */
+export async function probeTexliveEndpoint(
+  endpoint: string,
+  timeoutMs = 8000
+): Promise<{ ok: boolean; latencyMs?: number; status?: number; error?: string }> {
+  const base = endpoint.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\/\S+$/i.test(base)) {
+    return { ok: false, error: 'Endpoint must be an http(s) URL' };
+  }
+
+  // Format 26 + a file every TeX Live tree carries. A 404 still proves the
+  // endpoint is alive and routing, so it counts as reachable — only transport
+  // failures and 5xx mean "this endpoint will not serve packages".
+  const probeUrl = `${base}/26/article.cls`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const started = performance.now();
+  try {
+    const response = await net.fetch(probeUrl, { signal: controller.signal });
+    const latencyMs = Math.round(performance.now() - started);
+    if (response.status >= 500) {
+      return { ok: false, status: response.status, error: `Server error ${response.status}` };
+    }
+    return { ok: true, latencyMs, status: response.status };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      error: controller.signal.aborted ? `Timed out after ${timeoutMs}ms` : message,
+    };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

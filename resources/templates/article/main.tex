@@ -1,0 +1,71 @@
+\documentclass[11pt,a4paper]{article}
+
+% --- Encoding and language ---------------------------------------------
+% fontenc/inputenc are safe defaults for pdfLaTeX; XeLaTeX ignores them.
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+
+% --- Core packages ------------------------------------------------------
+\usepackage{amsmath, amssymb}   % maths
+\usepackage{graphicx}           % \includegraphics
+\usepackage{booktabs}           % better table rules
+\usepackage[hidelinks]{hyperref}% clickable refs without coloured boxes
+
+\title{Your Paper Title}
+\author{Your Name\thanks{Your Institution, \texttt{you@example.com}}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+  One paragraph summarising the problem, what you did, and what you found.
+  Write it last.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:introduction}
+
+State the problem and why it matters. Cite prior work as you go, for example
+the classic reference~\cite{knuth1984}.
+
+\section{Method}
+\label{sec:method}
+
+Describe what you did in enough detail that a reader could repeat it.
+Equations are numbered automatically and can be referenced:
+
+\begin{equation}
+  \label{eq:example}
+  E = mc^2 .
+\end{equation}
+
+As shown in Equation~\eqref{eq:example}, cross-references resolve after the
+second compilation pass --- SciPen handles the reruns for you.
+
+\section{Results}
+\label{sec:results}
+
+\begin{table}[ht]
+  \centering
+  \begin{tabular}{lrr}
+    \toprule
+    Condition & Accuracy & Time (s) \\
+    \midrule
+    Baseline  & 0.81     & 12.4     \\
+    Ours      & 0.93     & 10.1     \\
+    \bottomrule
+  \end{tabular}
+  \caption{Replace with your own results.}
+  \label{tab:results}
+\end{table}
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+Summarise the contribution and name the most promising next step.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

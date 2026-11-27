@@ -129,6 +129,31 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.Project_Open, z.tuple([])], // No parameters, use dialog to select
   [IpcChannel.Project_OpenByPath, z.tuple([safePathSchema])],
   [IpcChannel.Project_GetRecent, z.tuple([])], // No parameters
+  [IpcChannel.Project_ListTemplates, z.tuple([])],
+  [
+    IpcChannel.Project_CreateFromTemplate,
+    z.tuple([
+      // Template id: matched against the bundled manifest, so keep it to the
+      // shape ids actually take — no separators that could escape the dir.
+      z
+        .string()
+        .min(1)
+        .max(64)
+        .regex(/^[a-z0-9][a-z0-9-]*$/, 'Invalid template id'),
+      // Project folder name. Rejects path separators, traversal and the
+      // characters Windows forbids; the handler still joins under a
+      // user-picked parent and re-validates.
+      z
+        .string()
+        .min(1)
+        .max(120)
+        .refine((n) => !/[/\\]/.test(n), 'Name must not contain path separators')
+        .refine((n) => !n.includes('..'), 'Name must not contain ".."')
+        .refine((n) => !/[<>:"|?*\u0000-\u001f]/.test(n), 'Name contains invalid characters')
+        .refine((n) => n.trim() === n && n !== '.' && n !== '..', 'Invalid name'),
+      z.string().min(1).max(200).optional(),
+    ]),
+  ],
 
   // 🔒 P1 fix: Supplement FileWatcher/FileCache schemas
   [IpcChannel.FileWatcher_Start, z.tuple([safePathSchema])],
@@ -267,22 +292,6 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
   [IpcChannel.LaTeX_GetCapabilities, z.tuple([])],
   [IpcChannel.Typst_GetCapabilities, z.tuple([])],
   [IpcChannel.Typst_Available, z.tuple([])],
-  [
-    IpcChannel.Compile_WriteWasmArtifacts,
-    z.tuple([
-      z.instanceof(Uint8Array), // pdfBuffer
-      z.instanceof(Uint8Array), // synctexBuffer (.synctex.gz bytes)
-      z
-        .string()
-        .max(128)
-        .regex(/^[A-Za-z0-9_.-]+$/), // baseName (no path separators)
-      safePathSchema, // outputDir (project directory, matches local compiler output)
-      z
-        .string()
-        .max(8_000_000)
-        .optional(), // TeX log text (persisted as {base}.log)
-    ]),
-  ],
 
   // ==================== AI Operations ====================
   [
@@ -886,6 +895,44 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
 
   // ==================== Typst (P1 fix) ====================
   [IpcChannel.Compile_GetStatus, z.tuple([])],
+  // Endpoint latency probe: an http(s) URL, length-capped. The handler
+  // re-validates the scheme before fetching (same guard as the texlive proxy).
+  [IpcChannel.Compile_TestTexliveEndpoint, z.tuple([z.string().min(1).max(2048)])],
+  // Cache maintenance: no arguments — the directory is resolved in main so a
+  // renderer can never point these at an arbitrary path.
+  [IpcChannel.Compile_GetTexliveCacheUsage, z.tuple([])],
+  [IpcChannel.Compile_ClearTexliveMisses, z.tuple([])],
+  [IpcChannel.Compile_ClearBuildCache, z.tuple([])],
+  [IpcChannel.Compile_BusyTeX_Prepare, z.tuple([safePathSchema.optional()])],
+  [
+    IpcChannel.Compile_BusyTeX_Compile,
+    z.tuple([
+      z
+        .object({
+          // The engine process stages sources and figures from disk itself;
+          // only the editor buffer crosses IPC. The handler additionally
+          // requires projectRoot to lie inside the active project.
+          projectRoot: safePathSchema.optional(),
+          mainFileAbs: safePathSchema,
+          overlay: z
+            .object({
+              absPath: safePathSchema,
+              contents: z.string().max(50 * 1024 * 1024),
+            })
+            .strict(),
+          driver: z.string().min(1).max(64),
+          endpoint: z.string().max(2048),
+          outputDir: safePathSchema,
+          baseName: z
+            .string()
+            .min(1)
+            .max(255)
+            .refine((v) => !/[\\/]/.test(v), 'Base name must not contain path separators'),
+        })
+        .strict(),
+    ]),
+  ],
+  [IpcChannel.Compile_BusyTeX_Cancel, z.tuple([])],
 
   // ==================== Zotero Integration ====================
   // Read-only / no-arg channels

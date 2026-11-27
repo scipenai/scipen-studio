@@ -1,7 +1,7 @@
 # SciPen Studio 用户手册
 
-> **适用版本**: 0.5.0
-> **最后更新**: 2026-07-16
+> **适用版本**: 0.5.3+
+> **最后更新**: 2026-11-28
 
 [English](USER_GUIDE.md) · **简体中文**
 
@@ -44,7 +44,7 @@
 - **云端项目**: 连接 Overleaf 后浏览并下载远端项目到本地。
 - **最近项目**: 欢迎页底部展示最近打开过的项目,可直接点击进入。
 
-> 当前版本不内置 LaTeX / Typst 模板;需要新工程的话,在文件系统里建一个空文件夹,通过"打开本地项目"打开即可。
+> 欢迎页 **从模板新建** 提供 4 套内置起步模板（`article`、`ieee`、`thesis`、`beamer`），选择模板与目标目录即可一键生成可纯离线编译的完整工程。
 
 ### 第一次编译
 
@@ -84,7 +84,7 @@ LSP 二进制随安装包一同分发,**无需手动安装**。
 
 | 引擎 | 说明 | 是否需要本地安装 |
 |------|------|------------------|
-| **WASM BusyTeX** (默认) | 内置 WebAssembly 引擎 —— 在**底部状态栏引擎下拉**中选 `pdftex` / `xetex` / `lualatex`。`xetex` / `lualatex` 通过随包分发的 `scipencjk` 处理 CJK(源码含中文时自动注入,**无需 `\usepackage{ctex}`**)。 | 否 |
+| **WASM BusyTeX** (默认) | 内置 WebAssembly 引擎 —— 在**底部状态栏引擎下拉**中选 `pdftex` / `xetex` / `lualatex`。`xetex` 内置离线 `ctex`、`xeCJK`、`zhnumber` 与 Fandol 字体卷 (`texlive-cjk`)，无需联网即可直接编译中文文档；检测到中文正文时，编辑器提供一键 CodeLens 插入标准可移植的 `\usepackage[fontset=fandol]{ctex}`。 | 否 |
 | **Tectonic** | 自动下载宏包,适合大型项目 | 是 |
 | **TeX Live** (pdfLaTeX / XeLaTeX / LuaLaTeX) | 完整发行版 | 是 |
 

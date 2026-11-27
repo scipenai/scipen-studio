@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import { channelSchemas } from '../../../src/main/ipc/typedIpc';
+import { ALLOWED_EVENT_CHANNELS, ALLOWED_INVOKE_CHANNELS } from '../../../src/preload/api/_shared';
 
 // ====== Test Data Preparation ======
 
@@ -162,6 +163,31 @@ describe('IPC Security - Channel Schema Coverage', () => {
     }
 
     expect(orphanSchemas, `Found orphan schemas: ${orphanSchemas.join(', ')}`).toHaveLength(0);
+  });
+
+  /**
+   * The preload bridge is fail-closed: `window.electron.ipcRenderer.invoke`
+   * rejects with "Unauthorized IPC channel" for anything outside
+   * ALLOWED_INVOKE_CHANNELS. A channel that has an enum member, a contract, a
+   * schema and a handler but no whitelist entry compiles, typechecks and
+   * passes every other test — it only fails when a user clicks the button.
+   * This closes that gap for the compile domain.
+   */
+  it('exposes every compile-domain channel through a preload whitelist', () => {
+    // Each channel must appear in exactly one of the two lists — invoke for
+    // request/response, event for main → renderer pushes (Compile_Progress).
+    const compileChannels = Object.entries(IpcChannel)
+      .filter(([name]) => name.startsWith('Compile_'))
+      .map(([, value]) => value as string);
+
+    const missing = compileChannels.filter(
+      (channel) => !ALLOWED_INVOKE_CHANNELS.has(channel) && !ALLOWED_EVENT_CHANNELS.has(channel)
+    );
+
+    expect(
+      missing,
+      `Compile channels reachable from neither whitelist (src/preload/api/_shared.ts): ${missing.join(', ')}`
+    ).toHaveLength(0);
   });
 });
 

@@ -34,6 +34,7 @@ class PendingRequestSlot<T> implements IDisposable {
   }
 }
 import type { SelectionActionRequest } from '../../../../../shared/types/selection-action';
+import type { CompileProgressPayload } from '../../../../../shared/ipc/compile-contract';
 import { api } from '../../api';
 import type { CompilationResult, FilePdfPreviewState, ParsedLogEntry } from '../../types';
 import { getStorageService } from '../StorageService';
@@ -66,6 +67,29 @@ export interface CompilationLog {
   message: string;
   timestamp: number;
   details?: string;
+}
+
+export type ToastKind = 'info' | 'success' | 'warning' | 'error';
+
+/** A transient notification. Rendered by `ToastHost` (components/ui/Toast.tsx). */
+export interface ToastMessage {
+  id: string;
+  kind: ToastKind;
+  /** Already-localized text — the service layer does no translation. */
+  message: string;
+  /** Optional single action; the toast dismisses itself after it runs. */
+  actionLabel?: string;
+  onAction?: () => void;
+  /** Auto-dismiss delay. 0 keeps the toast until dismissed manually. */
+  durationMs: number;
+}
+
+export interface ShowToastOptions {
+  kind?: ToastKind;
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  durationMs?: number;
 }
 
 export interface PdfHighlight {
@@ -124,6 +148,9 @@ export interface AgentState {
   };
 }
 
+/** Upper bound on simultaneously visible toasts; oldest are dropped first. */
+const MAX_VISIBLE_TOASTS = 3;
+
 // Storage key constants
 const STORAGE_KEYS = {
   SIDEBAR_TAB: 'ui.sidebarTab',
@@ -174,6 +201,8 @@ export class UIService implements IDisposable {
 
   // Compilation state
   private _isCompiling = false;
+  /** Latest compile phase (engine load / pass / postprocess...), null while idle. */
+  private _compilePhase: CompileProgressPayload | null = null;
   private _compilationResult: CompilationResult | null = null;
   private _pdfPath: string | null = null;
   private _pdfData: ArrayBuffer | null = null;
@@ -181,6 +210,11 @@ export class UIService implements IDisposable {
   private _filePdfPreviews = new Map<string, FilePdfPreviewState>();
   /** Tracks the file path that syncPdfPreviewForFile is syncing for, used to guard async disk loads against tab switches. */
   private _pdfSyncTargetPath: string | null = null;
+
+  // Transient notifications (see components/ui/Toast.tsx for the renderer).
+  private _toasts: ToastMessage[] = [];
+  private _toastTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private _toastSeq = 0;
 
   // SyncTeX availability is owned by the renderer SyncTeXService
   // (getSyncTeXService().isAvailable()); no separate path state is kept here.
@@ -250,6 +284,13 @@ export class UIService implements IDisposable {
 
   private readonly _onDidChangeCompiling = new Emitter<boolean>();
   readonly onDidChangeCompiling: Event<boolean> = this._onDidChangeCompiling.event;
+
+  private readonly _onDidChangeCompilePhase = new Emitter<CompileProgressPayload | null>();
+  readonly onDidChangeCompilePhase: Event<CompileProgressPayload | null> =
+    this._onDidChangeCompilePhase.event;
+
+  private readonly _onDidChangeToasts = new Emitter<ToastMessage[]>();
+  readonly onDidChangeToasts: Event<ToastMessage[]> = this._onDidChangeToasts.event;
 
   private readonly _onDidChangeCompilationResult = new Emitter<CompilationResult | null>();
   readonly onDidChangeCompilationResult: Event<CompilationResult | null> =
@@ -338,6 +379,8 @@ export class UIService implements IDisposable {
     this._disposables.add(this._onDidChangeEditorVisible);
     this._disposables.add(this._onDidChangeCommandPalette);
     this._disposables.add(this._onDidChangeCompiling);
+    this._disposables.add(this._onDidChangeCompilePhase);
+    this._disposables.add(this._onDidChangeToasts);
     this._disposables.add(this._onDidChangeCompilationResult);
     this._disposables.add(this._onDidChangePdf);
     this._disposables.add(this._onDidChangeZoteroPdf);
@@ -417,7 +460,10 @@ export class UIService implements IDisposable {
         this._disposables.add(
           compileService.onDidStartCompile(() => {
             this.setCompilationResult(null); // Clear old results to avoid PDF preview showing old errors
-            this.setPdfData(null); // Clear preview at compilation start to avoid confusion
+            // Deliberately keep the previous PDF on screen: the preview pane
+            // overlays a compiling-phase banner instead (Overleaf-style).
+            // Blank-flashing during recompiles was pure noise.
+            this.setCompilePhase(null);
             this.setCompiling(true);
           })
         );
@@ -439,6 +485,7 @@ export class UIService implements IDisposable {
               parsedInfo: result.parsedInfo,
             };
             this.setCompilationResult(compilationResult);
+            this.setCompilePhase(null);
             this.setCompiling(false);
           })
         );
@@ -450,6 +497,16 @@ export class UIService implements IDisposable {
               message: log.message,
               details: log.details,
             });
+          })
+        );
+
+        // Live compile phases (WASM engine load / typesetting passes /
+        // postprocess / CLI worker steps): surface in the log panel AND as
+        // the current phase label next to the spinner.
+        this._disposables.add(
+          compileService.onDidCompilePhase((phase) => {
+            this.setCompilePhase(phase);
+            this.addCompilationLog({ type: 'info', message: phase.message });
           })
         );
       })
@@ -647,6 +704,63 @@ export class UIService implements IDisposable {
     if (this._isCompiling === compiling) return;
     this._isCompiling = compiling;
     this._onDidChangeCompiling.fire(compiling);
+  }
+
+  get compilePhase(): CompileProgressPayload | null {
+    return this._compilePhase;
+  }
+
+  /** Update the live compile phase; null clears it (compile finished/cancelled). */
+  setCompilePhase(phase: CompileProgressPayload | null): void {
+    this._compilePhase = phase;
+    this._onDidChangeCompilePhase.fire(phase);
+  }
+
+  // ====== Toasts ======
+
+  get toasts(): ToastMessage[] {
+    return this._toasts;
+  }
+
+  /**
+   * Queue a transient notification. Returns the toast id so a caller can
+   * dismiss it early (e.g. a progress notice superseded by its result).
+   * Message text must already be localized — services don't translate.
+   */
+  showToast(options: ShowToastOptions): string {
+    this._toastSeq += 1;
+    const id = `toast-${this._toastSeq}`;
+    const toast: ToastMessage = {
+      id,
+      kind: options.kind ?? 'info',
+      message: options.message,
+      actionLabel: options.actionLabel,
+      onAction: options.onAction,
+      durationMs: options.durationMs ?? 6000,
+    };
+    // Cap the stack so a misbehaving producer can't bury the UI; oldest go first.
+    this._toasts = [...this._toasts, toast].slice(-MAX_VISIBLE_TOASTS);
+    this._onDidChangeToasts.fire(this._toasts);
+
+    if (toast.durationMs > 0) {
+      this._toastTimers.set(
+        id,
+        setTimeout(() => this.dismissToast(id), toast.durationMs)
+      );
+    }
+    return id;
+  }
+
+  dismissToast(id: string): void {
+    const timer = this._toastTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      this._toastTimers.delete(id);
+    }
+    const next = this._toasts.filter((toast) => toast.id !== id);
+    if (next.length === this._toasts.length) return;
+    this._toasts = next;
+    this._onDidChangeToasts.fire(this._toasts);
   }
 
   setCompilationResult(result: CompilationResult | null): void {
@@ -980,6 +1094,39 @@ export class UIService implements IDisposable {
     return this._pendingChatWithText.consume();
   }
 
+  // ====== Retry a failed turn ======
+
+  // Same async-mount rationale as the slots above: the chat panel may be
+  // unmounted when the request fires (the user clicked retry, then switched
+  // tabs), so the payload is cached rather than relying on a live listener.
+  private readonly _pendingRetrySend = new PendingRequestSlot<{
+    text: string;
+    intent: 'chat' | 'composer';
+  }>();
+
+  private readonly _onDidRequestRetrySend = new Emitter<{
+    text: string;
+    intent: 'chat' | 'composer';
+  }>();
+  readonly onDidRequestRetrySend: Event<{ text: string; intent: 'chat' | 'composer' }> =
+    this._onDidRequestRetrySend.event;
+
+  /**
+   * Resend a prompt whose turn ended in an error. Fired by the error card in
+   * the message list; ChatSidebar owns the actual send (it holds the queue,
+   * mention resolution and busy gate).
+   */
+  requestRetrySend(text: string, intent: 'chat' | 'composer' = 'chat'): void {
+    this._pendingRetrySend.set({ text, intent });
+    this._revealChatSurface();
+    this._onDidRequestRetrySend.fire({ text, intent });
+  }
+
+  /** Drain the last-fired retry request; see the pending slot above. */
+  consumePendingRetrySend(): { text: string; intent: 'chat' | 'composer' } | null {
+    return this._pendingRetrySend.consume();
+  }
+
   // ====== Selection Action Card (Ctrl+L / Alt+D → 4-button card) ======
 
   // See PendingRequestSlot at file top for the async-mount rationale.
@@ -1022,12 +1169,18 @@ export class UIService implements IDisposable {
     this._pdfData = null;
     this._zoteroPdf = null;
     this._currentMarkdownSection = null;
+    // Pending auto-dismiss timers would otherwise fire against a disposed
+    // service and keep it alive until they elapse.
+    for (const timer of this._toastTimers.values()) clearTimeout(timer);
+    this._toastTimers.clear();
+    this._toasts = [];
     // Clear the pending slots — they can hold the user's last captured
     // text (potentially sensitive content from an external app via
     // Alt+D) and would otherwise survive disposal.
     this._pendingSelectionAction.dispose();
     this._pendingAIErrorAnalysis.dispose();
     this._pendingChatWithText.dispose();
+    this._pendingRetrySend.dispose();
     this._disposables.dispose();
   }
 }

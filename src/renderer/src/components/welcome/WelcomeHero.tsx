@@ -1,10 +1,11 @@
 /**
  * @file WelcomeHero.tsx - Left column of the welcome screen.
- * @description logo + title + subtitle + 2 action cards (local/remote) + feature highlights.
+ * @description logo + title + subtitle + 3 action cards (local / remote / new from
+ *   template) + feature highlights.
  */
 
 import { motion } from 'framer-motion';
-import { Cloud, FolderOpen, Loader2, Sparkles, Zap } from 'lucide-react';
+import { Cloud, FilePlus2, FolderOpen, Loader2, Sparkles, Zap } from 'lucide-react';
 import type React from 'react';
 import logoFull from '../../assets/logo-full.svg';
 import { useTranslation } from '../../locales';
@@ -15,6 +16,7 @@ export interface WelcomeHeroProps {
   isOpeningAnyProject: boolean;
   onOpenProject: () => void;
   onOpenRemote: () => void;
+  onNewFromTemplate: () => void;
 }
 
 export const WelcomeHero: React.FC<WelcomeHeroProps> = ({
@@ -23,6 +25,7 @@ export const WelcomeHero: React.FC<WelcomeHeroProps> = ({
   isOpeningAnyProject,
   onOpenProject,
   onOpenRemote,
+  onNewFromTemplate,
 }) => {
   const { t } = useTranslation();
   return (
@@ -67,7 +70,7 @@ export const WelcomeHero: React.FC<WelcomeHeroProps> = ({
       </motion.div>
 
       {/* Action Cards */}
-      <div className="mb-6 grid grid-cols-2 gap-3">
+      <div className="mb-6 grid grid-cols-3 gap-3">
         <motion.button
           type="button"
           onClick={onOpenProject}
@@ -153,6 +156,45 @@ export const WelcomeHero: React.FC<WelcomeHeroProps> = ({
             </h3>
             <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
               {t('welcome.openRemoteDesc')}
+            </p>
+          </div>
+        </motion.button>
+
+        <motion.button
+          type="button"
+          onClick={onNewFromTemplate}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.7 }}
+          whileHover={{ y: -4, boxShadow: '0 12px 40px rgba(52,211,153,0.15)' }}
+          whileTap={{ scale: 0.98 }}
+          className="group relative cursor-pointer overflow-hidden rounded-2xl p-5 text-left transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+          style={{
+            background: 'var(--color-bg-elevated)',
+            border: '1px solid var(--color-border)',
+          }}
+        >
+          <div
+            className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+            style={{
+              background: 'linear-gradient(135deg, rgba(52,211,153,0.1) 0%, transparent 60%)',
+            }}
+          />
+          <div className="relative">
+            <div
+              className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl transition-transform group-hover:scale-110"
+              style={{ background: 'rgba(52,211,153,0.15)' }}
+            >
+              <FilePlus2 className="h-5 w-5 text-emerald-400" aria-hidden="true" />
+            </div>
+            <h3
+              className="mb-1 text-sm font-semibold"
+              style={{ color: 'var(--color-text-primary)' }}
+            >
+              {t('welcome.newFromTemplate')}
+            </h3>
+            <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+              {t('welcome.newFromTemplateDesc')}
             </p>
           </div>
         </motion.button>

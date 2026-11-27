@@ -17,6 +17,7 @@ import { Sidebar } from './components/layout/Sidebar';
 import { StatusBar } from './components/layout/StatusBar';
 import { SettingsPage } from './components/pages/SettingsPage';
 import { ResearchWorkspaceShell } from './components/research/ResearchWorkspaceShell';
+import { ToastHost } from './components/ui/Toast';
 import { createLogger, setupGlobalErrorHandlers } from './services/LogService';
 import {
   getUIService,
@@ -140,6 +141,10 @@ function AppContent() {
       <HistoryBrowserDialog />
 
       <FileConflictModal />
+
+      {/* Transient notices for background events. Last child so it stacks
+          above the workspace; its container is pointer-events-none. */}
+      <ToastHost />
     </div>
   );
 }

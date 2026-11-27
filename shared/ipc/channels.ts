@@ -11,6 +11,15 @@ export enum IpcChannel {
   Project_Open = 'open-project',
   Project_OpenByPath = 'open-project-by-path',
   Project_GetRecent = 'get-recent-projects',
+  /** Bundled starter templates available to "New from template". */
+  Project_ListTemplates = 'project:list-templates',
+  /**
+   * Copy a bundled template into a user-picked parent directory and open the
+   * result as a project. Main owns the directory picker so the destination
+   * can be authorized before writing (templates land outside any open
+   * project, which the normal write guard rejects).
+   */
+  Project_CreateFromTemplate = 'project:create-from-template',
 
   // ====== File Operations ======
   File_Read = 'read-file',
@@ -55,11 +64,32 @@ export enum IpcChannel {
   Compile_Cancel = 'compile-cancel',
   Compile_GetStatus = 'compile-get-status',
   /**
-   * Persist a BusyTeX WASM compile result (pdf + .synctex.gz) to a fresh
-   * temp directory and return the on-disk paths so the main-process
-   * `synctex` CLI can parse them the same way as a CLI-compiled result.
+   * Main → renderer push: live compile progress. CLI compiles come from the
+   * compile worker (`LaTeXCompiler` / `TypstCompiler` →
+   * `CompileWorkerClient` progress messages); WASM compiles come from the
+   * BusyTeX engine's UtilityProcess (`BusyTexProcessClient.onPhase`, with
+   * phases parsed from the engine's prints), re-broadcast by
+   * `compileHandlers`. Payload: `CompileProgressPayload` (compile-contract).
    */
-  Compile_WriteWasmArtifacts = 'compile-write-wasm-artifacts',
+  Compile_Progress = 'compile:progress',
+  /**
+   * Measure latency against a TeX Live remote endpoint. Runs in MAIN because
+   * the real fetches go through `WasmAssetProtocol`'s `net.fetch` proxy — a
+   * renderer-side probe would measure a different path and hit the CSP.
+   */
+  Compile_TestTexliveEndpoint = 'compile:test-texlive-endpoint',
+  Compile_GetTexliveCacheUsage = 'compile:get-texlive-cache-usage',
+  Compile_ClearTexliveMisses = 'compile:clear-texlive-misses',
+  Compile_ClearBuildCache = 'compile:clear-build-cache',
+  /**
+   * BusyTeX engine process control. The engine runs in an Electron
+   * UtilityProcess (see `src/main/busytex-process/`); the renderer provider
+   * stages the file set and calls these. Compile results carry paths — the
+   * PDF is written by the engine process and read from disk as before.
+   */
+  Compile_BusyTeX_Prepare = 'compile:busytex-prepare',
+  Compile_BusyTeX_Compile = 'compile:busytex-compile',
+  Compile_BusyTeX_Cancel = 'compile:busytex-cancel',
   /**
    * Probe LaTeX engine capabilities: local CLI binaries
    * (pdflatex/xelatex/lualatex/tectonic) plus bundled BusyTeX WASM assets.
@@ -305,6 +335,13 @@ export enum IpcChannel {
   Agent_GetSidecarState = 'agent:get-sidecar-state',
   Agent_GetSessionState = 'agent:get-session-state',
   Agent_StartProject = 'agent:start-project',
+  /**
+   * Restart the snaca-editor process (reset restart backoff → stop → spawn).
+   * Session re-open stays the renderer's job: it re-runs its startProject
+   * flow, which drives the full startup state machine (init, needs-config
+   * detection, thread list hydration).
+   */
+  Agent_Restart = 'agent:restart',
   Agent_NewThread = 'agent:new-thread',
   Agent_SwitchThread = 'agent:switch-thread',
   Agent_ListThreads = 'agent:list-threads',

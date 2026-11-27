@@ -28,7 +28,18 @@ const DEFAULT_BACKOFF = {
   maxAttempts: 10,
 };
 
+/** Stderr lines retained for the terminal `failed` payload's `lastError`. */
+const SIDECAR_STDERR_TAIL_LINES = 5;
+
 type ChildHandle = ChildProcessByStdio<Writable, Readable, Readable>;
+
+/**
+ * Map a spawn error to a `SidecarFailureReason`. Extracted (pure) so the
+ * classification is unit-testable without spawning real processes.
+ */
+export function classifySpawnFailure(err: NodeJS.ErrnoException): 'binary-missing' | 'crash' {
+  return err.code === 'ENOENT' ? 'binary-missing' : 'crash';
+}
 
 export class SnacaSidecarService extends Disposable implements ISnacaSidecarService {
   private readonly _onStateChange = this._register(new Emitter<SidecarState>());
@@ -47,6 +58,8 @@ export class SnacaSidecarService extends Disposable implements ISnacaSidecarServ
   /** True when caller invoked `stop()` deliberately — disables auto-restart. */
   private stopRequested = false;
   private readonly stdoutBuffer = new LineBuffer();
+  /** Last N stderr lines — rides on the terminal `failed` state payload. */
+  private readonly stderrTail: string[] = [];
 
   constructor(private readonly opts: SidecarOptions) {
     super();
@@ -166,9 +179,17 @@ export class SnacaSidecarService extends Disposable implements ISnacaSidecarServ
     }
   }
 
+  /** Compose the user-facing cause for a terminal failure: the triggering
+   *  reason plus whatever the sidecar last complained about on stderr. */
+  private buildLastError(reason: string): string {
+    const tail = this.stderrTail.slice(-SIDECAR_STDERR_TAIL_LINES).join('\n');
+    return tail ? `${reason}\n${tail}` : reason;
+  }
+
   private async spawnOnce(): Promise<void> {
     this.setState({ kind: 'starting' });
     this.stdoutBuffer.reset();
+    this.stderrTail.length = 0;
 
     const args: string[] = [];
     if (this.opts.configPath) {
@@ -190,9 +211,23 @@ export class SnacaSidecarService extends Disposable implements ISnacaSidecarServ
         windowsHide: true,
       }) as ChildHandle;
     } catch (e) {
-      const msg = (e as Error).message;
+      const err = e as NodeJS.ErrnoException;
+      const msg = err.message;
       logger.error('spawn failed', { error: msg, binary: this.opts.binaryPath });
-      this.handleCrash(`spawn failed: ${msg}`);
+      if (classifySpawnFailure(err) === 'binary-missing') {
+        // The binary is simply not there — retrying with backoff cannot fix
+        // a missing file, so skip the crash loop and fail terminally with a
+        // reason the UI can translate into "reinstall / check install".
+        this.setState({
+          kind: 'failed',
+          reason: 'binary-missing',
+          lastError: `Binary not found: ${this.opts.binaryPath}`,
+          attempts: 0,
+          failedAt: Date.now(),
+        });
+      } else {
+        this.handleCrash(`spawn failed: ${msg}`);
+      }
       return;
     }
 
@@ -231,7 +266,15 @@ export class SnacaSidecarService extends Disposable implements ISnacaSidecarServ
       // grep-able from Studio logs without a stderr subscriber.
       for (const line of text.split(/\r?\n/)) {
         const trimmed = line.trimEnd();
-        if (trimmed) logger.info(`[snaca] ${trimmed}`);
+        if (!trimmed) continue;
+        logger.info(`[snaca] ${trimmed}`);
+        // Ring buffer: the last few stderr lines ride along on the terminal
+        // `failed` state so the UI can show WHY the sidecar gave up instead
+        // of a bare "it died".
+        this.stderrTail.push(trimmed);
+        if (this.stderrTail.length > SIDECAR_STDERR_TAIL_LINES) {
+          this.stderrTail.shift();
+        }
       }
       this._onStderr.fire(text);
     };
@@ -306,7 +349,17 @@ export class SnacaSidecarService extends Disposable implements ISnacaSidecarServ
         attempts: this.restartAttempt - 1,
         reason,
       });
-      this.setState({ kind: 'stopped' });
+      // Terminal `failed` — NOT `stopped`. `stopped` means "nobody asked for
+      // a process"; `failed` means "we tried and the process kept dying".
+      // The renderer keys its failure banner and restart affordance off this
+      // distinction. lastError carries the stderr tail: the user-visible why.
+      this.setState({
+        kind: 'failed',
+        reason: 'crash',
+        lastError: this.buildLastError(reason),
+        attempts: this.restartAttempt - 1,
+        failedAt: Date.now(),
+      });
       return;
     }
 

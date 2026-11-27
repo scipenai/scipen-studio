@@ -80,9 +80,18 @@ for (const name of SKILLS) {
 }
 
 // Ship the license/notice alongside (CC BY-NC redistribution requirement).
+//
+// They go into a dot-prefixed subdirectory rather than the skills root:
+// SNACA's skill registry treats every depth-1 `*.md` under the bundled dir as
+// a flat skill, so a root-level `NOTICE.md` fails frontmatter parsing and logs
+// "failed to load skill; skipping" on every single turn. The registry's
+// directory walker skips entries whose name starts with `.`, so `.licenses/`
+// is invisible to it while the files still ship with the package.
+const licenseDir = join(destRoot, '.licenses');
+mkdirSync(licenseDir, { recursive: true });
 for (const f of LICENSE_FILES) {
   const lf = join(srcRoot, f);
-  if (existsSync(lf)) copyFileSync(lf, join(destRoot, f));
+  if (existsSync(lf)) copyFileSync(lf, join(licenseDir, f));
 }
 
 log(`staged ${SKILLS.length} skills → ${destRoot}`);

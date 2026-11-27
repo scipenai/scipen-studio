@@ -35,6 +35,37 @@ export interface BatchWriteResult {
 }
 
 // ====== Channel Contract ======
+/**
+ * A bundled starter template. `id` is stable and doubles as the i18n key
+ * (`templates.<id>.name` / `.description`); the main process never ships
+ * display text.
+ */
+export interface ProjectTemplateDTO {
+  id: string;
+  /** File opened after creation, relative to the project root. */
+  mainFile: string;
+  engine: 'latex' | 'typst';
+  /** False when the first compile needs the network (see templates/README). */
+  offline: boolean;
+}
+
+/** Machine-readable failure reason for `Project_CreateFromTemplate`. */
+export type TemplateCreateErrorCode =
+  | 'noWindow'
+  | 'unknownTemplate'
+  | 'templateFilesMissing'
+  | 'invalidProjectName'
+  | 'alreadyExists'
+  | 'copyFailed';
+
+/**
+ * Outcome of a template scaffold. `cancelled` covers the user dismissing the
+ * directory picker — a normal outcome, not an error, so it is not thrown.
+ */
+export type ProjectCreateFromTemplateResult =
+  | { ok: true; projectPath: string; mainFile: string; fileTree: FileTreeNode }
+  | { ok: false; cancelled: true }
+  | { ok: false; cancelled?: false; error: string; errorCode?: TemplateCreateErrorCode };
 
 export interface IPCFileContract {
   // ============ Project Management ============
@@ -49,6 +80,14 @@ export interface IPCFileContract {
   [IpcChannel.Project_GetRecent]: {
     args: [];
     result: Array<{ path: string; name: string; lastOpened: number; isRemote?: boolean }>;
+  };
+  [IpcChannel.Project_ListTemplates]: {
+    args: [];
+    result: ProjectTemplateDTO[];
+  };
+  [IpcChannel.Project_CreateFromTemplate]: {
+    args: [templateId: string, projectName: string, dialogTitle?: string];
+    result: ProjectCreateFromTemplateResult;
   };
 
   // ============ File Operations ============

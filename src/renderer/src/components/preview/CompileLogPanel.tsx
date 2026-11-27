@@ -11,6 +11,7 @@ import {
   ChevronRight,
   FileText,
   Info,
+  Sparkles,
   X,
 } from 'lucide-react';
 import type React from 'react';
@@ -57,6 +58,12 @@ interface CompileLogPanelProps {
   /** Full raw compiler output — rendered as a collapsible section. */
   rawLog?: string;
   onJumpToLine?: (file: string, line: number) => void;
+  /**
+   * Hand a single diagnostic to the agent. Inverted like `onJumpToLine` so
+   * this panel stays presentational — the parent owns the UIService call and
+   * supplies the surrounding context (compiler type, raw log).
+   */
+  onAskAgent?: (entry: ParsedLogEntry) => void;
   onClose?: () => void;
   embedded?: boolean;
   showHeader?: boolean;
@@ -73,6 +80,7 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
   info = [],
   rawLog,
   onJumpToLine,
+  onAskAgent,
   onClose,
   embedded = false,
   showHeader = true,
@@ -165,6 +173,7 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
       const fileLabel = entry.file?.startsWith('./') ? entry.file.slice(2) : entry.file;
       const jumpLabel =
         fileLabel && entry.line ? `Open ${fileLabel} line ${entry.line}` : (fileLabel ?? '');
+      const askAgentLabel = t('compileLog.askAgent');
 
       return (
         <div
@@ -228,6 +237,22 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
                     )}
                   </button>
                 )}
+                {onAskAgent && (
+                  // stopPropagation: the whole row toggles expand on click.
+                  <button
+                    type="button"
+                    aria-label={askAgentLabel}
+                    title={askAgentLabel}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAskAgent(entry);
+                    }}
+                    className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-accent)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-accent)]"
+                  >
+                    <Sparkles size={10} aria-hidden="true" />
+                    <span>{askAgentLabel}</span>
+                  </button>
+                )}
               </div>
 
               <p className="text-sm text-[var(--color-text-secondary)] mt-1 break-words">
@@ -246,7 +271,7 @@ export const CompileLogPanel: React.FC<CompileLogPanelProps> = ({
         </div>
       );
     },
-    [expandedItems, getLevelColor, getLevelIcon, handleJumpToLine, toggleExpand]
+    [expandedItems, getLevelColor, getLevelIcon, handleJumpToLine, toggleExpand, onAskAgent, t]
   );
 
   // Stable Footer identity: an inline component here would remount the raw

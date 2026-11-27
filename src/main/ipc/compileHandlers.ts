@@ -11,19 +11,53 @@
  * - Dynamic compiler selection by file extension or engine name
  */
 
+import { BrowserWindow } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
+import type {
+  BusyTeXCompileRequestDTO,
+  CompileProgressPayload,
+} from '../../../shared/ipc/compile-contract';
 import type { LaTeXCompiler } from '../services/LaTeXCompiler';
 import { createLogger } from '../services/LoggerService';
-import { type PathAccessMode, checkPathSecurity } from '../services/PathSecurityService';
+import {
+  type PathAccessMode,
+  PathSecurityService,
+  checkPathSecurity,
+  isWithinCurrentProject,
+} from '../services/PathSecurityService';
+import { resolveCanonicalPath } from '../services/canonicalPath';
 import type { TypstCompiler } from '../services/TypstCompiler';
-import { resolveWasmRoot } from '../services/WasmAssetProtocol';
+import {
+  probeTexliveEndpoint,
+  resolveTexliveCacheDir,
+  resolveWasmRoot,
+} from '../services/WasmAssetProtocol';
+import { TexliveRemoteCache } from '../services/TexliveRemoteCache';
+import { BUSYTEX_STOPPED_MESSAGE, getBusyTexProcessClient } from '../services/BusyTexProcessClient';
 import { CompilerRegistry } from '../services/compiler/CompilerRegistry';
-import type { CompileMessage } from '../services/compiler/interfaces/ICompiler';
+import type {
+  CompileMessage,
+  CompileProgress,
+  ICompiler,
+} from '../services/compiler/interfaces/ICompiler';
 import { createTypedHandlers } from './typedIpc';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 const logger = createLogger('CompileHandlers');
+
+/**
+ * Cache handle for the maintenance channels (usage / clear misses).
+ *
+ * Deliberately NOT `getTexliveRemoteCache()`: that returns null under
+ * `SCIPEN_TEXLIVE_REMOTE_CACHE=0`, yet the engine process caches
+ * unconditionally (it never reads that variable), so going through the
+ * singleton would report "0 entries" while the directory is full and in
+ * active use. Maintenance operates on the directory itself.
+ */
+function maintenanceCache(): TexliveRemoteCache {
+  return new TexliveRemoteCache({ cacheDir: resolveTexliveCacheDir() });
+}
 
 function unavailableLatexCapabilities() {
   const unavailable = { available: false, version: null as string | null };
@@ -110,6 +144,19 @@ function assertPathSecurity(filePath: string, mode: PathAccessMode = 'read'): st
   return result.sanitizedPath || filePath;
 }
 
+function validateBusyTexPath(
+  filePath: string,
+  mode: PathAccessMode,
+  fallbackReason: string
+): { ok: true; path: string } | { ok: false; error: string } {
+  const result = checkPathSecurity(filePath, mode, 'project');
+  if (!result.allowed) {
+    logger.error(`[PathSecurity] Access denied: ${result.reason}`);
+    return { ok: false, error: result.reason || fallbackReason };
+  }
+  return { ok: true, path: result.sanitizedPath || filePath };
+}
+
 // ====== Types ======
 
 export interface CompileTypstOptions {
@@ -119,6 +166,44 @@ export interface CompileTypstOptions {
 }
 
 // ====== Handler Registration ======
+
+/**
+ * Push a compile-progress payload to every renderer window over
+ * `Compile_Progress`. Same broadcast pattern as MinerUParseService —
+ * getAllWindows + isDestroyed guard. Payloads are Zod-validated on the
+ * renderer side (`eventSchemas`).
+ */
+function broadcastCompileProgress(payload: CompileProgressPayload): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(IpcChannel.Compile_Progress, payload);
+    }
+  }
+}
+
+/**
+ * Subscribe to a compiler's `progress` event for the duration of one compile
+ * and re-broadcast it over IPC. Scoped attach/detach (instead of a global
+ * subscription at registration time) keeps `CompilerRegistry` lazy — no
+ * compiler is instantiated until a compile actually needs it, and two
+ * compilers never leak listeners into each other (compiles are serialized
+ * by the queue upstream).
+ */
+function forwardCompilerProgress(
+  compiler: ICompiler,
+  engine: CompileProgressPayload['engine']
+): () => void {
+  const listener = (progress: CompileProgress) => {
+    broadcastCompileProgress({
+      engine,
+      stage: 'cli',
+      message: progress.message || progress.stage || '',
+      percent: typeof progress.percent === 'number' ? progress.percent : undefined,
+    });
+  };
+  compiler.on('progress', listener);
+  return () => compiler.off('progress', listener);
+}
 
 /**
  * Register compilation-related IPC handlers.
@@ -150,7 +235,13 @@ export function registerCompileHandlers(): void {
                 mainFile: safeMainFile,
               }
             : undefined;
-          const result = await latexCompiler.compile(content, compilationOptions);
+          const detachProgress = forwardCompilerProgress(latexCompiler, 'latex');
+          let result;
+          try {
+            result = await latexCompiler.compile(content, compilationOptions);
+          } finally {
+            detachProgress();
+          }
           // The IPC contract still requires LaTeXError[] / LaTeXWarning[].
           // Renderer-side already normalizes defensively, so keep the protocol backward-compatible.
           const errors = result.errors?.map((msg) => ({
@@ -187,33 +278,6 @@ export function registerCompileHandlers(): void {
             ],
           };
         }
-      },
-
-      // Persist BusyTeX WASM artifacts (pdf + .synctex.gz) to the project
-      // directory (outputDir) so the on-disk PDF matches the local compiler's
-      // output path — the single source of truth on disk. Buffer is the
-      // renderer's Uint8Array — it crosses the IPC boundary as a Node Buffer.
-      [IpcChannel.Compile_WriteWasmArtifacts]: async (
-        pdfBuffer,
-        synctexBuffer,
-        baseName,
-        outputDir,
-        logText
-      ) => {
-        const safeName = baseName && /^[A-Za-z0-9_.-]+$/.test(baseName) ? baseName : 'main';
-        const safeOutputDir = assertPathSecurity(outputDir, 'write');
-        await fs.mkdir(safeOutputDir, { recursive: true });
-        const pdfPath = path.join(safeOutputDir, `${safeName}.pdf`);
-        const synctexPath = path.join(safeOutputDir, `${safeName}.synctex.gz`);
-        await fs.writeFile(pdfPath, Buffer.from(pdfBuffer));
-        await fs.writeFile(synctexPath, Buffer.from(synctexBuffer));
-        // Match the local compiler's behavior of dropping {base}.log next to
-        // the PDF — the WASM log only lived in memory before, which made
-        // diagnosing partial/broken output impossible after the fact.
-        if (typeof logText === 'string' && logText.length > 0) {
-          await fs.writeFile(path.join(safeOutputDir, `${safeName}.log`), logText, 'utf8');
-        }
-        return { pdfPath, synctexPath };
       },
 
       [IpcChannel.LaTeX_GetCapabilities]: async () => {
@@ -416,6 +480,182 @@ export function registerCompileHandlers(): void {
 
         logger.info(`[Compile_Cancel] Cancelled ${cancelled} compilation tasks`);
         return { success: true, cancelled };
+      },
+
+      [IpcChannel.Compile_TestTexliveEndpoint]: async (endpoint) => {
+        // Probe runs in main so it exercises the same `net.fetch` route the
+        // BusyTeX worker's package fetches take (see WasmAssetProtocol).
+        return probeTexliveEndpoint(endpoint);
+      },
+
+      [IpcChannel.Compile_GetTexliveCacheUsage]: async () => {
+        try {
+          const usage = maintenanceCache().usage();
+          return { ok: true, ...usage };
+        } catch (error) {
+          // Total result: the settings pane renders whatever comes back.
+          return {
+            ok: false,
+            binCount: 0,
+            binBytes: 0,
+            missCount: 0,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+
+      [IpcChannel.Compile_ClearTexliveMisses]: async () => {
+        // Refuse while a compile is in flight. Pulling the probe results out
+        // from under a running compile makes it re-fetch hundreds of URLs
+        // serially and blow the 600 s cap — the user would see an
+        // inexplicable timeout. Declining is also less surprising than
+        // killing the engine: this action is about cache hygiene, not about
+        // cancelling work.
+        const client = getBusyTexProcessClient();
+        if (client.isBusy) {
+          return { ok: false, removed: 0, busy: true };
+        }
+        try {
+          return { ok: true, ...maintenanceCache().clearMisses() };
+        } catch (error) {
+          return {
+            ok: false,
+            removed: 0,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+
+      [IpcChannel.Compile_ClearBuildCache]: async () => {
+        // The client routes to the engine when it is running (so its
+        // in-memory copy goes too) and refuses while a compile is in flight.
+        try {
+          return await getBusyTexProcessClient().clearBuildCache();
+        } catch (error) {
+          return {
+            ok: false,
+            removed: 0,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+
+      [IpcChannel.Compile_BusyTeX_Prepare]: async (projectRoot) => {
+        // Only the active project may steer what the engine preloads; any
+        // other root falls back to the basic packages.
+        const root = projectRoot && isWithinCurrentProject(projectRoot) ? projectRoot : undefined;
+        await getBusyTexProcessClient().ensureLoaded(root);
+        return { ok: true };
+      },
+
+      [IpcChannel.Compile_BusyTeX_Compile]: async (request: BusyTeXCompileRequestDTO) => {
+        // The engine process walks projectRoot itself, so it must be the
+        // active project (or inside it). Validate every compile path
+        // unconditionally before forwarding to the utility process.
+        const projectRootCheck = request.projectRoot
+          ? checkPathSecurity(request.projectRoot, 'read', 'project')
+          : null;
+        const sanitizedProjectRoot = projectRootCheck?.allowed
+          ? projectRootCheck.sanitizedPath || request.projectRoot
+          : undefined;
+        const projectRoot =
+          sanitizedProjectRoot && isWithinCurrentProject(sanitizedProjectRoot)
+            ? sanitizedProjectRoot
+            : undefined;
+        if (request.projectRoot && !projectRoot) {
+          logger.warn(
+            'BusyTeX compile: projectRoot outside the active project, staging buffer only'
+          );
+        }
+
+        const outputCheck = validateBusyTexPath(
+          request.outputDir,
+          'write',
+          'Output directory access denied'
+        );
+        if (!outputCheck.ok) {
+          return { success: false, log: '', errors: [outputCheck.error] };
+        }
+        const mainFileCheck = validateBusyTexPath(
+          request.mainFileAbs,
+          'read',
+          'Main file access denied'
+        );
+        if (!mainFileCheck.ok) {
+          return { success: false, log: '', errors: [mainFileCheck.error] };
+        }
+        const overlayCheck = validateBusyTexPath(
+          request.overlay.absPath,
+          'read',
+          'Overlay file access denied'
+        );
+        if (!overlayCheck.ok) {
+          return { success: false, log: '', errors: [overlayCheck.error] };
+        }
+
+        if (projectRoot && !isWithinCurrentProject(outputCheck.path)) {
+          return { success: false, log: '', errors: ['Output directory is outside the project'] };
+        }
+
+        // Validate every file this compile will write so pre-planted file
+        // symlinks inside outputDir cannot redirect PDF, SyncTeX, or log writes.
+        for (const ext of ['.pdf', '.synctex.gz', '.log']) {
+          const artifactPath = path.join(outputCheck.path, `${request.baseName}${ext}`);
+          const artifactCheck = validateBusyTexPath(
+            artifactPath,
+            'write',
+            'Output file access denied'
+          );
+          if (!artifactCheck.ok) {
+            return { success: false, log: '', errors: [artifactCheck.error] };
+          }
+          if (projectRoot && !isWithinCurrentProject(artifactCheck.path)) {
+            return { success: false, log: '', errors: ['Output file is outside the project'] };
+          }
+        }
+
+        const outputSandboxRoot = isWithinCurrentProject(outputCheck.path)
+          ? (PathSecurityService.getProjectPath() ?? undefined)
+          : (resolveCanonicalPath(outputCheck.path) ?? undefined);
+
+        const client = getBusyTexProcessClient();
+        // Phases parsed from engine prints flow to the renderer over the
+        // existing Compile_Progress channel; scoped so a compile that starts
+        // mid-flight cannot leak another compile's prints into it.
+        const disposePhase = client.onPhase((phase) => broadcastCompileProgress(phase));
+        try {
+          const result = await client.compile({
+            ...request,
+            projectRoot,
+            mainFileAbs: mainFileCheck.path,
+            overlay: { ...request.overlay, absPath: overlayCheck.path },
+            outputDir: outputCheck.path,
+            outputSandboxRoot,
+          });
+          return {
+            success: result.exitCode === 0,
+            exitCode: result.exitCode,
+            pdfPath: result.pdfPath,
+            synctexPath: result.synctexPath,
+            log: result.log,
+            errors: result.exitCode === 0 ? [] : ['Compilation failed'],
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          // Stop button / idle release — neutral outcome, not a failure.
+          if (message === BUSYTEX_STOPPED_MESSAGE) {
+            return { success: false, cancelled: true, log: '', errors: [] };
+          }
+          logger.error('BusyTeX engine compile failed', { error: message });
+          return { success: false, log: '', errors: [message] };
+        } finally {
+          disposePhase.dispose();
+        }
+      },
+
+      [IpcChannel.Compile_BusyTeX_Cancel]: async () => {
+        getBusyTexProcessClient().kill();
+        return { ok: true };
       },
 
       [IpcChannel.Compile_GetStatus]: async () => {

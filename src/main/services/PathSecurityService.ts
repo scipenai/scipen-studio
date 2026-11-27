@@ -11,6 +11,7 @@
  */
 
 import path from 'path';
+import { isPathInsideRoot, resolveCanonicalPath } from './canonicalPath';
 import { createLogger } from './LoggerService';
 
 const logger = createLogger('PathSecurityService');
@@ -69,7 +70,9 @@ const SENSITIVE_PATHS_UNIX = [
 const SENSITIVE_PATHS_MACOS = [
   /^\/System\//i,
   /^\/Library\/Keychains/i,
-  /^\/private\/var/i,
+  // macOS `os.tmpdir()` (/var/folders/...) resolves to /private/var/folders;
+  // allow per-user temp dirs while blocking /private/var and other subtrees.
+  /^\/private\/var(?:$|\/(?!folders(?:\/|$)))/i,
   /^\/private\/etc/i,
 ];
 
@@ -183,16 +186,16 @@ class PathSecurityServiceImpl {
     if (this.authorizedPaths.has(normalized)) {
       const expiry = this.authorizationExpiry.get(normalized);
       if (expiry && Date.now() <= expiry) {
-        return true;
+        return isPathInsideRoot(normalized, normalized);
       }
       // Expired, cleanup
       this.authorizedPaths.delete(normalized);
       this.authorizationExpiry.delete(normalized);
     }
 
-    // Check if parent directory is authorized (children inherit access)
+    // Check if parent directory is authorized (resolve links before inheriting)
     for (const authorizedPath of this.authorizedPaths) {
-      if (normalized.startsWith(authorizedPath + path.sep)) {
+      if (isPathInsideRoot(normalized, authorizedPath)) {
         const expiry = this.authorizationExpiry.get(authorizedPath);
         if (expiry && Date.now() <= expiry) {
           return true;
@@ -269,9 +272,17 @@ class PathSecurityServiceImpl {
     }
 
     const normalizedPath = path.normalize(filePath);
+    const canonicalPath = resolveCanonicalPath(normalizedPath);
+    if (!canonicalPath) {
+      return {
+        allowed: false,
+        reason:
+          'Access denied: path could not be resolved safely (broken or looping symbolic link)',
+      };
+    }
 
     // === 2. Sensitive Directory Blocking ===
-    if (this.isSensitivePath(normalizedPath)) {
+    if (this.isSensitivePath(normalizedPath) || this.isSensitivePath(canonicalPath)) {
       return {
         allowed: false,
         reason: `Access denied: "${normalizedPath}" is a protected system path`,
@@ -279,7 +290,7 @@ class PathSecurityServiceImpl {
     }
 
     // === 3. Sensitive File Check ===
-    if (this.isSensitiveFile(normalizedPath)) {
+    if (this.isSensitiveFile(normalizedPath) || this.isSensitiveFile(canonicalPath)) {
       return {
         allowed: false,
         reason: `Access denied: "${path.basename(normalizedPath)}" is a sensitive/credential file`,
@@ -406,31 +417,7 @@ class PathSecurityServiceImpl {
 
   /** Check if path is a sensitive system path */
   private isSensitivePath(filePath: string): boolean {
-    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
-    const platform = process.platform;
-
-    if (platform === 'win32') {
-      for (const pattern of SENSITIVE_PATHS_WINDOWS) {
-        if (pattern.test(filePath)) {
-          return true;
-        }
-      }
-    } else if (platform === 'darwin') {
-      for (const pattern of [...SENSITIVE_PATHS_UNIX, ...SENSITIVE_PATHS_MACOS]) {
-        if (pattern.test(normalized)) {
-          return true;
-        }
-      }
-    } else {
-      // Linux and other Unix-like systems
-      for (const pattern of SENSITIVE_PATHS_UNIX) {
-        if (pattern.test(normalized)) {
-          return true;
-        }
-      }
-    }
-
-    return false;
+    return isSensitiveSystemPath(filePath);
   }
 
   /** Check if path matches sensitive file patterns */
@@ -448,14 +435,7 @@ class PathSecurityServiceImpl {
     try {
       const { app } = require('electron');
       const appDataDir = app.getPath('userData');
-
-      const normalizedFilePath = path.normalize(filePath);
-      const normalizedAppDataDir = path.normalize(appDataDir);
-
-      return (
-        normalizedFilePath === normalizedAppDataDir ||
-        normalizedFilePath.startsWith(normalizedAppDataDir + path.sep)
-      );
+      return isPathInsideRoot(filePath, appDataDir);
     } catch {
       // app may not be accessible outside main process
       return false;
@@ -468,13 +448,7 @@ class PathSecurityServiceImpl {
       return false;
     }
 
-    const normalizedFilePath = path.normalize(filePath);
-    const normalizedProjectPath = path.normalize(this.currentProjectPath);
-
-    return (
-      normalizedFilePath === normalizedProjectPath ||
-      normalizedFilePath.startsWith(normalizedProjectPath + path.sep)
-    );
+    return isPathInsideRoot(filePath, this.currentProjectPath);
   }
 
   /** Get security stats for debugging */
@@ -508,6 +482,51 @@ export function setProjectPath(projectPath: string | null): void {
   PathSecurityService.setProjectPath(projectPath);
 }
 
+/**
+ * True when `candidate` is the active project directory or lies inside it
+ * after resolving symbolic links and Windows junctions. Compares
+ * case-insensitively on Windows, where a renderer path and the stored
+ * project path can differ only in drive-letter or folder casing.
+ */
+export function isWithinCurrentProject(candidate: string): boolean {
+  const project = PathSecurityService.getProjectPath();
+  if (!project) return false;
+  return isPathInsideRoot(candidate, project);
+}
+
 export function authorizePathTemporarily(filePath: string): void {
   PathSecurityService.authorizePathTemporarily(filePath);
+}
+
+const DARWIN_DATA_VOLUME_PREFIX = '/system/volumes/data';
+
+/**
+ * True when `filePath` falls under a protected OS directory on `platform`.
+ * On macOS, APFS mounts writable firmlinked roots (e.g. `/home`, `/Users`)
+ * under `/System/Volumes/Data`; unwrap that prefix before checking rules so
+ * realpath targets are classified like the paths users pass, while bare
+ * `/System/Volumes/Data` and nested protected paths remain blocked.
+ */
+export function isSensitiveSystemPath(
+  filePath: string,
+  platform: NodeJS.Platform = process.platform
+): boolean {
+  if (platform === 'win32') {
+    return SENSITIVE_PATHS_WINDOWS.some((pattern) => pattern.test(filePath));
+  }
+
+  const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+  if (platform === 'darwin') {
+    if (normalized.replace(/\/+$/, '') === DARWIN_DATA_VOLUME_PREFIX) {
+      return true;
+    }
+    const macPath = normalized.startsWith(`${DARWIN_DATA_VOLUME_PREFIX}/`)
+      ? normalized.slice(DARWIN_DATA_VOLUME_PREFIX.length)
+      : normalized;
+    return [...SENSITIVE_PATHS_UNIX, ...SENSITIVE_PATHS_MACOS].some((pattern) =>
+      pattern.test(macPath)
+    );
+  }
+
+  return SENSITIVE_PATHS_UNIX.some((pattern) => pattern.test(normalized));
 }

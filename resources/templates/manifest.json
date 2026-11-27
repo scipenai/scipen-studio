@@ -1,0 +1,34 @@
+{
+  "$comment": "Bundled project templates. The renderer reads this at picker-open time; ids are stable and used as i18n keys (templates.<id>.name / .description). Keep `mainFile` in sync with the folder contents — the created project opens that file.",
+  "version": 1,
+  "templates": [
+    {
+      "id": "article",
+      "dir": "article",
+      "mainFile": "main.tex",
+      "engine": "latex",
+      "offline": true
+    },
+    {
+      "id": "ieee",
+      "dir": "ieee",
+      "mainFile": "main.tex",
+      "engine": "latex",
+      "offline": true
+    },
+    {
+      "id": "thesis",
+      "dir": "thesis",
+      "mainFile": "main.tex",
+      "engine": "latex",
+      "offline": true
+    },
+    {
+      "id": "beamer",
+      "dir": "beamer",
+      "mainFile": "main.tex",
+      "engine": "latex",
+      "offline": true
+    }
+  ]
+}

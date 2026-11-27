@@ -43,9 +43,26 @@
       "filter": ["**/*"]
     },
     // Bundled academic-research-skills (SNACA Bundled scope) — staged by `npm run copy:skills`.
+    // `.licenses/**/*` is listed explicitly because the `**/*` glob does not
+    // match dot-prefixed directories. The license/notice files live under a
+    // dot-dir on purpose: SNACA's skill scanner treats any depth-1 `*.md` as a
+    // skill, so a root-level NOTICE.md warns on every agent turn.
     {
       "from": "resources/skills",
       "to": "skills",
+      "filter": ["**/*", ".licenses/**/*"]
+    },
+    // Project templates offered by "New from template" (see resources/templates/README.md).
+    {
+      "from": "resources/templates",
+      "to": "templates",
+      "filter": ["**/*"]
+    },
+    // Font license texts for the renamed clones baked into the engine data
+    // package (see resources/font-licenses/NOTICE.md).
+    {
+      "from": "resources/font-licenses",
+      "to": "font-licenses",
       "filter": ["**/*"]
     },
   ],

@@ -6,6 +6,8 @@
 
 import { ipcRenderer } from 'electron';
 import { IpcChannel } from '../../../shared/ipc/channels';
+import type { CompileProgressPayload } from '../../../shared/ipc/compile-contract';
+import { createSafeListener } from './_shared';
 
 // ====== Project Management ======
 export const projectApi = {
@@ -13,6 +15,9 @@ export const projectApi = {
   getRecentProjects: () => ipcRenderer.invoke(IpcChannel.Project_GetRecent),
   openProjectByPath: (projectPath: string) =>
     ipcRenderer.invoke(IpcChannel.Project_OpenByPath, projectPath),
+  listTemplates: () => ipcRenderer.invoke(IpcChannel.Project_ListTemplates),
+  createFromTemplate: (templateId: string, projectName: string, dialogTitle?: string) =>
+    ipcRenderer.invoke(IpcChannel.Project_CreateFromTemplate, templateId, projectName, dialogTitle),
 };
 
 // ====== Compilation ======
@@ -21,6 +26,27 @@ export const compileApi = {
   compileLatex: (content: string, options?: unknown) =>
     ipcRenderer.invoke(IpcChannel.Compile_LaTeX, content, options),
   getLaTeXCapabilities: () => ipcRenderer.invoke(IpcChannel.LaTeX_GetCapabilities),
+
+  /** Latency probe for a TeX Live remote endpoint (runs in main). */
+  testTexliveEndpoint: (endpoint: string) =>
+    ipcRenderer.invoke(IpcChannel.Compile_TestTexliveEndpoint, endpoint),
+
+  /** Census of the on-disk TeX Live fetch cache (settings pane). */
+  getTexliveCacheUsage: () => ipcRenderer.invoke(IpcChannel.Compile_GetTexliveCacheUsage),
+  /** Drop cached 404 probe results, keeping downloaded packages. */
+  clearTexliveMisses: () => ipcRenderer.invoke(IpcChannel.Compile_ClearTexliveMisses),
+  /** Drop the incremental build artifacts; the next compile starts cold. */
+  clearBuildCache: () => ipcRenderer.invoke(IpcChannel.Compile_ClearBuildCache),
+
+  // BusyTeX engine process (runs in an Electron UtilityProcess).
+  busyTeXPrepare: (projectRoot?: string) =>
+    ipcRenderer.invoke(IpcChannel.Compile_BusyTeX_Prepare, projectRoot),
+  busyTeXCompile: (request: unknown) =>
+    ipcRenderer.invoke(IpcChannel.Compile_BusyTeX_Compile, request),
+  busyTeXCancel: () => ipcRenderer.invoke(IpcChannel.Compile_BusyTeX_Cancel),
+
+  /** Live CLI compile progress (main → renderer push). Zod-validated at the boundary. */
+  onProgress: createSafeListener<CompileProgressPayload>(IpcChannel.Compile_Progress),
 
   // Typst compilation
   compileTypst: (

@@ -1,7 +1,7 @@
 /**
  * @file CompilerProviders.ts - Compiler Provider Implementation
  * @description Provides Provider implementations for LaTeX, Typst, Overleaf, and WASM compilers
- * @depends IPC (api.compiler), CompilerRegistry, BusyTexEngine
+ * @depends IPC (api.compile — incl. the BusyTeX engine process), CompilerRegistry
  */
 
 import { getErrorMessage } from '../../utils/getErrorMessage';
@@ -9,7 +9,6 @@ import { api } from '../../api';
 import { DEFAULT_TEXLIVE_ENDPOINT } from '../../constants/latex';
 import { t } from '../../locales';
 import { createLogger } from '../LogService';
-import { BusyTexEngine, BusyTexCancelledError, type BusyTexEngineType } from '../BusyTexEngine';
 import { TypstWasmEngine } from '../TypstWasmEngine';
 import { getSettingsService } from './ServiceRegistry';
 import type { CompileResult, LatexEngine, TypstEngine } from './CompileService';
@@ -246,6 +245,48 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
    * See {@link TypstWasmEngine} doc for the recycling story.
    */
   private engine: TypstWasmEngine | null = null;
+  /**
+   * In-flight `loadEngine()` shared by compile and prewarm — same
+   * double-construction guard as {@link WASMCompilerProvider.acquireEngine}.
+   */
+  private enginePromise: Promise<TypstWasmEngine> | null = null;
+  /** Bumped per load attempt and by cancel(); see acquireEngine's finally. */
+  private loadGeneration = 0;
+
+  /** Load at most once across concurrent callers; retryable after failure. */
+  private async acquireEngine(): Promise<TypstWasmEngine> {
+    if (this.engine) return this.engine;
+    if (this.enginePromise) return this.enginePromise;
+
+    // Generation stamp — see WASMCompilerProvider.acquireEngine.
+    const generation = ++this.loadGeneration;
+    const promise = (async () => {
+      try {
+        const engine = new TypstWasmEngine();
+        // Set the font endpoint BEFORE loadEngine — the worker registers all
+        // fonts up-front (typst-ts `add_raw_font` is only valid pre-`build()`).
+        // Changing the endpoint later requires `engine.close()` + rebuild.
+        const settings = getSettingsService().getSettings().compiler;
+        engine.setFontEndpoint(settings.typstFontEndpoint || '');
+        await engine.loadEngine();
+        this.engine = engine;
+        return engine;
+      } finally {
+        if (this.loadGeneration === generation) this.enginePromise = null;
+      }
+    })();
+    this.enginePromise = promise;
+    return promise;
+  }
+
+  /** Warm the typst-ts worker off the first-compile hot path. Never throws. */
+  async prewarm(): Promise<void> {
+    try {
+      await this.acquireEngine();
+    } catch {
+      // Intentionally silent — the real compile reports engine failures.
+    }
+  }
 
   /**
    * Compile counter for memory-pressure recycling. typst-ts's incremental
@@ -288,16 +329,8 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
         this.compileCount = 0;
       }
 
-      if (!this.engine) {
-        const engine = new TypstWasmEngine();
-        // Set the font endpoint BEFORE loadEngine — the worker registers all
-        // fonts up-front (typst-ts `add_raw_font` is only valid pre-`build()`).
-        // Changing the endpoint later requires `engine.close()` + rebuild.
-        const settings = getSettingsService().getSettings().compiler;
-        engine.setFontEndpoint(settings.typstFontEndpoint || '');
-        await engine.loadEngine();
-        this.engine = engine;
-      }
+      // Engine load is shared with prewarm — see acquireEngine().
+      const engine = await this.acquireEngine();
 
       // Re-stage the current project tree. typst-ts `add_source` is
       // overwrite-by-path; unchanged sources keep their memoised layout
@@ -306,9 +339,9 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
       await this.stageProjectSources(filePath, content, options);
 
       const mainPath = this.resolveMainPath(filePath, options);
-      this.engine.setMainFile(mainPath);
+      engine.setMainFile(mainPath);
 
-      const output = await this.engine.compile();
+      const output = await engine.compile();
       this.compileCount += 1;
 
       const errorDiags = output.diagnostics.filter((d) => d.severity === 1);
@@ -342,8 +375,7 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
 
       // `pdfBuffer` is consumed directly by useCompilation — no disk I/O
       // round-trip. typst-ts has no synctex so there's nothing for the
-      // SyncTeX CLI to read; skipping `Compile_WriteWasmArtifacts` avoids
-      // creating an empty `.synctex.gz` placeholder.
+      // SyncTeX CLI to read; no `.synctex.gz` placeholder is created.
       return {
         success: output.success,
         pdfBuffer: output.pdf,
@@ -371,8 +403,10 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
     // (the compile call is a single wasm invocation that runs to
     // completion); terminating the worker is the only way to stop it.
     // The next compile pays the cold-init cost (~500ms) again.
+    this.loadGeneration += 1;
     this.engine?.close();
     this.engine = null;
+    this.enginePromise = null;
     this.compileCount = 0;
   }
 
@@ -459,20 +493,32 @@ export class TypstWasmCompilerProvider implements CompilerProvider {
 
 // ====== WASM Compiler Provider (BusyTeX) ======
 
-/** File extensions relevant for LaTeX compilation */
-const TEX_FILE_EXTENSIONS = /\.(tex|bib|sty|cls|bst|def|cfg|fd|bbl|aux|clo|ldf|ltx|dtx|ins)$/i;
-
 /**
- * Map the public Studio engine name to the BusyTeX engine type.
- * The Studio engine ids stay stable across builds; the BusyTeX driver
- * names live behind {@link BusyTexEngine}.
+ * Map the public Studio engine name to the BusyTeX driver. The engine itself
+ * is a combined build — the driver is a per-compile parameter.
  */
-const WASM_ENGINE_MAP: Record<string, BusyTexEngineType> = {
-  'wasm-pdftex': 'pdftex',
-  'wasm-xetex': 'xetex',
-  'wasm-lualatex': 'lualatex',
+const BUSYTEX_DRIVER_MAP: Record<string, string> = {
+  'wasm-pdftex': 'pdftex_bibtex8',
+  'wasm-xetex': 'xetex_bibtex8_dvipdfmx',
+  'wasm-lualatex': 'luahbtex_bibtex8',
 };
 
+/**
+ * Provider for the BusyTeX engine, which runs in a dedicated Electron
+ * UtilityProcess (see `src/main/busytex-process/`).
+ *
+ * Responsibilities split at the process boundary:
+ *   - THIS side (renderer): sends the editor buffer (it may hold unsaved
+ *     changes) plus absolute paths, and maps the result.
+ *   - THE ENGINE side (utility): stages sources and figures from disk, runs
+ *     the pipeline, and writes the PDF and `.synctex.gz` straight into the
+ *     project directory — neither the project's files nor the artifact cross
+ *     an IPC boundary, and the Emscripten heap never grows in the renderer.
+ *
+ * Phases: staging is emitted here; pass/package phases are parsed from the
+ * engine's stdout prints in the main process and arrive via
+ * `Compile_Progress` (CompileService merges them into the same stream).
+ */
 export class WASMCompilerProvider implements CompilerProvider {
   readonly id = 'busytex-wasm';
   readonly name = 'BusyTeX (WASM)';
@@ -480,24 +526,13 @@ export class WASMCompilerProvider implements CompilerProvider {
   readonly priority = 8;
   readonly isRemote = false;
 
-  /**
-   * Single combined-build engine for the lifetime of the provider. The
-   * BusyTeX wasm carries all three drivers (pdftex/xetex/lualatex), so
-   * switching engines is a per-compile parameter, not a worker rebuild
-   * — see {@link BusyTexEngine}'s class doc.
-   */
-  private engine: BusyTexEngine | null = null;
-  // The engine currently running loadEngine(), before it's committed to
-  // `this.engine`. Tracked so cancel() can abort a cold start too.
-  private loadingEngine: BusyTexEngine | null = null;
-
   async compile(
     filePath: string,
     content: string,
     options: CompilerOptions
   ): Promise<CompileResult> {
-    const engineType = WASM_ENGINE_MAP[options.engine ?? ''];
-    if (!engineType) {
+    const driver = BUSYTEX_DRIVER_MAP[options.engine ?? ''];
+    if (!driver) {
       return {
         success: false,
         errors: [`Unsupported WASM engine: ${options.engine}`],
@@ -505,92 +540,67 @@ export class WASMCompilerProvider implements CompilerProvider {
       };
     }
 
-    logger.info('Starting WASM compile', { engine: engineType, file: filePath });
+    logger.info('Starting WASM compile', { engine: options.engine, file: filePath });
+
+    const emitPhase = (stage: 'staging', message: string): void => {
+      options.onPhase?.({ engine: 'latex', stage, message });
+    };
 
     try {
-      // Lazy-init on first use; commit only after loadEngine() resolves
-      // so a failed init doesn't park a non-ready engine in the cache
-      // (every retry would then skip init and throw "not ready").
-      if (!this.engine) {
-        const engine = new BusyTexEngine();
-        this.loadingEngine = engine;
-        try {
-          await engine.loadEngine();
-          this.engine = engine;
-        } finally {
-          this.loadingEngine = null;
-        }
-      }
+      // The engine process stages sources and figures from disk next to
+      // itself; only this buffer (which may hold unsaved changes) is sent.
+      emitPhase('staging', 'Staging project files');
+      const mainFileAbs = options.mainFile || filePath;
+      const baseName = stripExtension(basename(mainFileAbs)) || 'main';
 
       const settings = getSettingsService().getSettings().compiler;
       // Fall back to the default endpoint when the setting is blank. A fresh
       // install ships the default, so an empty value almost always means the
-      // field got cleared by accident (not a deliberate "disable remote") —
-      // and with no endpoint, WASM CJK silently dies with "ctex.sty not found"
-      // because ctex/xeCJK/fonts can't be fetched. Defaulting keeps it working.
-      this.engine.setTexliveEndpoint(settings.texliveEndpoint?.trim() || DEFAULT_TEXLIVE_ENDPOINT);
+      // field got cleared by accident — and with no endpoint, WASM CJK dies
+      // with "ctex.sty not found". Defaulting keeps it working.
+      const endpoint = settings.texliveEndpoint?.trim() || DEFAULT_TEXLIVE_ENDPOINT;
 
-      // CJK note: scipen no longer mounts private fonts or injects a shim.
-      // Chinese documents use standard `\usepackage{ctex}`; ctex/xeCJK and
-      // the fonts are resolved from the TeX Live tree — served on demand by
-      // the remote endpoint. The BusyTeX worker caches fetched files for the
-      // lifetime of the worker (in /tmp/texlive_remote + kpse cache), so a
-      // second CJK compile in the same session doesn't re-download. Only the
-      // first CJK compile after an app launch pays the network cost.
-      // This keeps the user's source portable to any standard toolchain.
-
-      // Each compile gets a fresh in-memory FS (BusyTeX semantics);
-      // flushWorkDir just resets the renderer-side staging list.
-      this.engine.flushWorkDir();
-
-      // Stage project sources into the worker FS.
-      const stageT0 = performance.now();
-      await this.writeProjectFiles(filePath, content, options);
-      logger.info('WASM stage done', {
-        stageMs: Math.round(performance.now() - stageT0),
+      const result = await api.compile.busyTeXCompile({
+        projectRoot: options.projectPath || undefined,
+        mainFileAbs,
+        overlay: { absPath: filePath, contents: content },
+        driver,
+        endpoint,
+        outputDir: dirname(mainFileAbs),
+        baseName,
       });
 
-      const mainFileName = this.resolveMainFile(filePath, options);
-      this.engine.setMainFile(mainFileName);
+      if (result.cancelled) {
+        // Stop button / engine teardown — neutral outcome, not a failure.
+        logger.info('WASM compilation cancelled');
+        return { success: false, cancelled: true, errors: [], log: '' };
+      }
 
-      const result = await this.engine.compile({ engineType });
+      // The TeX log is the authoritative error signal (see parseTeXLogErrors):
+      // the engine's exit code only mirrors the last driver step.
       const parsedErrors = parseTeXLogErrors(result.log ?? '');
 
       if (!result.success) {
+        // Error priority: real TeX errors from the log, then whatever the
+        // engine process reported (timeouts, crashes), then the legacy scan.
+        // The handler's generic "Compilation failed" must not mask the first.
         return {
           success: false,
           log: result.log,
           errors:
             parsedErrors.length > 0
               ? parsedErrors.map((e) => e.message)
-              : this.parseErrors(result.log),
+              : result.errors.length > 0
+                ? result.errors
+                : this.parseErrors(result.log),
           parsedErrors: parsedErrors.length > 0 ? parsedErrors : undefined,
           warnings: this.parseWarnings(result.log),
         };
       }
 
-      // Persist the WASM output (PDF + .synctex.gz) to the project directory
-      // — the same path the local compiler writes to ({projectDir}/{baseName}.pdf)
-      // — so the on-disk PDF is the single source of truth. A failure here is
-      // a real error and propagates to the outer catch.
-      const baseName = stripExtension(basename(mainFileName)) || 'main';
-      const mainFileAbs = options.mainFile || filePath;
-      const outputDir = dirname(mainFileAbs);
-      const writeT0 = performance.now();
-      const artifacts = await api.compile.writeWasmArtifacts(
-        result.pdf!,
-        result.synctex ?? new Uint8Array(),
-        baseName,
-        outputDir,
-        result.log
-      );
-      logger.info('WASM artifacts persisted', {
-        writeMs: Math.round(performance.now() - writeT0),
-      });
-
       // Exit code 0 but the log still carries TeX errors (halt-on-error
-      // partial output): keep the artifacts (the partial PDF is on disk and
-      // referenced), but the compile MUST be reported as failed so the UI
+      // partial output): the engine process has already written the partial
+      // PDF to disk, so keep pointing at it — but report failure so the UI
       // surfaces the errors instead of a clean "OK" over truncated output.
       if (parsedErrors.length > 0) {
         logger.warn('WASM compile: engine exit 0 but TeX log contains errors', {
@@ -599,8 +609,8 @@ export class WASMCompilerProvider implements CompilerProvider {
         });
         return {
           success: false,
-          pdfPath: artifacts.pdfPath,
-          synctexPath: result.synctex ? artifacts.synctexPath : undefined,
+          pdfPath: result.pdfPath,
+          synctexPath: result.synctexPath,
           log: result.log,
           errors: parsedErrors.map((e) => e.message),
           parsedErrors,
@@ -610,18 +620,14 @@ export class WASMCompilerProvider implements CompilerProvider {
 
       return {
         success: true,
-        pdfPath: artifacts.pdfPath,
-        synctexPath: result.synctex ? artifacts.synctexPath : undefined,
+        pdfPath: result.pdfPath,
+        synctexPath: result.synctexPath,
         log: result.log,
         warnings: this.parseWarnings(result.log),
       };
     } catch (error) {
-      // A user cancel (stop button) isn't a failure — surface it neutrally so
-      // the log/markers don't show a red error.
-      if (error instanceof BusyTexCancelledError) {
-        logger.info('WASM compilation cancelled');
-        return { success: false, cancelled: true, errors: [], log: '' };
-      }
+      // Cancellation arrives as `result.cancelled` above (the engine process
+      // maps teardown to a neutral result), so anything thrown here is real.
       const message = getErrorMessage(error);
       logger.error('WASM compilation failed', { error: message });
       return {
@@ -633,60 +639,29 @@ export class WASMCompilerProvider implements CompilerProvider {
   }
 
   canHandle(_filePath: string, options?: CompilerOptions): boolean {
-    return options?.engine !== undefined && options.engine in WASM_ENGINE_MAP;
+    return options?.engine !== undefined && options.engine in BUSYTEX_DRIVER_MAP;
   }
 
+  /** Warm the engine process (loads wasm + data packages off the hot path). */
   /**
-   * Stage all project sources into the worker FS verbatim. Current file uses
-   * the (possibly unsaved) editor content; siblings are batch-read from disk.
-   * Paths are project-relative so BusyTeX reconstructs the source tree;
-   * parent directories are created implicitly by the virtual filesystem.
-   *
-   * No source mutation happens here: CJK support is the document's own
-   * responsibility (standard `\usepackage{ctex}`), kept portable by design.
+   * Warm the engine process off the hot path. With a project, the engine
+   * also mounts the TeX Live data packages that project used last time — for
+   * CJK documents that is the ~324 MB package otherwise loaded by the first
+   * compile.
    */
-  private async writeProjectFiles(
-    currentFilePath: string,
-    content: string,
-    options: CompilerOptions
-  ): Promise<void> {
-    const engine = this.engine!;
-    const projectPath = options.projectPath;
-    const currentRelativePath = this.toWasmRelativePath(currentFilePath, projectPath);
-
-    await engine.writeFile(currentRelativePath, content);
-
-    if (!projectPath) return;
-
-    const scanResult = await api.file.scanFilePaths(projectPath);
-    if (!scanResult.success || !scanResult.paths) return;
-
-    const texFiles = scanResult.paths.filter((p) => TEX_FILE_EXTENSIONS.test(p));
-    if (texFiles.length === 0) return;
-
-    const batchResult = await api.file.batchRead(texFiles);
-
-    for (const [absolutePath, fileContent] of Object.entries(batchResult)) {
-      const relativePath = this.toWasmRelativePath(absolutePath, projectPath);
-      if (relativePath === currentRelativePath) continue;
-      await engine.writeFile(relativePath, fileContent);
+  async prewarm(ctx?: { projectPath?: string }): Promise<void> {
+    try {
+      await api.compile.busyTeXPrepare(ctx?.projectPath);
+    } catch {
+      // Intentionally silent — a failed prewarm must stay invisible and let
+      // the real compile surface the problem.
     }
   }
 
-  private resolveMainFile(filePath: string, options: CompilerOptions): string {
-    const mainFilePath = options.mainFile || filePath;
-    return this.toWasmRelativePath(mainFilePath, options.projectPath);
-  }
-
-  private toWasmRelativePath(filePath: string, projectPath?: string): string {
-    const normalizedFilePath = filePath.replace(/\\/g, '/');
-    const normalizedProjectPath = projectPath?.replace(/\\/g, '/').replace(/\/$/, '');
-
-    if (normalizedProjectPath && normalizedFilePath.startsWith(`${normalizedProjectPath}/`)) {
-      return normalizedFilePath.slice(normalizedProjectPath.length + 1);
-    }
-
-    return normalizedFilePath.split('/').pop() || 'main.tex';
+  cancel(): void {
+    // Fire-and-forget: the engine process is torn down; a compile in flight
+    // rejects and surfaces as a neutral "cancelled" result.
+    void api.compile.busyTeXCancel();
   }
 
   private parseErrors(log: string): string[] {
@@ -709,14 +684,6 @@ export class WASMCompilerProvider implements CompilerProvider {
       }
     }
     return warnings;
-  }
-
-  cancel(): void {
-    // Abort a cold start in progress as well as a running compile.
-    this.loadingEngine?.close();
-    this.loadingEngine = null;
-    this.engine?.close();
-    this.engine = null;
   }
 }
 

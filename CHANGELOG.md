@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] — 2026-11-28
+
+A major BusyTeX engine, CJK offline compilation, project workflow, and security hardening release.
+
+### Added
+
+- **BusyTeX engine isolated in an Electron UtilityProcess** — moves the ~300 MB Emscripten heap out of the renderer and writes `.pdf`, `.synctex.gz`, and `.log` directly to disk in the engine process so PDF bytes no longer cross IPC. Includes 10-minute idle release (deferred under active compiles), crash vs. intentional-stop classification, and live compilation phase streaming.
+- **Bundled offline CJK data package (`ctex`, `xeCJK`, Fandol fonts)** — assembles `texlive-cjk.{js,data}` alongside base BusyTeX assets and mounts it on demand when staged sources use CJK packages, eliminating first-compile network delays while keeping non-CJK compiles isolated.
+- **System-font clones baked into engine data packages** — allows standard `pdf2tex`-scale academic documents to compile out of the box without manual font setup.
+- **Incremental WASM LaTeX compiles.** After a clean compile the engine keeps the files TeX writes for itself (`.aux`, `.toc`, `.out`, `.bbl`, list files …) and feeds them into the next compile, so editing and recompiling usually takes **one** typesetting pass instead of three or four. Measured on a 200-page CJK book: 25.4 s → about 5 s per edit-and-compile; stays warm across engine idle-release and app restarts. If carried files might be the reason a compile fails, it is retried once without them automatically. _Settings → Compiler → Clear build cache_ is the manual escape hatch.
+- **Project starter templates & editor polish** — ships `article`, `ieee` (with bundled `IEEEtran.bst` for offline BibTeX), `thesis`, and `beamer` templates with atomic sibling-directory staging and localized error reporting, plus live status-bar prose word counts, toast notifications, and an agent-sidecar status banner.
+- **Clear TeX Live not-found records** — a new row under _Settings → Compiler_ showing how much the WASM fetch cache holds (packages, size, not-found records) with a button to drop just the not-found records while keeping downloaded packages. Declines while a compile is running rather than pulling the cache out from under it.
+
+### Changed
+
+- **WASM LaTeX runs only the passes TeX actually needs.** Replaces error-prone log-grep heuristics (`rerunfilecheck` false positives that forced four passes on every `hyperref` document) with artifact-fingerprint convergence matching latexmk, and drops redundant closing passes on pdfLaTeX and LuaLaTeX. Output is byte-identical.
+- **The engine reads the project from disk itself.** Only the editor buffer crosses IPC instead of shipping every source and figure through the renderer, eliminating ~80 MB IPC copies and the 2,000-file limit on figure-heavy projects.
+- **Projects that need extra TeX Live packages warm them in the background.** On project open, previously used packages mount alongside engine startup instead of stalling the first compile.
+- **Persistent 404 miss cache and clean endpoint switching.** `.miss` markers persist like `.bin` packages (with immutable snapshot short-circuiting for known missing paths), and switching TeX Live mirror endpoints resets `KPSE_REMOTE` and `/tmp/texlive_remote` inside the running UtilityProcess.
+- **Documentation & benchmarks synced.** Updated READMEs (EN + zh-CN) and user/developer guides with measured cold/warm/CJK offline BusyTeX timings and offline verification workflows.
+
+### Fixed
+
+- **Failed TeX passes and post-processors can no longer report green or poison caches.** `--halt-on-error` TeX passes stop immediately while keeping the partial PDF viewable; non-zero raw exit codes from `bibtex8`, `makeindex`, and `xdvipdfmx` propagate even when BusyTeX's effective code is 0, preventing conversion and artifact caching on broken runs.
+- **Tool-regenerated `.bbl` / `.ind` files always count as build products** in incremental compiles so stale local `latexmk` `.bbl` outputs no longer freeze updated bibliographies; stale local `.aux` files and the compile's own output PDF are excluded from staging.
+- **Compile pass count resets cleanly per compile**, truncated downloads (disk full / AV quarantine) are never cached as poisoned 0-byte entries, and failed cache metadata writes no longer discard valid cache hits.
+- **Agent sidecar state mirror restored in `AgentClientService`**, fixing renderer typechecking for `useAgentSidecarState` and `AgentStatusSegment`.
+
+### Security
+
+- **Canonical path resolution across project sandboxes.** Added pure-Node `canonicalPath.ts` resolving symlinks and Windows junctions (including non-existent trailing subpaths and dangling links, failing closed on loops or errors) across `PathSecurityService` and `isWithinCurrentProject`.
+- **Unconditional BusyTeX path & output sandbox enforcement.** `Compile_BusyTeX_Compile` unconditionally validates `outputDir`, `mainFileAbs`, `overlay.absPath`, and output artifact paths (`.pdf`, `.synctex.gz`, `.log`), passing `outputSandboxRoot` to the UtilityProcess, which re-verifies containment before and after `mkdirSync` and refuses overwriting symlinked output targets.
+
+### Internal
+
+- **BusyTeX engine host split into focused leaf modules** (`env`, `engineStats`, `hostChannel`, `browserShims`, `remoteFetch`, `workerBridge`, `cjkPackages`).
+- **Automated offline CJK release gate (`npm run verify:busytex`)** verifying all four starter templates offline under pdfTeX and XeTeX plus six live Electron UtilityProcess CJK and endpoint-isolation checks prior to desktop packaging; SNACA Rust toolchain and license packaging hardened.
+
 ## [0.5.2] — 2026-10-14
 
 A code-review hardening release: five review streams landed as twenty commits — dead-code removal, correctness and performance fixes, structural convergence, and an Overleaf-style compile error UX.

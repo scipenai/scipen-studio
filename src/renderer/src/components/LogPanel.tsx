@@ -23,6 +23,7 @@ import {
   getUIService,
   useCompilationLogs,
   useCompilationResult,
+  useCompilePhase,
   useIsCompiling,
 } from '../services/core';
 
@@ -44,6 +45,7 @@ export const LogPanel: React.FC = () => {
 
   const compilationLogs = useCompilationLogs();
   const isCompiling = useIsCompiling();
+  const compilePhase = useCompilePhase();
   const compilationResult = useCompilationResult();
 
   const clearCompilationLogs = () => {
@@ -198,6 +200,17 @@ export const LogPanel: React.FC = () => {
                 borderTopColor: 'transparent',
               }}
             />
+          )}
+          {isCompiling && compilePhase && (
+            <span
+              className="text-xs font-medium truncate max-w-[60%]"
+              style={{ color: 'var(--color-accent)' }}
+              title={compilePhase.message}
+            >
+              {compilePhase.percent != null
+                ? `${compilePhase.message} (${compilePhase.percent}%)`
+                : compilePhase.message}
+            </span>
           )}
           {compilationResult && (
             <span

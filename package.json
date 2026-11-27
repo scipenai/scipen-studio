@@ -1,6 +1,6 @@
 {
   "name": "scipen-studio",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "private": true,
   "engines": {
     "node": ">=20",
@@ -25,9 +25,9 @@
   "scripts": {
     "dev": "npm run copy:public-assets && npm run build:workers && electron-vite dev",
     "build": "npm run prebuild && npm run typecheck:all && electron-vite build && npm run build:workers",
-    "build:win": "npm run prebuild && npm run typecheck:all && electron-vite build && npm run build:workers && electron-builder --win --x64",
-    "build:mac": "npm run prebuild && npm run typecheck:all && electron-vite build && npm run build:workers && electron-builder --mac",
-    "build:linux": "npm run prebuild && npm run typecheck:all && electron-vite build && npm run build:workers && electron-builder --linux",
+    "build:win": "npm run prebuild && npm run typecheck:all && electron-vite build && npm run build:workers && npm run verify:busytex && electron-builder --win --x64",
+    "build:mac": "npm run prebuild && npm run typecheck:all && electron-vite build && npm run build:workers && npm run verify:busytex && electron-builder --mac",
+    "build:linux": "npm run prebuild && npm run typecheck:all && electron-vite build && npm run build:workers && npm run verify:busytex && electron-builder --linux",
     "build:workers": "node scripts/build-workers.js",
     "build:icon": "node scripts/build-icon.mjs",
     "start": "npm run dev",
@@ -49,6 +49,8 @@
     "download:lsp": "npm run download:texlab && npm run download:tinymist && npm run download:marksman",
     "download:busytex": "node scripts/download-busytex-wasm.js",
     "download:busytex:minimal": "node scripts/download-busytex-wasm.js --minimal",
+    "build:busytex-cjk": "node scripts/build-busytex-cjk.js",
+    "verify:busytex": "node scripts/verify-templates.mjs --engine pdftex && node scripts/verify-templates.mjs --engine xetex",
     "download:typst-wasm": "node scripts/download-typst-wasm.js",
     "download:typst-wasm:cjk": "node scripts/download-typst-wasm.js --cjk",
     "download:typst-wasm:no-fonts": "node scripts/download-typst-wasm.js --no-fonts",
@@ -62,7 +64,8 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "setup": "npm install && npm run download:lsp"
+    "setup": "npm install && npm run download:lsp",
+    "bench:busytex": "node scripts/bench/bench-busytex.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.9",

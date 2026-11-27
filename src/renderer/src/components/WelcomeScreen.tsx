@@ -12,12 +12,15 @@ import type { FileNode } from '../types';
 import { OverleafDownloadDialog } from './OverleafDownloadDialog';
 import { WelcomeBackdrop, WelcomeFooter, WelcomeHero, WelcomeRecent, WelcomeTips } from './welcome';
 import { bootstrapExistingProject, type RecentProjectSummary } from './welcomeScreenHelpers';
+import { TemplatePickerDialog } from './welcome/TemplatePickerDialog';
+import { openFileInEditor } from '../services/core/FileOpenService';
 
 export const WelcomeScreen: React.FC = () => {
   const { t } = useTranslation();
 
   const [recentProjects, setRecentProjects] = useState<RecentProjectSummary[]>([]);
   const [showRemoteDialog, setShowRemoteDialog] = useState(false);
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
   const [isOpeningProject, setIsOpeningProject] = useState(false);
   const [openingRecentPath, setOpeningRecentPath] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string>('');
@@ -69,6 +72,22 @@ export const WelcomeScreen: React.FC = () => {
     }
   };
 
+  const handleTemplateCreated = async (result: {
+    projectPath: string;
+    mainFile: string;
+    fileTree: unknown;
+  }): Promise<void> => {
+    try {
+      await bootstrapExistingProject(result.projectPath, result.fileTree as FileNode);
+      // Open the template's entry file so the user lands on content rather
+      // than an empty editor next to a populated file tree.
+      const separator = result.projectPath.includes('\\') ? '\\' : '/';
+      await openFileInEditor(`${result.projectPath}${separator}${result.mainFile}`);
+    } catch (error) {
+      console.error('Failed to open project created from template:', error);
+    }
+  };
+
   const handleOpenRecentProject = async (project: RecentProjectSummary) => {
     if (isOpeningAnyProject) return;
     if (!api.project.openByPath) {
@@ -111,6 +130,9 @@ export const WelcomeScreen: React.FC = () => {
           onOpenRemote={() => {
             setShowRemoteDialog(true);
           }}
+          onNewFromTemplate={() => {
+            setShowTemplateDialog(true);
+          }}
         />
 
         {/* Right Column */}
@@ -136,6 +158,11 @@ export const WelcomeScreen: React.FC = () => {
 
       {/* Overleaf download dialog (local-first mode) */}
       <OverleafDownloadDialog open={showRemoteDialog} onClose={() => setShowRemoteDialog(false)} />
+      <TemplatePickerDialog
+        open={showTemplateDialog}
+        onClose={() => setShowTemplateDialog(false)}
+        onCreated={(result) => void handleTemplateCreated(result)}
+      />
     </motion.div>
   );
 };
