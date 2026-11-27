@@ -1,6 +1,6 @@
 # SciPen Studio User Guide
 
-> **Version:** 0.5.2+
+> **Version:** 0.5.3+
 > **Last updated:** 2026-11-28
 
 **English** · [简体中文](USER_GUIDE.zh-CN.md)
