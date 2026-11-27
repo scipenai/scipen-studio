@@ -17,6 +17,68 @@ import { browserGlobals } from './browserShims';
 import { stats } from './engineStats';
 import { SYNC_FETCH_TIMEOUT_S, TEXLIVE_CACHE_DIR, WASM_ASSETS_DIR, resolveAssetPath } from './env';
 
+const DEFAULT_SNAPSHOT_HOST = 'texlive2026.texlyre.org';
+const BUILD_ARTIFACT_RE =
+  /\.(aux|toc|out|lof|lot|nav|snm|vrb|bbl|blg|idx|ind|ilg|log|fls|fdb_latexmk|xdv|pdf|bcf|run\.xml|synctex\.gz)$/i;
+const BUNDLED_FANDOL_FONTSPEC_MISSES = new Set([
+  'fandolsong-regular.fontspec',
+  'fandolsong-bold.fontspec',
+  'fandolhei-regular.fontspec',
+  'fandolhei-bold.fontspec',
+  'fandolkai-regular.fontspec',
+  'fandolfang-regular.fontspec',
+]);
+const SNAPSHOT_OPTIONAL_SIDECAR_MISSES = new Set([
+  'hyperref.cfg',
+  'rerunfilecheck.cfg',
+  'gettitlestring.cfg',
+  'pd1enc.dfu',
+  'puenc.dfu',
+]);
+
+/**
+ * Identify remote probes guaranteed to 404 on the pinned TeX Live 2026
+ * snapshot (`https://texlive2026.texlyre.org` on the default HTTPS port).
+ * Strictly scoped to that host/protocol/port so user-configured mirrors are
+ * never short-circuited.
+ */
+export function isGuaranteedRemoteMiss(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (
+    parsed.protocol !== 'https:' ||
+    parsed.hostname.toLowerCase() !== DEFAULT_SNAPSHOT_HOST ||
+    (parsed.port !== '' && parsed.port !== '443')
+  ) {
+    return false;
+  }
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (segments.length < 2) return false;
+  let name: string;
+  try {
+    name = decodeURIComponent(segments[segments.length - 1]);
+  } catch {
+    return false;
+  }
+  const format = segments[segments.length - 2];
+  if (!/^\d+$/.test(format) || !name) return false;
+
+  if (BUILD_ARTIFACT_RE.test(name)) return true;
+  const lower = name.toLowerCase();
+  if (format === '26') {
+    if (BUNDLED_FANDOL_FONTSPEC_MISSES.has(lower)) return true;
+    if (SNAPSHOT_OPTIONAL_SIDECAR_MISSES.has(lower)) return true;
+  }
+  if (format === '20' && /^cm[a-z]+\d+\.ofm$/i.test(name)) return true;
+  if (format === '33' && /^cm[a-z]+\d+\.vf$/i.test(name)) return true;
+  if ((format === '39' || format === '45') && /^cm[a-z]+\d+$/i.test(name)) return true;
+  return false;
+}
+
 /**
  * Counted wrapper around {@link lookupCacheEntry}. Lookups are themselves an
  * IO cost worth measuring: each one is a `stat` plus (on a hit) a full read,
@@ -119,6 +181,11 @@ class XMLHttpRequestShim {
         if (hit) {
           this.status = hit.status;
           this.finish(hit.body);
+          return;
+        }
+        if (isGuaranteedRemoteMiss(this.url)) {
+          this.status = 404;
+          this.finish(Buffer.alloc(0));
           return;
         }
         // curl does not create parent directories — a missing cache dir would
@@ -237,6 +304,10 @@ function curlFetch(
     const hit = cacheLookup(url);
     if (hit) {
       resolve({ status: hit.status, body: hit.body });
+      return;
+    }
+    if (isGuaranteedRemoteMiss(url)) {
+      resolve({ status: 404, body: Buffer.alloc(0) });
       return;
     }
     try {

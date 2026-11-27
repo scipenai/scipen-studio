@@ -60,6 +60,7 @@ import { FINAL_FOR_ALL_PASSES, type PassTrace, installPassPolicy } from './passP
 import { ProjectStager } from './projectStager';
 import { installNetworkShims } from './remoteFetch';
 import { installWorkerBridge, setPrintListener, workerCall } from './workerBridge';
+import { CJK_PACKAGE_URL, needsCjkPackage } from './cjkPackages';
 
 if (!WASM_ASSETS_DIR) {
   process.stderr.write('[busytex-process] WASM_ASSETS_DIR not set — cannot start\n');
@@ -97,11 +98,28 @@ function reportStats(phase: 'load' | 'compile', timings: Record<string, unknown>
   emitEvent('stats', { phase, ...timings, ...resetStats() });
 }
 
+/** Emscripten module surface touched by the host (filesystem, ENV, remote cache reset). */
+interface PipelineModule {
+  FS?: ArtifactFs & {
+    unlink?: (path: string) => void;
+  };
+  data_packages_js?: unknown[];
+  ENV?: Record<string, string>;
+  kpse_remote_clear?: () => void;
+}
+
 /** The parts of the upstream pipeline instance (`self.pipeline`) the host reads. */
 interface PipelineInstance {
   scipen_last_trace?: PassTrace;
   project_dir?: string;
-  Module?: Promise<{ FS?: ArtifactFs; data_packages_js?: unknown[] } | null> | null;
+  env?: Record<string, string>;
+  Module?: Promise<PipelineModule | null> | null;
+  reload_module_if_needed?: (
+    cond: boolean,
+    env: Record<string, string>,
+    projectDir: string,
+    dataPackagesJs: string[]
+  ) => Promise<PipelineModule | null>;
 }
 
 function pipelineInstance(): PipelineInstance | undefined {
@@ -158,10 +176,11 @@ function handleLoad(params: { projectRoot?: string } = {}): Promise<{ loaded: tr
 
     // The init frame makes the pipeline fetch + instantiate busytex.wasm
     // and mount the preloaded TeX Live data packages (~120 MB, once per
-    // process). The catalog list is kept for compiles: the package resolver
-    // maps missing files (ctexart.cls, …) to remote data packages through
-    // it — without it, every non-preloaded package fails "file not found".
+    // process). baseCatalogList excludes the CJK pack so non-CJK resolver
+    // fallbacks stay isolated; CJK compiles mount catalogList explicitly.
     catalogList = manifestList('catalog');
+    baseCatalogList = catalogList.filter((u) => u !== CJK_PACKAGE_URL);
+    activeEndpoint = null;
     // Mount what this project needed last time in the same instantiation:
     // otherwise its first compile re-instantiates the module to add them
     // (~2.7 s for the 324 MB texlive-extra). Only catalog members are
@@ -175,7 +194,7 @@ function handleLoad(params: { projectRoot?: string } = {}): Promise<{ loaded: tr
         busytex_js: 'scipen-wasm://busytex/busytex.js',
         busytex_wasm: 'scipen-wasm://busytex/busytex.wasm',
         preload_data_packages_js: preloadPackages,
-        data_packages_js: catalogList,
+        data_packages_js: baseCatalogList,
         texmf_local: [],
         preload: true,
       },
@@ -209,8 +228,83 @@ function manifestList(kind: 'preload' | 'catalog'): string[] {
   return (manifest[kind] ?? []).map((n) => `scipen-wasm://busytex/${n}`);
 }
 
-/** Catalog captured at load time; every compile passes it to the resolver. */
+/** Full catalog captured at load time (includes optional CJK pack). */
 let catalogList: string[] = [];
+/** Base catalog exposed to upstream's resolver fallback (excludes CJK pack). */
+let baseCatalogList: string[] = [];
+/** Guard serializing compile runs across async CJK mounting and worker calls. */
+let compileInFlight = false;
+/** Last TEXLIVE_REMOTE_ENDPOINT configured on the live Emscripten module. */
+let activeEndpoint: string | null = null;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+      timeoutMs
+    );
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
+async function ensureCjkCatalogMounted(wantCjk: boolean, timeoutMs: number): Promise<void> {
+  if (!wantCjk) return;
+  const instance = pipelineInstance();
+  if (!instance?.reload_module_if_needed || !instance.env || !instance.project_dir) {
+    return;
+  }
+  try {
+    const nextModule = instance.reload_module_if_needed(
+      false,
+      instance.env,
+      instance.project_dir,
+      catalogList
+    );
+    const mounted = await withTimeout(nextModule, timeoutMs, 'CJK data package mount');
+    instance.Module = Promise.resolve(mounted);
+  } catch (err) {
+    pipelineReady = false;
+    setTimeout(() => process.exit(1), 50);
+    throw err;
+  }
+}
+
+async function syncRemoteEndpoint(endpoint: string, timeoutMs: number): Promise<void> {
+  const modPromise = pipelineInstance()?.Module;
+  const module = modPromise
+    ? await withTimeout(Promise.resolve(modPromise), timeoutMs, 'module resolve')
+    : null;
+  if (!module) return;
+  if (activeEndpoint !== null && activeEndpoint !== endpoint) {
+    module.kpse_remote_clear?.();
+    const fsApi = module.FS;
+    if (fsApi?.analyzePath?.('/tmp/texlive_remote')?.exists && fsApi.readdir && fsApi.unlink) {
+      try {
+        for (const entry of fsApi.readdir('/tmp/texlive_remote')) {
+          if (entry === '.' || entry === '..') continue;
+          const full = `/tmp/texlive_remote/${entry}`;
+          try {
+            const st = fsApi.stat(full);
+            if (!fsApi.isDir(st.mode)) {
+              fsApi.unlink(full);
+            }
+          } catch {
+            /* best effort per entry */
+          }
+        }
+      } catch {
+        /* best effort */
+      }
+    }
+  }
+  if (module.ENV) {
+    module.ENV.TEXLIVE_REMOTE_ENDPOINT = endpoint;
+  }
+  activeEndpoint = endpoint;
+}
 
 function manifestVersion(): string {
   try {
@@ -237,6 +331,10 @@ async function handleCompile(params: CompileFlowParams): Promise<{
   if (!pipelineReady) {
     throw new Error('engine not loaded — call load first');
   }
+  if (compileInFlight) {
+    throw new Error('engine busy — another call is in flight');
+  }
+  compileInFlight = true;
   const totalT0 = performance.now();
   resetStats();
   let flow: CompileFlowResult | undefined;
@@ -277,6 +375,7 @@ async function handleCompile(params: CompileFlowParams): Promise<{
 
     return { exitCode, pdfPath, synctexPath, log };
   } finally {
+    compileInFlight = false;
     const trace = flow?.trace;
     reportStats('compile', {
       totalMs: Math.round(performance.now() - totalT0),
@@ -300,8 +399,17 @@ async function handleCompile(params: CompileFlowParams): Promise<{
 function compileFlowDeps(params: CompileFlowParams): CompileFlowDeps {
   return {
     stage: (request) => stager.stage(request),
-    run: async (files, mainFile, timeoutMs) =>
-      (await workerCall(
+    run: async (files, mainFile, timeoutMs) => {
+      const runDeadline = performance.now() + timeoutMs;
+      const wantCjk = catalogList.includes(CJK_PACKAGE_URL) && needsCjkPackage(files);
+      await ensureCjkCatalogMounted(wantCjk, timeoutMs);
+      const beforeSyncRemaining = Math.max(1, Math.round(runDeadline - performance.now()));
+      await syncRemoteEndpoint(params.endpoint, beforeSyncRemaining);
+      const remainingMs = Math.round(runDeadline - performance.now());
+      if (remainingMs <= 0) {
+        throw new Error(`compile timed out after ${timeoutMs}ms before worker dispatch`);
+      }
+      return (await workerCall(
         {
           files,
           main_tex_path: mainFile,
@@ -310,14 +418,15 @@ function compileFlowDeps(params: CompileFlowParams): CompileFlowDeps {
           rerun: null,
           verbose: 'silent',
           driver: params.driver,
-          // The package resolver maps missing files to remote data packages via
-          // this catalog — an empty list makes every non-preloaded package
-          // (ctex, …) fail with "file not found".
-          data_packages_js: catalogList,
+          // Always pass baseCatalogList: for CJK docs, full catalogList
+          // (extra + cjk) is mounted via ensureCjkCatalogMounted above; for
+          // non-CJK docs, this isolates texlive-cjk.js from resolver fallbacks.
+          data_packages_js: baseCatalogList,
           remote_endpoint: params.endpoint,
         },
-        timeoutMs
-      )) as CompileFrame,
+        remainingMs
+      )) as CompileFrame;
+    },
     takeTrace: takePassTrace,
     collectArtifacts: async (sources) => {
       // The project dir stays mounted until the next compile remounts it, so
