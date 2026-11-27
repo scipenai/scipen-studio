@@ -18,10 +18,11 @@
  *              the upstream README recommends.
  *
  * Usage:
- *   node scripts/download-busytex-wasm.js [--minimal] [--force]
- *     --minimal  Skip texlive-extra (~325 MB saving; needs remoteEndpoint
- *                fallback for non-basic packages at compile time)
- *     --force    Re-download even if files exist
+ *   node scripts/download-busytex-wasm.js [--minimal] [--force] [--skip-cjk]
+ *     --minimal   Skip texlive-extra and texlive-cjk (~325 MB saving; needs
+ *                 remoteEndpoint fallback for non-basic packages at compile time)
+ *     --skip-cjk  Skip building texlive-cjk even in full mode
+ *     --force     Re-download / rebuild even if files exist
  *
  * Destination: public/wasm/busytex/
  */
@@ -32,6 +33,7 @@ import { fileURLToPath } from 'url';
 import { spawn, spawnSync } from 'child_process';
 import { applyPipelinePatch } from './patch-busytex-pipeline.js';
 import { applyFontPatch } from './patch-busytex-fonts.js';
+import { buildCjkPackage } from './build-busytex-cjk.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -67,24 +69,23 @@ const BASIC_FILES = ['busytex/texlive-basic.js', 'busytex/texlive-basic.data'];
 
 const EXTRA_FILES = ['busytex/texlive-extra.js', 'busytex/texlive-extra.data'];
 
-// ====== Argument Parsing ======
-
-const args = process.argv.slice(2);
-const minimal = args.includes('--minimal');
-const force = args.includes('--force');
-
-const wantedTarPaths = [
-  ...CORE_FILES,
-  ...BASIC_FILES,
-  ...(minimal ? [] : EXTRA_FILES),
-];
-
 // ====== Main ======
 
-(async () => {
+async function main() {
+  const args = process.argv.slice(2);
+  const minimal = args.includes('--minimal');
+  const force = args.includes('--force');
+  const skipCjk = args.includes('--skip-cjk');
+
+  const wantedTarPaths = [
+    ...CORE_FILES,
+    ...BASIC_FILES,
+    ...(minimal ? [] : EXTRA_FILES),
+  ];
+
   console.log('BusyTeX WASM downloader');
   console.log(`  Source : ${TARBALL_URL}`);
-  console.log(`  Mode   : ${minimal ? 'minimal (core + basic, ~118 MB)' : 'full (core + basic + extra, ~445 MB)'}`);
+  console.log(`  Mode   : ${minimal ? 'minimal (core + basic, ~118 MB)' : 'full (core + basic + extra + cjk)'}`);
   console.log(`  Dest   : ${DEST_DIR}\n`);
 
   if (!fs.existsSync(DEST_DIR)) fs.mkdirSync(DEST_DIR, { recursive: true });
@@ -96,9 +97,6 @@ const wantedTarPaths = [
   const targets = wantedTarPaths.map((p) => path.join(DEST_DIR, path.basename(p)));
   if (!force && targets.every((t) => fs.existsSync(t))) {
     console.log('✓ All required files already present, skipping download.');
-    // Manifest reflects current `--minimal`↔full mode; refresh on every
-    // run so a toggle is picked up even without re-downloading the tarball.
-    writeManifest(DEST_DIR, minimal);
     // The pipeline is a vendored upstream asset — re-assert our local
     // patches here too, or a fresh clone's first prebuild would ship the
     // unpatched engine until the next re-download.
@@ -109,49 +107,54 @@ const wantedTarPaths = [
     if (!applyFontPatch(DEST_DIR)) {
       console.warn('⚠️  FONT BAKE SKIPPED — pdf2tex documents referencing system font names (SimSun, Times New Roman, …) will fail to compile until this succeeds.');
     }
+    assertCjkBuilt(DEST_DIR, { force, minimal, skipCjk });
+    // Manifest reflects current `--minimal`/`--skip-cjk` state LAST after
+    // all packages (including texlive-cjk) are in place.
+    writeManifest(DEST_DIR, minimal, skipCjk);
     return;
   }
 
-  try {
-    // Reuse a cached tarball if it looks complete. We can't verify a
-    // checksum (the release doesn't publish one), so size is the only
-    // proxy — a partial download would be smaller than the published
-    // ~480 MB and warrants a retry.
-    const MIN_TARBALL_SIZE = 400 * 1024 * 1024; // 400 MB safety floor below the 480 MB release
-    const hasCachedTarball =
-      !force &&
-      fs.existsSync(TARBALL_CACHE_PATH) &&
-      fs.statSync(TARBALL_CACHE_PATH).size > MIN_TARBALL_SIZE;
+  // Reuse a cached tarball if it looks complete. We can't verify a
+  // checksum (the release doesn't publish one), so size is the only
+  // proxy — a partial download would be smaller than the published
+  // ~480 MB and warrants a retry.
+  const MIN_TARBALL_SIZE = 400 * 1024 * 1024; // 400 MB safety floor below the 480 MB release
+  const hasCachedTarball =
+    !force &&
+    fs.existsSync(TARBALL_CACHE_PATH) &&
+    fs.statSync(TARBALL_CACHE_PATH).size > MIN_TARBALL_SIZE;
 
-    if (hasCachedTarball) {
-      console.log(`✓ Using cached tarball (${formatMB(fs.statSync(TARBALL_CACHE_PATH).size)})`);
-    } else {
-      await downloadTarball(TARBALL_URL, TARBALL_CACHE_PATH);
-    }
-    extractSelective(TARBALL_CACHE_PATH, DEST_DIR, wantedTarPaths);
-    writeManifest(DEST_DIR, minimal);
-    assertPipelinePatched();
-    // Font bake is network-bound (downloads ~8MB of fonts on first run) and
-    // re-runs are no-ops; failures are fail-open (the engine compiles fine
-    // without it — documents using system-font names just won't).
-    if (!applyFontPatch(DEST_DIR)) {
-      console.warn('⚠️  FONT BAKE SKIPPED — pdf2tex documents referencing system font names (SimSun, Times New Roman, …) will fail to compile until this succeeds.');
-    }
-    console.log(`\n✓ Done. Extracted ${wantedTarPaths.length} files into ${DEST_DIR}`);
-    console.log(`  (tarball cached at ${TARBALL_CACHE_PATH} for future re-extracts)`);
-  } catch (err) {
-    throw err;
-  }
-})().catch((err) => {
-  console.error(`\n✗ Failed: ${err.message}`);
-  if (process.env.HTTPS_PROXY || process.env.HTTP_PROXY) {
-    console.error(`  (proxy env: HTTPS_PROXY=${process.env.HTTPS_PROXY || '<unset>'})`);
+  if (hasCachedTarball) {
+    console.log(`✓ Using cached tarball (${formatMB(fs.statSync(TARBALL_CACHE_PATH).size)})`);
   } else {
-    console.error(`  Hint: GitHub releases can be slow without a proxy.`);
-    console.error(`  Set HTTPS_PROXY=http://127.0.0.1:<port> and re-run.`);
+    await downloadTarball(TARBALL_URL, TARBALL_CACHE_PATH);
   }
-  process.exit(1);
-});
+  extractSelective(TARBALL_CACHE_PATH, DEST_DIR, wantedTarPaths);
+  assertPipelinePatched();
+  // Font bake is network-bound (downloads ~8MB of fonts on first run) and
+  // re-runs are no-ops; failures are fail-open (the engine compiles fine
+  // without it — documents using system-font names just won't).
+  if (!applyFontPatch(DEST_DIR)) {
+    console.warn('⚠️  FONT BAKE SKIPPED — pdf2tex documents referencing system font names (SimSun, Times New Roman, …) will fail to compile until this succeeds.');
+  }
+  assertCjkBuilt(DEST_DIR, { force, minimal, skipCjk });
+  writeManifest(DEST_DIR, minimal, skipCjk);
+  console.log(`\n✓ Done. Extracted ${wantedTarPaths.length} files into ${DEST_DIR}`);
+  console.log(`  (tarball cached at ${TARBALL_CACHE_PATH} for future re-extracts)`);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename)) {
+  main().catch((err) => {
+    console.error(`\n✗ Failed: ${err.message}`);
+    if (process.env.HTTPS_PROXY || process.env.HTTP_PROXY) {
+      console.error(`  (proxy env: HTTPS_PROXY=${process.env.HTTPS_PROXY || '<unset>'})`);
+    } else {
+      console.error(`  Hint: GitHub releases can be slow without a proxy.`);
+      console.error(`  Set HTTPS_PROXY=http://127.0.0.1:<port> and re-run.`);
+    }
+    process.exit(1);
+  });
+}
 
 // ====== Helpers ======
 
@@ -276,6 +279,23 @@ function assertPipelinePatched() {
 }
 
 /**
+ * In full mode (`!minimal && !skipCjk`), build the standalone CJK package and
+ * fail closed if either output file is missing or empty.
+ */
+function assertCjkBuilt(destDir, { force, minimal, skipCjk }) {
+  if (minimal || skipCjk) return;
+  const cjkJs = path.join(destDir, 'texlive-cjk.js');
+  const cjkData = path.join(destDir, 'texlive-cjk.data');
+  const ok = buildCjkPackage(destDir, { force });
+  const hasJs = fs.existsSync(cjkJs) && fs.statSync(cjkJs).size > 0;
+  const hasData = fs.existsSync(cjkData) && fs.statSync(cjkData).size > 0;
+  if (!ok || !hasJs || !hasData) {
+    console.error('✗ busytex CJK package build failed — refusing to ship without texlive-cjk.');
+    process.exit(1);
+  }
+}
+
+/**
  * Write a manifest.json describing which TeX Live data packages are
  * actually available on disk. The renderer reads this at engine init
  * instead of hardcoding package names — keeps the two sides in sync.
@@ -294,13 +314,37 @@ function assertPipelinePatched() {
  *   - preload: data packages eagerly loaded into the WASM FS at init
  *   - catalog: data packages importScripts()'d on demand by the pipeline
  */
-function writeManifest(destDir, minimal) {
-  const manifest = {
+/**
+ * Pure manifest builder shared with unit tests. Minimal mode leaves `catalog`
+ * empty so pre-warming and on-demand package lookups never look for optional packs.
+ */
+export function buildManifest(destDir, minimal, skipCjk = false) {
+  if (minimal) {
+    return {
+      version: RELEASE_VERSION,
+      mode: 'minimal',
+      preload: ['texlive-basic.js'],
+      catalog: [],
+    };
+  }
+  const cjkJs = path.join(destDir, 'texlive-cjk.js');
+  const cjkData = path.join(destDir, 'texlive-cjk.data');
+  const hasCjk =
+    !skipCjk &&
+    fs.existsSync(cjkJs) &&
+    fs.statSync(cjkJs).size > 0 &&
+    fs.existsSync(cjkData) &&
+    fs.statSync(cjkData).size > 0;
+  return {
     version: RELEASE_VERSION,
-    mode: minimal ? 'minimal' : 'full',
+    mode: 'full',
     preload: ['texlive-basic.js'],
-    catalog: minimal ? [] : ['texlive-extra.js'],
+    catalog: ['texlive-extra.js', ...(hasCjk ? ['texlive-cjk.js'] : [])],
   };
+}
+
+function writeManifest(destDir, minimal, skipCjk = false) {
+  const manifest = buildManifest(destDir, minimal, skipCjk);
   const manifestPath = path.join(destDir, 'manifest.json');
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   console.log(`  ✓ manifest.json (${manifest.mode}: preload=${manifest.preload.length}, catalog=${manifest.catalog.length})`);
