@@ -54,6 +54,8 @@ export interface BusyTexCompileRequest {
   endpoint: string;
   outputDir: string;
   baseName: string;
+  /** Main-verified root that `outputDir` must still reside in when writing outputs. */
+  outputSandboxRoot?: string;
 }
 
 export interface BusyTexCompileResult {
@@ -162,7 +164,7 @@ class BusyTexProcessClientImpl {
         // Utility processes cannot call app.getPath(); inject via env.
         env: {
           ...process.env,
-          WASM_ASSETS_DIR: resolveWasmRoot() + '/busytex',
+          WASM_ASSETS_DIR: `${resolveWasmRoot()}/busytex`,
           TEXLIVE_CACHE_DIR: resolveTexliveCacheDir(),
           BUSYTEX_BUILD_CACHE_DIR: resolveBusytexBuildCacheDir(),
         },

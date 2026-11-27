@@ -61,6 +61,7 @@ import { ProjectStager } from './projectStager';
 import { installNetworkShims } from './remoteFetch';
 import { installWorkerBridge, setPrintListener, workerCall } from './workerBridge';
 import { CJK_PACKAGE_URL, needsCjkPackage } from './cjkPackages';
+import { isPathInsideRoot, isSymbolicLink } from '../services/canonicalPath';
 
 if (!WASM_ASSETS_DIR) {
   process.stderr.write('[busytex-process] WASM_ASSETS_DIR not set — cannot start\n');
@@ -322,7 +323,32 @@ const stager = new ProjectStager();
 /** Last clean run's artifacts per (project, main file, driver), for incremental compiles. */
 const buildCache = new BuildArtifactCache(BUILD_CACHE_DIR);
 
-async function handleCompile(params: CompileFlowParams): Promise<{
+type HandleCompileParams = CompileFlowParams & {
+  outputSandboxRoot?: string;
+};
+
+function assertOutputDirInSandbox(outputDir: string, sandboxRoot?: string): void {
+  if (sandboxRoot && !isPathInsideRoot(outputDir, sandboxRoot)) {
+    throw new Error('Output directory escapes project sandbox');
+  }
+}
+
+function writeOutputFileSafely(
+  filePath: string,
+  data: Buffer | string,
+  encoding?: BufferEncoding
+): void {
+  if (isSymbolicLink(filePath)) {
+    throw new Error('Refusing to overwrite symbolic link output target');
+  }
+  if (typeof data === 'string') {
+    fs.writeFileSync(filePath, data, encoding ?? 'utf8');
+  } else {
+    fs.writeFileSync(filePath, data);
+  }
+}
+
+async function handleCompile(params: HandleCompileParams): Promise<{
   exitCode: number;
   pdfPath?: string;
   synctexPath?: string;
@@ -334,6 +360,7 @@ async function handleCompile(params: CompileFlowParams): Promise<{
   if (compileInFlight) {
     throw new Error('engine busy — another call is in flight');
   }
+  assertOutputDirInSandbox(params.outputDir, params.outputSandboxRoot);
   compileInFlight = true;
   const totalT0 = performance.now();
   resetStats();
@@ -361,16 +388,18 @@ async function handleCompile(params: CompileFlowParams): Promise<{
     let synctexPath: string | undefined;
     const writeT0 = performance.now();
     if (exitCode === 0 && frame.pdf && frame.pdf.byteLength > 0) {
+      assertOutputDirInSandbox(params.outputDir, params.outputSandboxRoot);
       fs.mkdirSync(params.outputDir, { recursive: true });
+      assertOutputDirInSandbox(params.outputDir, params.outputSandboxRoot);
       pdfPath = nodePath.join(params.outputDir, `${params.baseName}.pdf`);
-      fs.writeFileSync(pdfPath, Buffer.from(frame.pdf));
+      writeOutputFileSafely(pdfPath, Buffer.from(frame.pdf));
       pdfBytes = frame.pdf.byteLength;
       if (frame.synctex && frame.synctex.byteLength > 0) {
         synctexPath = nodePath.join(params.outputDir, `${params.baseName}.synctex.gz`);
-        fs.writeFileSync(synctexPath, Buffer.from(frame.synctex));
+        writeOutputFileSafely(synctexPath, Buffer.from(frame.synctex));
       }
     }
-    writeCompileLog(params.outputDir, params.baseName, log);
+    writeCompileLog(params.outputDir, params.baseName, log, params.outputSandboxRoot);
     writeMs = performance.now() - writeT0;
 
     return { exitCode, pdfPath, synctexPath, log };
@@ -463,13 +492,20 @@ function compileFlowDeps(params: CompileFlowParams): CompileFlowDeps {
  * that is exactly when the log is needed. Best-effort: a log that cannot be
  * written must never turn a successful compile into a failed one.
  */
-function writeCompileLog(outputDir: string, baseName: string, log: string): void {
+function writeCompileLog(
+  outputDir: string,
+  baseName: string,
+  log: string,
+  sandboxRoot?: string
+): void {
   if (!log) return;
   try {
+    assertOutputDirInSandbox(outputDir, sandboxRoot);
     fs.mkdirSync(outputDir, { recursive: true });
-    fs.writeFileSync(nodePath.join(outputDir, `${baseName}.log`), log, 'utf8');
+    assertOutputDirInSandbox(outputDir, sandboxRoot);
+    writeOutputFileSafely(nodePath.join(outputDir, `${baseName}.log`), log, 'utf8');
   } catch {
-    // Read-only project dir, AV lock, ... — the compile result stands.
+    // Read-only project dir, AV lock, or sandbox escape — the compile result stands.
   }
 }
 

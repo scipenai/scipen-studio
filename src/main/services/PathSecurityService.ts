@@ -11,6 +11,7 @@
  */
 
 import path from 'path';
+import { isPathInsideRoot, resolveCanonicalPath } from './canonicalPath';
 import { createLogger } from './LoggerService';
 
 const logger = createLogger('PathSecurityService');
@@ -69,7 +70,9 @@ const SENSITIVE_PATHS_UNIX = [
 const SENSITIVE_PATHS_MACOS = [
   /^\/System\//i,
   /^\/Library\/Keychains/i,
-  /^\/private\/var/i,
+  // macOS `os.tmpdir()` (/var/folders/...) resolves to /private/var/folders;
+  // allow per-user temp dirs while blocking /private/var and other subtrees.
+  /^\/private\/var(?:$|\/(?!folders(?:\/|$)))/i,
   /^\/private\/etc/i,
 ];
 
@@ -183,16 +186,16 @@ class PathSecurityServiceImpl {
     if (this.authorizedPaths.has(normalized)) {
       const expiry = this.authorizationExpiry.get(normalized);
       if (expiry && Date.now() <= expiry) {
-        return true;
+        return isPathInsideRoot(normalized, normalized);
       }
       // Expired, cleanup
       this.authorizedPaths.delete(normalized);
       this.authorizationExpiry.delete(normalized);
     }
 
-    // Check if parent directory is authorized (children inherit access)
+    // Check if parent directory is authorized (resolve links before inheriting)
     for (const authorizedPath of this.authorizedPaths) {
-      if (normalized.startsWith(authorizedPath + path.sep)) {
+      if (isPathInsideRoot(normalized, authorizedPath)) {
         const expiry = this.authorizationExpiry.get(authorizedPath);
         if (expiry && Date.now() <= expiry) {
           return true;
@@ -269,9 +272,17 @@ class PathSecurityServiceImpl {
     }
 
     const normalizedPath = path.normalize(filePath);
+    const canonicalPath = resolveCanonicalPath(normalizedPath);
+    if (!canonicalPath) {
+      return {
+        allowed: false,
+        reason:
+          'Access denied: path could not be resolved safely (broken or looping symbolic link)',
+      };
+    }
 
     // === 2. Sensitive Directory Blocking ===
-    if (this.isSensitivePath(normalizedPath)) {
+    if (this.isSensitivePath(normalizedPath) || this.isSensitivePath(canonicalPath)) {
       return {
         allowed: false,
         reason: `Access denied: "${normalizedPath}" is a protected system path`,
@@ -279,7 +290,7 @@ class PathSecurityServiceImpl {
     }
 
     // === 3. Sensitive File Check ===
-    if (this.isSensitiveFile(normalizedPath)) {
+    if (this.isSensitiveFile(normalizedPath) || this.isSensitiveFile(canonicalPath)) {
       return {
         allowed: false,
         reason: `Access denied: "${path.basename(normalizedPath)}" is a sensitive/credential file`,
@@ -448,14 +459,7 @@ class PathSecurityServiceImpl {
     try {
       const { app } = require('electron');
       const appDataDir = app.getPath('userData');
-
-      const normalizedFilePath = path.normalize(filePath);
-      const normalizedAppDataDir = path.normalize(appDataDir);
-
-      return (
-        normalizedFilePath === normalizedAppDataDir ||
-        normalizedFilePath.startsWith(normalizedAppDataDir + path.sep)
-      );
+      return isPathInsideRoot(filePath, appDataDir);
     } catch {
       // app may not be accessible outside main process
       return false;
@@ -468,13 +472,7 @@ class PathSecurityServiceImpl {
       return false;
     }
 
-    const normalizedFilePath = path.normalize(filePath);
-    const normalizedProjectPath = path.normalize(this.currentProjectPath);
-
-    return (
-      normalizedFilePath === normalizedProjectPath ||
-      normalizedFilePath.startsWith(normalizedProjectPath + path.sep)
-    );
+    return isPathInsideRoot(filePath, this.currentProjectPath);
   }
 
   /** Get security stats for debugging */
@@ -509,23 +507,15 @@ export function setProjectPath(projectPath: string | null): void {
 }
 
 /**
- * True when `candidate` is the active project directory or lies inside it.
- * Unlike the project-context checks above — which let any non-sensitive
- * absolute path through with a warning — this is a hard containment test,
- * for callers that hand a whole directory tree to another process. Compares
+ * True when `candidate` is the active project directory or lies inside it
+ * after resolving symbolic links and Windows junctions. Compares
  * case-insensitively on Windows, where a renderer path and the stored
  * project path can differ only in drive-letter or folder casing.
  */
 export function isWithinCurrentProject(candidate: string): boolean {
   const project = PathSecurityService.getProjectPath();
   if (!project) return false;
-  const fold = (p: string) => {
-    const resolved = path.resolve(p);
-    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
-  };
-  const target = fold(candidate);
-  const root = fold(project);
-  return target === root || target.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
+  return isPathInsideRoot(candidate, project);
 }
 
 export function authorizePathTemporarily(filePath: string): void {

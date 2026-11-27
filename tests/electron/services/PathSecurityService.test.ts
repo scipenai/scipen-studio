@@ -4,11 +4,14 @@
  * @depends PathSecurityService
  */
 
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PathSecurityService,
   checkPathSecurity,
+  isWithinCurrentProject,
   setProjectPath,
 } from '../../../src/main/services/PathSecurityService';
 
@@ -331,5 +334,76 @@ describe('PathSecurity - Regression Tests', () => {
     const upperPath = 'C:\\USERS\\TEST\\PROJECTS\\MY-LATEX\\MAIN.TEX';
     const result = checkPathSecurity(upperPath, 'read', 'project');
     expect(result.allowed).toBe(true);
+  });
+});
+
+describe('PathSecurity - Symlink and Junction Containment', () => {
+  const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+  let tmpRoot: string;
+  let projectDir: string;
+  let outsideDir: string;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scipen-pathsec-link-'));
+    projectDir = path.join(tmpRoot, 'project');
+    outsideDir = path.join(tmpRoot, 'outside');
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.mkdirSync(outsideDir, { recursive: true });
+    PathSecurityService.setProjectPath(projectDir);
+    PathSecurityService.clearAllAuthorizations();
+  });
+
+  afterEach(() => {
+    PathSecurityService.setProjectPath(null);
+    PathSecurityService.clearAllAuthorizations();
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('blocks writes to a symlink or junction pointing outside the project', () => {
+    const buildLink = path.join(projectDir, 'build-link');
+    fs.symlinkSync(outsideDir, buildLink, linkType);
+
+    expect(checkPathSecurity(buildLink, 'write', 'project').allowed).toBe(false);
+    expect(
+      checkPathSecurity(path.join(buildLink, 'nested', 'out.pdf'), 'write', 'project').allowed
+    ).toBe(false);
+    expect(isWithinCurrentProject(buildLink)).toBe(false);
+    expect(isWithinCurrentProject(path.join(buildLink, 'sub'))).toBe(false);
+  });
+
+  it('blocks writes to a dangling symlink or junction whose target is outside the project', () => {
+    const missingOutside = path.join(outsideDir, 'missing-target');
+    const danglingLink = path.join(projectDir, 'dangling-link');
+    fs.symlinkSync(missingOutside, danglingLink, linkType);
+
+    expect(checkPathSecurity(danglingLink, 'write', 'project').allowed).toBe(false);
+    expect(checkPathSecurity(path.join(danglingLink, 'sub'), 'write', 'project').allowed).toBe(
+      false
+    );
+    expect(isWithinCurrentProject(danglingLink)).toBe(false);
+  });
+
+  it('allows writes to an internal symlink or junction pointing inside the project', () => {
+    const realBuild = path.join(projectDir, 'real-build');
+    const internalLink = path.join(projectDir, 'internal-link');
+    fs.mkdirSync(realBuild, { recursive: true });
+    fs.symlinkSync(realBuild, internalLink, linkType);
+
+    expect(checkPathSecurity(internalLink, 'write', 'project').allowed).toBe(true);
+    expect(isWithinCurrentProject(internalLink)).toBe(true);
+  });
+
+  it('blocks symlink escapes inside a temporarily authorized directory', () => {
+    const authDir = path.join(tmpRoot, 'authorized');
+    fs.mkdirSync(authDir, { recursive: true });
+    const escapeLink = path.join(authDir, 'escape-link');
+    fs.symlinkSync(outsideDir, escapeLink, linkType);
+
+    PathSecurityService.authorizePathTemporarily(authDir);
+
+    expect(checkPathSecurity(path.join(authDir, 'ok.tex'), 'write', 'project').allowed).toBe(true);
+    expect(checkPathSecurity(path.join(escapeLink, 'pwn.txt'), 'write', 'project').allowed).toBe(
+      false
+    );
   });
 });

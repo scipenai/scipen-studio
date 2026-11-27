@@ -147,6 +147,10 @@ describe('busytex-process entry', () => {
         '      postMessage({ exit_code: 0, log: "xhr=" + outcome });',
         '      return;',
         '    }',
+        '    if (data.main_tex_path === "probe-pdf") {',
+        '      postMessage({ exit_code: 0, pdf: new Uint8Array([37, 80, 68, 70]), log: "pdf-log" });',
+        '      return;',
+        '    }',
         '    const r = await fetch("scipen-wasm://busytex/hello.txt");',
         '    const w = await fetch("scipen-wasm://busytex/blank.wasm");',
         '    const bin = (data.files || []).filter((f) => typeof f.contents !== "string");',
@@ -403,5 +407,76 @@ describe('busytex-process entry', () => {
     expect(res.result?.pdfPath).toBeUndefined();
     const logPath = nodePath.join(outputDir, 'main.log');
     expect(fs.readFileSync(logPath, 'utf8')).toBe(res.result?.log);
+  });
+
+  it('refuses to write PDF or log when outputDir escapes outputSandboxRoot via symlink or junction', async () => {
+    const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+    const sandboxProject = nodePath.join(fixtureDir, 'sandbox-project');
+    const outsideDir = nodePath.join(fixtureDir, 'outside');
+    const buildLink = nodePath.join(sandboxProject, 'build-link');
+    fs.mkdirSync(sandboxProject, { recursive: true });
+    fs.mkdirSync(outsideDir, { recursive: true });
+    fs.symlinkSync(outsideDir, buildLink, linkType);
+
+    await request('req-sandbox-load', 'load');
+    const res = await request(
+      'req-sandbox-escape',
+      'compile',
+      compileParams('probe-pdf', {
+        outputDir: buildLink,
+        outputSandboxRoot: sandboxProject,
+      })
+    );
+
+    expect(res.error?.message).toMatch(/escapes project sandbox/i);
+    expect(fs.readdirSync(outsideDir)).toEqual([]);
+  });
+
+  it('writes outputs inside outputSandboxRoot cleanly and blocks symlinked output files when supported', async () => {
+    const sandboxProject = nodePath.join(fixtureDir, 'sandbox-project-ok');
+    const outsideDir = nodePath.join(fixtureDir, 'outside-ok');
+    fs.mkdirSync(sandboxProject, { recursive: true });
+    fs.mkdirSync(outsideDir, { recursive: true });
+
+    await request('req-sandbox-ok-load', 'load');
+    const okRes = (await request(
+      'req-sandbox-ok-compile',
+      'compile',
+      compileParams('probe-pdf', {
+        outputDir: sandboxProject,
+        outputSandboxRoot: sandboxProject,
+      })
+    )) as { result?: { pdfPath?: string; log: string }; error?: { message: string } };
+
+    expect(okRes.error).toBeUndefined();
+    expect(okRes.result?.pdfPath).toBe(nodePath.join(sandboxProject, 'main.pdf'));
+    expect(fs.existsSync(nodePath.join(sandboxProject, 'main.pdf'))).toBe(true);
+    expect(fs.existsSync(nodePath.join(sandboxProject, 'main.log'))).toBe(true);
+
+    const symlinkTarget = nodePath.join(outsideDir, 'protected.txt');
+    fs.writeFileSync(symlinkTarget, 'keep-safe');
+    const pdfLinkDir = nodePath.join(sandboxProject, 'with-file-link');
+    fs.mkdirSync(pdfLinkDir, { recursive: true });
+    const pdfLink = nodePath.join(pdfLinkDir, 'main.pdf');
+    try {
+      fs.symlinkSync(symlinkTarget, pdfLink, 'file');
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException | null)?.code;
+      if (code === 'EPERM' || code === 'EACCES') {
+        return;
+      }
+      throw err;
+    }
+
+    const blockedRes = await request(
+      'req-sandbox-file-symlink',
+      'compile',
+      compileParams('probe-pdf', {
+        outputDir: pdfLinkDir,
+        outputSandboxRoot: sandboxProject,
+      })
+    );
+    expect(blockedRes.error?.message).toMatch(/symbolic link/i);
+    expect(fs.readFileSync(symlinkTarget, 'utf8')).toBe('keep-safe');
   });
 });

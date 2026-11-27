@@ -21,9 +21,11 @@ import type { LaTeXCompiler } from '../services/LaTeXCompiler';
 import { createLogger } from '../services/LoggerService';
 import {
   type PathAccessMode,
+  PathSecurityService,
   checkPathSecurity,
   isWithinCurrentProject,
 } from '../services/PathSecurityService';
+import { resolveCanonicalPath } from '../services/canonicalPath';
 import type { TypstCompiler } from '../services/TypstCompiler';
 import {
   probeTexliveEndpoint,
@@ -140,6 +142,19 @@ function assertPathSecurity(filePath: string, mode: PathAccessMode = 'read'): st
     throw new Error(`Path access denied: ${result.reason}`);
   }
   return result.sanitizedPath || filePath;
+}
+
+function validateBusyTexPath(
+  filePath: string,
+  mode: PathAccessMode,
+  fallbackReason: string
+): { ok: true; path: string } | { ok: false; error: string } {
+  const result = checkPathSecurity(filePath, mode, 'project');
+  if (!result.allowed) {
+    logger.error(`[PathSecurity] Access denied: ${result.reason}`);
+    return { ok: false, error: result.reason || fallbackReason };
+  }
+  return { ok: true, path: result.sanitizedPath || filePath };
 }
 
 // ====== Types ======
@@ -535,29 +550,88 @@ export function registerCompileHandlers(): void {
 
       [IpcChannel.Compile_BusyTeX_Compile]: async (request: BusyTeXCompileRequestDTO) => {
         // The engine process walks projectRoot itself, so it must be the
-        // active project (or inside it) — the generic project-context check
-        // lets outside paths through with only a warning. A root that fails
-        // degrades to staging the buffer alone; the output dir must then
-        // also stay inside the project it compiles.
+        // active project (or inside it). Validate every compile path
+        // unconditionally before forwarding to the utility process.
+        const projectRootCheck = request.projectRoot
+          ? checkPathSecurity(request.projectRoot, 'read', 'project')
+          : null;
+        const sanitizedProjectRoot = projectRootCheck?.allowed
+          ? projectRootCheck.sanitizedPath || request.projectRoot
+          : undefined;
         const projectRoot =
-          request.projectRoot && isWithinCurrentProject(request.projectRoot)
-            ? request.projectRoot
+          sanitizedProjectRoot && isWithinCurrentProject(sanitizedProjectRoot)
+            ? sanitizedProjectRoot
             : undefined;
         if (request.projectRoot && !projectRoot) {
           logger.warn(
             'BusyTeX compile: projectRoot outside the active project, staging buffer only'
           );
         }
-        if (projectRoot && !isWithinCurrentProject(request.outputDir)) {
+
+        const outputCheck = validateBusyTexPath(
+          request.outputDir,
+          'write',
+          'Output directory access denied'
+        );
+        if (!outputCheck.ok) {
+          return { success: false, log: '', errors: [outputCheck.error] };
+        }
+        const mainFileCheck = validateBusyTexPath(
+          request.mainFileAbs,
+          'read',
+          'Main file access denied'
+        );
+        if (!mainFileCheck.ok) {
+          return { success: false, log: '', errors: [mainFileCheck.error] };
+        }
+        const overlayCheck = validateBusyTexPath(
+          request.overlay.absPath,
+          'read',
+          'Overlay file access denied'
+        );
+        if (!overlayCheck.ok) {
+          return { success: false, log: '', errors: [overlayCheck.error] };
+        }
+
+        if (projectRoot && !isWithinCurrentProject(outputCheck.path)) {
           return { success: false, log: '', errors: ['Output directory is outside the project'] };
         }
+
+        // Validate every file this compile will write so pre-planted file
+        // symlinks inside outputDir cannot redirect PDF, SyncTeX, or log writes.
+        for (const ext of ['.pdf', '.synctex.gz', '.log']) {
+          const artifactPath = path.join(outputCheck.path, `${request.baseName}${ext}`);
+          const artifactCheck = validateBusyTexPath(
+            artifactPath,
+            'write',
+            'Output file access denied'
+          );
+          if (!artifactCheck.ok) {
+            return { success: false, log: '', errors: [artifactCheck.error] };
+          }
+          if (projectRoot && !isWithinCurrentProject(artifactCheck.path)) {
+            return { success: false, log: '', errors: ['Output file is outside the project'] };
+          }
+        }
+
+        const outputSandboxRoot = isWithinCurrentProject(outputCheck.path)
+          ? (PathSecurityService.getProjectPath() ?? undefined)
+          : (resolveCanonicalPath(outputCheck.path) ?? undefined);
+
         const client = getBusyTexProcessClient();
         // Phases parsed from engine prints flow to the renderer over the
         // existing Compile_Progress channel; scoped so a compile that starts
         // mid-flight cannot leak another compile's prints into it.
         const disposePhase = client.onPhase((phase) => broadcastCompileProgress(phase));
         try {
-          const result = await client.compile({ ...request, projectRoot });
+          const result = await client.compile({
+            ...request,
+            projectRoot,
+            mainFileAbs: mainFileCheck.path,
+            overlay: { ...request.overlay, absPath: overlayCheck.path },
+            outputDir: outputCheck.path,
+            outputSandboxRoot,
+          });
           return {
             success: result.exitCode === 0,
             exitCode: result.exitCode,
