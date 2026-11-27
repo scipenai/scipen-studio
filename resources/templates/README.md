@@ -34,8 +34,9 @@ directory.
 
 ## Third-party files
 
-`ieee/IEEEtran.cls` (v1.8b, Michael Shell) is redistributed under the LaTeX
-Project Public License 1.3, whose terms are stated in the file header. It is
-bundled rather than fetched because it is **not** part of the BusyTeX data
-packages — only its `.bst` siblings are — so without it the IEEE template
-cannot satisfy the offline rule above.
+- `ieee/IEEEtran.cls` (v1.8b, Michael Shell) and `ieee/IEEEtran.bst` (v1.14,
+  Michael Shell) are redistributed under the LaTeX Project Public License 1.3,
+  whose terms are stated in their file headers. Both are bundled rather than
+  fetched because neither is included in the BusyTeX data packages (only
+  `mciteplus`'s `IEEEtranM.bst` / `IEEEtranMN.bst` siblings are), so without
+  them the IEEE template cannot satisfy the offline rule above.
