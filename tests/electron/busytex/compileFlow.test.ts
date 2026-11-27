@@ -172,6 +172,14 @@ describe('runCompileFlow — injection and storage', () => {
     const h = harness([{ frame: { exit_code: 1, log: '' }, trace: trace() }]);
     expect((await runCompileFlow(params, h.deps)).stored).toBe(false);
   });
+
+  it('does not store artifacts when a post-processor fails cleanly or with raw error', async () => {
+    const h = harness([{ frame: { exit_code: 2, log: '' }, trace: trace({ halted: true }) }]);
+    const result = await runCompileFlow(params, h.deps);
+
+    expect(result.stored).toBe(false);
+    expect(h.cache.get(h.key)).toBeNull();
+  });
 });
 
 describe('runCompileFlow — cold retry', () => {

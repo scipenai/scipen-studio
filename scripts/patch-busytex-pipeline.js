@@ -175,6 +175,17 @@ const SEARCH_RAW = '        return { exit_code: effective_exit_code, log };';
 
 const REPLACE_RAW = `        return { exit_code: effective_exit_code, raw_exit_code: exit_code /* ${MARKER_RAW}: batchmode stdout is only the banner, so the effective code reports a halted pass as 0 — the pass policy stops on the real status */, log };`;
 
+// ====== log-raw-exit-code ======
+
+const MARKER_LOG_RAW = 'SCIPEN-PATCH: log raw exit code';
+
+const SEARCH_LOG_RAW = `            exit_code: effective_exit_code
+        });`;
+
+const REPLACE_LOG_RAW = `            exit_code: effective_exit_code,
+            raw_exit_code: exit_code /* ${MARKER_LOG_RAW}: expose true process status on per-command log entries (e.g. bibtex8 exit 2) */
+        });`;
+
 // ====== wasm-module-promise ======
 
 const MARKER_WASM = 'SCIPEN-PATCH: wasm module promise';
@@ -200,6 +211,7 @@ export const PATCHES = [
     replace: REPLACE_SEAM,
   },
   { name: 'raw-exit-code', marker: MARKER_RAW, searches: [SEARCH_RAW], replace: REPLACE_RAW },
+  { name: 'log-raw-exit-code', marker: MARKER_LOG_RAW, searches: [SEARCH_LOG_RAW], replace: REPLACE_LOG_RAW },
   {
     name: 'wasm-module-promise',
     marker: MARKER_WASM,

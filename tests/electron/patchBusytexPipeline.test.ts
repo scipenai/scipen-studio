@@ -53,4 +53,15 @@ describe('patchPipelineSource', () => {
     expect(failed).toEqual(['raw-exit-code']);
     expect(source).not.toContain(raw.marker);
   });
+
+  it('exposes raw_exit_code on per-command log entries and detects drift', () => {
+    const { source } = patchPipelineSource(upstream);
+    expect(source).toContain('raw_exit_code: exit_code /* SCIPEN-PATCH: log raw exit code');
+
+    const logRaw = patches.find((p) => p.name === 'log-raw-exit-code') as Patch;
+    const drifted = upstream.replace(logRaw.searches[0], '            exit_code: 0\n        });');
+    const { failed, source: failedSource } = patchPipelineSource(drifted);
+    expect(failed).toEqual(['log-raw-exit-code']);
+    expect(failedSource).not.toContain(logRaw.marker);
+  });
 });

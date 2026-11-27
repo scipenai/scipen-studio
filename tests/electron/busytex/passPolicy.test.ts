@@ -254,6 +254,45 @@ describe('schedulePasses — post-processors', () => {
     expect(exitCode).toBe(2);
   });
 
+  it('propagates non-zero raw exit code from bibtex8 even when effective code is 0', () => {
+    const h = harness({
+      fingerprints: ['A', 'B'],
+      tools: { bibtex8: { exit_code: 0, raw_exit_code: 2, log: '' } },
+    });
+    const { exitCode, trace } = schedulePasses(plan({ bibtex: true }), h.deps);
+
+    expect(commandNames(h.ran)).toEqual(['xelatex', 'bibtex8']);
+    expect(exitCode).toBe(2);
+    expect(trace.halted).toBe(true);
+    expect(trace.regenerated).toEqual([]);
+  });
+
+  it('propagates non-zero raw exit code from makeindex even when effective code is 0', () => {
+    const h = harness({
+      fingerprints: ['A', 'B'],
+      files: { 'main.idx': '\\indexentry{a}{1}' },
+      tools: { makeindex: { exit_code: 0, raw_exit_code: 1, log: '' } },
+    });
+    const { exitCode, trace } = schedulePasses(plan(), h.deps);
+
+    expect(commandNames(h.ran)).toEqual(['xelatex', 'makeindex']);
+    expect(exitCode).toBe(1);
+    expect(trace.halted).toBe(true);
+    expect(trace.regenerated).toEqual([]);
+  });
+
+  it('propagates non-zero raw exit code from xdvipdfmx even when effective code is 0', () => {
+    const h = harness({
+      fingerprints: ['A', 'A'],
+      tools: { xdvipdfmx: { exit_code: 0, raw_exit_code: 1, log: '' } },
+    });
+    const { exitCode, trace } = schedulePasses(plan(), h.deps);
+
+    expect(commandNames(h.ran)).toEqual(['xelatex', 'xdvipdfmx']);
+    expect(exitCode).toBe(1);
+    expect(trace.halted).toBe(true);
+  });
+
   it('notes a caller-disabled makeindex', () => {
     const h = harness({ fingerprints: ['A', 'A'], files: { 'main.idx': 'x' } });
     schedulePasses(plan({ makeindex: false }), h.deps);

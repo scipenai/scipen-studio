@@ -170,7 +170,13 @@ export function schedulePasses(plan: PassPlan, deps: PassDeps): PassOutcome {
   /** bibtex / makeindex / xdvipdfmx; false when the tool failed. */
   const tool = (cmd: string[]): boolean => {
     const t0 = deps.now();
-    return record(cmd, t0, deps.runTool(cmd)) === 0;
+    const raw = record(cmd, t0, deps.runTool(cmd));
+    if (raw === 0) return true;
+    // Propagate non-zero raw codes even if effective exit_code stayed 0 so
+    // downstream conversion and artifact caching never see a clean compile.
+    exitCode = raw;
+    trace.halted = true;
+    return false;
   };
 
   /** A post-processor run; its output now belongs to this compile. */

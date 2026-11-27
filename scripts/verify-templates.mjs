@@ -14,7 +14,9 @@
  */
 
 import { Worker } from 'node:worker_threads';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -42,6 +44,15 @@ function readManifest() {
   const manifestPath = path.join(TEMPLATES_DIR, 'manifest.json');
   if (!fs.existsSync(manifestPath)) {
     console.error(`No manifest at ${manifestPath}`);
+    process.exit(1);
+  }
+  return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+}
+
+function readWasmManifest() {
+  const manifestPath = path.join(WASM_DIR, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    console.error(`No WASM manifest at ${manifestPath}`);
     process.exit(1);
   }
   return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
@@ -76,7 +87,16 @@ function startWorker() {
   return { worker, ready };
 }
 
-function initEngine(worker) {
+function initEngine(worker, wasmManifest) {
+  const preloadPackages = (wasmManifest.preload ?? ['texlive-basic.js']).map(
+    (name) => `scipen-wasm://busytex/${name}`
+  );
+  // Mirror production baseCatalogList: exclude optional texlive-cjk.js so
+  // English templates remain isolated from CJK data package loading.
+  const catalogPackages = (wasmManifest.catalog ?? [])
+    .filter((name) => name !== 'texlive-cjk.js')
+    .map((name) => `scipen-wasm://busytex/${name}`);
+
   return new Promise((resolve, reject) => {
     const onMessage = (m) => {
       if (m.exception) {
@@ -91,8 +111,8 @@ function initEngine(worker) {
     worker.postMessage({
       busytex_js: 'scipen-wasm://busytex/busytex.js',
       busytex_wasm: 'scipen-wasm://busytex/busytex.wasm',
-      preload_data_packages_js: ['scipen-wasm://busytex/texlive-basic.js'],
-      data_packages_js: ['scipen-wasm://busytex/texlive-extra.js'],
+      preload_data_packages_js: preloadPackages,
+      data_packages_js: catalogPackages,
       texmf_local: [],
       preload: true,
     });
@@ -113,6 +133,7 @@ function compile(worker, files, mainFile) {
           exitCode: m.exit_code ?? -1,
           pdfBytes: m.pdf ? m.pdf.byteLength ?? m.pdf.length ?? 0 : 0,
           log: m.log ?? '',
+          logs: Array.isArray(m.logs) ? m.logs : [],
         });
       }
     };
@@ -132,6 +153,94 @@ function compile(worker, files, mainFile) {
   });
 }
 
+/** Validate strict sub-command exit status, BibTeX execution, and citations. */
+function validateCompileResult(result, files) {
+  const issues = [];
+  if (result.exitCode !== 0 || result.pdfBytes <= 0) {
+    issues.push(`exit ${result.exitCode}, ${result.pdfBytes} bytes`);
+  }
+  if (!Array.isArray(result.logs) || result.logs.length === 0) {
+    issues.push('missing structured command logs');
+  } else {
+    for (const entry of result.logs) {
+      if (!Number.isInteger(entry?.raw_exit_code) || entry.raw_exit_code !== 0) {
+        issues.push(
+          `command "${entry?.cmd || 'unknown'}" returned raw_exit_code=${entry?.raw_exit_code}`
+        );
+      }
+    }
+    const usesBibliography = files.some(
+      (f) => f.path.endsWith('.tex') && /\\bibliography\s*\{/.test(f.contents)
+    );
+    if (
+      usesBibliography &&
+      !result.logs.some((entry) => typeof entry.cmd === 'string' && entry.cmd.startsWith('bibtex8'))
+    ) {
+      issues.push('expected bibtex8 command entry for template containing \\bibliography{');
+    }
+    const finalTexEntry = [...result.logs]
+      .reverse()
+      .find(
+        (entry) =>
+          typeof entry?.cmd === 'string' &&
+          /^(?:pdflatex|xelatex|lualatex|luahblatex)\b/.test(entry.cmd)
+      );
+    if (!finalTexEntry) {
+      issues.push('missing final TeX command log entry');
+    } else if (
+      /There were undefined citations|Citation .* undefined/i.test(finalTexEntry.log || '')
+    ) {
+      issues.push('undefined citations detected in final TeX log');
+    }
+  }
+  return issues;
+}
+
+/** Run headless Electron UtilityProcess CJK & isolation verification when XeTeX runs in full mode. */
+function runElectronVerification(wasmManifest) {
+  const catalog = wasmManifest.catalog ?? [];
+  const cjkJs = path.join(WASM_DIR, 'texlive-cjk.js');
+  const cjkData = path.join(WASM_DIR, 'texlive-cjk.data');
+  const workerEntry = path.join(ROOT, 'out', 'main', 'busytex-process', 'index.cjs');
+
+  if (!catalog.includes('texlive-cjk.js')) {
+    throw new Error('Full WASM manifest must include texlive-cjk.js in catalog');
+  }
+  if (!fs.existsSync(cjkJs) || fs.statSync(cjkJs).size <= 0) {
+    throw new Error(`Missing or empty ${cjkJs}`);
+  }
+  if (!fs.existsSync(cjkData) || fs.statSync(cjkData).size <= 0) {
+    throw new Error(`Missing or empty ${cjkData}`);
+  }
+  if (!fs.existsSync(workerEntry)) {
+    throw new Error(`Missing ${workerEntry} — run npm run build:workers first`);
+  }
+
+  const require = createRequire(import.meta.url);
+  const electronBin = require('electron');
+  const electronScript = path.join(ROOT, 'scripts', 'verify-busytex-electron.cjs');
+
+  let cmd = electronBin;
+  let args = [electronScript];
+  if (process.platform === 'linux') {
+    const electronArgs = ['--no-sandbox', electronScript];
+    if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+      cmd = 'xvfb-run';
+      args = ['-a', electronBin, ...electronArgs];
+    } else {
+      args = electronArgs;
+    }
+  }
+
+  const res = spawnSync(cmd, args, { stdio: 'inherit' });
+  if (res.error) {
+    throw res.error;
+  }
+  if (res.status !== 0) {
+    throw new Error(`verify-busytex-electron exited with code ${res.status}`);
+  }
+}
+
 /** Pull the first few `!`-prefixed TeX errors out of a compile log. */
 function extractErrors(log) {
   return log
@@ -142,11 +251,12 @@ function extractErrors(log) {
 
 (async () => {
   const manifest = readManifest();
+  const wasmManifest = readWasmManifest();
   console.log(`Verifying ${manifest.templates.length} templates offline (engine: ${engineName})\n`);
 
   const { worker, ready } = startWorker();
   await ready;
-  await initEngine(worker);
+  await initEngine(worker, wasmManifest);
 
   const failures = [];
   for (const template of manifest.templates) {
@@ -159,10 +269,11 @@ function extractErrors(log) {
     const files = collectFiles(dir);
     try {
       const result = await compile(worker, files, template.mainFile);
-      if (result.exitCode === 0 && result.pdfBytes > 0) {
+      const issues = validateCompileResult(result, files);
+      if (issues.length === 0) {
         console.log(`  ✓ ${template.id}: ${(result.pdfBytes / 1024).toFixed(1)} KB PDF`);
       } else {
-        console.log(`  ✗ ${template.id}: exit ${result.exitCode}, ${result.pdfBytes} bytes`);
+        console.log(`  ✗ ${template.id}: ${issues.join('; ')}`);
         for (const err of extractErrors(result.log)) console.log(`      ${err}`);
         failures.push(template.id);
       }
@@ -179,6 +290,11 @@ function extractErrors(log) {
     process.exit(1);
   }
   console.log('\n✓ All templates compile offline with the bundled engine.');
+
+  if (engineName === 'xetex' && wasmManifest.mode !== 'minimal') {
+    console.log('');
+    runElectronVerification(wasmManifest);
+  }
   process.exit(0);
 })().catch((err) => {
   console.error(`\n✗ verification crashed: ${err.stack || err}`);
