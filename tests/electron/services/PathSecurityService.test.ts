@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PathSecurityService,
   checkPathSecurity,
+  isSensitiveSystemPath,
   isWithinCurrentProject,
   setProjectPath,
 } from '../../../src/main/services/PathSecurityService';
@@ -405,5 +406,37 @@ describe('PathSecurity - Symlink and Junction Containment', () => {
     expect(checkPathSecurity(path.join(escapeLink, 'pwn.txt'), 'write', 'project').allowed).toBe(
       false
     );
+  });
+});
+
+describe('isSensitiveSystemPath — macOS APFS Data volume', () => {
+  it('allows user and temp roots unwrapped from /System/Volumes/Data', () => {
+    const allowed = [
+      '/System/Volumes/Data/home/test/projects/my-latex/main.tex',
+      '/System/Volumes/Data/Users/alice/paper.tex',
+      '/System/Volumes/Data/private/var/folders/ab/cd/T/scipen',
+      '/private/var/folders/ab/cd/T/scipen',
+    ];
+    for (const p of allowed) {
+      expect(isSensitiveSystemPath(p, 'darwin'), `Should allow: ${p}`).toBe(false);
+    }
+  });
+
+  it('keeps blocking system volumes, data-volume root, and nested protected paths', () => {
+    const blocked = [
+      '/System/Library/CoreServices',
+      '/System/Volumes/Data',
+      '/System/Volumes/Data/',
+      '/System/Volumes/Preboot/foo',
+      '/System/Volumes/VM/sleepimage',
+      '/System/Volumes/Data/private/etc/passwd',
+      '/System/Volumes/Data/private/var/db/shadow',
+      '/System/Volumes/Data/Library/Keychains/login.keychain',
+      '/System/Volumes/Data/etc/hosts',
+      '/System/Volumes/Data/System/Library/foo',
+    ];
+    for (const p of blocked) {
+      expect(isSensitiveSystemPath(p, 'darwin'), `Should block: ${p}`).toBe(true);
+    }
   });
 });

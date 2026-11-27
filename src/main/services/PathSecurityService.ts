@@ -417,31 +417,7 @@ class PathSecurityServiceImpl {
 
   /** Check if path is a sensitive system path */
   private isSensitivePath(filePath: string): boolean {
-    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
-    const platform = process.platform;
-
-    if (platform === 'win32') {
-      for (const pattern of SENSITIVE_PATHS_WINDOWS) {
-        if (pattern.test(filePath)) {
-          return true;
-        }
-      }
-    } else if (platform === 'darwin') {
-      for (const pattern of [...SENSITIVE_PATHS_UNIX, ...SENSITIVE_PATHS_MACOS]) {
-        if (pattern.test(normalized)) {
-          return true;
-        }
-      }
-    } else {
-      // Linux and other Unix-like systems
-      for (const pattern of SENSITIVE_PATHS_UNIX) {
-        if (pattern.test(normalized)) {
-          return true;
-        }
-      }
-    }
-
-    return false;
+    return isSensitiveSystemPath(filePath);
   }
 
   /** Check if path matches sensitive file patterns */
@@ -520,4 +496,37 @@ export function isWithinCurrentProject(candidate: string): boolean {
 
 export function authorizePathTemporarily(filePath: string): void {
   PathSecurityService.authorizePathTemporarily(filePath);
+}
+
+const DARWIN_DATA_VOLUME_PREFIX = '/system/volumes/data';
+
+/**
+ * True when `filePath` falls under a protected OS directory on `platform`.
+ * On macOS, APFS mounts writable firmlinked roots (e.g. `/home`, `/Users`)
+ * under `/System/Volumes/Data`; unwrap that prefix before checking rules so
+ * realpath targets are classified like the paths users pass, while bare
+ * `/System/Volumes/Data` and nested protected paths remain blocked.
+ */
+export function isSensitiveSystemPath(
+  filePath: string,
+  platform: NodeJS.Platform = process.platform
+): boolean {
+  if (platform === 'win32') {
+    return SENSITIVE_PATHS_WINDOWS.some((pattern) => pattern.test(filePath));
+  }
+
+  const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+  if (platform === 'darwin') {
+    if (normalized.replace(/\/+$/, '') === DARWIN_DATA_VOLUME_PREFIX) {
+      return true;
+    }
+    const macPath = normalized.startsWith(`${DARWIN_DATA_VOLUME_PREFIX}/`)
+      ? normalized.slice(DARWIN_DATA_VOLUME_PREFIX.length)
+      : normalized;
+    return [...SENSITIVE_PATHS_UNIX, ...SENSITIVE_PATHS_MACOS].some((pattern) =>
+      pattern.test(macPath)
+    );
+  }
+
+  return SENSITIVE_PATHS_UNIX.some((pattern) => pattern.test(normalized));
 }
