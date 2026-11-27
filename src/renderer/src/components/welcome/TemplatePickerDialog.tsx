@@ -13,7 +13,10 @@
 import { Check, FileText, Loader2, WifiOff } from 'lucide-react';
 import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
-import type { ProjectTemplateDTO } from '../../../../../shared/ipc/file-contract';
+import type {
+  ProjectTemplateDTO,
+  TemplateCreateErrorCode,
+} from '../../../../../shared/ipc/file-contract';
 import { api } from '../../api';
 import { useTranslation, type TranslationKey } from '../../locales';
 import { Modal } from '../ui';
@@ -41,6 +44,32 @@ type ProjectCreateFromTemplateSuccess = Extract<
 
 /** Default folder name, kept filesystem-safe and obviously replaceable. */
 const DEFAULT_PROJECT_NAME = 'my-paper';
+
+type TranslateFn = (key: TranslationKey, params?: Record<string, string | number>) => string;
+
+function formatTemplateCreateError(
+  t: TranslateFn,
+  result: { error: string; errorCode?: TemplateCreateErrorCode },
+  templateId: string,
+  projectName: string
+): string {
+  switch (result.errorCode) {
+    case 'noWindow':
+      return t('templates.errors.noWindow');
+    case 'unknownTemplate':
+      return t('templates.errors.unknownTemplate', { id: templateId });
+    case 'templateFilesMissing':
+      return t('templates.errors.templateFilesMissing', { id: templateId });
+    case 'invalidProjectName':
+      return t('templates.errors.invalidProjectName');
+    case 'alreadyExists':
+      return t('templates.errors.alreadyExists', { name: projectName });
+    case 'copyFailed':
+      return t('templates.errors.copyFailed', { error: result.error });
+    default:
+      return t('templates.createFailed', { error: result.error });
+  }
+}
 
 export const TemplatePickerDialog: React.FC<TemplatePickerDialogProps> = ({
   open,
@@ -76,11 +105,16 @@ export const TemplatePickerDialog: React.FC<TemplatePickerDialogProps> = ({
   }, [open]);
 
   const handleCreate = useCallback(async () => {
-    if (!selectedId || !projectName.trim()) return;
+    const trimmedName = projectName.trim();
+    if (!selectedId || !trimmedName) return;
     setCreating(true);
     setError(null);
     try {
-      const result = await api.project.createFromTemplate(selectedId, projectName.trim());
+      const result = await api.project.createFromTemplate(
+        selectedId,
+        trimmedName,
+        t('templates.chooseLocationTitle')
+      );
       if (result.ok) {
         onCreated({
           projectPath: result.projectPath,
@@ -93,7 +127,7 @@ export const TemplatePickerDialog: React.FC<TemplatePickerDialogProps> = ({
       // Dismissing the directory picker is a normal way to back out — no
       // error, just return to the dialog.
       if (!result.cancelled) {
-        setError(t('templates.createFailed', { error: result.error }));
+        setError(formatTemplateCreateError(t, result, selectedId, trimmedName));
       }
     } catch (err) {
       setError(

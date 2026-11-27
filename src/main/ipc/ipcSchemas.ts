@@ -151,6 +151,7 @@ export const channelSchemas = new Map<string, z.ZodSchema>([
         .refine((n) => !n.includes('..'), 'Name must not contain ".."')
         .refine((n) => !/[<>:"|?*\u0000-\u001f]/.test(n), 'Name contains invalid characters')
         .refine((n) => n.trim() === n && n !== '.' && n !== '..', 'Invalid name'),
+      z.string().min(1).max(200).optional(),
     ]),
   ],
 

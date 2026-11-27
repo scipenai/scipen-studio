@@ -327,11 +327,12 @@ export const project = {
    * directory, so the result may be `{ ok: false, cancelled: true }` — that
    * is a normal outcome, not an error.
    */
-  createFromTemplate: (templateId: string, projectName: string) =>
+  createFromTemplate: (templateId: string, projectName: string, dialogTitle?: string) =>
     invoke<ProjectCreateFromTemplateResult>(
       IpcChannel.Project_CreateFromTemplate,
       templateId,
-      projectName
+      projectName,
+      dialogTitle
     ),
 };
 

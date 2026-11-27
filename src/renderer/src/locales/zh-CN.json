@@ -1278,7 +1278,16 @@
     "offlineReady": "可离线编译",
     "needsNetwork": "首次编译需要联网",
     "empty": "没有可用模板",
+    "chooseLocationTitle": "选择项目创建位置",
     "createFailed": "创建失败:{{error}}",
+    "errors": {
+      "noWindow": "应用窗口不可用。",
+      "unknownTemplate": "未知模板:{{id}}。",
+      "templateFilesMissing": "模板文件缺失:{{id}}。",
+      "invalidProjectName": "项目名称无效。",
+      "alreadyExists": "该文件夹中已存在“{{name}}”。",
+      "copyFailed": "复制模板文件失败:{{error}}"
+    },
     "article": {
       "name": "学术论文",
       "description": "标准 article 类:摘要、章节、公式、表格、参考文献"

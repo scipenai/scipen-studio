@@ -6,9 +6,10 @@
  * @security All path operations go through assertPathSecurity.
  */
 
+import crypto from 'node:crypto';
+import path from 'node:path';
 import { app, dialog } from 'electron';
 import fs from 'fs-extra';
-import path from 'node:path';
 import { IpcChannel } from '../../../shared/ipc/channels';
 import type { ProjectTemplateDTO } from '../../../shared/ipc/file-contract';
 import { addAllowedDirectory, clearAllowedDirectories } from '../services/LocalFileProtocol';
@@ -83,21 +84,38 @@ export function registerFileTreeHandlers(deps: FileHandlersDeps): void {
       // ============ Project ============
       [IpcChannel.Project_ListTemplates]: async () => readTemplateManifest(),
 
-      [IpcChannel.Project_CreateFromTemplate]: async (templateId, projectName) => {
+      [IpcChannel.Project_CreateFromTemplate]: async (templateId, projectName, dialogTitle) => {
         const mainWindow = getMainWindow();
-        if (!mainWindow) return { ok: false as const, error: 'No window available' };
+        if (!mainWindow) {
+          return {
+            ok: false as const,
+            errorCode: 'noWindow' as const,
+            error: 'No window available',
+          };
+        }
 
         const template = (await readTemplateManifest()).find((t) => t.id === templateId);
-        if (!template) return { ok: false as const, error: `Unknown template: ${templateId}` };
+        if (!template) {
+          return {
+            ok: false as const,
+            errorCode: 'unknownTemplate' as const,
+            error: `Unknown template: ${templateId}`,
+          };
+        }
 
         const templateDir = path.join(resolveBundledTemplatesDir(), templateId);
         if (!(await fs.pathExists(templateDir))) {
-          return { ok: false as const, error: `Template files missing: ${templateId}` };
+          return {
+            ok: false as const,
+            errorCode: 'templateFilesMissing' as const,
+            error: `Template files missing: ${templateId}`,
+          };
         }
 
+        const normalizedTitle = dialogTitle?.trim();
         const picked = await dialog.showOpenDialog(mainWindow, {
           properties: ['openDirectory', 'createDirectory'],
-          title: 'Choose where to create the project',
+          ...(normalizedTitle ? { title: normalizedTitle } : {}),
         });
         if (picked.canceled || picked.filePaths.length === 0) {
           return { ok: false as const, cancelled: true as const };
@@ -109,23 +127,47 @@ export function registerFileTreeHandlers(deps: FileHandlersDeps): void {
         // traversal, but re-derive the containment here so a future schema
         // change cannot silently widen where we write.
         if (path.dirname(path.resolve(projectPath)) !== path.resolve(parentDir)) {
-          return { ok: false as const, error: 'Invalid project name' };
+          return {
+            ok: false as const,
+            errorCode: 'invalidProjectName' as const,
+            error: 'Invalid project name',
+          };
         }
         if (await fs.pathExists(projectPath)) {
-          return { ok: false as const, error: `"${projectName}" already exists in that folder` };
+          return {
+            ok: false as const,
+            errorCode: 'alreadyExists' as const,
+            error: `"${projectName}" already exists in that folder`,
+          };
         }
 
+        // Copy into a sibling temp dir and rename atomically so a mid-copy
+        // failure never leaves an incomplete project folder blocking retries.
+        const stagingPath = path.join(
+          parentDir,
+          `.scipen-template-${process.pid}-${crypto.randomBytes(4).toString('hex')}.tmp`
+        );
         try {
           // The destination is outside any open project, so the standard
           // write guard would reject it. The user picked this directory in a
           // native dialog, which is exactly the consent this authorization
           // records (same pattern as fileDialogHandlers).
-          PathSecurityService.authorizePathsTemporarily([parentDir, projectPath]);
-          await fs.copy(templateDir, projectPath, { errorOnExist: true });
+          PathSecurityService.authorizePathsTemporarily([parentDir, stagingPath, projectPath]);
+          await fs.copy(templateDir, stagingPath, { errorOnExist: true });
+          if (await fs.pathExists(projectPath)) {
+            await fs.remove(stagingPath).catch(() => undefined);
+            return {
+              ok: false as const,
+              errorCode: 'alreadyExists' as const,
+              error: `"${projectName}" already exists in that folder`,
+            };
+          }
+          await fs.rename(stagingPath, projectPath);
         } catch (error) {
+          await fs.remove(stagingPath).catch(() => undefined);
           const message = error instanceof Error ? error.message : String(error);
           logger.error('Template scaffold failed', { templateId, projectPath, error: message });
-          return { ok: false as const, error: message };
+          return { ok: false as const, errorCode: 'copyFailed' as const, error: message };
         }
 
         // Reuse the open-by-path tail verbatim: watcher, recent list, path

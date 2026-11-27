@@ -49,6 +49,15 @@ export interface ProjectTemplateDTO {
   offline: boolean;
 }
 
+/** Machine-readable failure reason for `Project_CreateFromTemplate`. */
+export type TemplateCreateErrorCode =
+  | 'noWindow'
+  | 'unknownTemplate'
+  | 'templateFilesMissing'
+  | 'invalidProjectName'
+  | 'alreadyExists'
+  | 'copyFailed';
+
 /**
  * Outcome of a template scaffold. `cancelled` covers the user dismissing the
  * directory picker — a normal outcome, not an error, so it is not thrown.
@@ -56,7 +65,7 @@ export interface ProjectTemplateDTO {
 export type ProjectCreateFromTemplateResult =
   | { ok: true; projectPath: string; mainFile: string; fileTree: FileTreeNode }
   | { ok: false; cancelled: true }
-  | { ok: false; cancelled?: false; error: string };
+  | { ok: false; cancelled?: false; error: string; errorCode?: TemplateCreateErrorCode };
 
 export interface IPCFileContract {
   // ============ Project Management ============
@@ -77,7 +86,7 @@ export interface IPCFileContract {
     result: ProjectTemplateDTO[];
   };
   [IpcChannel.Project_CreateFromTemplate]: {
-    args: [templateId: string, projectName: string];
+    args: [templateId: string, projectName: string, dialogTitle?: string];
     result: ProjectCreateFromTemplateResult;
   };
 

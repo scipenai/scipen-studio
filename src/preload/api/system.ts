@@ -16,8 +16,8 @@ export const projectApi = {
   openProjectByPath: (projectPath: string) =>
     ipcRenderer.invoke(IpcChannel.Project_OpenByPath, projectPath),
   listTemplates: () => ipcRenderer.invoke(IpcChannel.Project_ListTemplates),
-  createFromTemplate: (templateId: string, projectName: string) =>
-    ipcRenderer.invoke(IpcChannel.Project_CreateFromTemplate, templateId, projectName),
+  createFromTemplate: (templateId: string, projectName: string, dialogTitle?: string) =>
+    ipcRenderer.invoke(IpcChannel.Project_CreateFromTemplate, templateId, projectName, dialogTitle),
 };
 
 // ====== Compilation ======

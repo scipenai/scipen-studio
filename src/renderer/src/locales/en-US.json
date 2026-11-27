@@ -1278,7 +1278,16 @@
     "offlineReady": "Compiles offline",
     "needsNetwork": "First compile needs internet",
     "empty": "No templates available",
+    "chooseLocationTitle": "Choose where to create the project",
     "createFailed": "Could not create project: {{error}}",
+    "errors": {
+      "noWindow": "Application window is unavailable.",
+      "unknownTemplate": "Unknown template: {{id}}.",
+      "templateFilesMissing": "Template files are missing for {{id}}.",
+      "invalidProjectName": "Invalid project name.",
+      "alreadyExists": "\"{{name}}\" already exists in that folder.",
+      "copyFailed": "Failed to copy template files: {{error}}"
+    },
     "article": {
       "name": "Academic paper",
       "description": "Standard article class: abstract, sections, equations, tables, bibliography"
