@@ -2,14 +2,15 @@
  * @file download-tinymist.js - Tinymist LSP binary downloader
  * @description Downloads Tinymist LSP server binaries for different platforms from GitHub releases.
  *              Extracts and places them in resources/bin/ directory.
- * @depends https, fs, path, url, child_process
+ * @depends https, fs, path, url, child_process, extract-zip
  */
 
 import https from 'https';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
+import extractZip from 'extract-zip';
 
 // ====== Paths ======
 const __filename = fileURLToPath(import.meta.url);
@@ -121,9 +122,10 @@ function downloadFile(url, destPath) {
         response.pipe(file);
 
         file.on('finish', () => {
-          file.close();
-          console.log('\nDownload completed');
-          resolve();
+          file.close(() => {
+            console.log('\nDownload completed');
+            resolve();
+          });
         });
       }).on('error', (err) => {
         fs.unlink(destPath, () => {});
@@ -136,20 +138,16 @@ function downloadFile(url, destPath) {
 }
 
 // ====== Extraction ======
-function extractArchive(archivePath, destDir, archiveType) {
+async function extractArchive(archivePath, destDir, archiveType) {
   console.log(`Extracting: ${archivePath}`);
 
   if (archiveType === 'zip') {
-    // Use PowerShell on Windows as it's more reliable than unzip
-    if (process.platform === 'win32') {
-      execSync(`powershell -Command "Expand-Archive -Path '${archivePath}' -DestinationPath '${destDir}' -Force"`, {
-        stdio: 'inherit',
-      });
-    } else {
-      execSync(`unzip -o "${archivePath}" -d "${destDir}"`, { stdio: 'inherit' });
-    }
+    // Pure-JS extraction avoids Windows PowerShell 5.1/7 Archive module
+    // mismatches and removes the external unzip dependency on Unix.
+    const canonicalDest = fs.realpathSync(path.resolve(destDir));
+    await extractZip(archivePath, { dir: canonicalDest });
   } else if (archiveType === 'tar.gz') {
-    execSync(`tar -xzf "${archivePath}" -C "${destDir}"`, { stdio: 'inherit' });
+    execFileSync('tar', ['-xzf', archivePath, '-C', destDir], { stdio: 'inherit' });
   }
 
   console.log('Extraction completed');
@@ -188,7 +186,7 @@ async function main() {
 
   try {
     await downloadFile(config.url, archivePath);
-    extractArchive(archivePath, binDir, config.archiveType);
+    await extractArchive(archivePath, binDir, config.archiveType);
 
     // The tar.gz archive contains: <archiveBaseName>/<binaryName>
     // e.g. tinymist-x86_64-unknown-linux-gnu/tinymist
