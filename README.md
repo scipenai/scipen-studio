@@ -1,20 +1,26 @@
 <p align="center">
-  <img src="resources/icon.png" width="120" height="120" alt="SciPen Studio" />
+  <img src="resources/icon.png" width="96" height="96" alt="SciPen Studio" />
 </p>
 
 <h1 align="center">SciPen Studio</h1>
 
-<p align="center"><strong>Local-first desktop IDE for LaTeX &amp; Typst — instant offline compile (including Chinese), Zotero semantic citation, built-in AI Agent, and Overleaf 3-way sync.</strong></p>
-
-<p align="center">Write on a plane, compile in fractions of a second without installing TeX Live, keep every draft on local disk, and collaborate seamlessly with Overleaf or local toolchains.</p>
-
 <p align="center">
-  <a href="https://github.com/scipenai/scipen-studio/releases"><img alt="Release" src="https://img.shields.io/github/v/release/scipenai/scipen-studio?display_name=tag&sort=semver" /></a>
-  <a href="https://github.com/scipenai/scipen-studio/releases"><img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" /></a>
-  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg" /></a>
+  <strong>Research writing like Vibe Coding — a local-first desktop IDE for LaTeX &amp; Typst.</strong>
 </p>
 
 <p align="center">
+  Write and compile completely offline (including Chinese <code>ctex</code>) in sub-second WASM, cite via Zotero semantic search, review AI edits hunk by hunk with the built-in Rust Agent, and sync cleanly with Overleaf.
+</p>
+
+<p align="center">
+  <a href="https://github.com/scipenai/scipen-studio/releases"><img alt="Release" src="https://img.shields.io/github/v/release/scipenai/scipen-studio?display_name=tag&sort=semver&style=flat" /></a>
+  <a href="https://github.com/scipenai/scipen-studio/releases"><img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat" /></a>
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg?style=flat" /></a>
+  <a href="https://scipen.ai"><img alt="Website" src="https://img.shields.io/badge/website-scipen.ai-1E40AF?style=flat" /></a>
+</p>
+
+<p align="center">
+  <a href="https://scipen.ai">Website</a> ·
   <a href="https://github.com/scipenai/scipen-studio/releases">Download</a> ·
   <a href="docs/USER_GUIDE.md">User Guide</a> ·
   <a href="DEVELOPER.md">Developer Guide</a> ·
@@ -23,47 +29,91 @@
 
 <p align="center"><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
 
-<!-- TODO: Add 16:9 hero screenshot showing Monaco editor + live PDF SyncTeX + Agent diff review / Zotero Paper pane here -->
+<p align="center">
+  <img src="docs/assets/hero-workspace.webp" width="100%" alt="SciPen Studio three-pane workspace showing AI Chat, IEEE LaTeX source editor, and live PDF preview" />
+</p>
 
-## Why SciPen Studio?
+<p align="center">
+  <sub>Three-pane desktop workspace (recorded in Chinese UI): built-in SNACA Agent chat on the left, Monaco LaTeX editor with TexLab in the center, and live PDF preview with SyncTeX on the right.</sub>
+</p>
 
-| Workflow | Overleaf Free | VS Code + LaTeX Workshop | **SciPen Studio** |
-|---|---|---|---|
-| **Offline & Zero TeX Install** | Cloud-only; queue & compile timeout limits | Requires multi-GB TeX Live / MiKTeX + manual config | **Ready out of the box**: ships BusyTeX WASM (`pdftex`/`xetex`/`lualatex`) + Typst WASM + TexLab/Tinymist + bundled CJK pack (`ctex` / `xeCJK` / Fandol) |
-| **Compile Speed & Feedback** | Upload + remote queue round-trip | Fast locally after manual multi-GB TeX setup | **0.23–0.25 s** warm incremental compile on standard papers; **~1.9 s** on a 106-page CJK monograph in our WASM UtilityProcess |
-| **AI Editing & Citation Grounding** | Paid add-on; no Zotero RAG | External copilot extensions; no SyncTeX/cite integration | **Built-in SNACA Agent** (hunk Diff Review, `AskUserQuestion`, 4 academic Skills), `Ctrl+K` inline edit, Zotero active semantic recommendation & CiteShot |
-| **Collaboration & Safety** | Cloud Git-backed | DIY Git + `.gitignore` | **Overleaf 3-way merge sync** (`base/local/remote`, edits stay local-first) + Git-free local snapshots & per-message chat Rollback |
+---
 
-## Core Capabilities
+## See It in Action
 
-- ⚡ **Zero-Install Offline Compiler & Incremental WASM Pipeline** — Ships [BusyTeX](https://github.com/busytex/busytex) (pdfTeX / XeTeX / LuaLaTeX) running in an isolated Electron UtilityProcess alongside [typst.ts](https://github.com/Myriad-Dreamin/typst.ts), plus automatic detection of local Tectonic, TeX Live, or Typst CLI when installed. Reuses `.aux`/`.toc`/`.bbl` artifacts cleanly across edits and verifies all 4 built-in templates (`article`, `ieee` with bundled `IEEEtran.bst`, `thesis`, `beamer`) offline in CI.
-- 🀄 **Chinese (`ctex` / `xeCJK` / Fandol) Offline Out of the Box** — Bundles `ctex`, `xeCJK`, `zhnumber`, and Fandol OpenType fonts in `texlive-cjk.data` for zero-network XeTeX builds from the very first compile. When CJK text is detected, a one-click CodeLens inserts standard portable `\usepackage[fontset=fandol]{ctex}` (100% compatible with Overleaf and local TeX Live — zero proprietary lock-in).
-- 📚 **Deep Zotero Workflow (Local + Cloud Web API)** — Connects to desktop Zotero (via Better BibTeX) or zotero.org Web API, provides live `@cite` autocomplete, active semantic citation recommendations while typing, CiteShot hover abstract previews, a right-pane Paper tab (`Ctrl+Click` citation to inspect the referenced PDF), local embedding semantic search, and grounded Agent tools (`zotero_search`, `zotero_lookup`, `zotero_annotations`, `zotero_read`).
-- 🤖 **Built-in Research AI Agent + `Ctrl+K` Inline Edit** — Ships the [SNACA](https://github.com/scipenai/snaca) Rust agent runtime inside the desktop app with hunk-level Diff Review (*Accept All* / per-hunk ✓/✗), interactive `AskUserQuestion` cards, per-project Memory, MCP support, WebFetch / Tavily WebSearch, 4 bundled [academic-research-skills](https://github.com/Imbad0202/academic-research-skills), direct `Ctrl+K` streaming inline edits, and optional global selection capture (`Alt+D` / `Ctrl+L`).
-- ✏️ **Research-Grade Editor & Bidirectional PDF Preview** — Monaco editor backed by bundled TexLab, Tinymist, and Marksman LSPs; pdf.js preview with bidirectional SyncTeX jump, KaTeX formula hover preview, and click-to-jump error diagnostics.
-- 🕘 **Git-Free Local History & Overleaf 3-Way Sync** — Content-addressed snapshots record manual labels, compile milestones, AI drift checkpoints, and per-message chat Rollback points; Overleaf projects download locally for offline editing and sync asynchronously with three-way merge (`base / local / remote`).
+### 1. Zero-Install Offline Compile & Two-Way SyncTeX
 
-<!-- TODO: Add Demo clip 1 (Zero-install offline compile + Chinese ctex), Demo clip 2 (Zotero active recommendation + Paper tab), Demo clip 3 (SNACA hunk Diff Review + Ctrl+K + Chat Rollback) here -->
+Run [BusyTeX](https://github.com/busytex/busytex) (`pdftex` / `xetex` / `lualatex`) in an isolated Electron UtilityProcess alongside [typst.ts](https://github.com/Myriad-Dreamin/typst.ts), or switch to a local Tectonic, TeX Live, or Typst CLI automatically. Incremental builds reuse clean `.aux` / `.toc` / `.bbl` artifacts across edits, while `texlive-cjk.data` bundles `ctex`, `xeCJK`, `zhnumber`, and Fandol OpenType fonts — with a one-click CodeLens inserting portable `\usepackage[fontset=fandol]{ctex}` when Chinese text is detected.
 
-## Measured Compile Performance
+<p align="center">
+  <img src="docs/assets/demo-compile.webp" width="100%" alt="Edit IEEE paper title, compile with Ctrl+Enter, and Ctrl+click source to highlight PDF via SyncTeX" />
+</p>
 
-Measured directly on this repo's built Electron UtilityProcess (`out/main/busytex-process/index.cjs`, `Win32 x64`, BusyTeX `v1.1.1`) with isolated caches:
+<p align="center">
+  <sub>Real capture (Chinese UI): edit title → press <code>Ctrl+Enter</code> → click source with <code>Ctrl+Click</code> to locate the exact region in the PDF.</sub>
+</p>
 
-| Document & Engine | Network Mode | Cold Compile (3 passes) | Warm Incremental (1 pass) | Remote Fetches (Cold) |
-|---|---|---|---|---|
-| Bundled `article` template (`pdftex`) | Pure offline (`endpoint: ''`) | **1.84 s** (includes `bibtex8`) | **0.23 s** (`artifactsInjected: 3`) | 0 |
-| Bundled `thesis` template, 13–14 pp. (`pdftex`) | Pure offline (`endpoint: ''`) | **1.77 s** (includes `bibtex8`) | **0.25 s** (`artifactsInjected: 6`) | 0 |
-| 106-page Chinese `ctexbook` (`amsmath`, `hyperref`, TOC, `xetex`, `fontset=fandol`) | Pure offline (`endpoint: ''`) | **6.71 s** | **1.91 s** (`artifactsInjected: 3`) | 0 |
-| 106-page Chinese `ctexbook` (`xetex`, `fontset=fandol`) | Default endpoint (`https://texlive2026.texlyre.org`, empty cache) | **7.19 s** | **2.07 s** (`artifactsInjected: 3`) | **0** HTTP 200 / **0** HTTP 404 (`0 ms` curl) |
+### 2. Built-in Research AI Agent & `Ctrl+K` Inline Edits
 
-> Single-pass warm speeds apply to typical text and formula edits where pagination, TOC, and citations stay converged; structural edits that shift page numbers, cross-references, or bibliographies automatically run the needed rerun / `bibtex8` passes.
+Edit directly in context with `Ctrl+K` streaming rewrites right beside your original lines (`Tab` to accept, `Esc` to dismiss), or work across files with the embedded [SNACA](https://github.com/scipenai/snaca) Rust runtime: hunk-level Diff Review (*Accept All* or per-hunk ✓/✗), interactive `AskUserQuestion` cards, per-project Markdown Memory, MCP tools, WebFetch / Tavily WebSearch, 4 bundled [academic-research-skills](https://github.com/Imbad0202/academic-research-skills), BYOK OpenAI / Anthropic endpoints, and optional global selection capture (`Alt+D` / `Ctrl+L`).
+
+<p align="center">
+  <img src="docs/assets/demo-inline-edit.webp" width="88%" alt="Highlight conclusion sentence, press Ctrl+K to request a rewrite, and accept inline with Tab" />
+</p>
+
+<p align="center">
+  <sub>Real capture (Chinese UI): select a conclusion sentence → press <code>Ctrl+K</code> → review the inline diff → press <code>Tab</code> to accept.</sub>
+</p>
+
+<details>
+<summary>Watch full 3-pane Agent rewrite &amp; Diff Review workflow (22 s capture)</summary>
+
+<p align="center">
+  <img src="docs/assets/demo-agent.webp" width="100%" alt="SNACA Agent reading main.tex, proposing abstract rewrite, Diff Review Accept All, and automatic recompile" />
+</p>
+
+<p align="center">
+  <sub>Recorded in SciPen Studio 0.5.1 (Chinese UI) with model/compile waits trimmed. Note: in 0.5.1 the Diff Review addition pane showed original text until accepted, after which the Agent's rewrite was written to disk cleanly.</sub>
+</p>
+
+</details>
+
+### 3. Zotero Citations, CiteShot Previews & Paper Reader
+
+Connect to desktop Zotero (via Better BibTeX) or zotero.org Cloud Web API for live `@cite` / `\cite{` completion, active semantic citation recommendations while typing, CiteShot hover abstract previews, local embedding search over PDFs, grounded Agent tools (`zotero_search`, `zotero_lookup`, `zotero_annotations`, `zotero_read`), and a right-pane Paper viewer (`Ctrl+Click` any citation to inspect the referenced PDF beside your draft).
+
+<p align="center">
+  <img src="docs/assets/demo-zotero.webp" width="100%" alt="Type \cite in Related Work to trigger Zotero autocomplete, hover CiteShot preview, and open referenced PDF" />
+</p>
+
+<p align="center">
+  <sub>Real capture (CC BY 4.0 arXiv demo library, Chinese UI): type <code>\cite{</code> → pick reference → recompile → hover for bibliographic &amp; paper preview → <code>Ctrl+Click</code> to open full PDF.</sub>
+</p>
+
+### 4. Local-First Overleaf 3-Way Sync & Git-Free History
+
+Open Overleaf projects locally for instant offline editing and compiling without fighting web timeouts; changes push asynchronously with three-way merge (`base / local / remote`) and clear conflict resolution. Underneath, content-addressed local snapshots capture manual labels, compile milestones, AI drift checkpoints, and per-message chat Rollback — all without exposing Git complexity.
+
+<p align="center">
+  <img src="docs/assets/demo-overleaf.webp" width="100%" alt="Edit and compile an Overleaf project locally in SciPen Studio and sync the updated title back to overleaf.com" />
+</p>
+
+<p align="center">
+  <sub>Real capture (two clips joined, Chinese UI): edit and compile an Overleaf project locally with <code>Ctrl+S</code> → verify updated source and PDF synced to overleaf.com.</sub>
+</p>
+
+---
 
 ## Quick Start
 
 1. Download the installer for **Windows**, **macOS** (Intel / Apple Silicon), or **Linux** (AppImage / `.deb`) from [GitHub Releases](https://github.com/scipenai/scipen-studio/releases).
-2. On first launch, choose **New from template** (`article`, `ieee`, `thesis`, `beamer` — all ready offline) or **Open local project** on any existing `.tex` / `.typ` / `.md` folder.
-3. Open a `.tex` file and press `Ctrl+Enter` to compile with the bundled WASM engine (pick `pdftex` / `xetex` / `lualatex` in the bottom-right status bar; use `xetex` for Chinese `ctex` documents).
-4. AI chat (`Settings → AI`), Zotero (`Settings → Zotero`), and Overleaf sync (`Cloud project`) are all optional — editing and offline compilation work immediately with zero API keys.
+2. On first launch, pick **New from template** (`article`, `ieee` with bundled `IEEEtran.bst`, `thesis`, `beamer` — all verified offline) or **Open local project** on any existing `.tex` / `.typ` / `.md` folder.
+3. Open a `.tex` file and press `Ctrl+Enter` to compile with the bundled WASM engine (switch `pdftex` / `xetex` / `lualatex` in the bottom-right status bar; choose `xetex` for Chinese `ctex` documents).
+4. AI chat (*Settings → AI*), Zotero (*Settings → Zotero*), and Overleaf sync (*Cloud project*) are optional — drafting and offline compiling work immediately with zero API keys.
+
+<p align="center">
+  <img src="docs/assets/templates.webp" width="560" alt="New project from template modal offering article, IEEE conference paper, thesis, and Beamer 16:9 presentation templates" />
+</p>
 
 <details>
 <summary>First launch note for unsigned macOS &amp; Windows installers</summary>
@@ -104,38 +154,32 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [DEVELOPER.md](DEVELOPER.md) for pack
 
 </details>
 
-## Documentation
+---
 
+## Documentation & Community
+
+- [Official Website](https://scipen.ai) — product overview and downloads
 - [User Guide](docs/USER_GUIDE.md) — feature walkthrough, Zotero / AI / Overleaf setup, and shortcuts
-- [Developer Guide](DEVELOPER.md) — architecture, IPC contracts, BusyTeX WASM pipeline, testing
-- [Contributing](CONTRIBUTING.md) — workflow and coding standards
-- [Security Policy](SECURITY.md) — vulnerability reporting (do not file public issues for security bugs)
-- [Code of Conduct](CODE_OF_CONDUCT.md)
-- [Changelog](CHANGELOG.md)
+- [Developer Guide](DEVELOPER.md) — architecture, IPC contracts, BusyTeX WASM pipeline, and testing
+- [Contributing](CONTRIBUTING.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Security Policy](SECURITY.md) · [Changelog](CHANGELOG.md)
+- [GitHub Releases](https://github.com/scipenai/scipen-studio/releases) · [Issues](https://github.com/scipenai/scipen-studio/issues) · [Discussions](https://github.com/scipenai/scipen-studio/discussions)
 
-## Community
-
-- [Issues](https://github.com/scipenai/scipen-studio/issues) — bug reports and feature requests
-- [Discussions](https://github.com/scipenai/scipen-studio/discussions) — questions, ideas, and showcases
-- [Releases](https://github.com/scipenai/scipen-studio/releases) — installers and per-version notes
-- [Security](SECURITY.md) — please report vulnerabilities privately, not via public issues
-
-## Built on
+## Built On
 
 SciPen Studio builds on the work of these open-source projects:
 
-- [SNACA](https://github.com/scipenai/snaca) — the built-in agent runtime (sibling scipenai project, embedded as a git submodule)
-- [Electron](https://www.electronjs.org/) and [electron-vite](https://electron-vite.org/) — desktop runtime and build pipeline
+- [SNACA](https://github.com/scipenai/snaca) — the built-in Rust agent runtime (sibling scipenai project, embedded as a git submodule)
+- [Electron](https://www.electronjs.org/) & [electron-vite](https://electron-vite.org/) — desktop runtime and build pipeline
 - [Monaco Editor](https://microsoft.github.io/monaco-editor/) — the editor that powers the writing surface
-- [BusyTeX](https://github.com/busytex/busytex) & [TeXlyre BusyTeX](https://github.com/TeXlyre/texlyre-busytex) — the bundled WebAssembly TeX engine (pdfTeX / XeTeX / LuaLaTeX)
+- [BusyTeX](https://github.com/busytex/busytex) & [TeXlyre BusyTeX](https://github.com/TeXlyre/texlyre-busytex) — the bundled WebAssembly TeX engine (`pdftex` / `xetex` / `lualatex`)
 - [typst.ts](https://github.com/Myriad-Dreamin/typst.ts) — the bundled WebAssembly Typst engine
 - [TexLab](https://github.com/latex-lsp/texlab), [Tinymist](https://github.com/Myriad-Dreamin/tinymist), [Marksman](https://github.com/artempyanykh/marksman) — language servers for LaTeX, Typst, and Markdown
 - [pdf.js](https://github.com/mozilla/pdf.js) — PDF rendering and CMap support
 - [KaTeX](https://katex.org/) — inline math preview
 - [diff-match-patch](https://github.com/google/diff-match-patch) — hunk-level diff for AI review
 - [Better BibTeX](https://retorque.re/zotero-better-bibtex/) — the Zotero plugin that exposes the library to the app
-- [academic-research-skills](https://github.com/Imbad0202/academic-research-skills) — the bundled SNACA Skills (`academic-paper`, `academic-paper-reviewer`, `academic-pipeline`, `deep-research`)
-- [Tectonic](https://tectonic-typesetting.github.io/) and [TeX Live](https://www.tug.org/texlive/) — optional full TeX distributions
+- [academic-research-skills](https://github.com/Imbad0202/academic-research-skills) — bundled SNACA Skills (`academic-paper`, `academic-paper-reviewer`, `academic-pipeline`, `deep-research`)
+- [Tectonic](https://tectonic-typesetting.github.io/) & [TeX Live](https://www.tug.org/texlive/) — optional full TeX distributions
 
 Thanks to everyone maintaining the upstream projects that make SciPen Studio possible.
 
