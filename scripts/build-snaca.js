@@ -26,6 +26,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -101,7 +102,6 @@ function runCargoBuild(extraArgs = []) {
   const r = spawnSync(cargoBin('cargo'), args, {
     cwd: rootDir,
     stdio: 'inherit',
-    shell: isWin, // resolve cargo via PATH on Windows
   });
   if (r.status !== 0) {
     err(`cargo build failed (exit ${r.status ?? 'null'})`);
@@ -113,10 +113,11 @@ function runCargoBuild(extraArgs = []) {
 // edits shell profiles, not the GUI session). Resolve rustup/cargo through
 // the standard install location as a fallback.
 function cargoBin(name) {
-  if (spawnSync(name, ['--version'], { encoding: 'utf8' }).status === 0) return name;
-  const fallback = resolve(process.env.HOME ?? '', '.cargo', 'bin', name);
+  const binName = isWin ? `${name}.exe` : name;
+  if (spawnSync(binName, ['--version'], { encoding: 'utf8' }).status === 0) return binName;
+  const fallback = resolve(homedir(), '.cargo', 'bin', binName);
   if (spawnSync(fallback, ['--version'], { encoding: 'utf8' }).status === 0) return fallback;
-  return name; // let the real spawn surface the error
+  return binName; // let the real spawn surface the error
 }
 
 function ensureRustTarget(target) {

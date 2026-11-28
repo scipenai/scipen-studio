@@ -40,6 +40,7 @@
  */
 
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import { execFileSync } from 'child_process';
@@ -87,27 +88,56 @@ const FONT_CLONES = [
 
 const BASE_FONTS = [...new Set(FONT_CLONES.map((g) => g.base))];
 
+function tempSiblingPath(destPath) {
+  return `${destPath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+}
+
+function cleanupFileQuietly(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  try {
+    fs.unlinkSync(filePath);
+  } catch {
+    /* best effort */
+  }
+}
+
+function writeAtomicSync(destPath, data) {
+  const tmpPath = tempSiblingPath(destPath);
+  try {
+    fs.writeFileSync(tmpPath, data);
+    fs.renameSync(tmpPath, destPath);
+  } finally {
+    cleanupFileQuietly(tmpPath);
+  }
+}
+
 /** Extract the engine's own MiniLZ4 codec (vendored inside busytex.js) as a
  *  temporary CommonJS module — always matches the shipped engine. */
-function loadMiniLz4(busytexJsPath) {
+export function loadMiniLz4(busytexJsPath) {
   const src = fs.readFileSync(busytexJsPath, 'utf8');
   const start = src.indexOf('var MiniLZ4 = (function()');
   const end = src.indexOf('if (typeof module != \'undefined\')', start);
   if (start < 0 || end < 0) return null;
-  const tmpDir = fs.mkdtempSync(path.join(process.env.TMPDIR || '/tmp', 'minilz4-'));
-  const tmp = path.join(tmpDir, 'minilz4.cjs');
-  // `assert` is a module-local helper in busytex.js, defined above the codec.
-  fs.writeFileSync(
-    tmp,
-    'function assert(c, m) { if (!c) throw new Error(m || "assertion failed"); }\n' +
-      src.slice(start, end) +
-      '\nmodule.exports = MiniLZ4;'
-  );
-  const mod = require(tmp);
-  if (mod.CHUNK_SIZE !== CHUNK_SIZE) {
-    throw new Error(`MiniLZ4.CHUNK_SIZE ${mod.CHUNK_SIZE} != expected ${CHUNK_SIZE}`);
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minilz4-'));
+  try {
+    const tmp = path.join(tmpDir, 'minilz4.cjs');
+    // `assert` is a module-local helper in busytex.js, defined above the codec.
+    fs.writeFileSync(
+      tmp,
+      'function assert(c, m) { if (!c) throw new Error(m || "assertion failed"); }\n' +
+        src.slice(start, end) +
+        '\nmodule.exports = MiniLZ4;'
+    );
+    const resolved = require.resolve(tmp);
+    const mod = require(resolved);
+    delete require.cache[resolved];
+    if (mod.CHUNK_SIZE !== CHUNK_SIZE) {
+      throw new Error(`MiniLZ4.CHUNK_SIZE ${mod.CHUNK_SIZE} != expected ${CHUNK_SIZE}`);
+    }
+    return mod;
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
-  return mod;
 }
 
 /** Extract a balanced-brace object literal; `from` points at the '{'.
@@ -256,16 +286,39 @@ function fetchFont(dir, file) {
   if (fs.existsSync(dest) && fs.statSync(dest).size > 1000) return dest;
   const url = `${FONT_ENDPOINT}/26/${file}`;
   console.log(`  · downloading ${file} …`);
-  const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-  const args = ['-s', '--max-time', '120', '-o', dest, '-w', '%{http_code}'];
+  const tmpPath = tempSiblingPath(dest);
+  const proxy =
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy;
+  const args = [
+    '-s',
+    '--location',
+    '--retry',
+    '3',
+    '--retry-delay',
+    '2',
+    '--max-time',
+    '120',
+    '-o',
+    tmpPath,
+    '-w',
+    '%{http_code}',
+  ];
   if (proxy) args.push('-x', proxy);
   args.push(url);
-  const out = execFileSync('curl', args, { encoding: 'utf8' });
-  const status = Number(out) || 0;
-  if (status !== 200 || !fs.existsSync(dest) || fs.statSync(dest).size < 1000) {
-    throw new Error(`fetch ${url} → HTTP ${status}`);
+  try {
+    const out = execFileSync('curl', args, { encoding: 'utf8' });
+    const status = Number(out.trim()) || 0;
+    if (status !== 200 || !fs.existsSync(tmpPath) || fs.statSync(tmpPath).size < 1000) {
+      throw new Error(`fetch ${url} → HTTP ${status}`);
+    }
+    fs.renameSync(tmpPath, dest);
+    return dest;
+  } finally {
+    cleanupFileQuietly(tmpPath);
   }
-  return dest;
 }
 
 /** Compress one 2048-byte chunk the way the engine's compressPackage does:
@@ -435,7 +488,7 @@ export function applyFontPatch(destDir) {
   meta.package_uuid = 'sha256-' + crypto.createHash('sha256').update(newData).digest('hex');
 
   // ---- write back: manifest and compressedData literals replaced in place ----
-  fs.writeFileSync(dataPath, newData);
+  writeAtomicSync(dataPath, newData);
   js =
     js.slice(0, manifestStart) +
     JSON.stringify(meta) +
@@ -450,7 +503,7 @@ export function applyFontPatch(destDir) {
       successes: newSuccesses,
     }) +
     js.slice(cdEnd);
-  fs.writeFileSync(jsPath, js);
+  writeAtomicSync(jsPath, js);
 
   console.log(
     `  ✓ busytex font bake applied: ${appendedFiles.length} font clones ` +

@@ -94,9 +94,10 @@ function downloadFile(url, destPath) {
         response.pipe(file);
 
         file.on('finish', () => {
-          file.close();
-          console.log('\nDownload completed');
-          resolve();
+          file.close(() => {
+            console.log('\nDownload completed');
+            resolve();
+          });
         });
       }).on('error', (err) => {
         fs.unlink(destPath, () => {});

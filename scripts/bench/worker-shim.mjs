@@ -28,6 +28,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { createRequire } from 'node:module';
 import fs from 'node:fs'; // default export = mutable CJS object, shared with require('node:fs')
+import os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import vm from 'node:vm';
@@ -219,7 +220,7 @@ class XMLHttpRequestShim {
 
   _serveNetwork() {
     parentPort.postMessage({ benchRemoteUrl: this._url });
-    const tmp = `${this._url.replace(/[^a-z0-9]/gi, '_')}.${process.pid}.xhr`;
+    const tmp = path.join(os.tmpdir(), `${this._url.replace(/[^a-z0-9]/gi, '_')}.${process.pid}.xhr`);
     const args = [
       '-s',
       '-o',

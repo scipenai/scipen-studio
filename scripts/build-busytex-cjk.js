@@ -167,7 +167,8 @@ function acquireFile(destDir, fmt, filename, endpoint) {
   try {
     const res = spawnSync('curl', curlArgs, { encoding: 'utf8' });
     if (res.status !== 0) {
-      throw new Error(`curl failed (${res.status}) for ${url}: ${res.stderr || ''}`.trim());
+      const detail = res.error?.message || res.stderr || '';
+      throw new Error(`curl failed (${res.status}) for ${url}: ${detail}`.trim());
     }
     const status = Number((res.stdout || '').trim());
     if (status !== 200 || !fs.existsSync(tmpPath)) {
